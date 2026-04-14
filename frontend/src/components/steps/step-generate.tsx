@@ -234,21 +234,38 @@ export function StepGenerate({
 
               {qualityResult && (
                 <div className="space-y-1">
+                  {/* Fail Reasons */}
+                  {!qualityResult.isPass && qualityResult.failReasons.length > 0 && (
+                    <motion.div
+                      initial={{ opacity: 0 }}
+                      animate={{ opacity: 1 }}
+                      className="mb-3 rounded-md border border-red-500/20 bg-red-500/5 p-3"
+                    >
+                      <p className="mb-1.5 text-xs font-medium text-red-500">미통과 사유</p>
+                      {qualityResult.failReasons.map((reason, i) => (
+                        <p key={i} className="text-xs text-red-400">
+                          - {reason}
+                        </p>
+                      ))}
+                    </motion.div>
+                  )}
+
                   {/* Character Count */}
                   <MetricRow
                     icon={Type}
                     label="글자수 (공백 포함)"
                     value={`${qualityResult.charCount.toLocaleString()}자`}
-                    status={
-                      qualityResult.charCount >= 1500
-                        ? "pass"
-                        : "fail"
-                    }
                   />
                   <MetricRow
                     icon={Type}
                     label="글자수 (공백 제외)"
                     value={`${qualityResult.charCountWithoutSpaces.toLocaleString()}자`}
+                    status={
+                      qualityResult.charCountWithoutSpaces >= 1500 &&
+                      qualityResult.charCountWithoutSpaces <= 2200
+                        ? "pass"
+                        : "fail"
+                    }
                   />
 
                   <Separator />

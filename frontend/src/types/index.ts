@@ -86,6 +86,7 @@ export interface QualityResult {
   subheadingCount: number;
   hashtagCount: number;
   isPass: boolean;
+  failReasons: string[];
 }
 
 export interface ForbiddenWordMatch {

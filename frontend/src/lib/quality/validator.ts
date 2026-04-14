@@ -45,16 +45,35 @@ export function validateContent(
   const hashtagMatches = text.match(hashtagRegex);
   const hashtagCount = hashtagMatches ? hashtagMatches.length : 0;
 
-  // 종합 판정 (글자수는 max의 50% 여유 허용 — AI 생성 특성상 정확한 글자수 제어가 어려움)
-  const isPass =
-    charCount >= charRange.min &&
-    charCount <= charRange.max * 1.5 &&
-    keywordCount >= 4 &&
-    keywordCount <= 7 &&
-    forbiddenWords.length === 0 &&
-    adExpressions.length === 0 &&
-    subheadingCount >= 3 &&
-    hashtagCount >= 8;
+  // 미통과 사유 수집 (공백 제외 글자수 기준)
+  const failReasons: string[] = [];
+
+  if (charCountWithoutSpaces < charRange.min) {
+    failReasons.push(`글자수 부족: ${charCountWithoutSpaces.toLocaleString()}자 (최소 ${charRange.min.toLocaleString()}자)`);
+  }
+  if (charCountWithoutSpaces > charRange.max + 200) {
+    failReasons.push(`글자수 초과: ${charCountWithoutSpaces.toLocaleString()}자 (최대 ${(charRange.max + 200).toLocaleString()}자)`);
+  }
+  if (keywordCount < 4) {
+    failReasons.push(`키워드 부족: ${keywordCount}회 (최소 4회)`);
+  }
+  if (keywordCount > 7) {
+    failReasons.push(`키워드 과다: ${keywordCount}회 (최대 7회)`);
+  }
+  if (forbiddenWords.length > 0) {
+    failReasons.push(`금지어 검출: ${forbiddenWords.length}건`);
+  }
+  if (adExpressions.length > 0) {
+    failReasons.push(`광고성 표현: ${adExpressions.length}건`);
+  }
+  if (subheadingCount < 3) {
+    failReasons.push(`소제목 부족: ${subheadingCount}개 (최소 3개)`);
+  }
+  if (hashtagCount < 8) {
+    failReasons.push(`해시태그 부족: ${hashtagCount}개 (최소 8개)`);
+  }
+
+  const isPass = failReasons.length === 0;
 
   return {
     charCount,
@@ -66,5 +85,6 @@ export function validateContent(
     subheadingCount,
     hashtagCount,
     isPass,
+    failReasons,
   };
 }
