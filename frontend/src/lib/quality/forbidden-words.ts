@@ -28,6 +28,10 @@ const BANNED_MEDICAL = [
   "치료", "완치", "처방", "약효", "부작용",
 ];
 
+const BANNED_META = [
+  "키워드",
+];
+
 // 1글자 금칙어의 허용 패턴 (이 단어에 포함된 경우 감지하지 않음)
 const ALLOWLIST: Record<string, string[]> = {
   약: ["약간", "약속", "약하다", "약하게", "약해", "약한", "계약", "예약", "조약", "약사", "약국", "약을"],
@@ -80,6 +84,7 @@ export function checkForbiddenWords(text: string): ForbiddenWordMatch[] {
     ...BANNED_VIOLENCE,
     ...BANNED_GAMBLING,
     ...BANNED_MEDICAL,
+    ...BANNED_META,
   ];
 
   for (const word of allBanned) {

@@ -4,6 +4,8 @@ import { motion, AnimatePresence } from "framer-motion";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
+import { Textarea } from "@/components/ui/textarea";
+import { Label } from "@/components/ui/label";
 import { Heart, Zap, ArrowRight, Check } from "lucide-react";
 import type { NarrativeType, ToneType } from "@/types";
 
@@ -93,15 +95,19 @@ const TONES: {
 interface StepNarrativeProps {
   narrativeType: NarrativeType | null;
   toneType: ToneType | null;
+  toneExample: string;
   onNarrativeChange: (type: NarrativeType) => void;
   onToneChange: (type: ToneType) => void;
+  onToneExampleChange: (example: string) => void;
 }
 
 export function StepNarrative({
   narrativeType,
   toneType,
+  toneExample,
   onNarrativeChange,
   onToneChange,
+  onToneExampleChange,
 }: StepNarrativeProps) {
   return (
     <div className="space-y-10">
@@ -215,7 +221,7 @@ export function StepNarrative({
           })}
         </div>
 
-        {/* Tone Example Preview */}
+        {/* Tone Example - Editable */}
         <AnimatePresence mode="wait">
           {toneType && (
             <motion.div
@@ -231,11 +237,27 @@ export function StepNarrative({
                   <CardTitle className="text-sm">
                     {toneType} 예시
                   </CardTitle>
+                  <CardDescription className="text-xs">
+                    이 예시를 수정하면 AI가 수정된 말투를 참고하여 글을 작성합니다
+                  </CardDescription>
                 </CardHeader>
                 <CardContent>
-                  <pre className="whitespace-pre-wrap text-sm leading-relaxed text-muted-foreground font-sans">
-                    {TONES.find((t) => t.type === toneType)?.example}
-                  </pre>
+                  <Textarea
+                    value={toneExample || TONES.find((t) => t.type === toneType)?.example || ""}
+                    onChange={(e) => onToneExampleChange(e.target.value)}
+                    className="min-h-[140px] text-sm leading-relaxed font-sans"
+                    placeholder="말투 예시를 입력하세요..."
+                  />
+                  {toneExample && toneExample !== TONES.find((t) => t.type === toneType)?.example && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="mt-2 text-xs text-muted-foreground"
+                      onClick={() => onToneExampleChange(TONES.find((t) => t.type === toneType)?.example || "")}
+                    >
+                      기본 예시로 되돌리기
+                    </Button>
+                  )}
                 </CardContent>
               </Card>
             </motion.div>

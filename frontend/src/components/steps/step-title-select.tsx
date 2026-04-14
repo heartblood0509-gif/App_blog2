@@ -196,15 +196,51 @@ export function StepTitleSelect({
         )}
       </div>
 
-      {/* Selected Title Display */}
+      {/* Selected Title Display - Editable */}
       {selectedTitle && (
         <motion.div
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           className="mt-6 rounded-lg border border-primary/30 bg-primary/5 p-4"
         >
-          <p className="text-xs text-muted-foreground">선택된 제목</p>
-          <p className="mt-1 font-medium">{selectedTitle}</p>
+          <div className="flex items-center justify-between">
+            <p className="text-xs text-muted-foreground">선택된 제목</p>
+            {!isEditing && (
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-6 gap-1 text-xs text-muted-foreground"
+                onClick={() => {
+                  setIsEditing(true);
+                  setCustomTitle(selectedTitle);
+                }}
+              >
+                <Pencil className="h-3 w-3" />
+                수정
+              </Button>
+            )}
+          </div>
+          {isEditing ? (
+            <div className="mt-2 flex gap-2">
+              <Input
+                value={customTitle}
+                onChange={(e) => setCustomTitle(e.target.value)}
+                className="flex-1"
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") handleCustomTitleConfirm();
+                }}
+                autoFocus
+              />
+              <Button size="sm" onClick={handleCustomTitleConfirm} disabled={!customTitle.trim()}>
+                확인
+              </Button>
+              <Button variant="outline" size="sm" onClick={() => setIsEditing(false)}>
+                취소
+              </Button>
+            </div>
+          ) : (
+            <p className="mt-1 font-medium">{selectedTitle}</p>
+          )}
         </motion.div>
       )}
     </div>

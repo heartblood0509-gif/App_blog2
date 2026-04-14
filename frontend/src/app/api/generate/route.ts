@@ -12,6 +12,7 @@ export async function POST(request: Request) {
       products,
       narrativeType,
       toneType,
+      toneExample,
       mainKeyword,
       subKeywords,
       persona,
@@ -24,6 +25,7 @@ export async function POST(request: Request) {
       products: SelectedProduct[];
       narrativeType: NarrativeType;
       toneType: ToneType;
+      toneExample?: string;
       mainKeyword: string;
       subKeywords?: string;
       persona?: string;
@@ -38,6 +40,7 @@ export async function POST(request: Request) {
       products,
       narrativeType,
       toneType,
+      toneExample,
       mainKeyword,
       subKeywords,
       persona,

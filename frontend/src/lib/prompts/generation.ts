@@ -9,6 +9,7 @@ interface GenerationParams {
   products: SelectedProduct[];
   narrativeType: NarrativeType;
   toneType: ToneType;
+  toneExample?: string;
   mainKeyword: string;
   subKeywords?: string;
   persona?: string;
@@ -23,6 +24,7 @@ export function buildGenerationPrompt(params: GenerationParams): string {
     products,
     narrativeType,
     toneType,
+    toneExample,
     mainKeyword,
     subKeywords,
     persona,
@@ -34,17 +36,33 @@ export function buildGenerationPrompt(params: GenerationParams): string {
 
   const sections: string[] = [];
 
-  // 1. 시스템 역할
+  // 1. 시스템 역할 + 최우선 규칙
   sections.push(`# 역할
 너는 한국에서 가장 자연스러운 후기성 블로그 글을 쓰는 전문 작가야.
 실제 사람이 직접 겪은 경험을 바탕으로 쓴 것처럼, 광고 느낌이 전혀 없는 진짜 후기를 작성해야 해.
-아래의 모든 규칙을 반드시 지켜서 글을 작성해.`);
+아래의 모든 규칙을 반드시 지켜서 글을 작성해.
+
+## ★ 최우선 규칙 (이 규칙은 다른 모든 규칙보다 우선함)
+메인 키워드 "${mainKeyword}"를 글 전체에서 반드시 5회 이상 포함할 것.
+구체적인 삽입 위치:
+- 도입부 (첫 2~3문단)에 1회
+- 중반 문제 인식/시도 단계에 1~2회
+- 후반 해결/변화 단계에 1~2회
+- 결론 부분에 1회
+키워드를 넣을 때 자연스러운 문맥 안에서 녹여서 넣을 것.
+절대로 "키워드"라는 단어 자체를 사용하지 말 것.`);
 
   // 2. 서사 구조
   sections.push(getNarrativePrompt(narrativeType));
 
   // 3. 말투
   sections.push(getTonePrompt(toneType));
+
+  // 3-1. 사용자 커스텀 말투 예시
+  if (toneExample) {
+    sections.push(`## 말투 참고 예시 (사용자가 직접 작성한 예시 — 이 톤을 최대한 따를 것)
+${toneExample}`);
+  }
 
   // 4. 글쓰기 스타일 규칙
   sections.push(WRITING_STYLE_RULES);

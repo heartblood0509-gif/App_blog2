@@ -43,6 +43,7 @@ export interface WizardState {
   // Step 2: 글 구조 & 말투
   narrativeType: NarrativeType | null;
   toneType: ToneType | null;
+  toneExample: string;
 
   // Step 3: 글 설정
   mainKeyword: string;

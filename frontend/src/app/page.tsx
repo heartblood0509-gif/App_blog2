@@ -44,6 +44,7 @@ const initialState: WizardState = {
   selectedProducts: [],
   narrativeType: null,
   toneType: null,
+  toneExample: "",
   mainKeyword: "",
   subKeywords: "",
   persona: "",
@@ -161,6 +162,7 @@ export default function Home() {
           products: state.selectedProducts,
           narrativeType: state.narrativeType,
           toneType: state.toneType,
+          toneExample: state.toneExample || undefined,
           mainKeyword: state.mainKeyword,
           subKeywords: state.subKeywords || undefined,
           persona: state.persona || undefined,
@@ -361,8 +363,10 @@ export default function Home() {
           <StepNarrative
             narrativeType={state.narrativeType}
             toneType={state.toneType}
+            toneExample={state.toneExample}
             onNarrativeChange={handleNarrativeChange}
             onToneChange={handleToneChange}
+            onToneExampleChange={(example: string) => updateState({ toneExample: example })}
           />
         );
       case 2:
