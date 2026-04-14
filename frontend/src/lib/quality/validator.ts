@@ -45,20 +45,20 @@ export function validateContent(
   const hashtagMatches = text.match(hashtagRegex);
   const hashtagCount = hashtagMatches ? hashtagMatches.length : 0;
 
-  // 미통과 사유 수집 (공백 제외 글자수 기준)
+  // 미통과 사유 수집 (공백 포함 글자수 기준)
   const failReasons: string[] = [];
 
-  if (charCountWithoutSpaces < charRange.min) {
-    failReasons.push(`글자수 부족: ${charCountWithoutSpaces.toLocaleString()}자 (최소 ${charRange.min.toLocaleString()}자)`);
+  if (charCount < charRange.min) {
+    failReasons.push(`글자수 부족: ${charCount.toLocaleString()}자 (최소 ${charRange.min.toLocaleString()}자)`);
   }
-  if (charCountWithoutSpaces > charRange.max + 200) {
-    failReasons.push(`글자수 초과: ${charCountWithoutSpaces.toLocaleString()}자 (최대 ${(charRange.max + 200).toLocaleString()}자)`);
+  if (charCount > charRange.max + 500) {
+    failReasons.push(`글자수 초과: ${charCount.toLocaleString()}자 (최대 ${(charRange.max + 500).toLocaleString()}자)`);
   }
   if (keywordCount < 4) {
     failReasons.push(`키워드 부족: ${keywordCount}회 (최소 4회)`);
   }
-  if (keywordCount > 7) {
-    failReasons.push(`키워드 과다: ${keywordCount}회 (최대 7회)`);
+  if (keywordCount > 10) {
+    failReasons.push(`키워드 과다: ${keywordCount}회 (최대 10회)`);
   }
   if (forbiddenWords.length > 0) {
     failReasons.push(`금지어 검출: ${forbiddenWords.length}건`);

@@ -224,17 +224,17 @@ export function StepGenerate({
                     icon={Type}
                     label="글자수 (공백 포함)"
                     value={`${qualityResult.charCount.toLocaleString()}자`}
+                    status={
+                      qualityResult.charCount >= 1500 &&
+                      qualityResult.charCount <= 2500
+                        ? "pass"
+                        : "fail"
+                    }
                   />
                   <MetricRow
                     icon={Type}
                     label="글자수 (공백 제외)"
                     value={`${qualityResult.charCountWithoutSpaces.toLocaleString()}자`}
-                    status={
-                      qualityResult.charCountWithoutSpaces >= 1500 &&
-                      qualityResult.charCountWithoutSpaces <= 2200
-                        ? "pass"
-                        : "fail"
-                    }
                   />
 
                   <Separator />
