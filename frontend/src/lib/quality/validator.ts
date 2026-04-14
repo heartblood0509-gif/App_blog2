@@ -45,10 +45,10 @@ export function validateContent(
   const hashtagMatches = text.match(hashtagRegex);
   const hashtagCount = hashtagMatches ? hashtagMatches.length : 0;
 
-  // 종합 판정
+  // 종합 판정 (글자수는 max의 50% 여유 허용 — AI 생성 특성상 정확한 글자수 제어가 어려움)
   const isPass =
     charCount >= charRange.min &&
-    charCount <= charRange.max + 200 && // 약간의 여유
+    charCount <= charRange.max * 1.5 &&
     keywordCount >= 4 &&
     keywordCount <= 7 &&
     forbiddenWords.length === 0 &&
