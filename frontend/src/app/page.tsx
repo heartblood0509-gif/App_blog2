@@ -410,9 +410,12 @@ export default function Home() {
       <div className="mx-auto max-w-5xl px-4 py-8 sm:px-6 lg:px-8">
         {/* Header */}
         <div className="mb-8 text-center">
-          <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">
+          <button
+            onClick={() => setState(initialState)}
+            className="text-2xl font-bold tracking-tight sm:text-3xl hover:text-primary transition-colors"
+          >
             후기성 블로그 생성기
-          </h1>
+          </button>
           <p className="mt-2 text-sm text-muted-foreground">
             자연스러운 후기형 블로그 포스팅을 단계별로 생성합니다
           </p>

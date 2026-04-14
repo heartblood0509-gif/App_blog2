@@ -7,6 +7,7 @@ export {
   buildProductContext,
 } from "./product-placement";
 export { NAVER_FORBIDDEN_WORDS_PROMPT } from "./naver-forbidden";
+export { DEFAULT_REFERENCE } from "./default-reference";
 export { buildGenerationPrompt } from "./generation";
 export { buildTitlePrompt } from "./title";
 export { buildAnalysisPrompt } from "./analysis";

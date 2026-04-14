@@ -15,6 +15,12 @@ export interface ProductInfo {
   naturalMentionPatterns: string[];
   ingredientPoints: string[];
   defaultAdvantages: string;
+  /** 실제 사용자 후기 (톤 레퍼런스용) */
+  realReviews?: string[];
+  /** 제품의 핵심 인사이트 (AI가 방향성을 잡는 데 사용) */
+  keyInsight?: string;
+  /** 감각 표현 키워드 (AI가 디테일 묘사할 때 참고) */
+  sensoryDetails?: string[];
 }
 
 export interface SelectedProduct {

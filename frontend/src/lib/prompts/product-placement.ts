@@ -44,16 +44,37 @@ export function buildProductContext(
   const lines = selectedProducts.map((sp) => {
     const product = BRAND_PRODUCTS[sp.id];
     if (!product) return "";
-    return `### 제품: ${product.name}
+
+    let section = `### 제품: ${product.name}
 - 카테고리: ${product.category}
 - 관련 증상/고민: ${product.relatedSymptoms.join(", ")}
-- 자연스러운 언급 패턴 예시: ${product.naturalMentionPatterns.map((p) => `"${p}"`).join(", ")}
-- 성분 포인트 (간단히만 언급): ${product.ingredientPoints.join(", ")}
+- 자연스러운 언급 패턴: ${product.naturalMentionPatterns.map((p) => `"${p}"`).join(", ")}
 - 이 제품의 장점: ${sp.advantages || product.defaultAdvantages}`;
+
+    if (product.keyInsight) {
+      section += `\n- 핵심 방향성: ${product.keyInsight}`;
+    }
+
+    if (product.sensoryDetails?.length) {
+      section += `\n- 감각 표현 참고 (이 느낌을 자연스럽게 녹일 것): ${product.sensoryDetails.join(" / ")}`;
+    }
+
+    if (product.realReviews?.length) {
+      section += `\n- 실제 사용자 톤 참고 (직접 복사하지 말고 이런 톤으로 작성할 것):`;
+      product.realReviews.forEach((r) => {
+        section += `\n  "${r}"`;
+      });
+    }
+
+    return section;
   });
 
   return `## 제품 정보 (글에 자연스럽게 녹일 것)
 ${lines.join("\n\n")}
 
-중요: 위 제품 정보는 글에 직접적으로 나열하지 말 것. 자연스러운 경험 속에서 녹여내야 함.`;
+중요:
+- 위 정보를 글에 직접 나열하지 말 것
+- 실제 후기 문장을 그대로 복사하지 말 것
+- 비슷한 톤과 감각으로 새로운 표현을 만들어서 자연스러운 경험 속에 녹일 것
+- 핵심 방향성을 이해하고 그 방향으로 글을 전개할 것`;
 }
