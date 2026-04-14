@@ -19,6 +19,7 @@ import {
   BarChart3,
   ShieldAlert,
   Heading,
+  Wrench,
 } from "lucide-react";
 import type { QualityResult } from "@/types";
 
@@ -29,6 +30,7 @@ interface StepGenerateProps {
   isLoading: boolean;
   onRegenerate: () => void;
   onCopy: () => void;
+  onQualityFix: () => void;
 }
 
 function MetricRow({
@@ -69,6 +71,7 @@ export function StepGenerate({
   isLoading,
   onRegenerate,
   onCopy,
+  onQualityFix,
 }: StepGenerateProps) {
   // Render content with basic formatting
   const renderContent = (text: string) => {
@@ -234,7 +237,7 @@ export function StepGenerate({
 
               {qualityResult && (
                 <div className="space-y-1">
-                  {/* Fail Reasons */}
+                  {/* Fail Reasons + Fix Button */}
                   {!qualityResult.isPass && qualityResult.failReasons.length > 0 && (
                     <motion.div
                       initial={{ opacity: 0 }}
@@ -247,6 +250,20 @@ export function StepGenerate({
                           - {reason}
                         </p>
                       ))}
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="mt-3 w-full gap-2 border-red-500/30 text-red-500 hover:bg-red-500/10"
+                        onClick={onQualityFix}
+                        disabled={isLoading}
+                      >
+                        {isLoading ? (
+                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                        ) : (
+                          <Wrench className="h-3.5 w-3.5" />
+                        )}
+                        {isLoading ? "수정 중..." : "품질 자동 수정"}
+                      </Button>
                     </motion.div>
                   )}
 

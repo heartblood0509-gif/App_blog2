@@ -96,3 +96,24 @@ export function checkForbiddenWords(text: string): ForbiddenWordMatch[] {
 
   return matches;
 }
+
+/**
+ * 금지어를 대체어로 자동 치환한 텍스트를 반환
+ */
+export function autoReplaceForbiddenWords(text: string): string {
+  let result = text;
+
+  for (const [word, replacements] of Object.entries(FORBIDDEN_REPLACEMENTS)) {
+    if (ALLOWLIST[word]) {
+      const regex = new RegExp(`(?<![가-힣])${word}(?![가-힣])`, "g");
+      result = result.replace(regex, (match, offset) => {
+        if (isAllowedContext(text, word, offset)) return match;
+        return replacements[0];
+      });
+    } else {
+      result = result.replaceAll(word, replacements[0]);
+    }
+  }
+
+  return result;
+}

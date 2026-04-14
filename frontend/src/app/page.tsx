@@ -223,6 +223,65 @@ export default function Home() {
     }
   }, [state.selectedProducts, state.narrativeType, state.toneType, state.mainKeyword, state.subKeywords, state.persona, state.requirements, state.charCountRange, state.selectedTitle, state.referenceAnalysis, updateState]);
 
+  const handleQualityFix = useCallback(async () => {
+    if (!state.qualityResult || state.qualityResult.isPass) return;
+    updateState({ isLoading: true });
+    try {
+      const res = await fetch("/api/fix", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          content: state.generatedContent,
+          failReasons: state.qualityResult.failReasons,
+          keyword: state.mainKeyword,
+        }),
+      });
+
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ error: "수정 실패" }));
+        throw new Error(err.error || "품질 수정에 실패했습니다.");
+      }
+
+      if (!res.body) throw new Error("응답을 받을 수 없습니다.");
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let fixed = "";
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        fixed += decoder.decode(value, { stream: true });
+        updateState({ generatedContent: fixed });
+      }
+
+      // 수정 후 재검증
+      const validateRes = await fetch("/api/validate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          text: fixed,
+          keyword: state.mainKeyword,
+          charRange: state.charCountRange,
+        }),
+      });
+      if (validateRes.ok) {
+        const quality = await validateRes.json();
+        updateState({ qualityResult: quality, isLoading: false });
+        if (quality.isPass) {
+          toast.success("품질 수정 완료! 모든 항목 통과.");
+        } else {
+          toast.info("일부 항목이 개선되었습니다. 한 번 더 시도해보세요.");
+        }
+      } else {
+        updateState({ isLoading: false });
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "품질 수정 실패";
+      toast.error(msg);
+      updateState({ isLoading: false });
+    }
+  }, [state.generatedContent, state.qualityResult, state.mainKeyword, state.charCountRange, updateState]);
+
   const handleNext = () => {
     if (!canAdvance() || state.currentStep >= STEPS.length - 1) return;
     const nextStep = state.currentStep + 1;
@@ -327,6 +386,7 @@ export default function Home() {
             isLoading={state.isLoading}
             onRegenerate={handleContentRegenerate}
             onCopy={handleContentCopy}
+            onQualityFix={handleQualityFix}
           />
         );
       case 5:
