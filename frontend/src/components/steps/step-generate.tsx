@@ -22,6 +22,7 @@ import {
   Wrench,
 } from "lucide-react";
 import type { QualityResult } from "@/types";
+import { BlogContentRenderer } from "@/components/blog-content-renderer";
 
 interface StepGenerateProps {
   content: string;
@@ -73,56 +74,7 @@ export function StepGenerate({
   onCopy,
   onQualityFix,
 }: StepGenerateProps) {
-  // Render content with basic formatting
-  const renderContent = (text: string) => {
-    if (!text) return null;
-
-    return text.split("\n").map((line, i) => {
-      // Headings (## or bold subheadings)
-      if (line.startsWith("## ")) {
-        return (
-          <h2 key={i} className="mb-2 mt-6 text-lg font-bold first:mt-0">
-            {line.replace("## ", "")}
-          </h2>
-        );
-      }
-      if (line.startsWith("### ")) {
-        return (
-          <h3 key={i} className="mb-2 mt-4 text-base font-semibold first:mt-0">
-            {line.replace("### ", "")}
-          </h3>
-        );
-      }
-      // Hashtags line
-      if (line.startsWith("#") && !line.startsWith("##")) {
-        const tags = line.split(/\s+/).filter((t) => t.startsWith("#"));
-        if (tags.length > 1) {
-          return (
-            <div key={i} className="mt-4 flex flex-wrap gap-2">
-              {tags.map((tag, j) => (
-                <span
-                  key={j}
-                  className="text-sm text-blue-400"
-                >
-                  {tag}
-                </span>
-              ))}
-            </div>
-          );
-        }
-      }
-      // Empty lines
-      if (line.trim() === "") {
-        return <br key={i} />;
-      }
-      // Regular paragraph
-      return (
-        <p key={i} className="mb-1 leading-relaxed">
-          {line}
-        </p>
-      );
-    });
-  };
+  // renderContent는 BlogContentRenderer 컴포넌트로 대체
 
   return (
     <div>
@@ -192,14 +144,14 @@ export function StepGenerate({
 
               {content && (
                 <ScrollArea className="h-[500px] pr-4">
-                  <div className="text-sm leading-relaxed">
+                  <div>
                     {isLoading && (
                       <div className="mb-3 flex items-center gap-2 text-xs text-muted-foreground">
                         <Loader2 className="h-3 w-3 animate-spin" />
                         생성 중...
                       </div>
                     )}
-                    {renderContent(content)}
+                    <BlogContentRenderer text={content} />
                   </div>
                 </ScrollArea>
               )}

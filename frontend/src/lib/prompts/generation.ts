@@ -78,12 +78,15 @@ export function buildGenerationPrompt(params: GenerationParams): string {
 
   // 9. SEO & 포맷 규칙
   sections.push(`## SEO & 포맷 규칙
-- 글자수: ${charCount.min}~${charCount.max}자 (공백 포함)
+- 글자수: ${charCount.min}~${charCount.max}자 (공백 제외 기준)
 - 메인 키워드 "${mainKeyword}"를 글 전체에 4~5회 자연스럽게 분산 배치
 - 소제목은 > (인용구) 형식으로 4~5개 배치
-- 읽기 흐름이 끊기지 않게 구성
 - 글 마지막에 해시태그 8개 작성 (# 형식)
-- 짧은 문장 위주, 줄바꿈 자주 사용`);
+- 문장부호 절대 금지 (마침표 쉼표 느낌표 물음표 따옴표 전부 사용 금지)
+- 한 줄에 한 문장만 작성
+- 2~4줄마다 반드시 빈 줄로 문단 나누기
+- 5줄 이상 연속된 긴 문단 절대 금지
+- 모바일에서 읽기 편한 짧은 호흡으로 구성`);
 
   // 10. 네이버 금칙어
   sections.push(NAVER_FORBIDDEN_WORDS_PROMPT);

@@ -15,6 +15,7 @@ import {
   Loader2,
 } from "lucide-react";
 import { toast } from "sonner";
+import { BlogContentRenderer } from "@/components/blog-content-renderer";
 
 interface StepPublishProps {
   content: string;
@@ -51,49 +52,7 @@ export function StepPublish({ content, title }: StepPublishProps) {
     toast.success("마크다운 파일이 다운로드되었습니다");
   }, [content, title]);
 
-  // Render content with basic formatting
-  const renderContent = (text: string) => {
-    if (!text) return null;
-
-    return text.split("\n").map((line, i) => {
-      if (line.startsWith("## ")) {
-        return (
-          <h2 key={i} className="mb-2 mt-6 text-lg font-bold first:mt-0">
-            {line.replace("## ", "")}
-          </h2>
-        );
-      }
-      if (line.startsWith("### ")) {
-        return (
-          <h3 key={i} className="mb-2 mt-4 text-base font-semibold first:mt-0">
-            {line.replace("### ", "")}
-          </h3>
-        );
-      }
-      if (line.startsWith("#") && !line.startsWith("##")) {
-        const tags = line.split(/\s+/).filter((t) => t.startsWith("#"));
-        if (tags.length > 1) {
-          return (
-            <div key={i} className="mt-4 flex flex-wrap gap-2">
-              {tags.map((tag, j) => (
-                <span key={j} className="text-sm text-blue-400">
-                  {tag}
-                </span>
-              ))}
-            </div>
-          );
-        }
-      }
-      if (line.trim() === "") {
-        return <br key={i} />;
-      }
-      return (
-        <p key={i} className="mb-1 leading-relaxed">
-          {line}
-        </p>
-      );
-    });
-  };
+  // renderContent는 BlogContentRenderer 컴포넌트로 대체
 
   return (
     <div className="space-y-6">
@@ -206,9 +165,7 @@ export function StepPublish({ content, title }: StepPublishProps) {
 
               {/* Body */}
               <ScrollArea className="h-[500px] pr-4">
-                <div className="text-sm leading-relaxed">
-                  {renderContent(content)}
-                </div>
+                <BlogContentRenderer text={content} />
               </ScrollArea>
             </motion.div>
           )}
