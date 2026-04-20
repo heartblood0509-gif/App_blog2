@@ -10,3 +10,5 @@ dist/
 build/
 .DS_Store
 *.tsbuildinfo
+accounts.json
+.publish_counter.json

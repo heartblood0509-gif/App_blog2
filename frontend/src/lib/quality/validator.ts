@@ -9,40 +9,56 @@ import { detectAdExpressions } from "./ad-detector";
  * 3. 광고성 표현 탐지
  * 4. 글자수 범위
  * 5. 구조 검증 (소제목, 해시태그)
+ *
+ * `[이미지: …]` 마커는 실제 발행 시 이미지로 치환되므로
+ * 글자수/키워드/금칙어/광고성 계산에서 제외한다.
  */
+
+const IMAGE_MARKER_RE = /\[이미지:\s*[^\]]+\]/g;
+
+function stripImageMarkers(text: string): string {
+  return text.replace(IMAGE_MARKER_RE, "");
+}
 
 export function validateContent(
   text: string,
   keyword: string,
   charRange: { min: number; max: number }
 ): QualityResult {
-  // 글자수 계산
-  const charCount = text.length;
-  const charCountWithoutSpaces = text.replace(/\s/g, "").length;
+  // 이미지 마커 제외한 본문으로 품질 지표 계산
+  const textForMetrics = stripImageMarkers(text);
+
+  // 이미지 마커 카운트 (원본에서)
+  const imageMarkerMatches = text.match(IMAGE_MARKER_RE);
+  const imageMarkerCount = imageMarkerMatches ? imageMarkerMatches.length : 0;
+
+  // 글자수 계산 (마커 제외)
+  const charCount = textForMetrics.length;
+  const charCountWithoutSpaces = textForMetrics.replace(/\s/g, "").length;
 
   // 키워드 밀도 계산
   const keywordRegex = new RegExp(keyword, "gi");
-  const keywordMatches = text.match(keywordRegex);
+  const keywordMatches = textForMetrics.match(keywordRegex);
   const keywordCount = keywordMatches ? keywordMatches.length : 0;
   const keywordDensity =
     charCountWithoutSpaces > 0
       ? (keywordCount * keyword.length) / charCountWithoutSpaces * 100
       : 0;
 
-  // 금칙어 검사
-  const forbiddenWords = checkForbiddenWords(text);
+  // 금칙어 검사 (마커 제외)
+  const forbiddenWords = checkForbiddenWords(textForMetrics);
 
-  // 광고성 표현 검사
-  const adExpressions = detectAdExpressions(text);
+  // 광고성 표현 검사 (마커 제외)
+  const adExpressions = detectAdExpressions(textForMetrics);
 
-  // 소제목 카운트 (> 형식)
-  const subheadingRegex = /^>/gm;
+  // 소제목 카운트 (> 형식) — 원본 기준(마커 제거해도 동일)
+  const subheadingRegex = /^#{2,3}(\{[^}]+\})?\s+/gm;
   const subheadingMatches = text.match(subheadingRegex);
   const subheadingCount = subheadingMatches ? subheadingMatches.length : 0;
 
   // 해시태그 카운트
   const hashtagRegex = /#[가-힣a-zA-Z0-9_]+/g;
-  const hashtagMatches = text.match(hashtagRegex);
+  const hashtagMatches = textForMetrics.match(hashtagRegex);
   const hashtagCount = hashtagMatches ? hashtagMatches.length : 0;
 
   // 미통과 사유 수집 (공백 포함 글자수 기준)
@@ -84,6 +100,7 @@ export function validateContent(
     adExpressions,
     subheadingCount,
     hashtagCount,
+    imageMarkerCount,
     isPass,
     failReasons,
   };

@@ -1,18 +1,89 @@
 "use client";
 
 import React from "react";
+import { ImageIcon } from "lucide-react";
+
+const MARKER_RE = /^\s*\[이미지:\s*(.+?)\]\s*$/;
 
 /**
  * 블로그 글을 깔끔하게 렌더링하는 공용 컴포넌트
  * 마크다운 기호를 제거하고 블로그 스타일로 표시
+ *
+ * @param text 원본 마크다운
+ * @param imagesByMarker 본문 내 등장 순서대로 매핑된 이미지 base64 (data URL prefix 제외)
+ *                       제공되면 [이미지: …] 마커 자리에 실제 이미지 렌더
  */
-export function BlogContentRenderer({ text }: { text: string }) {
+export function BlogContentRenderer({
+  text,
+  imagesByMarkerIndex,
+  excludedIndices,
+}: {
+  text: string;
+  imagesByMarkerIndex?: Record<number, { base64: string; mimeType?: string }>;
+  excludedIndices?: Set<number>;
+}) {
   if (!text) return null;
+
+  const lines = text.split("\n");
+  let markerIdx = -1;
 
   return (
     <div className="space-y-0">
-      {text.split("\n").map((line, i) => {
-        // > 인용구 → 소제목 스타일
+      {lines.map((line, i) => {
+        // [이미지: ...] 마커
+        const markerMatch = line.match(MARKER_RE);
+        if (markerMatch) {
+          markerIdx++;
+          const localIdx = markerIdx;
+          if (excludedIndices?.has(localIdx)) {
+            return null;
+          }
+          const description = markerMatch[1].trim();
+          const img = imagesByMarkerIndex?.[localIdx];
+          if (img) {
+            const mime = img.mimeType || "image/png";
+            return (
+              <div key={i} className="my-4">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src={`data:${mime};base64,${img.base64}`}
+                  alt={description}
+                  className="w-full rounded-lg border border-border"
+                />
+              </div>
+            );
+          }
+          // 이미지 없으면 placeholder
+          return (
+            <div
+              key={i}
+              className="my-4 flex items-center gap-3 rounded-lg border border-dashed border-border bg-muted/30 px-4 py-6"
+            >
+              <ImageIcon className="h-5 w-5 shrink-0 text-muted-foreground" />
+              <span className="text-xs text-muted-foreground">
+                이미지 자리: {description}
+              </span>
+            </div>
+          );
+        }
+
+        // ## 소제목 → 인용구 스타일 (##, ##{style} 모두 지원)
+        const headingMatch = line.match(/^(#{2,3})(\{[^}]+\})?\s+(.+)$/);
+        if (headingMatch) {
+          const headingContent = headingMatch[3];
+          return (
+            <div
+              key={i}
+              className="my-6 border-l-4 border-primary/60 bg-primary/5 px-4 py-3"
+            >
+              <p className="text-base font-semibold leading-relaxed">
+                {renderInlineStyles(headingContent)}
+              </p>
+            </div>
+          );
+        }
+
+        // > 인용구 → 하위 호환 (기존 글)
         if (line.startsWith("> ")) {
           const content = line.replace(/^>\s*/, "");
           return (

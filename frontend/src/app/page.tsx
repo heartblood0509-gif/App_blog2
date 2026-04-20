@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -20,9 +20,9 @@ import type {
   SelectedProduct,
   NarrativeType,
   ToneType,
-  TitleSuggestion,
-  QualityResult,
+  UserPhoto,
 } from "@/types";
+import { parseImageMarkers, ensureSubtitleCoverage } from "@/lib/image/marker-parser";
 
 import { StepProductSelect } from "@/components/steps/step-product-select";
 import { StepNarrative } from "@/components/steps/step-narrative";
@@ -55,6 +55,12 @@ const initialState: WizardState = {
   selectedTitle: "",
   generatedContent: "",
   qualityResult: null,
+  imageSlots: [],
+  userPhotosBySlot: {},
+  excludedSlotIds: [],
+  generatedImages: {},
+  isGeneratingBySlot: {},
+  isImageGenerating: false,
   currentStep: 0,
   referenceAnalysis: "",
   isLoading: false,
@@ -66,6 +72,58 @@ export default function Home() {
   const updateState = useCallback((partial: Partial<WizardState>) => {
     setState((prev) => ({ ...prev, ...partial }));
   }, []);
+
+  // content가 바뀔 때마다 이미지 슬롯 재파싱.
+  // 기존 슬롯의 description이 같으면 ID/모드/업로드사진/생성이미지를 유지한다.
+  // ★ AI가 소제목 아래 마커를 누락하면 자동 주입하여 100% 커버리지 보장.
+  const prevContentRef = useRef<string>("");
+  useEffect(() => {
+    const rawContent = state.generatedContent;
+    if (rawContent === prevContentRef.current) return;
+
+    // 소제목 커버리지 보장 (누락된 곳에 마커 자동 주입)
+    const coveredContent = ensureSubtitleCoverage(rawContent);
+    if (coveredContent !== rawContent) {
+      // 내용이 바뀌었으면 state 업데이트 → 이 useEffect가 다시 돌면서 파싱
+      setState((prev) => ({ ...prev, generatedContent: coveredContent }));
+      return;
+    }
+
+    prevContentRef.current = coveredContent;
+
+    const newSlots = parseImageMarkers(coveredContent);
+
+    // 기존 슬롯 중 같은 description+index이면 ID 재사용 (이미지/설정 보존)
+    const oldSlots = state.imageSlots;
+    const merged = newSlots.map((ns) => {
+      const reuse = oldSlots.find(
+        (os) => os.index === ns.index && os.description === ns.description
+      );
+      return reuse ? { ...ns, id: reuse.id } : ns;
+    });
+
+    const validIds = new Set(merged.map((s) => s.id));
+    const prunedImages = Object.fromEntries(
+      Object.entries(state.generatedImages).filter(([id]) => validIds.has(id))
+    );
+    const prunedPhotos = Object.fromEntries(
+      Object.entries(state.userPhotosBySlot).filter(([id]) => validIds.has(id))
+    );
+    const prunedExcluded = state.excludedSlotIds.filter((id) => validIds.has(id));
+    const prunedGenerating = Object.fromEntries(
+      Object.entries(state.isGeneratingBySlot).filter(([id]) => validIds.has(id))
+    );
+
+    setState((prev) => ({
+      ...prev,
+      imageSlots: merged,
+      generatedImages: prunedImages,
+      userPhotosBySlot: prunedPhotos,
+      excludedSlotIds: prunedExcluded,
+      isGeneratingBySlot: prunedGenerating,
+    }));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state.generatedContent]);
 
   const canAdvance = (): boolean => {
     switch (state.currentStep) {
@@ -88,7 +146,6 @@ export default function Home() {
     if (!state.referenceUrl) return;
     updateState({ isLoading: true });
     try {
-      // 1) 크롤링
       const crawlRes = await fetch("/api/crawl", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -100,7 +157,6 @@ export default function Home() {
       }
       const crawlData = await crawlRes.json();
 
-      // 2) 분석
       const analyzeRes = await fetch("/api/analyze", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -153,7 +209,12 @@ export default function Home() {
   }, [state.selectedProducts, state.narrativeType, state.toneType, state.mainKeyword, state.subKeywords, state.persona, updateState]);
 
   const fetchContent = useCallback(async () => {
-    updateState({ isLoading: true, generatedContent: "", qualityResult: null });
+    updateState({
+      isLoading: true,
+      generatedContent: "",
+      qualityResult: null,
+      generatedImages: {},
+    });
     try {
       const res = await fetch("/api/generate", {
         method: "POST",
@@ -223,7 +284,7 @@ export default function Home() {
       toast.error(msg);
       updateState({ isLoading: false });
     }
-  }, [state.selectedProducts, state.narrativeType, state.toneType, state.mainKeyword, state.subKeywords, state.persona, state.requirements, state.charCountRange, state.selectedTitle, state.referenceAnalysis, updateState]);
+  }, [state.selectedProducts, state.narrativeType, state.toneType, state.mainKeyword, state.subKeywords, state.persona, state.requirements, state.charCountRange, state.selectedTitle, state.referenceAnalysis, state.toneExample, updateState]);
 
   const handleQualityFix = useCallback(async () => {
     if (!state.qualityResult || state.qualityResult.isPass) return;
@@ -256,7 +317,6 @@ export default function Home() {
         updateState({ generatedContent: fixed });
       }
 
-      // 수정 후 재검증
       const validateRes = await fetch("/api/validate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -284,20 +344,273 @@ export default function Home() {
     }
   }, [state.generatedContent, state.qualityResult, state.mainKeyword, state.charCountRange, updateState]);
 
+  // ─────────────────────────────
+  // 이미지 핸들러
+  // ─────────────────────────────
+
+  /** 사진 업로드/교체/제거. 업로드 시엔 generatedImages에도 즉시 커밋. */
+  const handleUserPhotoChange = useCallback(
+    (slotId: string, photo: UserPhoto | null) => {
+      setState((prev) => {
+        const nextPhotos = { ...prev.userPhotosBySlot };
+        const nextImages = { ...prev.generatedImages };
+        if (photo) {
+          // 업로드(또는 교체): 원본 보관 + 최종 이미지로 즉시 커밋
+          nextPhotos[slotId] = photo;
+          nextImages[slotId] = photo.base64;
+        } else {
+          // 제거: 원본 삭제. 현재 출력이 원본과 동일하면 함께 삭제, 변환된 것이면 유지
+          const oldPhoto = prev.userPhotosBySlot[slotId];
+          delete nextPhotos[slotId];
+          if (oldPhoto && nextImages[slotId] === oldPhoto.base64) {
+            delete nextImages[slotId];
+          }
+        }
+        return {
+          ...prev,
+          userPhotosBySlot: nextPhotos,
+          generatedImages: nextImages,
+        };
+      });
+    },
+    []
+  );
+
+  const handleUserInstructionChange = useCallback(
+    (slotId: string, instruction: string) => {
+      setState((prev) => {
+        const existing = prev.userPhotosBySlot[slotId];
+        if (!existing) return prev;
+        return {
+          ...prev,
+          userPhotosBySlot: {
+            ...prev.userPhotosBySlot,
+            [slotId]: { ...existing, instruction },
+          },
+        };
+      });
+    },
+    []
+  );
+
+  const handleToggleExcluded = useCallback(
+    (slotId: string, excluded: boolean) => {
+      setState((prev) => {
+        const set = new Set(prev.excludedSlotIds);
+        if (excluded) set.add(slotId);
+        else set.delete(slotId);
+        return { ...prev, excludedSlotIds: Array.from(set) };
+      });
+    },
+    []
+  );
+
+  /** 단일 슬롯 실행: AI 생성(text-to-image) 또는 AI 변환(image-to-image) */
+  const runSlotAction = useCallback(
+    async (slotId: string, action: "ai" | "transform") => {
+      const slot = state.imageSlots.find((s) => s.id === slotId);
+      if (!slot) return;
+      if (state.excludedSlotIds.includes(slotId)) return;
+
+      const photo = state.userPhotosBySlot[slotId];
+      if (action === "transform" && !photo) {
+        toast.error("업로드된 사진이 없습니다.");
+        return;
+      }
+
+      setState((prev) => ({
+        ...prev,
+        isGeneratingBySlot: { ...prev.isGeneratingBySlot, [slotId]: true },
+      }));
+
+      try {
+        const body = {
+          content: state.generatedContent,
+          slots: [
+            {
+              id: slot.id,
+              index: slot.index,
+              description: slot.description,
+              groupId: slot.groupId,
+              mode: action === "transform" ? "userPhoto" : "ai",
+              userPhoto:
+                action === "transform" && photo
+                  ? {
+                      base64: photo.base64,
+                      mimeType: photo.mimeType,
+                      instruction: photo.instruction,
+                    }
+                  : undefined,
+              useProModel:
+                action === "transform" && photo?.useProModel === true,
+            },
+          ],
+        };
+
+        const res = await fetch("/api/images/generate", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        });
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
+          throw new Error(err.error || "이미지 생성 실패");
+        }
+        const data = (await res.json()) as {
+          results: Array<{ id: string; status: string; base64?: string; error?: string }>;
+        };
+        const r = data.results[0];
+
+        setState((prev) => {
+          const nextGenerating = { ...prev.isGeneratingBySlot };
+          nextGenerating[slotId] = false;
+          if (r && r.status === "done" && r.base64) {
+            return {
+              ...prev,
+              generatedImages: { ...prev.generatedImages, [slotId]: r.base64 },
+              isGeneratingBySlot: nextGenerating,
+            };
+          }
+          return { ...prev, isGeneratingBySlot: nextGenerating };
+        });
+
+        if (r && r.status === "done") {
+          toast.success(action === "ai" ? "AI 생성 완료" : "AI 변환 완료");
+        } else {
+          toast.error(r?.error || "이미지 생성 실패");
+        }
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : "이미지 생성 실패";
+        toast.error(msg);
+        setState((prev) => ({
+          ...prev,
+          isGeneratingBySlot: { ...prev.isGeneratingBySlot, [slotId]: false },
+        }));
+      }
+    },
+    [state.imageSlots, state.excludedSlotIds, state.userPhotosBySlot, state.generatedContent]
+  );
+
+  const handleGenerateSlotAI = useCallback(
+    (slotId: string) => {
+      runSlotAction(slotId, "ai");
+    },
+    [runSlotAction]
+  );
+
+  const handleTransformSlot = useCallback(
+    (slotId: string) => {
+      runSlotAction(slotId, "transform");
+    },
+    [runSlotAction]
+  );
+
+  /** 일괄 AI 생성: 사진도 없고 출력도 없는 빈 슬롯만 대상 */
+  const handleGenerateImages = useCallback(async () => {
+    const excludedSet = new Set(state.excludedSlotIds);
+    const targets = state.imageSlots.filter(
+      (s) =>
+        !excludedSet.has(s.id) &&
+        !state.userPhotosBySlot[s.id] &&
+        !state.generatedImages[s.id]
+    );
+
+    if (targets.length === 0) {
+      toast.info("생성할 빈 슬롯이 없습니다.");
+      return;
+    }
+
+    setState((prev) => ({
+      ...prev,
+      isImageGenerating: true,
+      isGeneratingBySlot: {
+        ...prev.isGeneratingBySlot,
+        ...Object.fromEntries(targets.map((t) => [t.id, true])),
+      },
+    }));
+
+    try {
+      const body = {
+        content: state.generatedContent,
+        slots: targets.map((s) => ({
+          id: s.id,
+          index: s.index,
+          description: s.description,
+          groupId: s.groupId,
+          mode: "ai" as const,
+        })),
+      };
+      const res = await fetch("/api/images/generate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
+        throw new Error(err.error || "이미지 생성 실패");
+      }
+      const data = (await res.json()) as {
+        results: Array<{ id: string; status: string; base64?: string }>;
+      };
+
+      setState((prev) => {
+        const nextImages = { ...prev.generatedImages };
+        const nextGenerating = { ...prev.isGeneratingBySlot };
+        let doneCount = 0;
+        let failCount = 0;
+        for (const r of data.results) {
+          nextGenerating[r.id] = false;
+          if (r.status === "done" && r.base64) {
+            nextImages[r.id] = r.base64;
+            doneCount++;
+          } else if (r.status === "failed") {
+            failCount++;
+          }
+        }
+        if (doneCount > 0) toast.success(`이미지 ${doneCount}개 생성 완료`);
+        if (failCount > 0)
+          toast.warning(
+            `${failCount}개 생성 실패 — 해당 슬롯은 발행 시 빈 자리로 남습니다`
+          );
+        return {
+          ...prev,
+          generatedImages: nextImages,
+          isGeneratingBySlot: nextGenerating,
+          isImageGenerating: false,
+        };
+      });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "이미지 생성 실패";
+      toast.error(msg);
+      setState((prev) => {
+        const nextGenerating = { ...prev.isGeneratingBySlot };
+        for (const t of targets) nextGenerating[t.id] = false;
+        return {
+          ...prev,
+          isGeneratingBySlot: nextGenerating,
+          isImageGenerating: false,
+        };
+      });
+    }
+  }, [
+    state.imageSlots,
+    state.excludedSlotIds,
+    state.userPhotosBySlot,
+    state.generatedImages,
+    state.generatedContent,
+  ]);
+
   const handleNext = () => {
     if (!canAdvance() || state.currentStep >= STEPS.length - 1) return;
     const nextStep = state.currentStep + 1;
     updateState({ currentStep: nextStep });
 
-    // Step 2→3 전환 시: 레퍼런스 URL이 있으면 분석 실행
     if (nextStep === 3 && state.referenceUrl && !state.referenceAnalysis) {
       fetchReferenceAnalysis().catch(() => {});
     }
-    // Step 2→3 완료 시 제목 자동 생성
     if (nextStep === 3 && state.titleSuggestions.length === 0) {
       fetchTitles().catch(() => {});
     }
-    // Step 3→4 완료 시 글 자동 생성
     if (nextStep === 4 && state.generatedContent === "") {
       fetchContent().catch(() => {});
     }
@@ -391,6 +704,18 @@ export default function Home() {
             onRegenerate={handleContentRegenerate}
             onCopy={handleContentCopy}
             onQualityFix={handleQualityFix}
+            imageSlots={state.imageSlots}
+            userPhotosBySlot={state.userPhotosBySlot}
+            excludedSlotIds={state.excludedSlotIds}
+            generatedImages={state.generatedImages}
+            isGeneratingBySlot={state.isGeneratingBySlot}
+            isImageGenerating={state.isImageGenerating}
+            onUserPhotoChange={handleUserPhotoChange}
+            onUserInstructionChange={handleUserInstructionChange}
+            onToggleExcluded={handleToggleExcluded}
+            onGenerateImages={handleGenerateImages}
+            onGenerateSlotAI={handleGenerateSlotAI}
+            onTransformSlot={handleTransformSlot}
           />
         );
       case 5:
@@ -398,6 +723,9 @@ export default function Home() {
           <StepPublish
             content={state.generatedContent}
             title={state.selectedTitle}
+            imageSlots={state.imageSlots}
+            generatedImages={state.generatedImages}
+            excludedSlotIds={state.excludedSlotIds}
           />
         );
       default:

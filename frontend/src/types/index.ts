@@ -41,6 +41,53 @@ export interface CharCountRange {
   label: string;
 }
 
+// ─────────────────────────────────────────────
+// 이미지 관련 타입
+// ─────────────────────────────────────────────
+
+/** 본문의 [이미지: 설명] 마커에서 파싱된 슬롯 */
+export interface ImageSlot {
+  /** 고유 ID (uuid) */
+  id: string;
+  /** 본문에서 마커가 등장한 순서 (0부터) */
+  index: number;
+  /** 마커의 설명 텍스트 */
+  description: string;
+  /** 같은 groupId면 페어 (연속된 2개) */
+  groupId: string | null;
+  /** 페어일 때의 역할 */
+  pairRole?: "first" | "second";
+  /** 원본 content의 라인 인덱스 */
+  lineIndex: number;
+}
+
+/** 이미지 슬롯의 모드: AI 전체 생성 or 실사 사진 기반 변환 */
+export type ImageMode = "ai" | "userPhoto";
+
+/** 사용자가 업로드한 실사 사진 (AI 변환 시 원본 참조용) */
+export interface UserPhoto {
+  /** base64 (data URL prefix 없음) */
+  base64: string;
+  /** MIME 타입 (예: "image/jpeg") */
+  mimeType: string;
+  /** AI 변환 시 사용할 지시사항 (예: "집 밖에서 두 손으로 들고") */
+  instruction: string;
+  /** 고품질 변환 모드 (Pro 모델 사용, 느리지만 인물 일관성 우수) */
+  useProModel?: boolean;
+}
+
+/** 이미지 생성 결과 (슬롯별) */
+export interface ImageGenerationResult {
+  slotId: string;
+  status: "done" | "failed";
+  /** base64 (data URL prefix 없음), status=done일 때만 */
+  base64?: string;
+  /** mime type (일반적으로 image/png) */
+  mimeType?: string;
+  /** 실패 시 사유 */
+  error?: string;
+}
+
 // 위저드 단계별 설정
 export interface WizardState {
   // Step 1: 제품 선택 + 장점
@@ -67,6 +114,20 @@ export interface WizardState {
   generatedContent: string;
   qualityResult: QualityResult | null;
 
+  // Step 5: 이미지 슬롯 관련
+  /** 본문에서 파싱된 이미지 슬롯 (content가 바뀌면 재계산) */
+  imageSlots: ImageSlot[];
+  /** slotId → 사용자 업로드 원본 사진 (AI 변환 대상) */
+  userPhotosBySlot: Record<string, UserPhoto>;
+  /** 페어 중 사용 안 할 슬롯 ID들 */
+  excludedSlotIds: string[];
+  /** slotId → 현재 블로그에 쓰일 최종 이미지 base64 (AI 생성물/업로드 원본/변환물) */
+  generatedImages: Record<string, string>;
+  /** slotId → 해당 슬롯만 개별 생성/변환 중인지 */
+  isGeneratingBySlot: Record<string, boolean>;
+  /** 일괄 생성 중 여부 */
+  isImageGenerating: boolean;
+
   // 현재 단계
   currentStep: number;
 
@@ -92,6 +153,7 @@ export interface QualityResult {
   adExpressions: string[];
   subheadingCount: number;
   hashtagCount: number;
+  imageMarkerCount: number;
   isPass: boolean;
   failReasons: string[];
 }
@@ -100,4 +162,11 @@ export interface ForbiddenWordMatch {
   word: string;
   replacement: string;
   position: number;
+}
+
+// 블로그 계정
+export interface BlogAccount {
+  id: string;
+  label: string;
+  naver_id: string;
 }
