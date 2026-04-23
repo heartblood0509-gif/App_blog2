@@ -18,11 +18,11 @@ import {
 import type {
   WizardState,
   SelectedProduct,
-  NarrativeType,
+  NarrativeSource,
   ToneType,
   UserPhoto,
 } from "@/types";
-import { parseImageMarkers, ensureSubtitleCoverage } from "@/lib/image/marker-parser";
+import { parseImageMarkers, ensureSubtitleCoverage, ensureHookImage } from "@/lib/image/marker-parser";
 
 import { StepProductSelect } from "@/components/steps/step-product-select";
 import { StepNarrative } from "@/components/steps/step-narrative";
@@ -42,15 +42,16 @@ const STEPS = [
 
 const initialState: WizardState = {
   selectedProducts: [],
+  narrativeSource: null,
   narrativeType: null,
   toneType: null,
   toneExample: "",
+  referenceUrl: "",
   mainKeyword: "",
   subKeywords: "",
   persona: "",
   requirements: "",
   charCountRange: { min: 1500, max: 2000, label: "1500~2000자" },
-  referenceUrl: "",
   titleSuggestions: [],
   selectedTitle: "",
   generatedContent: "",
@@ -79,10 +80,15 @@ export default function Home() {
   const prevContentRef = useRef<string>("");
   useEffect(() => {
     const rawContent = state.generatedContent;
-    if (rawContent === prevContentRef.current) return;
 
-    // 소제목 커버리지 보장 (누락된 곳에 마커 자동 주입)
-    const coveredContent = ensureSubtitleCoverage(rawContent);
+    // 1) 최상단 후킹 이미지 보장 (본문 맨 첫 줄에 마커 없으면 자동 주입)
+    // 2) 소제목 커버리지 보장 (누락된 곳에 마커 자동 주입)
+    const hookedContent = ensureHookImage(rawContent, state.selectedTitle, state.mainKeyword);
+    const coveredContent = ensureSubtitleCoverage(hookedContent);
+
+    // 처리 완료된 결과와 비교 — 원본이 같아도 아직 후킹/소제목 주입이 안 된 상태면 진행
+    if (coveredContent === prevContentRef.current) return;
+
     if (coveredContent !== rawContent) {
       // 내용이 바뀌었으면 state 업데이트 → 이 useEffect가 다시 돌면서 파싱
       setState((prev) => ({ ...prev, generatedContent: coveredContent }));
@@ -129,8 +135,13 @@ export default function Home() {
     switch (state.currentStep) {
       case 0:
         return state.selectedProducts.length > 0;
-      case 1:
-        return state.narrativeType !== null && state.toneType !== null;
+      case 1: {
+        if (state.narrativeSource === null || state.toneType === null) return false;
+        // 직접 레퍼런스 모드만 URL 필수 (감정/결론 선공형은 내장 샘플 사용)
+        const urlRequired = state.narrativeSource === "custom-reference";
+        if (urlRequired && state.referenceUrl.trim().length === 0) return false;
+        return true;
+      }
       case 2:
         return state.mainKeyword.trim().length > 0;
       case 3:
@@ -263,6 +274,18 @@ export default function Home() {
         throw new Error("생성된 내용이 없습니다. 다시 시도해주세요.");
       }
 
+      // reader의 마지막 updateState가 React에 커밋될 기회 부여 (race 방어)
+      await Promise.resolve();
+
+      // 스트리밍 완료 직후 최상단 후킹 + 소제목 커버리지 보장 (본문 텍스트 불변)
+      const finalized = ensureSubtitleCoverage(
+        ensureHookImage(content, state.selectedTitle, state.mainKeyword)
+      );
+      if (finalized !== content) {
+        content = finalized;
+        updateState({ generatedContent: finalized });
+      }
+
       // 생성 완료 후 품질 검증
       const validateRes = await fetch("/api/validate", {
         method: "POST",
@@ -315,6 +338,18 @@ export default function Home() {
         if (done) break;
         fixed += decoder.decode(value, { stream: true });
         updateState({ generatedContent: fixed });
+      }
+
+      // reader의 마지막 updateState가 커밋될 기회 부여 (race 방어)
+      await Promise.resolve();
+
+      // 품질 수정 완료 직후 최상단 후킹 + 소제목 커버리지 재보장
+      const finalizedFix = ensureSubtitleCoverage(
+        ensureHookImage(fixed, state.selectedTitle, state.mainKeyword)
+      );
+      if (finalizedFix !== fixed) {
+        fixed = finalizedFix;
+        updateState({ generatedContent: finalizedFix });
       }
 
       const validateRes = await fetch("/api/validate", {
@@ -605,7 +640,8 @@ export default function Home() {
     const nextStep = state.currentStep + 1;
     updateState({ currentStep: nextStep });
 
-    if (nextStep === 3 && state.referenceUrl && !state.referenceAnalysis) {
+    // 레퍼런스 분석은 Step 1 → Step 2 전환 시점에 미리 시작 (제목 생성 시점보다 일찍)
+    if (nextStep === 2 && state.referenceUrl && !state.referenceAnalysis) {
       fetchReferenceAnalysis().catch(() => {});
     }
     if (nextStep === 3 && state.titleSuggestions.length === 0) {
@@ -629,9 +665,23 @@ export default function Home() {
     [updateState]
   );
 
-  const handleNarrativeChange = useCallback(
-    (type: NarrativeType) => {
-      updateState({ narrativeType: type });
+  const handleNarrativeSourceChange = useCallback(
+    (source: NarrativeSource) => {
+      // narrativeType 파생: custom-reference면 null, 나머지는 동일한 값
+      const narrativeType = source === "custom-reference" ? null : source;
+      updateState({
+        narrativeSource: source,
+        narrativeType,
+        // 모드가 바뀌면 이전 분석 결과는 무효 (URL도 새로 입력)
+        referenceAnalysis: "",
+      });
+    },
+    [updateState]
+  );
+
+  const handleReferenceUrlChange = useCallback(
+    (url: string) => {
+      updateState({ referenceUrl: url, referenceAnalysis: "" });
     },
     [updateState]
   );
@@ -674,10 +724,12 @@ export default function Home() {
       case 1:
         return (
           <StepNarrative
-            narrativeType={state.narrativeType}
+            narrativeSource={state.narrativeSource}
+            referenceUrl={state.referenceUrl}
             toneType={state.toneType}
             toneExample={state.toneExample}
-            onNarrativeChange={handleNarrativeChange}
+            onNarrativeSourceChange={handleNarrativeSourceChange}
+            onReferenceUrlChange={handleReferenceUrlChange}
             onToneChange={handleToneChange}
             onToneExampleChange={(example: string) => updateState({ toneExample: example })}
           />

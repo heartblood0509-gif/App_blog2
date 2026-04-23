@@ -12,3 +12,4 @@ build/
 *.tsbuildinfo
 accounts.json
 .publish_counter.json
+.claude/

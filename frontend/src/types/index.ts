@@ -31,6 +31,17 @@ export interface SelectedProduct {
 // 서사 구조 타입
 export type NarrativeType = "empathy-first" | "conclusion-first";
 
+/**
+ * Step 2에서 선택하는 "글 소스" 모드.
+ * - empathy-first: 감정 선공형 템플릿 + 내장 레퍼런스
+ * - conclusion-first: 결론 선공형 템플릿 + 사용자 제공 URL (Phase A에서는 URL 필수)
+ * - custom-reference: 사용자 레퍼런스 URL만 사용, 서사 템플릿 미적용
+ */
+export type NarrativeSource =
+  | "empathy-first"
+  | "conclusion-first"
+  | "custom-reference";
+
 // 말투 타입
 export type ToneType = "존댓말" | "반말" | "음슴체";
 
@@ -94,9 +105,18 @@ export interface WizardState {
   selectedProducts: SelectedProduct[];
 
   // Step 2: 글 구조 & 말투
+  /** 사용자가 Step 2에서 선택한 글 소스 모드 (3택) */
+  narrativeSource: NarrativeSource | null;
+  /** 프롬프트에 전달할 서사 구조. narrativeSource에서 파생 (custom-reference면 null) */
   narrativeType: NarrativeType | null;
   toneType: ToneType | null;
   toneExample: string;
+  /**
+   * 레퍼런스 블로그 URL.
+   * - narrativeSource가 "conclusion-first" 또는 "custom-reference"면 필수
+   * - "empathy-first"면 선택 사항 (비우면 내장 레퍼런스 사용)
+   */
+  referenceUrl: string;
 
   // Step 3: 글 설정
   mainKeyword: string;
@@ -104,7 +124,6 @@ export interface WizardState {
   persona: string;
   requirements: string;
   charCountRange: CharCountRange;
-  referenceUrl: string;
 
   // Step 4: 제목 선택
   titleSuggestions: TitleSuggestion[];

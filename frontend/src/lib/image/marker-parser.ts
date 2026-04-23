@@ -39,10 +39,11 @@ export function parseImageMarkers(content: string): ImageSlot[] {
   }));
 
   // 페어 감지: 연속된 두 마커 사이에 공백 줄만 있으면 같은 그룹
+  // 단, 최상단 후킹 이미지(index 0)는 페어 대상에서 제외 — 항상 독립 배치
   for (let i = 0; i < slots.length - 1; i++) {
     const a = slots[i];
     const b = slots[i + 1];
-    // 이미 그룹에 속해있으면 스킵
+    if (a.index === 0) continue;
     if (a.groupId || b.groupId) continue;
     const between = lines.slice(a.lineIndex + 1, b.lineIndex);
     const allBlank = between.every((l) => l.trim().length === 0);
@@ -89,6 +90,95 @@ export function pruneExcludedMarkers(
     kept.push(lines[i]);
   }
   return kept.join("\n");
+}
+
+/**
+ * AI 응답에서 <HOOK>...</HOOK> 블록을 추출하고, 본문 최상단에 [이미지: …] 마커로 변환해 prepend한다.
+ *
+ * 결정론적 파싱 — AI가 어떻게 쓰든 HOOK 블록만 있으면 100% 맨 위로 고정.
+ * HOOK 블록이 없으면(AI가 누락) fallback description으로 주입 (안전장치).
+ *
+ * @param rawContent AI의 전체 응답 (<HOOK>...</HOOK> + 본문 마크다운)
+ * @param title  선택된 제목 (fallback 생성용)
+ * @param mainKeyword 메인 키워드 (fallback 생성용)
+ * @returns 최상단에 [이미지: ...] 마커가 고정된 깔끔한 본문 마크다운
+ */
+export function extractHookAndBody(
+  rawContent: string,
+  title: string,
+  mainKeyword: string
+): string {
+  if (!rawContent) return rawContent;
+
+  const hasOpenTag = /<HOOK>/i.test(rawContent);
+  const hasCloseTag = /<\/HOOK>/i.test(rawContent);
+
+  // 스트리밍 중 <HOOK> 열린 태그만 도착한 상태 → 완전히 닫힐 때까지 처리 보류
+  if (hasOpenTag && !hasCloseTag) {
+    return rawContent;
+  }
+
+  // 완전한 <HOOK>...</HOOK> 블록이 있으면 추출 후 본문 맨 앞에 prepend (결정론적)
+  const hookMatch = rawContent.match(/<HOOK>\s*([\s\S]*?)\s*<\/HOOK>/i);
+  if (hookMatch) {
+    const hookDescription = sanitizeHookDescription(hookMatch[1].trim());
+    const body = rawContent.replace(/<HOOK>[\s\S]*?<\/HOOK>\s*/i, "").trimStart();
+    if (!hookDescription) {
+      // HOOK 블록은 있는데 내용이 비어있음 → fallback으로 대체
+      const fallback = buildFallbackHookDescription(title, mainKeyword);
+      return `[이미지: ${fallback}]\n\n${body}`;
+    }
+    return `[이미지: ${hookDescription}]\n\n${body}`;
+  }
+
+  // HOOK 태그 자체가 없는 경우 (AI 누락 or 이미 처리됨 재호출)
+  const body = rawContent.trimStart();
+  const lines = body.split("\n");
+  let firstIdx = 0;
+  while (firstIdx < lines.length && lines[firstIdx].trim() === "") firstIdx++;
+  if (firstIdx < lines.length && MARKER_RE.test(lines[firstIdx])) {
+    // 첫 줄이 이미 [이미지: …] 마커 → 중복 주입 방지
+    return body;
+  }
+
+  // AI가 HOOK 블록을 빠뜨렸고 본문 맨 앞에 마커도 없음 → fallback 주입
+  const fallback = buildFallbackHookDescription(title, mainKeyword);
+  return `[이미지: ${fallback}]\n\n${body}`;
+}
+
+/** AI가 묘사에 [이미지:] 대괄호를 잘못 포함한 경우 내부 텍스트만 추출 */
+function sanitizeHookDescription(desc: string): string {
+  const bracketMatch = desc.match(/^\[이미지:\s*(.+?)\]\s*$/);
+  if (bracketMatch) return bracketMatch[1].trim();
+  return desc;
+}
+
+/** AI가 HOOK 블록 자체를 누락했을 때만 사용하는 fallback description */
+function buildFallbackHookDescription(title: string, mainKeyword: string): string {
+  const t = (title || "").trim();
+  const k = (mainKeyword || "").trim();
+  if (t && k) {
+    return `${t} 분위기를 상징하는 대표 장면, ${k} 맥락의 감정 유발 컷, 자연광 실내, 한국인 피사체, 실사 DSLR`;
+  }
+  if (t) {
+    return `${t} 분위기를 상징하는 대표 장면, 자연광 실내, 한국인 피사체, 실사 DSLR`;
+  }
+  if (k) {
+    return `${k} 맥락을 보여주는 감정 유발 대표 컷, 자연광 실내, 한국인 피사체, 실사 DSLR`;
+  }
+  return "글의 분위기를 상징하는 감성 대표 장면, 자연광 실내, 한국인 피사체, 실사 DSLR";
+}
+
+/**
+ * @deprecated extractHookAndBody로 교체됨. 하위 호환을 위해 유지.
+ * 내부적으로 extractHookAndBody를 호출.
+ */
+export function ensureHookImage(
+  content: string,
+  title: string,
+  mainKeyword: string
+): string {
+  return extractHookAndBody(content, title, mainKeyword);
 }
 
 /**

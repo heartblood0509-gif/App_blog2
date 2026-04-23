@@ -7,7 +7,11 @@ export {
   buildProductContext,
 } from "./product-placement";
 export { NAVER_FORBIDDEN_WORDS_PROMPT } from "./naver-forbidden";
-export { DEFAULT_REFERENCE } from "./default-reference";
+export {
+  DEFAULT_REFERENCE_EMPATHY_FIRST,
+  DEFAULT_REFERENCE_CONCLUSION_FIRST,
+  getDefaultReference,
+} from "./default-reference";
 export { buildGenerationPrompt } from "./generation";
 export { buildTitlePrompt } from "./title";
 export { buildAnalysisPrompt } from "./analysis";

@@ -3,7 +3,8 @@ import { BRAND_PRODUCTS } from "./brand-context";
 
 interface TitleGenerationParams {
   products: SelectedProduct[];
-  narrativeType: NarrativeType;
+  /** null이면 custom 레퍼런스 모드 — 서사 톤 힌트 없이 중립 생성 */
+  narrativeType: NarrativeType | null;
   toneType: ToneType;
   mainKeyword: string;
   subKeywords?: string;
@@ -11,12 +12,30 @@ interface TitleGenerationParams {
 }
 
 export function buildTitlePrompt(params: TitleGenerationParams): string {
-  const { products, mainKeyword, subKeywords, persona } = params;
+  const { products, narrativeType, mainKeyword, subKeywords, persona } = params;
 
   const productNames = products
     .map((p) => BRAND_PRODUCTS[p.id]?.name)
     .filter(Boolean)
     .join(", ");
+
+  // 서사 구조에 맞는 제목 뉘앙스 가이드
+  let narrativeHint = "";
+  if (narrativeType === "empathy-first") {
+    narrativeHint = `
+## 서사 톤 가이드 (중요)
+이 글은 **감정 선공형** 구조입니다. 제목도 이 톤과 일치해야 합니다.
+- "고민·문제·스트레스"를 암시하는 뉘앙스 선호
+- 예: "~때문에 고민이었는데", "~ 진짜 스트레스였음", "~ 이렇게 해결했음"
+- 해결된 결과를 전면에 내세우기보다, 문제 상황이나 공감 포인트를 앞세울 것`;
+  } else if (narrativeType === "conclusion-first") {
+    narrativeHint = `
+## 서사 톤 가이드 (중요)
+이 글은 **결론 선공형** 구조입니다. 제목도 이 톤과 일치해야 합니다.
+- "해결됨·달라짐·이제는"을 암시하는 뉘앙스 선호
+- 예: "~ 이제는 걱정 없음", "~ 바꾸고 달라진 점", "~ 이거 하나로 해결됨"
+- 문제 상황을 앞세우기보다, 변화·개선된 결과·깨달음을 전면에 내세울 것`;
+  }
 
   return `# 역할
 너는 네이버 블로그 SEO에 최적화된 제목을 만드는 전문가야
@@ -26,6 +45,7 @@ export function buildTitlePrompt(params: TitleGenerationParams): string {
 - 모든 제목은 반드시 메인 키워드 "${mainKeyword}"로 시작할 것
 - 메인 키워드는 절대 중간이나 뒤에 배치하지 말 것
 - 제목에 문장부호를 절대 사용하지 말 것 (마침표 쉼표 느낌표 물음표 따옴표 괄호 특수문자 전부 금지)
+${narrativeHint}
 
 ## 조건
 - 메인 키워드: "${mainKeyword}"

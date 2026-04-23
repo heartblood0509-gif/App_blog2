@@ -8,14 +8,7 @@ import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
-import {
-  Search,
-  User,
-  FileText,
-  Hash,
-  Link,
-  Type,
-} from "lucide-react";
+import { Search, User, FileText, Hash, Type } from "lucide-react";
 import type { WizardState, CharCountRange } from "@/types";
 
 const PERSONA_PRESETS = [
@@ -183,33 +176,9 @@ export function StepSettings({ state, onChange }: StepSettingsProps) {
               </div>
               {state.charCountRange.label === "레퍼런스 맞춤" && (
                 <p className="mt-2 text-xs text-muted-foreground">
-                  레퍼런스 URL의 글자수에 맞춰 생성됩니다
+                  레퍼런스 글의 글자수에 맞춰 생성됩니다
                 </p>
               )}
-            </CardContent>
-          </Card>
-
-          {/* Reference URL */}
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2 text-sm">
-                <Link className="h-4 w-4" />
-                레퍼런스 URL
-                <Badge variant="secondary" className="text-[10px]">
-                  선택
-                </Badge>
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <Input
-                type="url"
-                placeholder="https://blog.naver.com/..."
-                value={state.referenceUrl}
-                onChange={(e) => onChange({ referenceUrl: e.target.value })}
-              />
-              <p className="mt-2 text-xs text-muted-foreground">
-                참고할 블로그 글의 URL을 입력하면 구조와 톤을 분석합니다
-              </p>
             </CardContent>
           </Card>
         </div>

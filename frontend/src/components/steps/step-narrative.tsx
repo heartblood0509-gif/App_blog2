@@ -5,18 +5,23 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import { Textarea } from "@/components/ui/textarea";
-import { Label } from "@/components/ui/label";
-import { Heart, Zap, ArrowRight, Check } from "lucide-react";
-import type { NarrativeType, ToneType } from "@/types";
+import { Input } from "@/components/ui/input";
+import { Badge } from "@/components/ui/badge";
+import { Heart, Zap, Link as LinkIcon, ArrowRight, Check, AlertCircle } from "lucide-react";
+import type { NarrativeSource, ToneType } from "@/types";
 
-// Local narrative data (from server-only narrative-templates.ts)
-const NARRATIVES: {
-  id: NarrativeType;
+type NarrativeOption = {
+  id: NarrativeSource;
   name: string;
   description: string;
   icon: React.ElementType;
   flow: string[];
-}[] = [
+  /** URL 입력 UX: required(필수) | optional(선택) | none(없음) */
+  urlInput: "required" | "optional" | "none";
+  urlHint?: string;
+};
+
+const NARRATIVES: NarrativeOption[] = [
   {
     id: "empathy-first",
     name: "감정 선공형",
@@ -36,6 +41,7 @@ const NARRATIVES: {
       "루틴",
       "마무리",
     ],
+    urlInput: "none",
   },
   {
     id: "conclusion-first",
@@ -54,10 +60,20 @@ const NARRATIVES: {
       "변화",
       "마무리",
     ],
+    urlInput: "none",
+  },
+  {
+    id: "custom-reference",
+    name: "직접 레퍼런스 제공",
+    description:
+      "참고할 블로그 글 URL을 직접 제공하면, 그 글의 톤과 구조를 그대로 따라 작성합니다.",
+    icon: LinkIcon,
+    flow: ["레퍼런스 URL 기반 자유 구조"],
+    urlInput: "required",
+    urlHint: "참고할 블로그 글 URL을 입력하세요.",
   },
 ];
 
-// Local tone data (from server-only tone-rules.ts)
 const TONES: {
   type: ToneType;
   description: string;
@@ -93,22 +109,28 @@ const TONES: {
 ];
 
 interface StepNarrativeProps {
-  narrativeType: NarrativeType | null;
+  narrativeSource: NarrativeSource | null;
+  referenceUrl: string;
   toneType: ToneType | null;
   toneExample: string;
-  onNarrativeChange: (type: NarrativeType) => void;
+  onNarrativeSourceChange: (source: NarrativeSource) => void;
+  onReferenceUrlChange: (url: string) => void;
   onToneChange: (type: ToneType) => void;
   onToneExampleChange: (example: string) => void;
 }
 
 export function StepNarrative({
-  narrativeType,
+  narrativeSource,
+  referenceUrl,
   toneType,
   toneExample,
-  onNarrativeChange,
+  onNarrativeSourceChange,
+  onReferenceUrlChange,
   onToneChange,
   onToneExampleChange,
 }: StepNarrativeProps) {
+  const selectedOption = NARRATIVES.find((n) => n.id === narrativeSource) ?? null;
+
   return (
     <div className="space-y-10">
       {/* Narrative Structure Section */}
@@ -120,9 +142,9 @@ export function StepNarrative({
           </p>
         </div>
 
-        <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
           {NARRATIVES.map((narrative) => {
-            const selected = narrativeType === narrative.id;
+            const selected = narrativeSource === narrative.id;
             const Icon = narrative.icon;
 
             return (
@@ -133,7 +155,7 @@ export function StepNarrative({
                     ? "ring-2 ring-primary bg-primary/5"
                     : "hover:ring-1 hover:ring-muted-foreground/30"
                 }`}
-                onClick={() => onNarrativeChange(narrative.id)}
+                onClick={() => onNarrativeSourceChange(narrative.id)}
               >
                 <CardHeader>
                   <div className="flex items-center justify-between">
@@ -156,7 +178,6 @@ export function StepNarrative({
                   </CardDescription>
                 </CardHeader>
                 <CardContent>
-                  {/* Flow Visualization */}
                   <div className="flex flex-wrap items-center gap-1">
                     {narrative.flow.map((step, i) => (
                       <span key={step} className="flex items-center gap-1">
@@ -175,11 +196,54 @@ export function StepNarrative({
                       </span>
                     ))}
                   </div>
+                  {narrative.urlInput === "required" && (
+                    <div className="mt-3 flex items-center gap-1 text-[10px] text-amber-600 dark:text-amber-500">
+                      <AlertCircle className="h-3 w-3" />
+                      레퍼런스 URL 필수
+                    </div>
+                  )}
                 </CardContent>
               </Card>
             );
           })}
         </div>
+
+        {/* Reference URL Input (필요한 선택지에서만 노출) */}
+        <AnimatePresence mode="wait">
+          {selectedOption && selectedOption.urlInput !== "none" && (
+            <motion.div
+              key={selectedOption.id}
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -10 }}
+              transition={{ duration: 0.2 }}
+              className="mt-5"
+            >
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2 text-sm">
+                    <LinkIcon className="h-4 w-4" />
+                    레퍼런스 URL
+                    <Badge variant="destructive" className="text-[10px]">
+                      필수
+                    </Badge>
+                  </CardTitle>
+                  <CardDescription className="text-xs">
+                    {selectedOption.urlHint}
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <Input
+                    type="url"
+                    placeholder="https://blog.naver.com/..."
+                    value={referenceUrl}
+                    onChange={(e) => onReferenceUrlChange(e.target.value)}
+                  />
+                </CardContent>
+              </Card>
+            </motion.div>
+          )}
+        </AnimatePresence>
       </section>
 
       <Separator />
@@ -221,7 +285,6 @@ export function StepNarrative({
           })}
         </div>
 
-        {/* Tone Example - Editable */}
         <AnimatePresence mode="wait">
           {toneType && (
             <motion.div

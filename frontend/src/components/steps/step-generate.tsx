@@ -154,6 +154,11 @@ function SlotCard({
             <Badge variant="outline" className="text-[10px]">
               #{slot.index + 1}
             </Badge>
+            {slot.index === 0 && (
+              <Badge className="text-[10px] bg-amber-500 hover:bg-amber-500 text-white">
+                후킹 · 최상단
+              </Badge>
+            )}
             {slot.groupId && (
               <Badge variant="secondary" className="text-[10px]">
                 페어 {slot.pairRole === "first" ? "1" : "2"}
