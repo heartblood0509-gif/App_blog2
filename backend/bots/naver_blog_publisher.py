@@ -2443,10 +2443,16 @@ class NaverBlogPublisher:
 
         for i, block in enumerate(blocks):
             if block.type == BlockType.PARAGRAPH:
-                # ★ App_blog2는 Gemini가 이미 "한 줄에 한 문장" 으로 만들어주므로
-                #   _split_for_readability 같은 추가 분리 불필요 (오히려 1줄1빈줄 과다 줄바꿈 유발).
-                #   markdown_converter가 합쳐놓은 \n을 그대로 풀어서 줄 단위로 입력.
-                lines = [ln.strip() for ln in block.text.split('\n') if ln.strip()]
+                # AI가 가끔 60자+ 만연체를 만드는 경우 _split_for_readability로
+                # 마침표/구어체 종결/쉼표(20자+) 기준 자동 분할. 짧은 문장은 변경 없이 통과.
+                # 빈 줄은 블록 단위로 1번만 추가하므로 빈 줄 폭증은 발생하지 않음.
+                raw_lines = [ln.strip() for ln in block.text.split('\n') if ln.strip()]
+                lines: list[str] = []
+                for raw in raw_lines:
+                    if len(raw) >= 60:
+                        lines.extend(self._split_for_readability(raw))
+                    else:
+                        lines.append(raw)
                 for line in lines:
                     await self._human_type(line, min_delay=3, max_delay=8)
                     await self.page.keyboard.press("Enter")

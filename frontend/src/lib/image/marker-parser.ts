@@ -170,6 +170,16 @@ function buildFallbackHookDescription(title: string, mainKeyword: string): strin
 }
 
 /**
+ * AI가 가끔 만드는 HTML `<br>` 태그를 줄바꿈으로 치환.
+ * 미리보기에서 `<br>`가 텍스트로 노출되는 표시 불일치를 제거.
+ * 발행 측은 markdown_converter가 동일하게 처리하므로 미리보기/발행 일치.
+ */
+export function stripBrTags(content: string): string {
+  if (!content) return content;
+  return content.replace(/<br\s*\/?>/gi, "\n");
+}
+
+/**
  * @deprecated extractHookAndBody로 교체됨. 하위 호환을 위해 유지.
  * 내부적으로 extractHookAndBody를 호출.
  */

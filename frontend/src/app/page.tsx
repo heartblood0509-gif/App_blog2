@@ -22,7 +22,7 @@ import type {
   ToneType,
   UserPhoto,
 } from "@/types";
-import { parseImageMarkers, ensureSubtitleCoverage, ensureHookImage, dedupeSubtitleEchoes } from "@/lib/image/marker-parser";
+import { parseImageMarkers, ensureSubtitleCoverage, ensureHookImage, dedupeSubtitleEchoes, stripBrTags } from "@/lib/image/marker-parser";
 
 import { StepProductSelect } from "@/components/steps/step-product-select";
 import { StepNarrative } from "@/components/steps/step-narrative";
@@ -93,10 +93,12 @@ export default function Home() {
   useEffect(() => {
     const rawContent = state.generatedContent;
 
+    // 0) <br> 태그를 줄바꿈으로 치환 (미리보기와 발행물 표시 일치)
     // 1) 최상단 후킹 이미지 보장 (본문 맨 첫 줄에 마커 없으면 자동 주입)
     // 2) 소제목 직전 중복 일반 문장 제거 (네이버에서 인용구+텍스트 이중 노출 방지)
     // 3) 소제목 커버리지 보장 (누락된 곳에 마커 자동 주입)
-    const hookedContent = ensureHookImage(rawContent, state.selectedTitle, state.mainKeyword);
+    const cleanedContent = stripBrTags(rawContent);
+    const hookedContent = ensureHookImage(cleanedContent, state.selectedTitle, state.mainKeyword);
     const dedupedContent = dedupeSubtitleEchoes(hookedContent);
     const coveredContent = ensureSubtitleCoverage(dedupedContent);
 
@@ -296,10 +298,10 @@ export default function Home() {
       // reader의 마지막 updateState가 React에 커밋될 기회 부여 (race 방어)
       await Promise.resolve();
 
-      // 스트리밍 완료 직후 최상단 후킹 → 소제목 중복 제거 → 소제목 커버리지 보장
+      // 스트리밍 완료 직후 <br> 정화 → 후킹 → 중복 제거 → 소제목 커버리지 보장
       const finalized = ensureSubtitleCoverage(
         dedupeSubtitleEchoes(
-          ensureHookImage(content, state.selectedTitle, state.mainKeyword)
+          ensureHookImage(stripBrTags(content), state.selectedTitle, state.mainKeyword)
         )
       );
       if (finalized !== content) {
@@ -364,10 +366,10 @@ export default function Home() {
       // reader의 마지막 updateState가 커밋될 기회 부여 (race 방어)
       await Promise.resolve();
 
-      // 품질 수정 완료 직후 최상단 후킹 → 소제목 중복 제거 → 소제목 커버리지 재보장
+      // 품질 수정 완료 직후 <br> 정화 → 후킹 → 중복 제거 → 소제목 커버리지 재보장
       const finalizedFix = ensureSubtitleCoverage(
         dedupeSubtitleEchoes(
-          ensureHookImage(fixed, state.selectedTitle, state.mainKeyword)
+          ensureHookImage(stripBrTags(fixed), state.selectedTitle, state.mainKeyword)
         )
       );
       if (finalizedFix !== fixed) {
