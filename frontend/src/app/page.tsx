@@ -21,6 +21,8 @@ import type {
   NarrativeSource,
   ToneType,
   UserPhoto,
+  Channel,
+  PostCategory,
 } from "@/types";
 import { parseImageMarkers, ensureSubtitleCoverage, ensureHookImage, dedupeSubtitleEchoes, stripBrTags } from "@/lib/image/marker-parser";
 
@@ -42,6 +44,8 @@ const STEPS = [
 
 const initialState: WizardState = {
   selectedProducts: [],
+  channel: null,
+  postCategory: null,
   narrativeSource: null,
   narrativeType: null,
   toneType: null,
@@ -154,12 +158,18 @@ export default function Home() {
   const canAdvance = (): boolean => {
     switch (state.currentStep) {
       case 0:
-        return state.selectedProducts.length > 0;
+        return state.selectedProducts.length > 0 && state.channel !== null;
       case 1: {
-        if (state.narrativeSource === null || state.toneType === null) return false;
-        // 직접 레퍼런스 모드만 URL 필수 (감정/결론 선공형은 내장 샘플 사용)
-        const urlRequired = state.narrativeSource === "custom-reference";
-        if (urlRequired && state.referenceUrl.trim().length === 0) return false;
+        // 카테고리는 블로그 채널일 때만 필수
+        if (state.channel === "blog" && state.postCategory === null) return false;
+        // 서사 구조/말투/URL 체크는 후기성 카테고리일 때만 적용
+        // (브랜드/AEO 등 다른 카테고리는 향후 다른 구성을 가질 예정)
+        if (state.postCategory === "review") {
+          if (state.narrativeSource === null || state.toneType === null) return false;
+          // 직접 레퍼런스 모드만 URL 필수 (감정/결론 선공형은 내장 샘플 사용)
+          const urlRequired = state.narrativeSource === "custom-reference";
+          if (urlRequired && state.referenceUrl.trim().length === 0) return false;
+        }
         return true;
       }
       case 2:
@@ -170,6 +180,34 @@ export default function Home() {
         return state.generatedContent.trim().length > 0;
       default:
         return true;
+    }
+  };
+
+  const advanceHint = (): string | undefined => {
+    if (canAdvance()) return undefined;
+    switch (state.currentStep) {
+      case 0:
+        if (state.channel === null) return "채널을 선택해주세요";
+        if (state.selectedProducts.length === 0) return "제품을 1개 이상 선택해주세요";
+        return undefined;
+      case 1:
+        if (state.channel === "blog" && state.postCategory === null)
+          return "포스팅 카테고리를 선택해주세요";
+        if (state.postCategory === "review") {
+          if (state.narrativeSource === null) return "서사 구조를 선택해주세요";
+          if (state.toneType === null) return "말투를 선택해주세요";
+          if (
+            state.narrativeSource === "custom-reference" &&
+            state.referenceUrl.trim().length === 0
+          )
+            return "레퍼런스 URL을 입력해주세요";
+        }
+        return undefined;
+      case 2:
+        if (state.mainKeyword.trim().length === 0) return "메인 키워드를 입력해주세요";
+        return undefined;
+      default:
+        return undefined;
     }
   };
 
@@ -715,6 +753,20 @@ export default function Home() {
     [updateState]
   );
 
+  const handleChannelChange = useCallback(
+    (channel: Channel) => {
+      updateState({ channel });
+    },
+    [updateState]
+  );
+
+  const handlePostCategoryChange = useCallback(
+    (postCategory: PostCategory) => {
+      updateState({ postCategory });
+    },
+    [updateState]
+  );
+
   const handleNarrativeSourceChange = useCallback(
     (source: NarrativeSource) => {
       // narrativeType 파생: custom-reference면 null, 나머지는 동일한 값
@@ -769,6 +821,8 @@ export default function Home() {
           <StepProductSelect
             selectedProducts={state.selectedProducts}
             onChange={handleProductChange}
+            channel={state.channel}
+            onChannelChange={handleChannelChange}
           />
         );
       case 1:
@@ -778,10 +832,13 @@ export default function Home() {
             referenceUrl={state.referenceUrl}
             toneType={state.toneType}
             toneExample={state.toneExample}
+            channel={state.channel}
+            postCategory={state.postCategory}
             onNarrativeSourceChange={handleNarrativeSourceChange}
             onReferenceUrlChange={handleReferenceUrlChange}
             onToneChange={handleToneChange}
             onToneExampleChange={(example: string) => updateState({ toneExample: example })}
+            onPostCategoryChange={handlePostCategoryChange}
           />
         );
       case 2:
@@ -846,10 +903,10 @@ export default function Home() {
             onClick={() => setState(initialState)}
             className="text-2xl font-bold tracking-tight sm:text-3xl hover:text-primary transition-colors"
           >
-            후기성 블로그 생성기
+            콘텐츠 생성기
           </button>
           <p className="mt-2 text-sm text-muted-foreground">
-            자연스러운 후기형 블로그 포스팅을 단계별로 생성합니다
+            채널과 카테고리를 골라 콘텐츠를 단계별로 생성합니다
           </p>
         </div>
 
@@ -946,6 +1003,7 @@ export default function Home() {
               size="lg"
               onClick={handleNext}
               disabled={!canAdvance()}
+              title={advanceHint()}
               className="gap-2"
             >
               다음
