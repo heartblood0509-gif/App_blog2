@@ -170,6 +170,16 @@ function buildFallbackHookDescription(title: string, mainKeyword: string): strin
 }
 
 /**
+ * AI가 가끔 만드는 HTML `<br>` 태그를 줄바꿈으로 치환.
+ * 미리보기에서 `<br>`가 텍스트로 노출되는 표시 불일치를 제거.
+ * 발행 측은 markdown_converter가 동일하게 처리하므로 미리보기/발행 일치.
+ */
+export function stripBrTags(content: string): string {
+  if (!content) return content;
+  return content.replace(/<br\s*\/?>/gi, "\n");
+}
+
+/**
  * @deprecated extractHookAndBody로 교체됨. 하위 호환을 위해 유지.
  * 내부적으로 extractHookAndBody를 호출.
  */
@@ -244,6 +254,71 @@ function buildAutoDescription(subtitle: string, bodyPreview: string): string {
     return `${subtitle} 관련 장면 — ${bodyPreview} 분위기, 자연광 실내, 한국인 피사체, 실사 DSLR 사진`;
   }
   return `${subtitle}에 어울리는 실사 감성 장면, 자연광, 한국인 피사체`;
+}
+
+/**
+ * 소제목(##) 바로 앞에 같은 문장이 일반 텍스트로 중복 등장하면 앞줄을 제거한다.
+ *
+ * AI가 본문에 문장을 한 번 쓰고 그 다음 줄에 ## 로 또 쓰는 패턴 방어.
+ * 네이버 발행 시 ##가 인용구로 변환되면서 같은 문장이 두 번 나오는 현상을 막는다.
+ *
+ * 규칙:
+ * - 각 소제목 줄마다 앞쪽 가장 가까운 비공백 줄을 검사
+ * - 앞줄이 이미지 마커 / 다른 소제목이면 건너뜀
+ * - 정규화(공백 정리) 후 완전 일치하면 앞줄 삭제
+ * - 어미 차이·부분 일치는 보존 (보수적 제거)
+ */
+export function dedupeSubtitleEchoes(content: string): string {
+  if (!content) return content;
+
+  const lines = content.split("\n");
+  const toDelete = new Set<number>();
+
+  for (let i = 0; i < lines.length; i++) {
+    const m = lines[i].match(/^#{2,3}(\{[^}]+\})?\s+(.+)$/);
+    if (!m) continue;
+    const subtitleText = normalizeForDedupe(m[2] || "");
+    if (!subtitleText) continue;
+
+    // 앞쪽 비공백 줄 찾기
+    let j = i - 1;
+    while (j >= 0 && lines[j].trim() === "") j--;
+    if (j < 0) continue;
+
+    const prevTrim = lines[j].trim();
+    if (MARKER_RE.test(prevTrim)) continue;
+    if (/^#{2,3}/.test(prevTrim)) continue;
+
+    if (normalizeForDedupe(prevTrim) === subtitleText) {
+      toDelete.add(j);
+    }
+  }
+
+  if (toDelete.size === 0) return content;
+
+  const kept: string[] = [];
+  for (let i = 0; i < lines.length; i++) {
+    if (toDelete.has(i)) {
+      // 앞뒤 빈 줄 중복 방지: 앞이 빈 줄이고 다음도 빈 줄이면 뒤 빈 줄 하나 흡수
+      const prev = kept[kept.length - 1];
+      const next = lines[i + 1];
+      if (
+        prev !== undefined &&
+        prev.trim() === "" &&
+        next !== undefined &&
+        next.trim() === ""
+      ) {
+        i++;
+      }
+      continue;
+    }
+    kept.push(lines[i]);
+  }
+  return kept.join("\n");
+}
+
+function normalizeForDedupe(s: string): string {
+  return s.replace(/\s+/g, " ").trim();
 }
 
 /**

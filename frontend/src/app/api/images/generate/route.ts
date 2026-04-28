@@ -25,6 +25,8 @@ interface SlotRequest {
   };
   /** AI 변환 시 Pro 모델(gemini-3-pro-image-preview) 사용 여부 */
   useProModel?: boolean;
+  /** AI 생성 모드에서 사용자가 수정한 프롬프트. 있으면 기본 빌더 무시하고 그대로 전송. */
+  customPrompt?: string;
   excluded?: boolean;
 }
 
@@ -58,11 +60,10 @@ async function generateOneSlot(
       CONFIG.TRANSFORM_REFERENCE_COUNT
     );
   }
-  const prompt = buildTextToImagePrompt(
-    slot.description,
-    content,
-    slot.index
-  );
+  const prompt =
+    slot.customPrompt && slot.customPrompt.trim().length > 0
+      ? slot.customPrompt
+      : buildTextToImagePrompt(slot.description, content, slot.index);
   return await generateImage(prompt, CONFIG.IMAGE_MODEL, apiKey);
 }
 
@@ -97,8 +98,13 @@ export async function POST(request: Request) {
       try {
         let img = await generateOneSlot(slot, content, apiKey);
 
-        // 중립화 프롬프트로 1회 재시도
-        if (!img && CONFIG.IMAGE_MAX_RETRIES > 0) {
+        // 중립화 프롬프트로 1회 재시도.
+        // 단, 사용자가 직접 수정한 customPrompt는 사용자 의도를 우선하여 중립화 재시도를 생략.
+        const hasCustomPrompt =
+          slot.mode === "ai" &&
+          !!slot.customPrompt &&
+          slot.customPrompt.trim().length > 0;
+        if (!img && !hasCustomPrompt && CONFIG.IMAGE_MAX_RETRIES > 0) {
           try {
             const neutralPrompt = buildNeutralizedPrompt(slot.description);
             img = await generateImage(neutralPrompt, CONFIG.IMAGE_MODEL, apiKey);

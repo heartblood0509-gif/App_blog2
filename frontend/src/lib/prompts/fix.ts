@@ -40,7 +40,7 @@ export function buildFixPrompt(params: FixParams): string {
     if (reason.includes("소제목 부족")) {
       const match = reason.match(/(\d+)개/);
       const current = match ? parseInt(match[1]) : 0;
-      return `- 소제목이 ${current}개뿐임. > 형식으로 소제목을 ${3 - current}개 더 추가해. 궁금증을 유발하는 소제목으로.`;
+      return `- 소제목이 ${current}개뿐임. ##{line} 또는 ##{default} 형식으로 소제목을 ${3 - current}개 더 추가해. 궁금증을 유발하는 소제목으로. (> 형식 절대 금지)`;
     }
     if (reason.includes("해시태그 부족")) {
       const match = reason.match(/(\d+)개/);
@@ -52,6 +52,17 @@ export function buildFixPrompt(params: FixParams): string {
   해당 표현을 담백하고 자연스러운 표현으로 바꿔
   체험단이 쓸법한 클리셰를 실제 사용자가 쓸법한 표현으로 교체
   교체 후에도 광고 느낌이 나지 않는지 확인`;
+    }
+    if (reason.includes("문장부호 검출")) {
+      return `- 본문에 마침표 쉼표 느낌표 물음표 따옴표가 남아있음
+  전부 제거하고 어미를 자연스럽게 정리할 것 (예: "~했다." → "~했음", "~했어?" → "~했어")
+  해시태그(#) 는 문장부호 아님 그대로 유지`;
+    }
+    if (reason.includes("긴 문단")) {
+      return `- 5줄 이상 이어지는 긴 문단이 있음
+  2~4줄 단위로 쪼개고 사이에 빈 줄 삽입
+  내용은 절대 삭제하지 말고 줄바꿈만 추가할 것
+  의미 단위로 자연스럽게 끊어서 리듬감 확보`;
     }
     return `- ${reason}`;
   });
