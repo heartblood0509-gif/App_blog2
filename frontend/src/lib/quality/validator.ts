@@ -89,6 +89,30 @@ export function validateContent(
     failReasons.push(`해시태그 부족: ${hashtagCount}개 (최소 8개)`);
   }
 
+  // 문장부호 검출 — 마침표/쉼표/느낌표/물음표/따옴표 (한국어 전각 따옴표 포함)
+  // 해시태그 라인과 이미지 마커는 이미 textForMetrics 에서 제외됨
+  const PUNCT_RE = /[.,!?"'"""‘’]/g;
+  const punctMatches = textForMetrics.match(PUNCT_RE);
+  const punctCount = punctMatches ? punctMatches.length : 0;
+  if (punctCount > 0) {
+    failReasons.push(`문장부호 검출: ${punctCount}개 (마침표 쉼표 느낌표 물음표 따옴표 전부 제거 필요)`);
+  }
+
+  // 긴 문단 검출 — 6줄 이상 연속된 비공백 본문 줄 (소제목은 break 포인트)
+  const metricLines = textForMetrics.split("\n");
+  let longParagraphCount = 0;
+  let runLen = 0;
+  for (const line of metricLines) {
+    const t = line.trim();
+    if (t === "") { runLen = 0; continue; }
+    if (/^#{2,3}/.test(t)) { runLen = 0; continue; }
+    runLen++;
+    if (runLen === 6) longParagraphCount++;
+  }
+  if (longParagraphCount > 0) {
+    failReasons.push(`긴 문단 ${longParagraphCount}개 (5줄 이상 연속 금지, 2~4줄로 쪼갤 것)`);
+  }
+
   const isPass = failReasons.length === 0;
 
   return {

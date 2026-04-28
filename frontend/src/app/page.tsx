@@ -22,7 +22,7 @@ import type {
   ToneType,
   UserPhoto,
 } from "@/types";
-import { parseImageMarkers, ensureSubtitleCoverage, ensureHookImage } from "@/lib/image/marker-parser";
+import { parseImageMarkers, ensureSubtitleCoverage, ensureHookImage, dedupeSubtitleEchoes } from "@/lib/image/marker-parser";
 
 import { StepProductSelect } from "@/components/steps/step-product-select";
 import { StepNarrative } from "@/components/steps/step-narrative";
@@ -62,6 +62,7 @@ const initialState: WizardState = {
   generatedImages: {},
   isGeneratingBySlot: {},
   isImageGenerating: false,
+  customPromptsBySlot: {},
   currentStep: 0,
   referenceAnalysis: "",
   isLoading: false,
@@ -74,6 +75,17 @@ export default function Home() {
     setState((prev) => ({ ...prev, ...partial }));
   }, []);
 
+  // 페이지 밖(슬롯 이외의 영역)에 파일을 드롭했을 때 브라우저가 파일을 열어 위저드 진행이 날아가지 않도록 방어
+  useEffect(() => {
+    const prevent = (e: DragEvent) => e.preventDefault();
+    window.addEventListener("dragover", prevent);
+    window.addEventListener("drop", prevent);
+    return () => {
+      window.removeEventListener("dragover", prevent);
+      window.removeEventListener("drop", prevent);
+    };
+  }, []);
+
   // content가 바뀔 때마다 이미지 슬롯 재파싱.
   // 기존 슬롯의 description이 같으면 ID/모드/업로드사진/생성이미지를 유지한다.
   // ★ AI가 소제목 아래 마커를 누락하면 자동 주입하여 100% 커버리지 보장.
@@ -82,9 +94,11 @@ export default function Home() {
     const rawContent = state.generatedContent;
 
     // 1) 최상단 후킹 이미지 보장 (본문 맨 첫 줄에 마커 없으면 자동 주입)
-    // 2) 소제목 커버리지 보장 (누락된 곳에 마커 자동 주입)
+    // 2) 소제목 직전 중복 일반 문장 제거 (네이버에서 인용구+텍스트 이중 노출 방지)
+    // 3) 소제목 커버리지 보장 (누락된 곳에 마커 자동 주입)
     const hookedContent = ensureHookImage(rawContent, state.selectedTitle, state.mainKeyword);
-    const coveredContent = ensureSubtitleCoverage(hookedContent);
+    const dedupedContent = dedupeSubtitleEchoes(hookedContent);
+    const coveredContent = ensureSubtitleCoverage(dedupedContent);
 
     // 처리 완료된 결과와 비교 — 원본이 같아도 아직 후킹/소제목 주입이 안 된 상태면 진행
     if (coveredContent === prevContentRef.current) return;
@@ -119,6 +133,9 @@ export default function Home() {
     const prunedGenerating = Object.fromEntries(
       Object.entries(state.isGeneratingBySlot).filter(([id]) => validIds.has(id))
     );
+    const prunedCustomPrompts = Object.fromEntries(
+      Object.entries(state.customPromptsBySlot).filter(([id]) => validIds.has(id))
+    );
 
     setState((prev) => ({
       ...prev,
@@ -127,6 +144,7 @@ export default function Home() {
       userPhotosBySlot: prunedPhotos,
       excludedSlotIds: prunedExcluded,
       isGeneratingBySlot: prunedGenerating,
+      customPromptsBySlot: prunedCustomPrompts,
     }));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [state.generatedContent]);
@@ -225,6 +243,7 @@ export default function Home() {
       generatedContent: "",
       qualityResult: null,
       generatedImages: {},
+      customPromptsBySlot: {},
     });
     try {
       const res = await fetch("/api/generate", {
@@ -277,9 +296,11 @@ export default function Home() {
       // reader의 마지막 updateState가 React에 커밋될 기회 부여 (race 방어)
       await Promise.resolve();
 
-      // 스트리밍 완료 직후 최상단 후킹 + 소제목 커버리지 보장 (본문 텍스트 불변)
+      // 스트리밍 완료 직후 최상단 후킹 → 소제목 중복 제거 → 소제목 커버리지 보장
       const finalized = ensureSubtitleCoverage(
-        ensureHookImage(content, state.selectedTitle, state.mainKeyword)
+        dedupeSubtitleEchoes(
+          ensureHookImage(content, state.selectedTitle, state.mainKeyword)
+        )
       );
       if (finalized !== content) {
         content = finalized;
@@ -343,9 +364,11 @@ export default function Home() {
       // reader의 마지막 updateState가 커밋될 기회 부여 (race 방어)
       await Promise.resolve();
 
-      // 품질 수정 완료 직후 최상단 후킹 + 소제목 커버리지 재보장
+      // 품질 수정 완료 직후 최상단 후킹 → 소제목 중복 제거 → 소제목 커버리지 재보장
       const finalizedFix = ensureSubtitleCoverage(
-        ensureHookImage(fixed, state.selectedTitle, state.mainKeyword)
+        dedupeSubtitleEchoes(
+          ensureHookImage(fixed, state.selectedTitle, state.mainKeyword)
+        )
       );
       if (finalizedFix !== fixed) {
         fixed = finalizedFix;
@@ -428,6 +451,26 @@ export default function Home() {
     []
   );
 
+  /**
+   * 슬롯의 커스텀 프롬프트 변경.
+   * - prompt가 null이면 해당 키 삭제 → 기본 빌더 프롬프트로 복원
+   * - 빈 문자열이 아닌 값이면 그대로 저장
+   */
+  const handleCustomPromptChange = useCallback(
+    (slotId: string, prompt: string | null) => {
+      setState((prev) => {
+        const next = { ...prev.customPromptsBySlot };
+        if (prompt === null) {
+          delete next[slotId];
+        } else {
+          next[slotId] = prompt;
+        }
+        return { ...prev, customPromptsBySlot: next };
+      });
+    },
+    []
+  );
+
   const handleToggleExcluded = useCallback(
     (slotId: string, excluded: boolean) => {
       setState((prev) => {
@@ -459,6 +502,8 @@ export default function Home() {
       }));
 
       try {
+        const customPrompt =
+          action === "ai" ? state.customPromptsBySlot[slotId] : undefined;
         const body = {
           content: state.generatedContent,
           slots: [
@@ -478,6 +523,7 @@ export default function Home() {
                   : undefined,
               useProModel:
                 action === "transform" && photo?.useProModel === true,
+              customPrompt,
             },
           ],
         };
@@ -523,7 +569,7 @@ export default function Home() {
         }));
       }
     },
-    [state.imageSlots, state.excludedSlotIds, state.userPhotosBySlot, state.generatedContent]
+    [state.imageSlots, state.excludedSlotIds, state.userPhotosBySlot, state.generatedContent, state.customPromptsBySlot]
   );
 
   const handleGenerateSlotAI = useCallback(
@@ -573,6 +619,7 @@ export default function Home() {
           description: s.description,
           groupId: s.groupId,
           mode: "ai" as const,
+          customPrompt: state.customPromptsBySlot[s.id],
         })),
       };
       const res = await fetch("/api/images/generate", {
@@ -633,6 +680,7 @@ export default function Home() {
     state.userPhotosBySlot,
     state.generatedImages,
     state.generatedContent,
+    state.customPromptsBySlot,
   ]);
 
   const handleNext = () => {
@@ -762,12 +810,14 @@ export default function Home() {
             generatedImages={state.generatedImages}
             isGeneratingBySlot={state.isGeneratingBySlot}
             isImageGenerating={state.isImageGenerating}
+            customPromptsBySlot={state.customPromptsBySlot}
             onUserPhotoChange={handleUserPhotoChange}
             onUserInstructionChange={handleUserInstructionChange}
             onToggleExcluded={handleToggleExcluded}
             onGenerateImages={handleGenerateImages}
             onGenerateSlotAI={handleGenerateSlotAI}
             onTransformSlot={handleTransformSlot}
+            onCustomPromptChange={handleCustomPromptChange}
           />
         );
       case 5:
@@ -787,7 +837,7 @@ export default function Home() {
 
   return (
     <div className="min-h-screen bg-background text-foreground">
-      <div className="mx-auto max-w-5xl px-4 py-8 sm:px-6 lg:px-8">
+      <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
         {/* Header */}
         <div className="mb-8 text-center">
           <button

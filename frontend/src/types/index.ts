@@ -146,6 +146,8 @@ export interface WizardState {
   isGeneratingBySlot: Record<string, boolean>;
   /** 일괄 생성 중 여부 */
   isImageGenerating: boolean;
+  /** slotId → 사용자가 수정한 커스텀 이미지 프롬프트 (AI 생성 모드 전용). 없으면 기본 빌더 사용 */
+  customPromptsBySlot: Record<string, string>;
 
   // 현재 단계
   currentStep: number;

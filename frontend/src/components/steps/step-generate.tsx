@@ -1,7 +1,7 @@
 "use client";
 
 import { motion } from "framer-motion";
-import { useRef } from "react";
+import { useMemo, useRef, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -26,6 +26,8 @@ import {
   Upload,
   Sparkles,
   Trash2,
+  ChevronDown,
+  ChevronUp,
 } from "lucide-react";
 import type {
   QualityResult,
@@ -33,6 +35,8 @@ import type {
   UserPhoto,
 } from "@/types";
 import { BlogContentRenderer } from "@/components/blog-content-renderer";
+import { ImageLightbox } from "@/components/image-lightbox";
+import { buildTextToImagePrompt } from "@/lib/prompts/image";
 
 interface StepGenerateProps {
   content: string;
@@ -50,12 +54,15 @@ interface StepGenerateProps {
   generatedImages: Record<string, string>;
   isGeneratingBySlot: Record<string, boolean>;
   isImageGenerating: boolean;
+  customPromptsBySlot: Record<string, string>;
   onUserPhotoChange: (slotId: string, photo: UserPhoto | null) => void;
   onUserInstructionChange: (slotId: string, instruction: string) => void;
   onToggleExcluded: (slotId: string, excluded: boolean) => void;
   onGenerateImages: () => void;
   onGenerateSlotAI: (slotId: string) => void;
   onTransformSlot: (slotId: string) => void;
+  /** prompt === null 이면 해당 슬롯 커스텀 프롬프트 삭제(기본값 복원) */
+  onCustomPromptChange: (slotId: string, prompt: string | null) => void;
 }
 
 function MetricRow({
@@ -111,11 +118,14 @@ function SlotCard({
   excluded,
   generatedBase64,
   isGenerating,
+  content,
+  customPrompt,
   onUserPhotoChange,
   onInstructionChange,
   onToggleExcluded,
   onGenerateAI,
   onTransform,
+  onCustomPromptChange,
 }: {
   slot: ImageSlot;
   partner?: ImageSlot;
@@ -123,13 +133,18 @@ function SlotCard({
   excluded: boolean;
   generatedBase64?: string;
   isGenerating: boolean;
+  content: string;
+  customPrompt: string | undefined;
   onUserPhotoChange: (photo: UserPhoto | null) => void;
   onInstructionChange: (instruction: string) => void;
   onToggleExcluded: (excluded: boolean) => void;
   onGenerateAI: () => void;
   onTransform: () => void;
+  onCustomPromptChange: (prompt: string | null) => void;
 }) {
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [isPromptOpen, setIsPromptOpen] = useState(false);
+  const [lightboxSrc, setLightboxSrc] = useState<string | null>(null);
 
   const handleFile = async (file: File) => {
     const { base64, mimeType } = await fileToBase64(file);
@@ -141,6 +156,29 @@ function SlotCard({
   };
 
   const hasPhoto = !!userPhoto;
+  const hasCustomPrompt = typeof customPrompt === "string";
+  // 변환 대기 = 사진 올렸는데 최종 영역에 원본 그대로 남아있고 변환 진행 중 아님
+  const isPendingTransform =
+    hasPhoto &&
+    !!generatedBase64 &&
+    generatedBase64 === userPhoto.base64 &&
+    !isGenerating;
+  // 최종 출력 종류 판별 (배지용)
+  const finalKind: "none" | "pending" | "transformed" | "aiGenerated" =
+    !generatedBase64
+      ? "none"
+      : isPendingTransform
+        ? "pending"
+        : hasPhoto
+          ? "transformed"
+          : "aiGenerated";
+
+  // 기본 프롬프트 (사용자가 아직 수정 안 한 경우 textarea 초기값)
+  const defaultPrompt = useMemo(
+    () => buildTextToImagePrompt(slot.description, content, slot.index),
+    [slot.description, slot.index, content]
+  );
+  const textareaValue = hasCustomPrompt ? customPrompt! : defaultPrompt;
 
   return (
     <div
@@ -198,13 +236,18 @@ function SlotCard({
           />
 
           {/* 액션 버튼: AI 생성 + (내 사진 | AI 변환) */}
-          <div className="mb-3 flex gap-2">
+          <div className="mb-2 flex gap-2">
             <Button
               size="sm"
               variant="outline"
               className="flex-1 h-8 gap-1 text-xs"
               onClick={onGenerateAI}
-              disabled={isGenerating}
+              disabled={isGenerating || hasPhoto}
+              title={
+                hasPhoto
+                  ? "사진이 업로드되어 있습니다. 사진을 제거하면 AI 생성을 쓸 수 있습니다"
+                  : undefined
+              }
             >
               {isGenerating ? (
                 <Loader2 className="h-3 w-3 animate-spin" />
@@ -212,11 +255,14 @@ function SlotCard({
                 <Sparkles className="h-3 w-3" />
               )}
               AI 생성
+              {hasCustomPrompt && !hasPhoto && (
+                <Wrench className="h-3 w-3 text-amber-500" />
+              )}
             </Button>
             {hasPhoto ? (
               <Button
                 size="sm"
-                variant="outline"
+                variant="default"
                 className="flex-1 h-8 gap-1 text-xs"
                 onClick={onTransform}
                 disabled={isGenerating}
@@ -243,6 +289,66 @@ function SlotCard({
             )}
           </div>
 
+          {/* 프롬프트 수정 토글 */}
+          <div className="mb-3">
+            <Button
+              size="sm"
+              variant="ghost"
+              className="h-7 w-full gap-1 text-[11px] text-muted-foreground hover:text-foreground"
+              onClick={() => setIsPromptOpen((v) => !v)}
+              disabled={isGenerating || hasPhoto}
+              title={
+                hasPhoto
+                  ? "AI 변환 모드에서는 '변환 지시' 입력으로 프롬프트를 조정합니다"
+                  : undefined
+              }
+            >
+              <Wrench className="h-3 w-3" />
+              {isPromptOpen ? "프롬프트 닫기" : "프롬프트 수정"}
+              {hasCustomPrompt && !hasPhoto && (
+                <Badge
+                  variant="secondary"
+                  className="ml-1 h-4 px-1 text-[9px] bg-amber-500/15 text-amber-700 dark:text-amber-400"
+                >
+                  수정됨
+                </Badge>
+              )}
+              {!hasPhoto &&
+                (isPromptOpen ? (
+                  <ChevronUp className="ml-auto h-3 w-3" />
+                ) : (
+                  <ChevronDown className="ml-auto h-3 w-3" />
+                ))}
+            </Button>
+
+            {isPromptOpen && !hasPhoto && (
+              <div className="mt-2 space-y-2 rounded-md border border-border/60 bg-muted/30 p-2">
+                <Textarea
+                  value={textareaValue}
+                  onChange={(e) => onCustomPromptChange(e.target.value)}
+                  rows={14}
+                  className="text-[11px] font-mono leading-relaxed resize-y"
+                  placeholder="이 슬롯에 쓰일 이미지 프롬프트"
+                />
+                <div className="flex items-center justify-between text-[10px] text-muted-foreground">
+                  <span>
+                    {hasCustomPrompt
+                      ? "수정본이 적용됩니다. [AI 생성] 버튼을 눌러 재생성하세요."
+                      : "기본 프롬프트입니다. 수정 후 [AI 생성]을 누르면 수정본으로 생성됩니다."}
+                  </span>
+                  <button
+                    type="button"
+                    className="text-primary underline-offset-2 hover:underline disabled:opacity-40"
+                    onClick={() => onCustomPromptChange(null)}
+                    disabled={!hasCustomPrompt}
+                  >
+                    기본값으로 복원
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+
           {/* 원본 사진 미리보기 + 변환 지시 입력 (사진 업로드 후) */}
           {hasPhoto && (
             <div className="mb-3 space-y-2">
@@ -251,13 +357,21 @@ function SlotCard({
                 <img
                   src={`data:${userPhoto.mimeType};base64,${userPhoto.base64}`}
                   alt="원본 사진"
-                  className="w-full h-20 rounded object-cover"
+                  className="w-full aspect-video rounded object-contain bg-muted/50 cursor-zoom-in"
+                  onClick={() =>
+                    setLightboxSrc(
+                      `data:${userPhoto.mimeType};base64,${userPhoto.base64}`
+                    )
+                  }
                 />
                 <Button
                   size="sm"
                   variant="secondary"
                   className="absolute top-1 right-1 h-6 px-2 text-[10px]"
-                  onClick={() => onUserPhotoChange(null)}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onUserPhotoChange(null);
+                  }}
                   title="원본 사진 제거"
                 >
                   제거
@@ -272,7 +386,10 @@ function SlotCard({
                   size="sm"
                   variant="secondary"
                   className="absolute bottom-1 right-1 h-6 px-2 text-[10px]"
-                  onClick={() => fileInputRef.current?.click()}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    fileInputRef.current?.click();
+                  }}
                   title="다른 사진으로 교체"
                 >
                   교체
@@ -305,14 +422,54 @@ function SlotCard({
           {/* 최종 출력 미리보기 */}
           <div className="relative">
             {generatedBase64 ? (
-              /* eslint-disable-next-line @next/next/no-img-element */
-              <img
-                src={`data:image/png;base64,${generatedBase64}`}
-                alt={slot.description}
-                className="w-full h-32 rounded object-cover"
-              />
+              <>
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src={`data:image/png;base64,${generatedBase64}`}
+                  alt={slot.description}
+                  className="w-full aspect-video rounded object-contain bg-muted/50 cursor-zoom-in"
+                  onClick={() =>
+                    setLightboxSrc(`data:image/png;base64,${generatedBase64}`)
+                  }
+                />
+                {/* 상태 배지 (변환 대기 중이면 오버레이가 설명하므로 배지 생략) */}
+                {finalKind === "transformed" && (
+                  <Badge
+                    variant="secondary"
+                    className="absolute top-1 left-1 text-[9px] px-1.5 py-0 gap-1 bg-primary/15 text-primary"
+                  >
+                    <Sparkles className="h-2.5 w-2.5" />
+                    AI 변환
+                  </Badge>
+                )}
+                {finalKind === "aiGenerated" && (
+                  <Badge
+                    variant="secondary"
+                    className="absolute top-1 left-1 text-[9px] px-1.5 py-0 gap-1 bg-primary/15 text-primary"
+                  >
+                    <Sparkles className="h-2.5 w-2.5" />
+                    AI 생성
+                  </Badge>
+                )}
+                {/* 변환 대기 오버레이 */}
+                {isPendingTransform && (
+                  <div
+                    className="absolute inset-0 flex flex-col items-center justify-center gap-2 rounded bg-black/55 backdrop-blur-[1px] text-white cursor-zoom-in"
+                    onClick={() =>
+                      setLightboxSrc(
+                        `data:image/png;base64,${generatedBase64}`
+                      )
+                    }
+                  >
+                    <RefreshCw className="h-6 w-6" />
+                    <span className="text-xs font-medium">
+                      AI 변환을 눌러주세요
+                    </span>
+                  </div>
+                )}
+              </>
             ) : (
-              <div className="flex h-32 items-center justify-center rounded border border-dashed border-border bg-muted/30">
+              <div className="flex aspect-video items-center justify-center rounded border border-dashed border-border bg-muted/30">
                 {isGenerating ? (
                   <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
                 ) : (
@@ -321,6 +478,15 @@ function SlotCard({
               </div>
             )}
           </div>
+
+          {/* Lightbox (이미지 클릭 시 전체 화면 확대) */}
+          {lightboxSrc && (
+            <ImageLightbox
+              src={lightboxSrc}
+              alt={slot.description}
+              onClose={() => setLightboxSrc(null)}
+            />
+          )}
         </>
       )}
     </div>
@@ -341,12 +507,14 @@ export function StepGenerate({
   generatedImages,
   isGeneratingBySlot,
   isImageGenerating,
+  customPromptsBySlot,
   onUserPhotoChange,
   onUserInstructionChange,
   onToggleExcluded,
   onGenerateImages,
   onGenerateSlotAI,
   onTransformSlot,
+  onCustomPromptChange,
 }: StepGenerateProps) {
   const excludedSet = new Set(excludedSlotIds);
   const activeSlots = imageSlots.filter((s) => !excludedSet.has(s.id));
@@ -371,7 +539,7 @@ export function StepGenerate({
       <div className="mb-6 flex items-center justify-between">
         <div>
           <h2 className="text-xl font-semibold">글 생성 & 미리보기</h2>
-          <p className="mt-1 text-sm text-muted-foreground">
+          <p className="mt-1 text-base text-muted-foreground">
             생성된 글을 확인하고 품질 검증 결과를 검토하세요
           </p>
         </div>
@@ -404,11 +572,11 @@ export function StepGenerate({
       </div>
 
       <div className="flex flex-col gap-6 lg:flex-row">
-        {/* Left: Content Preview (60%) */}
-        <div className="flex-[3]">
+        {/* Left: Content Preview (약 66%, 주) */}
+        <div className="flex-[2]">
           <Card className="h-full">
             <CardHeader>
-              <CardTitle className="flex items-center gap-2 text-sm">
+              <CardTitle className="flex items-center gap-2 text-base">
                 <FileText className="h-4 w-4" />
                 생성된 글
               </CardTitle>
@@ -433,7 +601,7 @@ export function StepGenerate({
               )}
 
               {content && (
-                <ScrollArea className="h-[500px] pr-4">
+                <ScrollArea className="h-[calc(100dvh-18rem)] min-h-[560px] max-h-[900px] pr-4">
                   <div>
                     {isLoading && (
                       <div className="mb-3 flex items-center gap-2 text-xs text-muted-foreground">
@@ -455,6 +623,14 @@ export function StepGenerate({
                             .map((s) => s.index)
                         )
                       }
+                      editable={{
+                        imageSlots,
+                        userPhotosBySlot,
+                        isGeneratingBySlot,
+                        onUserPhotoChange,
+                        onGenerateSlotAI,
+                        onTransformSlot,
+                      }}
                     />
                   </div>
                 </ScrollArea>
@@ -463,12 +639,12 @@ export function StepGenerate({
           </Card>
         </div>
 
-        {/* Right: Quality Panel (40%) */}
-        <div className="flex-[2]">
+        {/* Right: Quality Panel (약 33%, 보조 사이드) */}
+        <div className="flex-[1]">
           <Card className="h-full">
             <CardHeader>
               <div className="flex items-center justify-between">
-                <CardTitle className="flex items-center gap-2 text-sm">
+                <CardTitle className="flex items-center gap-2 text-base">
                   <BarChart3 className="h-4 w-4" />
                   품질 검증
                 </CardTitle>
@@ -692,7 +868,7 @@ export function StepGenerate({
           <Card>
             <CardHeader>
               <div className="flex items-center justify-between">
-                <CardTitle className="flex items-center gap-2 text-sm">
+                <CardTitle className="flex items-center gap-2 text-base">
                   <ImageIcon className="h-4 w-4" />
                   이미지 슬롯
                   <Badge variant="outline" className="ml-2 text-[10px]">
@@ -732,6 +908,8 @@ export function StepGenerate({
                     isGenerating={
                       !!isGeneratingBySlot[slot.id] || isImageGenerating
                     }
+                    content={content}
+                    customPrompt={customPromptsBySlot[slot.id]}
                     onUserPhotoChange={(p) => onUserPhotoChange(slot.id, p)}
                     onInstructionChange={(instr) =>
                       onUserInstructionChange(slot.id, instr)
@@ -739,6 +917,9 @@ export function StepGenerate({
                     onToggleExcluded={(excl) => onToggleExcluded(slot.id, excl)}
                     onGenerateAI={() => onGenerateSlotAI(slot.id)}
                     onTransform={() => onTransformSlot(slot.id)}
+                    onCustomPromptChange={(prompt) =>
+                      onCustomPromptChange(slot.id, prompt)
+                    }
                   />
                 ))}
               </div>

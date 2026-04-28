@@ -175,6 +175,7 @@ class NaverBlogPublisher:
         self.page: Page | None = None
         self.editor_frame: Frame | None = None
         self._image_failures: int = 0
+        self._heading_count: int = 0
 
     # ===== 사람 흉내내기 =====
     async def _human_pause(self, min_ms: int = 500, max_ms: int = 2000):
@@ -460,13 +461,14 @@ class NaverBlogPublisher:
     async def _dismiss_popups(self, frame: Frame) -> bool:
         """iframe 안팎 양쪽에서 팝업 탐색 + dim 레이어 폴백"""
 
+        # ⚠️ 광역 selector 'button:has-text("취소")' 제거됨 (2026-04-26).
+        # 이유: :has-text("취소")는 부분 매칭이라 SmartEditor 툴바의 "취소선" 버튼도 매칭되어
+        #      본문 입력 전에 취소선 모드가 ON 되는 부수효과가 있었음.
+        # 팝업의 취소 버튼은 .se-popup-button-cancel 클래스로 명확히 식별 가능.
         cancel_selectors = [
             '.se-popup-alert-confirm button.se-popup-button-cancel',
             '.se-popup-alert button.se-popup-button-cancel',
             'button.se-popup-button-cancel',
-            '.se-popup-container button:has-text("취소")',
-            '.se-popup-alert button:has-text("취소")',
-            'button:has-text("취소")',
         ]
 
         # iframe + page 양쪽에서 찾기
@@ -496,7 +498,9 @@ class NaverBlogPublisher:
 
         return False
 
-    # ===== 인용구 커서 가드 시스템 (App_blog_auto2 이식) =====
+    # ===== [DEPRECATED 2026-04-26] 옛 인용구 커서 가드 시스템 (App_blog_auto2 이식) =====
+    # publish()는 새 _input_body / _exit_quotation / _click_below_component 를 사용.
+    # 이 영역의 가드 함수들은 모두 미호출 (dead code). 롤백 시 활성화.
 
     async def _is_cursor_in_quote(self, frame: Frame) -> bool:
         """현재 편집 컨텍스트가 .se-component.se-quotation 내부인지 확인.
@@ -953,9 +957,10 @@ class NaverBlogPublisher:
         except Exception as e:
             print(f"  ⚠ 스토리지 정리 실패(무시): {e}")
 
-    # ===== 소제목 인용구 삽입 (App_blog_auto2 체계) =====
-    async def _insert_heading(self, frame: Frame, text: str, quote_style: str = "line"):
-        """소제목을 SmartEditor ONE 인용구 위젯으로 삽입.
+    # ===== [DEPRECATED 2026-04-26] 옛 소제목 인용구 삽입 (App_blog_auto2 체계) =====
+    # publish()는 새 _insert_heading (App_blog_auto3 이식 버전)을 사용. 롤백 시 활성화.
+    async def _OLD_insert_heading(self, frame: Frame, text: str, quote_style: str = "line"):
+        """[DEPRECATED 2026-04-26] 옛 인용구 삽입 (키보드 typing 방식, 불안정).
 
         1) 인용구 버튼 클릭 → 빈 위젯 생성 (커서가 인용구 안에 위치)
         2) keyboard.type() 로 텍스트 입력 (SmartEditor React state 정상 반영)
@@ -1005,8 +1010,8 @@ class NaverBlogPublisher:
             await self._human_type(text, min_delay=5, max_delay=12)
             await self.page.keyboard.press("Enter")
 
-    async def _exit_quotation(self, frame: Frame):
-        """인용구 밖으로 커서 탈출. 3단계 폴백."""
+    async def _OLD_exit_quotation(self, frame: Frame):
+        """[DEPRECATED 2026-04-26] 옛 인용구 밖 탈출 (3단계 폴백). publish() 미사용."""
         try:
             quotations = await frame.query_selector_all(".se-component.se-quotation")
             if quotations:
@@ -1041,8 +1046,10 @@ class NaverBlogPublisher:
         await asyncio.sleep(0.2)
         return False
 
-    async def _change_quotation_style(self, frame: Frame, style: str):
-        """SmartEditor의 속성 툴바 버튼 클릭으로 인용구 스타일 변경.
+    async def _OLD_change_quotation_style(self, frame: Frame, style: str):
+        """[DEPRECATED 2026-04-26] 옛 스타일 변경 (툴바 클릭). publish() 미사용.
+
+        SmartEditor의 속성 툴바 버튼 클릭으로 인용구 스타일 변경.
 
         시도 1: 마지막 인용구 클릭 → wait_for_selector로 레이아웃 버튼 대기 → 클릭
                 (SmartEditor 내부 상태 정상 반영)
@@ -1150,6 +1157,8 @@ class NaverBlogPublisher:
 
     # ===== 본문 입력 (iframe 내, App_blog_auto3 셀렉터) =====
     async def _type_content(self, content: str):
+        """[DEPRECATED 2026-04-26] 옛 본문 입력 (이미지 없는 케이스).
+        publish()는 _input_body (App_blog_auto3) 사용. 롤백 시 활성화."""
         frame = self.editor_frame
         if not frame:
             raise RuntimeError("에디터 iframe이 없습니다.")
@@ -1261,7 +1270,8 @@ class NaverBlogPublisher:
         text = re.sub(r"\*(.*?)\*", r"\1", text)
         return text
 
-    # ===== 본문 + 이미지 삽입 (마커 자리에 이미지 업로드) =====
+    # ===== [DEPRECATED 2026-04-26] 옛 본문 + 이미지 즉시변환 방식 =====
+    # publish()는 _input_body (App_blog_auto3) 사용. 롤백 시 활성화.
     async def _type_content_with_images(
         self,
         content: str,
@@ -1438,7 +1448,10 @@ class NaverBlogPublisher:
         image_slots: list[dict] | None,
         frame: Frame,
     ) -> list[dict]:
-        """Phase 1: 본문 전체를 일반 텍스트로 입력. 소제목도 인용구 없이 타이핑.
+        """[DEPRECATED 2026-04-26] Phase 1+2 방식은 SmartEditor ONE 인용구 변환 미동작으로 폐기.
+        publish()는 _type_content_with_images / _type_content 를 사용. 롤백 시 활성화.
+
+        Phase 1: 본문 전체를 일반 텍스트로 입력. 소제목도 인용구 없이 타이핑.
 
         인용구 버튼을 전혀 누르지 않으므로 커서 exit 문제가 원천 차단된다.
         소제목 정보는 heading_records로 반환하여 Phase 2에서 인용구로 변환한다.
@@ -1553,11 +1566,10 @@ class NaverBlogPublisher:
                     self._theme, has_image_after, heading_index, explicit_style
                 )
 
-                # 소제목 전 여백
-                await self.page.keyboard.press("Enter")
-                await asyncio.sleep(0.1)
-                await self.page.keyboard.press("Enter")
-                await asyncio.sleep(0.1)
+                # 섹션 경계 — 소제목 앞 Enter x4 (빈 블록 4개로 이전 섹션과 확실히 구분)
+                for _ in range(4):
+                    await self.page.keyboard.press("Enter")
+                    await asyncio.sleep(0.08)
 
                 # 소제목을 그냥 일반 텍스트로 타이핑
                 await self._human_type(heading_text, min_delay=30, max_delay=70)
@@ -1574,10 +1586,12 @@ class NaverBlogPublisher:
                 # 일반 본문 텍스트
                 await self._human_type(line, min_delay=30, max_delay=90)
 
-            # 다음 줄로 — 이미지 마커와 소제목이 아닌 경우만 Enter
+            # 다음 줄로 — 이미지 마커/소제목/빈 줄이 아닌 경우만 Enter
+            # (빈 줄 스킵: 섹션 경계는 소제목 앞 Enter x4 로만 표현, 원본의 \n\n 은 무시)
             is_special = bool(m) or bool(heading_m)
+            is_empty = not stripped
             if i < len(lines) - 1:
-                if not is_special:
+                if not is_special and not is_empty:
                     await self.page.keyboard.press("Enter")
                     await self.page.wait_for_timeout(random.randint(80, 250))
 
@@ -1592,7 +1606,10 @@ class NaverBlogPublisher:
     async def _convert_headings_phase2(
         self, frame: Frame, heading_records: list[dict]
     ) -> None:
-        """Phase 2: 입력 완료 후, 소제목 paragraph를 인용구 위젯으로 역순 변환.
+        """[DEPRECATED 2026-04-26] Phase 1+2 방식은 SmartEditor ONE 인용구 변환 미동작으로 폐기.
+        publish()는 _type_content_with_images / _type_content 를 사용. 롤백 시 활성화.
+
+        Phase 2: 입력 완료 후, 소제목 paragraph를 인용구 위젯으로 역순 변환.
 
         역순 처리 이유: 마지막 소제목부터 변환하면, 커서가 인용구 안에 남아도
         다음 소제목(위쪽)에 영향 없음. exit 메커니즘이 불필요해진다.
@@ -1688,7 +1705,9 @@ class NaverBlogPublisher:
         print(f"  ✓ Phase2 완료: 인용구 변환 종료")
 
     async def _apply_style_to_last_quotation(self, frame: Frame, style: str) -> None:
-        """방금 생성/변환된 인용구의 스타일을 변경한다."""
+        """[DEPRECATED 2026-04-26] Phase 2 전용 헬퍼. publish() 미사용. 롤백 시 활성화.
+
+        방금 생성/변환된 인용구의 스타일을 변경한다."""
         style_value_map = {
             "line": "quotation_line",
             "bubble": "quotation_bubble",
@@ -1748,8 +1767,8 @@ class NaverBlogPublisher:
             print(f"      ⚠ 스타일 변경 실패: {str(e)[:60]}")
 
     # ===== SmartEditor ONE 이미지 업로드 =====
-    async def _insert_image(self, frame: Frame, image_path: Path):
-        """단일 이미지를 에디터에 삽입."""
+    async def _OLD_insert_image(self, frame: Frame, image_path: Path):
+        """[DEPRECATED 2026-04-26] 옛 단일 이미지 삽입. publish() 미사용 (새 _insert_image 사용)."""
         if not self.page:
             return
         try:
@@ -1778,10 +1797,10 @@ class NaverBlogPublisher:
         except Exception as e:
             raise RuntimeError(f"이미지 삽입 실패 ({image_path.name}): {e}")
 
-    async def _insert_image_pair(
+    async def _OLD_insert_image_pair(
         self, frame: Frame, path1: Path, path2: Path
     ):
-        """두 이미지를 한 번에 업로드 (나란히 배치 유도). 실패 시 순차 업로드로 폴백."""
+        """[DEPRECATED 2026-04-26] 옛 페어 이미지 삽입. publish() 미사용 (페어 → 위아래 단일로 폴백)."""
         if not self.page:
             return
         try:
@@ -1812,6 +1831,674 @@ class NaverBlogPublisher:
                 await self._insert_image(frame, path2)
             except Exception as e2:
                 raise RuntimeError(f"페어 이미지 삽입 실패: {e2}")
+
+    # ============================================================
+    # ===== 본문 입력 시스템 (App_blog_auto3 이식, 2026-04-26) =====
+    # ============================================================
+    # 검증된 발행 봇(BlogPublisher.app으로 빌드된 App_blog_auto3)의
+    # 본문 입력 로직을 통째로 이식한 영역.
+    #
+    # 핵심 노하우:
+    # 1) 인용구 텍스트는 키보드 typing이 아닌 JS DOM 직접 조작
+    #    (span.textContent + placeholder 제거 + se-is-empty 클래스 제거 + InputEvent dispatch)
+    # 2) 스타일 변경은 인용구 exit 후에 적용 (exit 전이면 SmartEditor 재렌더로 텍스트 초기화)
+    # 3) className만 변경, change 이벤트 dispatch 금지 (재렌더 방지)
+    # 4) 가독성: _split_for_readability로 3문장마다 자동 빈 줄
+    # ============================================================
+
+    async def _insert_empty_line(self):
+        """빈 줄(Enter) 1번"""
+        if not self.page:
+            return
+        await self.page.keyboard.press("Enter")
+        await asyncio.sleep(0.1)
+
+    async def _is_editor_alive(self, frame: Frame) -> bool:
+        """SmartEditor가 살아있는지(frame이 detach되지 않고 .se-content가 존재하는지) 확인.
+
+        흰 화면(chrome-error://chromewebdata/) 사고 방지용 health check.
+        """
+        try:
+            result = await frame.evaluate(
+                "() => document.querySelector('.se-content') !== null"
+            )
+            return bool(result)
+        except Exception:
+            return False
+
+    async def _exit_quotation(self, frame: Frame):
+        """인용구 밖으로 나가기 — 인용구 바로 아래에 커서 배치.
+
+        핵심: 마지막 paragraph가 아닌, 현재 인용구 컴포넌트의 바로 아래로 이동.
+        방법: 인용구 컴포넌트의 bounding box 아래쪽을 클릭.
+        """
+        try:
+            quotations = await frame.query_selector_all('.se-component.se-quotation')
+            if quotations:
+                last_quote = quotations[-1]
+                box = await last_quote.bounding_box()
+                if box:
+                    click_x = box["x"] + box["width"] * 0.5
+                    click_y = box["y"] + box["height"] + 20
+                    await self.page.mouse.click(click_x, click_y)
+                    await asyncio.sleep(0.5)
+                    return True
+        except Exception:
+            pass
+
+        try:
+            content_area = await frame.query_selector('.se-content')
+            if content_area:
+                box = await content_area.bounding_box()
+                if box:
+                    click_x = box["x"] + box["width"] * 0.5
+                    click_y = box["y"] + box["height"] - 10
+                    await self.page.mouse.click(click_x, click_y)
+                    await asyncio.sleep(0.5)
+                    return True
+        except Exception:
+            pass
+
+        # 최종 폴백: ArrowDown 반복으로 이동
+        for _ in range(5):
+            await self.page.keyboard.press("ArrowDown")
+            await asyncio.sleep(0.1)
+        await self.page.keyboard.press("End")
+        await asyncio.sleep(0.2)
+        return False
+
+    async def _click_below_component(self, frame: Frame):
+        """현재 컴포넌트(이미지/구분선 등) 아래로 커서 이동"""
+        try:
+            content_area = await frame.query_selector('.se-content')
+            if content_area:
+                box = await content_area.bounding_box()
+                if box:
+                    click_x = box["x"] + box["width"] * 0.5
+                    click_y = box["y"] + box["height"] - 10
+                    await self.page.mouse.click(click_x, click_y)
+                    await asyncio.sleep(0.5)
+                    return
+        except Exception:
+            pass
+        for _ in range(3):
+            await self.page.keyboard.press("ArrowDown")
+            await asyncio.sleep(0.1)
+        await self.page.keyboard.press("End")
+
+    async def _change_quotation_style(self, frame: Frame, style: str):
+        """삽입된 인용구의 스타일을 JavaScript로 변경.
+
+        네이버 SmartEditor ONE 인용구 6종 (postit 추가):
+        - default: 큰따옴표
+        - quotation_bubble: 말풍선
+        - quotation_line: 세로선
+        - quotation_underline: 밑줄
+        - quotation_corner: 모서리 꺾쇠
+        - quotation_postit: 포스트잇
+
+        ★ 핵심: className만 변경. change 이벤트 보내면 SmartEditor가 재렌더링하며 텍스트 초기화됨.
+        """
+        style_class_map = {
+            "default": "se-l-default",
+            "bubble": "se-l-quotation_bubble",
+            "line": "se-l-quotation_line",
+            "underline": "se-l-quotation_underline",
+            "corner": "se-l-quotation_corner",
+            "postit": "se-l-quotation_postit",
+        }
+        target_class = style_class_map.get(style, "se-l-default")
+        if target_class == "se-l-default":
+            return  # 기본 스타일이면 변경 불필요
+
+        result = await frame.evaluate(f"""
+            () => {{
+                const quotes = document.querySelectorAll('.se-component.se-quotation');
+                const q = quotes[quotes.length - 1];
+                if (!q) return 'no quotation';
+
+                // 컴포넌트 래퍼의 레이아웃 클래스만 변경 (이벤트 디스패치 금지!)
+                // change 이벤트를 보내면 SmartEditor가 재렌더링하며 텍스트가 초기화됨
+                q.className = q.className.replace(/se-l-[\\w]+/, '{target_class}');
+
+                return 'ok';
+            }}
+        """)
+        if result == 'ok':
+            print(f"      스타일 변경: {style}")
+        else:
+            print(f"      ⚠ 스타일 변경 실패({result})")
+
+    # ============================================================
+    # ===== 인용구 위젯 삽입 — 4중 안전망 (2026-04-26 강화) =====
+    # ============================================================
+    # 빈 인용구("내용을 입력하세요." placeholder 노출) 문제 4가지 원인 대응:
+    # 1) quotes[length-1] race condition → 클릭 전후 개수 폴링으로 신규 인용구 확정
+    # 2) JS textContent 주입이 React state와 미동기화 → 공백+백스페이스로 강제 onInput 트리거
+    # 3) 검증 단계 부재 → 주입 후 textContent 재확인, isEmpty 클래스 확인
+    # 4) silent failure → 검증 실패 시 마지막 인용구 클릭 + 키보드 typing 폴백
+    # ============================================================
+
+    async def _insert_quotation_with_text(
+        self, frame: Frame, text: str, label: str = "인용구"
+    ) -> bool:
+        """[DEPRECATED 2026-04-26] 인용구 위젯 시도 자체를 폐기.
+        publish()는 굵은 글씨 방식 사용 (_insert_heading/_insert_quote 단순화 버전).
+        롤백 시 활성화. 미호출.
+
+        인용구 위젯 + 텍스트 주입 + 검증 + 키보드 폴백.
+
+        Returns: True (성공) / False (인용구 위젯 자체 미생성 — 호출부에서 볼드 폴백 필요)
+        """
+        # ─── 1단계: race 방지 — 클릭 전 인용구 개수 기록 ───
+        before_count = await frame.evaluate(
+            "() => document.querySelectorAll('.se-component.se-quotation').length"
+        )
+
+        # ─── 2단계: 인용구 버튼 클릭 ───
+        quote_btn = await frame.query_selector('button[data-name="quotation"]')
+        if not quote_btn:
+            quote_btn = await frame.query_selector('button.se-toolbar-button-quotation')
+        if not quote_btn:
+            print(f"    ⚠ {label} 인용구 버튼 없음")
+            return False
+
+        try:
+            await quote_btn.click(timeout=5000)
+        except Exception as e:
+            print(f"    ⚠ {label} 인용구 버튼 클릭 실패: {str(e)[:60]}")
+            return False
+
+        # ─── 3단계: 새 인용구 DOM 추가될 때까지 폴링 (최대 4초) ───
+        added = False
+        for _ in range(20):
+            await asyncio.sleep(0.2)
+            cur_count = await frame.evaluate(
+                "() => document.querySelectorAll('.se-component.se-quotation').length"
+            )
+            if cur_count == before_count + 1:
+                added = True
+                break
+        if not added:
+            print(f"    ⚠ {label} 새 인용구 DOM 추가 안 됨 (race)")
+            # 실패해도 마지막 인용구에 키보드 폴백 시도 (이전 인용구 덮어쓰지 않으려면 위험하므로 fail)
+            return False
+
+        # ─── 4단계: JS DOM 직접 주입 ───
+        escaped = text.replace("\\", "\\\\").replace("'", "\\'")
+        inject = await frame.evaluate(f"""
+            () => {{
+                const quotes = document.querySelectorAll('.se-component.se-quotation');
+                const q = quotes[quotes.length - 1];
+                if (!q) return 'no_q';
+                const span = q.querySelector('.se-quote .se-text-paragraph span.__se-node');
+                if (!span) return 'no_span';
+                span.textContent = '{escaped}';
+                const ph = q.querySelector('.se-quote .se-placeholder');
+                if (ph) ph.remove();
+                const mod = q.querySelector('.se-quote');
+                if (mod) mod.classList.remove('se-is-empty');
+                const para = q.querySelector('.se-quote .se-text-paragraph');
+                if (para) para.dispatchEvent(new InputEvent('input', {{bubbles:true, inputType:'insertText', data:'{escaped}'}}));
+                return 'ok';
+            }}
+        """)
+
+        if inject != 'ok':
+            print(f"    ⚠ {label} JS 주입 실패({inject}) → 키보드 폴백")
+            return await self._fallback_keyboard_into_last_quote(frame, text, label)
+
+        # ─── 5단계 [REMOVED 2026-04-26]: React state 강제 갱신 (공백+Backspace) ───
+        # 이전 시도: keyboard.type(' ') + keyboard.press('Backspace')
+        # 제거 사유: SmartEditor가 reconciliation 중인 상태에서 Backspace 입력이 들어가
+        #          인용구 컴포넌트를 unmount → 페이지 reload 유발 (흰 화면 사고)
+        # 대신: React reconciliation이 끝날 때까지 충분히 대기 (1초)
+        await asyncio.sleep(1.0)
+
+        # ─── 6단계: 검증 — 진짜로 텍스트가 있고 isEmpty가 아닌지 ───
+        verify_json = await frame.evaluate("""
+            () => {
+                const quotes = document.querySelectorAll('.se-component.se-quotation');
+                const q = quotes[quotes.length - 1];
+                if (!q) return JSON.stringify({text: '', isEmpty: true});
+                const para = q.querySelector('.se-quote .se-text-paragraph');
+                const t = para ? (para.textContent || '').trim() : '';
+                const mod = q.querySelector('.se-quote');
+                const isEmpty = mod ? mod.classList.contains('se-is-empty') : true;
+                return JSON.stringify({text: t, isEmpty: isEmpty});
+            }
+        """)
+
+        import json as _json
+        try:
+            verify = _json.loads(verify_json) if verify_json else {"text": "", "isEmpty": True}
+        except Exception:
+            verify = {"text": "", "isEmpty": True}
+
+        if not verify.get("text") or verify.get("isEmpty"):
+            print(f"    ⚠ {label} 검증 실패 (text={verify.get('text', '')[:20]!r}, isEmpty={verify.get('isEmpty')}) → 키보드 폴백")
+            return await self._fallback_keyboard_into_last_quote(frame, text, label)
+
+        return True
+
+    async def _fallback_keyboard_into_last_quote(
+        self, frame: Frame, text: str, label: str = "인용구"
+    ) -> bool:
+        """[DEPRECATED 2026-04-26] 인용구 위젯 폐기로 미호출. 롤백 시 활성화.
+
+        마지막 인용구 클릭 → 실제 키보드 타이핑 (React onInput 정상 트리거).
+        Meta+A + Delete 제거됨: 페이지 전체 selection 위험.
+        """
+        try:
+            quotations = await frame.query_selector_all('.se-component.se-quotation')
+            if not quotations:
+                print(f"    ⚠ {label} 키보드 폴백: 인용구 노드 없음")
+                return False
+            last_q = quotations[-1]
+            # 인용구 안의 paragraph 직접 클릭 (focus 보장)
+            target = await last_q.query_selector('.se-quote .se-text-paragraph')
+            if target is None:
+                target = last_q
+            await target.click()
+            await asyncio.sleep(0.3)
+            # 실제 키보드 타이핑만 수행 (Meta+A + Delete 제거 — 페이지 깨뜨림 위험)
+            await self.page.keyboard.type(text, delay=random.randint(10, 25))
+            await asyncio.sleep(0.3)
+            print(f"    ✓ {label}(키보드 폴백): {text[:30]}...")
+            return True
+        except Exception as e:
+            print(f"    ⚠ {label} 키보드 폴백 실패: {str(e)[:60]}")
+            return False
+
+    # ============================================================
+    # ===== 인용구 위젯 단순 시도 (Phase 1 — 첫 번째 소제목 1개만) =====
+    # ============================================================
+
+    async def _try_quotation_widget(
+        self, frame: Frame, text: str, quote_style: str = "line"
+    ) -> bool:
+        """인용구 위젯 1회 시도 (단순/안전 버전).
+
+        Returns:
+            True: 인용구 박스에 텍스트 정상 입력됨
+            False: 어떤 단계에서 실패 — 호출부에서 굵은 글씨 폴백 필요
+
+        안전 보장:
+        - 위험 키 (Backspace/Meta+A/Delete) 절대 사용 안 함 → 페이지 안 깨뜨림
+        - frame.evaluate 호출 최소 (count, polling, inject, verify)
+        - 검증은 read-only DOM 쿼리만
+        - 실패 후에도 페이지 살아있어 굵은 글씨 폴백 가능
+        """
+        # 1. 클릭 전 인용구 개수 (race 방지)
+        before = await frame.evaluate(
+            "() => document.querySelectorAll('.se-component.se-quotation').length"
+        )
+
+        # 2. 인용구 버튼 클릭
+        btn = await frame.query_selector('button[data-name="quotation"]')
+        if not btn:
+            print(f"      [try_quote] 인용구 버튼 없음")
+            return False
+        try:
+            await btn.click(timeout=3000)
+        except Exception as e:
+            print(f"      [try_quote] 버튼 클릭 실패: {str(e)[:60]}")
+            return False
+
+        # 3. 새 인용구 추가 폴링 (최대 3초, 0.3초 간격)
+        added = False
+        for _ in range(10):
+            await asyncio.sleep(0.3)
+            cur = await frame.evaluate(
+                "() => document.querySelectorAll('.se-component.se-quotation').length"
+            )
+            if cur == before + 1:
+                added = True
+                break
+        if not added:
+            print(f"      [try_quote] 새 인용구 DOM 추가 안 됨 (race)")
+            return False
+
+        # 4. JS 텍스트 주입 (App_blog_auto3 검증 패턴)
+        escaped = text.replace("\\", "\\\\").replace("'", "\\'")
+        inject_ok = await frame.evaluate(f"""
+            () => {{
+                const quotes = document.querySelectorAll('.se-component.se-quotation');
+                const q = quotes[quotes.length - 1];
+                if (!q) return false;
+                const span = q.querySelector('.se-quote .se-text-paragraph span.__se-node');
+                if (!span) return false;
+                span.textContent = '{escaped}';
+                const ph = q.querySelector('.se-quote .se-placeholder');
+                if (ph) ph.remove();
+                const mod = q.querySelector('.se-quote');
+                if (mod) mod.classList.remove('se-is-empty');
+                const para = q.querySelector('.se-quote .se-text-paragraph');
+                if (para) para.dispatchEvent(new InputEvent('input', {{
+                    bubbles:true, inputType:'insertText', data:'{escaped}'
+                }}));
+                return true;
+            }}
+        """)
+        if not inject_ok:
+            print(f"      [try_quote] JS 주입 실패")
+            return False
+
+        # 5. React 동기화 대기 (위험 키 없이 그냥 1.5초 대기)
+        await asyncio.sleep(1.5)
+
+        # 6. 검증 (read-only)
+        has_text = await frame.evaluate("""
+            () => {
+                const quotes = document.querySelectorAll('.se-component.se-quotation');
+                const q = quotes[quotes.length - 1];
+                if (!q) return false;
+                const para = q.querySelector('.se-quote .se-text-paragraph');
+                const t = para ? (para.textContent || '').trim() : '';
+                return t.length > 0;
+            }
+        """)
+        if not has_text:
+            print(f"      [try_quote] 검증 실패 — 인용구 비어있음")
+            return False
+
+        # 7. exit + 스타일 변경
+        try:
+            await self._exit_quotation(frame)
+            await asyncio.sleep(0.3)
+            await self._change_quotation_style(frame, quote_style)
+            await asyncio.sleep(0.3)
+        except Exception as e:
+            print(f"      [try_quote] exit/style 실패: {str(e)[:60]}")
+            return False
+
+        # 8. health check (페이지 살아있는지 최종 확인)
+        if not await self._is_editor_alive(frame):
+            print(f"      [try_quote] health check 실패 — 페이지 깨짐 감지")
+            return False
+
+        return True
+
+    async def _insert_heading(self, frame: Frame, text: str, quote_style: str = "line"):
+        """소제목 삽입 — Phase 2: 모든 소제목에 대해 독립적으로 인용구 박스 시도.
+
+        ★ 2026-04-28 Phase 2 도입:
+          - 모든 소제목에 인용구 박스 시도 (Phase 1의 첫 소제목 게이트 제거)
+          - 각 시도는 독립적: 한 곳이 실패해도 그 소제목만 굵은 글씨 폴백,
+            다음 소제목은 다시 인용구 시도
+          - `_try_quotation_widget` 자체가 위험 키 미사용 + health check 내장으로
+            매 시도가 페이지 안전을 자체 보장
+        """
+        # 소제목 전 여백
+        await self._insert_empty_line()
+        await self._insert_empty_line()
+
+        # ─── 모든 소제목에 대해 독립적으로 인용구 박스 시도 ───
+        success = await self._try_quotation_widget(frame, text, quote_style)
+        if success:
+            print(f"    ✓ 소제목 #{self._heading_count + 1}(인용구/{quote_style}): {text[:30]}...")
+            self._heading_count += 1
+            return
+
+        # ─── 실패 시 그 소제목만 굵은 글씨 폴백 (다음 소제목은 다시 시도) ───
+        print(f"    ⚠ 소제목 #{self._heading_count + 1} 인용구 실패 → 굵은 글씨 폴백: {text[:30]}")
+        await self.page.keyboard.press("Meta+b")
+        await asyncio.sleep(0.1)
+        await self._human_type(text, min_delay=5, max_delay=12)
+        await asyncio.sleep(0.2)
+        await self.page.keyboard.press("Meta+b")
+        await asyncio.sleep(0.1)
+        await self.page.keyboard.press("Enter")
+        await self._insert_empty_line()
+        self._heading_count += 1
+
+    async def _insert_quote(self, frame: Frame, text: str, quote_style: str = "default"):
+        """본문 인용구 삽입 — 굵은 글씨 + 위아래 여백 (안정성 우선).
+
+        ★ 2026-04-26: _insert_heading과 동일 이유로 인용구 위젯 미사용.
+        quote_style 인자는 호환성 위해 받지만 사용 안 함.
+        """
+        # 위아래 여백으로 시각적 분리
+        await self._insert_empty_line()
+        await self._insert_empty_line()
+
+        # 굵은 글씨로 강조
+        await self.page.keyboard.press("Meta+b")
+        await asyncio.sleep(0.1)
+        await self._human_type(text, min_delay=5, max_delay=12)
+        await asyncio.sleep(0.2)
+        await self.page.keyboard.press("Meta+b")
+        await asyncio.sleep(0.1)
+        await self.page.keyboard.press("Enter")
+
+        # 인용구 후 여백
+        await self._insert_empty_line()
+
+        print(f"    ✓ 인용구(굵은 글씨): {text[:30]}...")
+
+    async def _insert_image(self, frame: Frame, image_path: Path):
+        """이미지 삽입 + 전후 여백 (App_blog_auto3 방식)"""
+        await self._insert_empty_line()
+
+        try:
+            img_btn = await frame.query_selector('button[data-name="image"]')
+            if not img_btn:
+                img_btn = await frame.query_selector("button.se-image-toolbar-button")
+
+            if img_btn:
+                async with self.page.expect_file_chooser(timeout=10000) as fc_info:
+                    await img_btn.click()
+                file_chooser = await fc_info.value
+                await file_chooser.set_files(str(image_path))
+                await asyncio.sleep(3)
+
+                # 이미지 삽입 후 본문 영역으로 돌아가기
+                await self._click_below_component(frame)
+                print(f"    ✓ 이미지: {image_path.name}")
+            else:
+                print("    ⚠ 이미지 버튼 없음")
+                self._image_failures += 1
+        except Exception as e:
+            print(f"    ⚠ 이미지 실패: {e}")
+            self._image_failures += 1
+
+        await self._insert_empty_line()
+
+    async def _insert_horizontal_rule(self, frame: Frame):
+        """구분선(수평선) 삽입 — 빈 줄 3개로 시각적 섹션 구분"""
+        await self._insert_empty_line()
+        await self._insert_empty_line()
+        await self._insert_empty_line()
+        print("    ✓ 구분선 (섹션 구분 여백)")
+
+    def _split_for_readability(self, text: str) -> list[str]:
+        """가독성 기반 줄바꿈 분리.
+
+        규칙 (우선순위 순):
+        1. 마침표/느낌표/물음표 뒤 → 줄바꿈
+        2. 구어체 종결(~요, ~죠, ~거든, ~는데, ~음, ~임) 뒤 공백 → 줄바꿈
+        3. 20자 이상 진행 후 쉼표(,) → 줄바꿈
+        4. 5자 미만 조각은 앞 줄에 병합
+        """
+        # 1차: 마침표/느낌표/물음표 뒤 공백 기준 분리
+        chunks = re.split(r'(?<=[.!?])\s+', text)
+
+        # 2차: 각 조각에서 구어체 종결어미 뒤 공백 기준 추가 분리
+        ENDINGS = (
+            '거든요', '잖아요', '했어요', '됐어요', '같아요', '봤어요',
+            '있어요', '없어요', '했는데', '인데요', '는데요', '든요',
+            '거든', '잖아', '죠',
+        )
+        expanded = []
+        for chunk in chunks:
+            parts = []
+            remaining = chunk
+            while remaining:
+                best_pos = -1
+                for ending in ENDINGS:
+                    idx = remaining.find(ending)
+                    if idx >= 0:
+                        end_pos = idx + len(ending)
+                        if end_pos < len(remaining) and remaining[end_pos] == ' ':
+                            if best_pos < 0 or end_pos < best_pos:
+                                best_pos = end_pos
+                if best_pos >= 0:
+                    parts.append(remaining[:best_pos].strip())
+                    remaining = remaining[best_pos:].strip()
+                else:
+                    parts.append(remaining.strip())
+                    break
+            expanded.extend(p for p in parts if p)
+
+        # 3차: 긴 조각(20자 이상)에서 쉼표 뒤 공백 기준 추가 분리
+        result = []
+        for chunk in expanded:
+            if len(chunk) >= 20 and ',' in chunk:
+                sub_parts = re.split(r',\s+', chunk)
+                rebuilt = []
+                for j, sp in enumerate(sub_parts):
+                    if j < len(sub_parts) - 1:
+                        rebuilt.append(sp + ',')
+                    else:
+                        rebuilt.append(sp)
+                merged = []
+                for sp in rebuilt:
+                    if merged and len(sp.strip()) < 5:
+                        merged[-1] = merged[-1] + ' ' + sp
+                    else:
+                        merged.append(sp)
+                result.extend(merged)
+            else:
+                result.append(chunk)
+
+        # 4차: 빈 문자열 제거 + 최종 5자 미만 병합
+        final = []
+        for line in result:
+            line = line.strip()
+            if not line:
+                continue
+            if final and len(line) < 5:
+                final[-1] = final[-1] + ' ' + line
+            else:
+                final.append(line)
+
+        return final if final else [text]
+
+    async def _input_body(self, frame: Frame, blocks, image_paths: list[Path]):
+        """본문 블록별 입력 — App_blog_auto3 검증 로직.
+
+        blocks: parse_markdown()이 반환한 ContentBlock 리스트
+        image_paths: 마커 순서대로 정렬된 이미지 파일 경로 리스트
+
+        참조 블로그 패턴: 소제목(인용구) → 빈줄 → 이미지 → 빈줄 → 본문 2~3줄 → 빈줄 반복
+
+        ★ 본문 입력 전: _reset_editor_format으로 취소선/볼드 등 토글 OFF
+          이전 세션 잔여 서식(특히 _dismiss_popups가 잘못 누른 취소선) 정화
+        ★ 본문 입력 후: _cleanup_body_strikethrough로 DOM에 남은 취소선 제거
+        """
+        # ContentBlock 임포트 (지연 임포트로 순환 참조 방지)
+        from core.markdown_converter import BlockType
+
+        # ★ 본문 입력 전 서식 초기화 (App_blog_auto3 원본 패턴 — 취소선 ON 방어)
+        await self._reset_editor_format(frame)
+
+        # 본문 영역 포커스 (App_blog2 방식 — 검증된 본문 클릭 로직)
+        body_area = await frame.query_selector(".se-sections .se-text-paragraph")
+        if not body_area:
+            body_area = await frame.evaluate_handle("""
+                () => {
+                    const all = document.querySelectorAll('.se-text-paragraph');
+                    for (const el of all) {
+                        if (!el.closest('.se-documentTitle')) return el;
+                    }
+                    return null;
+                }
+            """)
+        if body_area:
+            try:
+                await body_area.click()
+            except Exception:
+                try:
+                    await frame.evaluate("""
+                        () => {
+                            const all = document.querySelectorAll('.se-text-paragraph');
+                            for (const el of all) {
+                                if (!el.closest('.se-documentTitle')) {
+                                    el.focus();
+                                    return;
+                                }
+                            }
+                        }
+                    """)
+                except Exception:
+                    pass
+        else:
+            await self._save_error_screenshot("body_not_found")
+            raise RuntimeError("본문 입력칸을 찾지 못했습니다.")
+
+        await asyncio.sleep(0.3)
+
+        image_idx = 0
+        total = len(blocks)
+
+        for i, block in enumerate(blocks):
+            if block.type == BlockType.PARAGRAPH:
+                # ★ App_blog2는 Gemini가 이미 "한 줄에 한 문장" 으로 만들어주므로
+                #   _split_for_readability 같은 추가 분리 불필요 (오히려 1줄1빈줄 과다 줄바꿈 유발).
+                #   markdown_converter가 합쳐놓은 \n을 그대로 풀어서 줄 단위로 입력.
+                lines = [ln.strip() for ln in block.text.split('\n') if ln.strip()]
+                for line in lines:
+                    await self._human_type(line, min_delay=3, max_delay=8)
+                    await self.page.keyboard.press("Enter")
+                    await asyncio.sleep(0.1)
+                # 문단 사이 여백 1줄 (다음 PARAGRAPH/HEADING 와 시각 분리)
+                await self._insert_empty_line()
+
+            elif block.type == BlockType.HEADING:
+                # 마크다운 명시 스타일 우선, 없으면 테마 스타일 적용
+                heading_style = getattr(block, 'quote_style', None)
+                if not heading_style or heading_style == 'default':
+                    # App_blog2 테마에서 소제목 스타일 가져옴
+                    heading_style = self._theme.get('heading_quote', 'line')
+                await self._insert_heading(frame, block.text, quote_style=heading_style)
+
+            elif block.type == BlockType.IMAGE:
+                if image_idx < len(image_paths):
+                    await self._insert_image(frame, image_paths[image_idx])
+                    image_idx += 1
+                else:
+                    print(f"    ⚠ 이미지 슬롯 부족 (블록 {i}, 마커: {block.text[:30]})")
+
+            elif block.type == BlockType.QUOTE:
+                q_style = getattr(block, 'quote_style', None)
+                if not q_style or q_style == 'default':
+                    q_style = self._theme.get('heading_quote_secondary', 'default')
+                await self._insert_quote(frame, block.text, quote_style=q_style)
+
+            elif block.type == BlockType.HORIZONTAL_RULE:
+                await self._insert_horizontal_rule(frame)
+
+            # 진행률 표시
+            if (i + 1) % 5 == 0 or i == total - 1:
+                print(f"    진행: {i + 1}/{total}")
+
+            # ★ 페이지 health check (10블록마다) — 흰 화면 사고 방지
+            if i > 0 and i % 10 == 0:
+                if not await self._is_editor_alive(frame):
+                    print(f"  ⚠ SmartEditor 응답 없음 (블록 {i}/{total}). 발행 중단.")
+                    raise RuntimeError(
+                        f"SmartEditor 페이지가 깨졌습니다 (블록 {i}/{total}에서 감지). "
+                        "Chrome 창을 닫고 다시 시도해주세요."
+                    )
+
+            # 자연스러운 딜레이
+            if i % 3 == 0:
+                await asyncio.sleep(random.uniform(0.2, 0.6))
+
+        print("    ✓ 본문 입력 완료")
+
+        # ★ 본문 입력 후 DOM 정화 (App_blog2 안전망 — 만에 하나 남은 취소선 태그/스타일 제거)
+        await self._cleanup_body_strikethrough(frame)
 
     # ===== 발행 버튼 (iframe+page 양쪽 탐색, App_blog_auto3 기반) =====
     async def _publish(self):
@@ -1887,6 +2574,7 @@ class NaverBlogPublisher:
         """
         counter_data = _load_counter()
         self._image_failures = 0
+        self._heading_count = 0
 
         # 테마 랜덤 선택 + 본문 인용구 선제 제거
         self._theme = pick_formatting_theme()
@@ -1920,11 +2608,14 @@ class NaverBlogPublisher:
             await self._type_title(title)
             await self._human_pause(500, 1500)
 
-            # 6. 본문 입력 (Phase 1: 일반 텍스트 → Phase 2: 인용구 변환)
-            heading_records = await self._type_content_phase1(
-                content, image_slots, frame
-            )
-            await self._convert_headings_phase2(frame, heading_records)
+            # 6. 본문 입력 (App_blog_auto3 방식: 마크다운 → 블록 파싱 → 블록별 입력)
+            from core.markdown_converter import parse_markdown
+            sequence = parse_markdown(content)
+            # image_slots(dict 리스트) → image_paths(Path 리스트) 어댑터
+            # publish 라우터가 마커 순서대로 정렬해서 전달함
+            image_paths = [Path(slot["path"]) for slot in (image_slots or [])]
+            print(f"  📦 블록: {len(sequence.blocks)}개, 이미지: {len(image_paths)}장")
+            await self._input_body(frame, sequence.blocks, image_paths)
 
             # 7. 발행 — auto_publish 에 따라 분기
             if auto_publish:
