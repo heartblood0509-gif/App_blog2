@@ -7,8 +7,18 @@ import { Separator } from "@/components/ui/separator";
 import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
-import { Heart, Zap, Link as LinkIcon, ArrowRight, Check, AlertCircle } from "lucide-react";
-import type { NarrativeSource, ToneType } from "@/types";
+import {
+  Heart,
+  Zap,
+  Link as LinkIcon,
+  ArrowRight,
+  Check,
+  AlertCircle,
+  Star,
+  Building2,
+  Search,
+} from "lucide-react";
+import type { NarrativeSource, ToneType, Channel, PostCategory } from "@/types";
 
 type NarrativeOption = {
   id: NarrativeSource;
@@ -74,6 +84,18 @@ const NARRATIVES: NarrativeOption[] = [
   },
 ];
 
+const POST_CATEGORIES: Array<{
+  id: PostCategory;
+  name: string;
+  description: string;
+  icon: React.ElementType;
+  enabled: boolean;
+}> = [
+  { id: "review", name: "후기성 블로그", description: "실사용자 톤의 자연스러운 후기", icon: Star, enabled: true },
+  { id: "brand", name: "브랜드 블로그", description: "브랜드 보이스의 공식 콘텐츠", icon: Building2, enabled: false },
+  { id: "aeo", name: "AEO 블로그", description: "AI 답변 엔진 최적화 글", icon: Search, enabled: false },
+];
+
 const TONES: {
   type: ToneType;
   description: string;
@@ -113,10 +135,13 @@ interface StepNarrativeProps {
   referenceUrl: string;
   toneType: ToneType | null;
   toneExample: string;
+  channel: Channel | null;
+  postCategory: PostCategory | null;
   onNarrativeSourceChange: (source: NarrativeSource) => void;
   onReferenceUrlChange: (url: string) => void;
   onToneChange: (type: ToneType) => void;
   onToneExampleChange: (example: string) => void;
+  onPostCategoryChange: (category: PostCategory) => void;
 }
 
 export function StepNarrative({
@@ -124,17 +149,85 @@ export function StepNarrative({
   referenceUrl,
   toneType,
   toneExample,
+  channel,
+  postCategory,
   onNarrativeSourceChange,
   onReferenceUrlChange,
   onToneChange,
   onToneExampleChange,
+  onPostCategoryChange,
 }: StepNarrativeProps) {
   const selectedOption = NARRATIVES.find((n) => n.id === narrativeSource) ?? null;
 
   return (
     <div className="space-y-10">
-      {/* Narrative Structure Section */}
-      <section>
+      {/* Post Category Section — channel === "blog"일 때만 노출 */}
+      {channel === "blog" && (
+        <>
+          <section>
+            <div className="mb-4">
+              <h2 className="text-xl font-semibold">포스팅 카테고리</h2>
+              <p className="mt-1 text-sm text-muted-foreground">
+                블로그 글의 종류를 선택하세요
+              </p>
+            </div>
+
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+              {POST_CATEGORIES.map((cat) => {
+                const selected = postCategory === cat.id;
+                const Icon = cat.icon;
+                const disabled = !cat.enabled;
+
+                return (
+                  <Card
+                    key={cat.id}
+                    onClick={disabled ? undefined : () => onPostCategoryChange(cat.id)}
+                    aria-disabled={disabled}
+                    className={`transition-all duration-200 ${
+                      disabled
+                        ? "cursor-not-allowed opacity-50 grayscale"
+                        : selected
+                          ? "cursor-pointer ring-2 ring-primary bg-primary/5"
+                          : "cursor-pointer hover:ring-1 hover:ring-muted-foreground/30"
+                    }`}
+                  >
+                    <CardHeader>
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <Icon className="h-5 w-5 text-primary" />
+                          <CardTitle className="text-base">{cat.name}</CardTitle>
+                        </div>
+                        {disabled && (
+                          <Badge variant="secondary" className="text-[10px]">
+                            준비 중
+                          </Badge>
+                        )}
+                        {!disabled && selected && (
+                          <motion.div
+                            initial={{ scale: 0 }}
+                            animate={{ scale: 1 }}
+                            className="flex h-6 w-6 items-center justify-center rounded-full bg-primary"
+                          >
+                            <Check className="h-3.5 w-3.5 text-primary-foreground" />
+                          </motion.div>
+                        )}
+                      </div>
+                      <CardDescription className="text-xs leading-relaxed">
+                        {cat.description}
+                      </CardDescription>
+                    </CardHeader>
+                  </Card>
+                );
+              })}
+            </div>
+          </section>
+
+          {postCategory === "review" && (
+            <>
+              <Separator />
+
+              {/* Narrative Structure Section — 후기성 블로그에서만 노출 */}
+              <section>
         <div className="mb-4">
           <h2 className="text-xl font-semibold">서사 구조</h2>
           <p className="mt-1 text-sm text-muted-foreground">
@@ -327,6 +420,10 @@ export function StepNarrative({
           )}
         </AnimatePresence>
       </section>
+            </>
+          )}
+        </>
+      )}
     </div>
   );
 }

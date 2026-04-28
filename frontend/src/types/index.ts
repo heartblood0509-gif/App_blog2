@@ -45,6 +45,12 @@ export type NarrativeSource =
 // 말투 타입
 export type ToneType = "존댓말" | "반말" | "음슴체";
 
+// 콘텐츠 채널 타입 (블로그 외엔 향후 활성화 예정)
+export type Channel = "blog" | "thread" | "youtube" | "detail-page";
+
+// 블로그 포스팅 카테고리 (channel === "blog"일 때만 의미)
+export type PostCategory = "review" | "brand" | "aeo";
+
 // 글자수 범위
 export interface CharCountRange {
   min: number;
@@ -103,6 +109,12 @@ export interface ImageGenerationResult {
 export interface WizardState {
   // Step 1: 제품 선택 + 장점
   selectedProducts: SelectedProduct[];
+
+  /** Step 1에서 선택한 콘텐츠 채널 (현재는 "blog"만 활성) */
+  channel: Channel | null;
+
+  /** Step 2에서 선택한 블로그 포스팅 카테고리 (channel === "blog"일 때만 의미) */
+  postCategory: PostCategory | null;
 
   // Step 2: 글 구조 & 말투
   /** 사용자가 Step 2에서 선택한 글 소스 모드 (3택) */
