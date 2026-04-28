@@ -1,13 +1,14 @@
 "use client";
 
-import { useCallback } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Card, CardContent } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
-import { Droplets, Sparkles, Hand, Bath, CircleDot, FlaskConical } from "lucide-react";
+import { Droplets, Sparkles, Hand, Bath, CircleDot, FlaskConical, Pencil, Check } from "lucide-react";
 import type { ProductId, SelectedProduct } from "@/types";
 import { PRODUCTS } from "@/lib/products";
 
@@ -29,6 +30,9 @@ export function StepProductSelect({
   selectedProducts,
   onChange,
 }: StepProductSelectProps) {
+  const [editingId, setEditingId] = useState<ProductId | null>(null);
+  const editingTextareaRef = useRef<HTMLTextAreaElement | null>(null);
+
   const isSelected = useCallback(
     (id: ProductId) => selectedProducts.some((p) => p.id === id),
     [selectedProducts]
@@ -42,12 +46,13 @@ export function StepProductSelect({
   const handleToggle = useCallback(
     (id: ProductId, defaultAdvantages: string) => {
       if (isSelected(id)) {
+        if (editingId === id) setEditingId(null);
         onChange(selectedProducts.filter((p) => p.id !== id));
       } else {
         onChange([...selectedProducts, { id, advantages: defaultAdvantages }]);
       }
     },
-    [selectedProducts, onChange, isSelected]
+    [selectedProducts, onChange, isSelected, editingId]
   );
 
   const handleAdvantagesChange = useCallback(
@@ -58,6 +63,15 @@ export function StepProductSelect({
     },
     [selectedProducts, onChange]
   );
+
+  useEffect(() => {
+    if (editingId && editingTextareaRef.current) {
+      const textarea = editingTextareaRef.current;
+      textarea.focus();
+      const length = textarea.value.length;
+      textarea.setSelectionRange(length, length);
+    }
+  }, [editingId]);
 
   return (
     <div>
@@ -121,14 +135,53 @@ export function StepProductSelect({
                           제품 장점
                         </Label>
                         <Textarea
+                          ref={
+                            editingId === product.id
+                              ? editingTextareaRef
+                              : undefined
+                          }
                           value={getAdvantages(product.id)}
                           onChange={(e) =>
                             handleAdvantagesChange(product.id, e.target.value)
                           }
                           placeholder="제품의 장점을 작성하세요..."
-                          className="min-h-[80px] text-xs"
+                          readOnly={editingId !== product.id}
+                          className={`min-h-[80px] text-xs ${
+                            editingId === product.id
+                              ? ""
+                              : "bg-muted/40 cursor-default focus-visible:ring-0"
+                          }`}
                           onClick={(e) => e.stopPropagation()}
                         />
+                        <div className="mt-2 flex justify-end">
+                          {editingId === product.id ? (
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant="default"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setEditingId(null);
+                              }}
+                            >
+                              <Check className="h-3.5 w-3.5" />
+                              확인
+                            </Button>
+                          ) : (
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant="outline"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setEditingId(product.id);
+                              }}
+                            >
+                              <Pencil className="h-3.5 w-3.5" />
+                              수정
+                            </Button>
+                          )}
+                        </div>
                       </div>
                     </motion.div>
                   )}
