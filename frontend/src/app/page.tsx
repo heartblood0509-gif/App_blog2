@@ -840,6 +840,14 @@ export default function Home() {
   return (
     <div className="min-h-screen bg-background text-foreground">
       <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
+        <div className="mb-2 flex justify-end">
+          <a
+            href="/brand"
+            className="text-sm text-muted-foreground hover:text-primary transition-colors"
+          >
+            브랜드 글쓰기로 가기 →
+          </a>
+        </div>
         {/* Header */}
         <div className="mb-8 text-center">
           <button
