@@ -1,12 +1,16 @@
 "use client";
 
+import { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
+import { ScrollArea } from "@/components/ui/scroll-area";
 import {
   Heart,
   Zap,
@@ -14,9 +18,16 @@ import {
   ArrowRight,
   Check,
   AlertCircle,
+  Search,
+  Loader2,
+  ClipboardList,
+  ChevronDown,
+  ChevronUp,
+  Pencil,
+  Save,
+  X,
   Star,
   Building2,
-  Search,
 } from "lucide-react";
 import type { NarrativeSource, ToneType, Channel, PostCategory } from "@/types";
 
@@ -142,6 +153,11 @@ interface StepNarrativeProps {
   onToneChange: (type: ToneType) => void;
   onToneExampleChange: (example: string) => void;
   onPostCategoryChange: (category: PostCategory) => void;
+  // 레퍼런스 분석 (URL 입력 후 명시적 [분석] 버튼으로 트리거)
+  referenceAnalysis: string;
+  isAnalyzing: boolean;
+  onAnalyze: () => void;
+  onReferenceAnalysisChange: (value: string) => void;
 }
 
 export function StepNarrative({
@@ -156,8 +172,23 @@ export function StepNarrative({
   onToneChange,
   onToneExampleChange,
   onPostCategoryChange,
+  referenceAnalysis,
+  isAnalyzing,
+  onAnalyze,
+  onReferenceAnalysisChange,
 }: StepNarrativeProps) {
   const selectedOption = NARRATIVES.find((n) => n.id === narrativeSource) ?? null;
+
+  // 레퍼런스 분석 보기/수정 패널 상태
+  const [isAnalysisOpen, setIsAnalysisOpen] = useState(true);
+  const [isAnalysisEditing, setIsAnalysisEditing] = useState(false);
+  const [analysisDraft, setAnalysisDraft] = useState(referenceAnalysis);
+  // 분석 결과가 갱신될 때 draft 동기화 (편집 중이 아닐 때만)
+  if (!isAnalysisEditing && analysisDraft !== referenceAnalysis) {
+    setAnalysisDraft(referenceAnalysis);
+  }
+  const hasAnalysis = referenceAnalysis.trim().length > 0;
+  const canAnalyze = referenceUrl.trim().length > 0 && !isAnalyzing;
 
   return (
     <div className="space-y-10">
@@ -325,13 +356,211 @@ export function StepNarrative({
                     {selectedOption.urlHint}
                   </CardDescription>
                 </CardHeader>
-                <CardContent>
+                <CardContent className="space-y-4">
                   <Input
                     type="url"
                     placeholder="https://blog.naver.com/..."
                     value={referenceUrl}
                     onChange={(e) => onReferenceUrlChange(e.target.value)}
                   />
+
+                  {/* 서사 구조 분석 버튼 */}
+                  <div className="flex items-center justify-between gap-3">
+                    <p className="text-xs text-muted-foreground">
+                      {hasAnalysis
+                        ? "✓ 분석 완료. 아래에서 결과를 확인하거나 수정할 수 있어요."
+                        : "URL을 넣고 [서사 구조 분석] 버튼을 눌러 분석하세요."}
+                    </p>
+                    <Button
+                      type="button"
+                      size="sm"
+                      onClick={onAnalyze}
+                      disabled={!canAnalyze}
+                      className="gap-2 shrink-0"
+                    >
+                      {isAnalyzing ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : (
+                        <Search className="h-4 w-4" />
+                      )}
+                      {isAnalyzing
+                        ? "분석 중..."
+                        : hasAnalysis
+                        ? "다시 분석"
+                        : "서사 구조 분석"}
+                    </Button>
+                  </div>
+
+                  {/* 분석 결과 보기/수정 패널 */}
+                  {hasAnalysis && (
+                    <Card className="bg-muted/20">
+                      <CardHeader className="pb-3">
+                        <button
+                          type="button"
+                          onClick={() => setIsAnalysisOpen((v) => !v)}
+                          className="flex w-full items-center gap-2 text-left"
+                        >
+                          <ClipboardList className="h-4 w-4" />
+                          <CardTitle className="text-sm">분석 결과</CardTitle>
+                          {isAnalysisOpen ? (
+                            <ChevronUp className="ml-auto h-4 w-4 text-muted-foreground" />
+                          ) : (
+                            <ChevronDown className="ml-auto h-4 w-4 text-muted-foreground" />
+                          )}
+                        </button>
+                      </CardHeader>
+
+                      {isAnalysisOpen && (
+                        <CardContent className="space-y-3">
+                          {!isAnalysisEditing && (
+                            <>
+                              <div className="flex items-center justify-end">
+                                <Button
+                                  type="button"
+                                  size="sm"
+                                  variant="outline"
+                                  className="gap-2"
+                                  onClick={() => {
+                                    setAnalysisDraft(referenceAnalysis);
+                                    setIsAnalysisEditing(true);
+                                  }}
+                                >
+                                  <Pencil className="h-3.5 w-3.5" />
+                                  수정
+                                </Button>
+                              </div>
+                              <ScrollArea className="h-[520px] w-full rounded-md border bg-background">
+                                <div className="px-4 py-3 text-sm leading-relaxed [&>*:first-child]:mt-0">
+                                  <ReactMarkdown
+                                    remarkPlugins={[remarkGfm]}
+                                    components={{
+                                      h1: (props) => (
+                                        <h1 className="mt-5 mb-2 text-base font-bold" {...props} />
+                                      ),
+                                      h2: (props) => (
+                                        <h2 className="mt-5 mb-2 text-sm font-bold" {...props} />
+                                      ),
+                                      h3: (props) => (
+                                        <h3 className="mt-4 mb-1.5 text-sm font-semibold" {...props} />
+                                      ),
+                                      h4: (props) => (
+                                        <h4 className="mt-3 mb-1 text-sm font-semibold" {...props} />
+                                      ),
+                                      p: (props) => (
+                                        <p className="my-2 text-sm leading-relaxed" {...props} />
+                                      ),
+                                      ul: (props) => (
+                                        <ul className="my-2 ml-5 list-disc space-y-1 text-sm" {...props} />
+                                      ),
+                                      ol: (props) => (
+                                        <ol className="my-2 ml-5 list-decimal space-y-1 text-sm" {...props} />
+                                      ),
+                                      li: (props) => (
+                                        <li className="text-sm leading-relaxed" {...props} />
+                                      ),
+                                      strong: (props) => (
+                                        <strong className="font-semibold" {...props} />
+                                      ),
+                                      em: (props) => <em className="italic" {...props} />,
+                                      code: (props) => (
+                                        <code
+                                          className="rounded bg-muted px-1 py-0.5 font-mono text-xs"
+                                          {...props}
+                                        />
+                                      ),
+                                      pre: (props) => (
+                                        <pre
+                                          className="my-2 overflow-x-auto rounded bg-muted p-3 font-mono text-xs"
+                                          {...props}
+                                        />
+                                      ),
+                                      blockquote: (props) => (
+                                        <blockquote
+                                          className="my-2 border-l-2 border-muted-foreground/30 pl-3 italic text-muted-foreground"
+                                          {...props}
+                                        />
+                                      ),
+                                      hr: () => <hr className="my-4 border-border" />,
+                                      // 표는 박스 폭을 넘으면 가로 스크롤
+                                      table: (props) => (
+                                        <div className="my-3 overflow-x-auto">
+                                          <table
+                                            className="w-full border-collapse text-xs"
+                                            {...props}
+                                          />
+                                        </div>
+                                      ),
+                                      thead: (props) => (
+                                        <thead className="bg-muted/60" {...props} />
+                                      ),
+                                      th: (props) => (
+                                        <th
+                                          className="border border-border px-2 py-1.5 text-left font-semibold"
+                                          {...props}
+                                        />
+                                      ),
+                                      td: (props) => (
+                                        <td
+                                          className="border border-border px-2 py-1.5 align-top"
+                                          {...props}
+                                        />
+                                      ),
+                                    }}
+                                  >
+                                    {referenceAnalysis}
+                                  </ReactMarkdown>
+                                </div>
+                              </ScrollArea>
+                              <p className="text-xs text-muted-foreground">
+                                💡 분석 결과가 마음에 들면 [다음] 버튼으로 진행하세요.
+                              </p>
+                            </>
+                          )}
+
+                          {isAnalysisEditing && (
+                            <>
+                              <div className="flex items-center justify-end gap-2">
+                                <Button
+                                  type="button"
+                                  size="sm"
+                                  variant="ghost"
+                                  className="gap-2"
+                                  onClick={() => {
+                                    setAnalysisDraft(referenceAnalysis);
+                                    setIsAnalysisEditing(false);
+                                  }}
+                                >
+                                  <X className="h-3.5 w-3.5" />
+                                  취소
+                                </Button>
+                                <Button
+                                  type="button"
+                                  size="sm"
+                                  className="gap-2"
+                                  onClick={() => {
+                                    onReferenceAnalysisChange(analysisDraft);
+                                    setIsAnalysisEditing(false);
+                                  }}
+                                >
+                                  <Save className="h-3.5 w-3.5" />
+                                  저장
+                                </Button>
+                              </div>
+                              <Textarea
+                                value={analysisDraft}
+                                onChange={(e) => setAnalysisDraft(e.target.value)}
+                                className="min-h-[420px] font-mono text-sm"
+                                placeholder="분석 결과를 직접 수정하세요"
+                              />
+                              <p className="text-xs text-muted-foreground">
+                                저장 후 [다음] 버튼을 누르면 수정된 분석으로 글이 생성됩니다.
+                              </p>
+                            </>
+                          )}
+                        </CardContent>
+                      )}
+                    </Card>
+                  )}
                 </CardContent>
               </Card>
             </motion.div>
