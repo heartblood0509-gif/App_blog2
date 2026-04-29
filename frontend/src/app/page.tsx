@@ -160,6 +160,8 @@ export default function Home() {
         // 직접 레퍼런스 모드만 URL 필수 (감정/결론 선공형은 내장 샘플 사용)
         const urlRequired = state.narrativeSource === "custom-reference";
         if (urlRequired && state.referenceUrl.trim().length === 0) return false;
+        // custom-reference 모드는 분석 완료까지 강제 (Step 2에서 명시적 [분석] 버튼으로 트리거)
+        if (urlRequired && state.referenceAnalysis.trim().length === 0) return false;
         return true;
       }
       case 2:
@@ -690,10 +692,7 @@ export default function Home() {
     const nextStep = state.currentStep + 1;
     updateState({ currentStep: nextStep });
 
-    // 레퍼런스 분석은 Step 1 → Step 2 전환 시점에 미리 시작 (제목 생성 시점보다 일찍)
-    if (nextStep === 2 && state.referenceUrl && !state.referenceAnalysis) {
-      fetchReferenceAnalysis().catch(() => {});
-    }
+    // 레퍼런스 분석은 Step 2의 명시적 [서사 구조 분석] 버튼으로만 트리거됨
     if (nextStep === 3 && state.titleSuggestions.length === 0) {
       fetchTitles().catch(() => {});
     }
@@ -782,6 +781,12 @@ export default function Home() {
             onReferenceUrlChange={handleReferenceUrlChange}
             onToneChange={handleToneChange}
             onToneExampleChange={(example: string) => updateState({ toneExample: example })}
+            referenceAnalysis={state.referenceAnalysis}
+            isAnalyzing={state.isLoading}
+            onAnalyze={() => fetchReferenceAnalysis().catch(() => {})}
+            onReferenceAnalysisChange={(value) =>
+              updateState({ referenceAnalysis: value })
+            }
           />
         );
       case 2:
