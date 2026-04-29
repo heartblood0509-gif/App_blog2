@@ -105,6 +105,72 @@ export interface ImageGenerationResult {
   error?: string;
 }
 
+// ─────────────────────────────────────────────
+// 쓰레드 채널 전용 타입
+// ─────────────────────────────────────────────
+
+export type ThreadsAnalysisMode = "template" | "image" | "crawl" | null;
+
+export interface ThreadsSettings {
+  topic: string;
+  requirements: string;
+}
+
+/** 쓰레드 생성 결과 이미지 (base64, no data URL prefix) */
+export interface ThreadsImage {
+  data: string;
+  mimeType: string;
+}
+
+/** 분석용으로 업로드한 캡처 이미지 (data URL 형식) */
+export interface UploadedImage {
+  data: string;
+  mimeType: string;
+}
+
+export type ThreadsImageStyle = "realistic" | "illustration" | "film" | "minimal";
+export type ThreadsAspectRatio = "1:1" | "4:5" | "16:9" | "9:16";
+
+export interface ThreadsState {
+  analysisMode: ThreadsAnalysisMode;
+  /** 분석 결과(또는 템플릿 결과) 마크다운 */
+  analysisResult: string;
+  /** 뉴스 기사/직접 입력 본문 (lift된 입력값) */
+  referenceText: string;
+  /** 출처 라벨 ("템플릿: ...", "직접 입력" 등) */
+  referenceSource: string;
+  /** 이미지 모드 업로드 캡처 (lift된 입력값) */
+  uploadedImages: UploadedImage[];
+  selectedTemplateId: string | null;
+  settings: ThreadsSettings;
+  generatedContent: string;
+  isGeneratingText: boolean;
+  generatedImages: ThreadsImage[];
+  isGeneratingImages: boolean;
+  imageAspectRatio: ThreadsAspectRatio;
+  imageCount: 1 | 2;
+  imageStyle: ThreadsImageStyle;
+  imagePrompt: string;
+}
+
+export const initialThreadsState: ThreadsState = {
+  analysisMode: null,
+  analysisResult: "",
+  referenceText: "",
+  referenceSource: "",
+  uploadedImages: [],
+  selectedTemplateId: null,
+  settings: { topic: "", requirements: "" },
+  generatedContent: "",
+  isGeneratingText: false,
+  generatedImages: [],
+  isGeneratingImages: false,
+  imageAspectRatio: "4:5",
+  imageCount: 1,
+  imageStyle: "realistic",
+  imagePrompt: "",
+};
+
 // 위저드 단계별 설정
 export interface WizardState {
   // Step 1: 제품 선택 + 장점
@@ -171,6 +237,9 @@ export interface WizardState {
 
   // 로딩 상태
   isLoading: boolean;
+
+  // 쓰레드 채널 전용 서브-스테이트 (channel === "thread"일 때 사용)
+  threads: ThreadsState;
 }
 
 export interface TitleSuggestion {

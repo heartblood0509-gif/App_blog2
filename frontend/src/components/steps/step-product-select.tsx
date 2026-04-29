@@ -51,7 +51,7 @@ const CHANNELS: Array<{
   enabled: boolean;
 }> = [
   { id: "blog", name: "블로그", description: "네이버 블로그 후기형 포스팅", icon: Layers, enabled: true },
-  { id: "thread", name: "쓰레드", description: "짧은 호흡의 SNS 포스팅", icon: MessageSquare, enabled: false },
+  { id: "thread", name: "쓰레드", description: "짧은 호흡의 SNS 포스팅", icon: MessageSquare, enabled: true },
   { id: "youtube", name: "유튜브", description: "영상 스크립트 / 자막", icon: SquarePlay, enabled: false },
   { id: "detail-page", name: "상세페이지", description: "쇼핑몰 상품 상세", icon: LayoutGrid, enabled: false },
 ];
@@ -192,6 +192,23 @@ export function StepProductSelect({
         </div>
       </section>
 
+      {channel === "thread" && (
+        <section>
+          <Card>
+            <CardContent className="p-6 text-center">
+              <p className="text-base font-medium">
+                쓰레드 채널이 선택되었습니다.
+              </p>
+              <p className="mt-1 text-sm text-muted-foreground">
+                쓰레드는 제품 정보 없이 진행됩니다. 다음 단계로 이동하세요.
+              </p>
+            </CardContent>
+          </Card>
+        </section>
+      )}
+
+      {channel !== "thread" && (
+      <>
       <Separator />
 
       {/* Product Section */}
@@ -272,6 +289,8 @@ export function StepProductSelect({
           </motion.div>
         )}
       </section>
+      </>
+      )}
 
       {/* Advantages Editor Dialog */}
       <Dialog
