@@ -21,6 +21,8 @@ import type {
   NarrativeSource,
   ToneType,
   UserPhoto,
+  Channel,
+  PostCategory,
 } from "@/types";
 import { parseImageMarkers, ensureSubtitleCoverage, ensureHookImage, dedupeSubtitleEchoes, stripBrTags } from "@/lib/image/marker-parser";
 
@@ -42,6 +44,8 @@ const STEPS = [
 
 const initialState: WizardState = {
   selectedProducts: [],
+  channel: null,
+  postCategory: null,
   narrativeSource: null,
   narrativeType: null,
   toneType: null,
@@ -56,6 +60,7 @@ const initialState: WizardState = {
   selectedTitle: "",
   generatedContent: "",
   qualityResult: null,
+  contentDirty: false,
   imageSlots: [],
   userPhotosBySlot: {},
   excludedSlotIds: [],
@@ -154,12 +159,20 @@ export default function Home() {
   const canAdvance = (): boolean => {
     switch (state.currentStep) {
       case 0:
-        return state.selectedProducts.length > 0;
+        return state.selectedProducts.length > 0 && state.channel !== null;
       case 1: {
-        if (state.narrativeSource === null || state.toneType === null) return false;
-        // 직접 레퍼런스 모드만 URL 필수 (감정/결론 선공형은 내장 샘플 사용)
-        const urlRequired = state.narrativeSource === "custom-reference";
-        if (urlRequired && state.referenceUrl.trim().length === 0) return false;
+        // 카테고리는 블로그 채널일 때만 필수
+        if (state.channel === "blog" && state.postCategory === null) return false;
+        // 서사 구조/말투/URL 체크는 후기성 카테고리일 때만 적용
+        // (브랜드/AEO 등 다른 카테고리는 향후 다른 구성을 가질 예정)
+        if (state.postCategory === "review") {
+          if (state.narrativeSource === null || state.toneType === null) return false;
+          // 직접 레퍼런스 모드만 URL 필수 (감정/결론 선공형은 내장 샘플 사용)
+          const urlRequired = state.narrativeSource === "custom-reference";
+          if (urlRequired && state.referenceUrl.trim().length === 0) return false;
+          // custom-reference 모드는 분석 완료까지 강제 (Step 2에서 명시적 [분석] 버튼으로 트리거)
+          if (urlRequired && state.referenceAnalysis.trim().length === 0) return false;
+        }
         return true;
       }
       case 2:
@@ -170,6 +183,34 @@ export default function Home() {
         return state.generatedContent.trim().length > 0;
       default:
         return true;
+    }
+  };
+
+  const advanceHint = (): string | undefined => {
+    if (canAdvance()) return undefined;
+    switch (state.currentStep) {
+      case 0:
+        if (state.channel === null) return "채널을 선택해주세요";
+        if (state.selectedProducts.length === 0) return "제품을 1개 이상 선택해주세요";
+        return undefined;
+      case 1:
+        if (state.channel === "blog" && state.postCategory === null)
+          return "포스팅 카테고리를 선택해주세요";
+        if (state.postCategory === "review") {
+          if (state.narrativeSource === null) return "서사 구조를 선택해주세요";
+          if (state.toneType === null) return "말투를 선택해주세요";
+          if (
+            state.narrativeSource === "custom-reference" &&
+            state.referenceUrl.trim().length === 0
+          )
+            return "레퍼런스 URL을 입력해주세요";
+        }
+        return undefined;
+      case 2:
+        if (state.mainKeyword.trim().length === 0) return "메인 키워드를 입력해주세요";
+        return undefined;
+      default:
+        return undefined;
     }
   };
 
@@ -239,11 +280,35 @@ export default function Home() {
     }
   }, [state.selectedProducts, state.narrativeType, state.toneType, state.mainKeyword, state.subKeywords, state.persona, updateState]);
 
+  // /api/validate 호출. fetchContent와 본문 직접 수정(handleContentEdit) 양쪽에서 재사용한다.
+  const runValidation = useCallback(
+    async (text: string) => {
+      try {
+        const res = await fetch("/api/validate", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            text,
+            keyword: state.mainKeyword,
+            charRange: state.charCountRange,
+          }),
+        });
+        if (!res.ok) return;
+        const quality = await res.json();
+        updateState({ qualityResult: quality });
+      } catch {
+        // 검증 실패는 사용자 흐름을 막지 않음
+      }
+    },
+    [state.mainKeyword, state.charCountRange, updateState]
+  );
+
   const fetchContent = useCallback(async () => {
     updateState({
       isLoading: true,
       generatedContent: "",
       qualityResult: null,
+      contentDirty: false,
       generatedImages: {},
       customPromptsBySlot: {},
     });
@@ -310,27 +375,14 @@ export default function Home() {
       }
 
       // 생성 완료 후 품질 검증
-      const validateRes = await fetch("/api/validate", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          text: content,
-          keyword: state.mainKeyword,
-          charRange: state.charCountRange,
-        }),
-      });
-      if (validateRes.ok) {
-        const quality = await validateRes.json();
-        updateState({ qualityResult: quality, isLoading: false });
-      } else {
-        updateState({ isLoading: false });
-      }
+      updateState({ isLoading: false });
+      await runValidation(content);
     } catch (err) {
       const msg = err instanceof Error ? err.message : "글 생성 실패";
       toast.error(msg);
       updateState({ isLoading: false });
     }
-  }, [state.selectedProducts, state.narrativeType, state.toneType, state.mainKeyword, state.subKeywords, state.persona, state.requirements, state.charCountRange, state.selectedTitle, state.referenceAnalysis, state.toneExample, updateState]);
+  }, [state.selectedProducts, state.narrativeType, state.toneType, state.mainKeyword, state.subKeywords, state.persona, state.requirements, state.charCountRange, state.selectedTitle, state.referenceAnalysis, state.toneExample, updateState, runValidation]);
 
   const handleQualityFix = useCallback(async () => {
     if (!state.qualityResult || state.qualityResult.isPass) return;
@@ -690,10 +742,7 @@ export default function Home() {
     const nextStep = state.currentStep + 1;
     updateState({ currentStep: nextStep });
 
-    // 레퍼런스 분석은 Step 1 → Step 2 전환 시점에 미리 시작 (제목 생성 시점보다 일찍)
-    if (nextStep === 2 && state.referenceUrl && !state.referenceAnalysis) {
-      fetchReferenceAnalysis().catch(() => {});
-    }
+    // 레퍼런스 분석은 Step 2의 명시적 [서사 구조 분석] 버튼으로만 트리거됨
     if (nextStep === 3 && state.titleSuggestions.length === 0) {
       fetchTitles().catch(() => {});
     }
@@ -711,6 +760,20 @@ export default function Home() {
   const handleProductChange = useCallback(
     (products: SelectedProduct[]) => {
       updateState({ selectedProducts: products });
+    },
+    [updateState]
+  );
+
+  const handleChannelChange = useCallback(
+    (channel: Channel) => {
+      updateState({ channel });
+    },
+    [updateState]
+  );
+
+  const handlePostCategoryChange = useCallback(
+    (postCategory: PostCategory) => {
+      updateState({ postCategory });
     },
     [updateState]
   );
@@ -755,12 +818,31 @@ export default function Home() {
   }, [fetchTitles]);
 
   const handleContentRegenerate = useCallback(() => {
+    if (state.contentDirty) {
+      const ok = window.confirm(
+        "직접 수정한 본문이 모두 사라집니다. 다시 생성할까요?"
+      );
+      if (!ok) return;
+    }
     fetchContent();
-  }, [fetchContent]);
+  }, [fetchContent, state.contentDirty]);
 
   const handleContentCopy = useCallback(() => {
     navigator.clipboard.writeText(state.generatedContent);
   }, [state.generatedContent]);
+
+  // 사용자가 「✓ 수정 완료」를 누르면 호출됨.
+  // 본문이 변하면 page.tsx의 useEffect가 자동으로 마커 재파싱·자동 가공을 다시 돌리고,
+  // 슬롯은 description+index 매칭으로 보존된다.
+  // 품질 검증도 즉시 재실행해서 우측 패널을 갱신한다.
+  const handleContentEdit = useCallback(
+    (next: string) => {
+      if (next === state.generatedContent) return;
+      updateState({ generatedContent: next, contentDirty: true });
+      runValidation(next);
+    },
+    [state.generatedContent, updateState, runValidation]
+  );
 
   const renderStep = () => {
     switch (state.currentStep) {
@@ -769,6 +851,8 @@ export default function Home() {
           <StepProductSelect
             selectedProducts={state.selectedProducts}
             onChange={handleProductChange}
+            channel={state.channel}
+            onChannelChange={handleChannelChange}
           />
         );
       case 1:
@@ -778,10 +862,19 @@ export default function Home() {
             referenceUrl={state.referenceUrl}
             toneType={state.toneType}
             toneExample={state.toneExample}
+            channel={state.channel}
+            postCategory={state.postCategory}
             onNarrativeSourceChange={handleNarrativeSourceChange}
             onReferenceUrlChange={handleReferenceUrlChange}
             onToneChange={handleToneChange}
             onToneExampleChange={(example: string) => updateState({ toneExample: example })}
+            onPostCategoryChange={handlePostCategoryChange}
+            referenceAnalysis={state.referenceAnalysis}
+            isAnalyzing={state.isLoading}
+            onAnalyze={() => fetchReferenceAnalysis().catch(() => {})}
+            onReferenceAnalysisChange={(value) =>
+              updateState({ referenceAnalysis: value })
+            }
           />
         );
       case 2:
@@ -805,6 +898,7 @@ export default function Home() {
             isLoading={state.isLoading}
             onRegenerate={handleContentRegenerate}
             onCopy={handleContentCopy}
+            onContentEdit={handleContentEdit}
             onQualityFix={handleQualityFix}
             imageSlots={state.imageSlots}
             userPhotosBySlot={state.userPhotosBySlot}
@@ -854,10 +948,10 @@ export default function Home() {
             onClick={() => setState(initialState)}
             className="text-2xl font-bold tracking-tight sm:text-3xl hover:text-primary transition-colors"
           >
-            후기성 블로그 생성기
+            콘텐츠 생성기
           </button>
           <p className="mt-2 text-sm text-muted-foreground">
-            자연스러운 후기형 블로그 포스팅을 단계별로 생성합니다
+            채널과 카테고리를 골라 콘텐츠를 단계별로 생성합니다
           </p>
         </div>
 
@@ -954,6 +1048,7 @@ export default function Home() {
               size="lg"
               onClick={handleNext}
               disabled={!canAdvance()}
+              title={advanceHint()}
               className="gap-2"
             >
               다음
