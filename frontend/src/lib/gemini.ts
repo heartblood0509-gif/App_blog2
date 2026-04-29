@@ -47,6 +47,28 @@ export async function generateText(
   return response.text || "";
 }
 
+/**
+ * Gemini로 멀티모달(텍스트 + 이미지) 입력을 받아 텍스트를 스트리밍 생성.
+ * 쓰레드 이미지 분석 등 멀티모달 흐름에서 사용.
+ */
+export async function* generateMultimodalStream(
+  parts: Array<
+    | { text: string }
+    | { inlineData: { data: string; mimeType: string } }
+  >,
+  model: string,
+  apiKey?: string
+): AsyncGenerator<string> {
+  const ai = getGenAI(apiKey);
+  const response = await ai.models.generateContentStream({
+    model,
+    contents: [{ role: "user", parts: parts as never }],
+  });
+  for await (const chunk of response) {
+    if (chunk.text) yield chunk.text;
+  }
+}
+
 // ─────────────────────────────────────────────
 // 이미지 생성/변환 (Nano Banana 2 등 image-preview 모델)
 // ─────────────────────────────────────────────
@@ -120,6 +142,37 @@ export async function generateImage(
       return null;
     }
     // 네트워크/쿼터 에러는 호출자가 재시도 여부를 결정하도록 throw
+    throw err;
+  }
+}
+
+/**
+ * aspectRatio 등 imageConfig를 명시적으로 지정해 이미지 1장을 생성.
+ * 쓰레드 이미지 생성에서 4:5/16:9 등 비율 강제에 사용.
+ */
+export async function generateImageWithAspect(
+  prompt: string,
+  aspectRatio: string,
+  model: string,
+  apiKey?: string
+): Promise<GeneratedImageResult | null> {
+  try {
+    const ai = getGenAI(apiKey);
+    const config = {
+      responseModalities: [Modality.TEXT, Modality.IMAGE],
+      imageConfig: { aspectRatio },
+    } as unknown as Parameters<typeof ai.models.generateContent>[0]["config"];
+    const resp = await ai.models.generateContent({
+      model,
+      contents: prompt,
+      config,
+    });
+    return extractFirstImage(resp);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    if (/SAFETY|safety|blocked/i.test(msg)) {
+      return null;
+    }
     throw err;
   }
 }
