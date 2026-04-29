@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { motion, AnimatePresence } from "framer-motion";
+import { motion } from "framer-motion";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Badge } from "@/components/ui/badge";
@@ -9,6 +9,14 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import {
   Droplets,
   Sparkles,
@@ -62,47 +70,66 @@ export function StepProductSelect({
   onChannelChange,
 }: StepProductSelectProps) {
   const [editingId, setEditingId] = useState<ProductId | null>(null);
-  const editingTextareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const [draftAdvantages, setDraftAdvantages] = useState("");
+  const dialogTextareaRef = useRef<HTMLTextAreaElement | null>(null);
 
   const isSelected = useCallback(
     (id: ProductId) => selectedProducts.some((p) => p.id === id),
     [selectedProducts]
   );
 
-  const getAdvantages = useCallback(
-    (id: ProductId) => selectedProducts.find((p) => p.id === id)?.advantages ?? "",
-    [selectedProducts]
-  );
-
   const handleToggle = useCallback(
     (id: ProductId, defaultAdvantages: string) => {
       if (isSelected(id)) {
-        if (editingId === id) setEditingId(null);
         onChange(selectedProducts.filter((p) => p.id !== id));
       } else {
         onChange([...selectedProducts, { id, advantages: defaultAdvantages }]);
       }
     },
-    [selectedProducts, onChange, isSelected, editingId]
+    [selectedProducts, onChange, isSelected]
   );
 
-  const handleAdvantagesChange = useCallback(
-    (id: ProductId, advantages: string) => {
-      onChange(
-        selectedProducts.map((p) => (p.id === id ? { ...p, advantages } : p))
-      );
+  const openEditor = useCallback(
+    (id: ProductId, defaultAdvantages: string) => {
+      const current =
+        selectedProducts.find((p) => p.id === id)?.advantages ?? defaultAdvantages;
+      setDraftAdvantages(current);
+      setEditingId(id);
     },
-    [selectedProducts, onChange]
+    [selectedProducts]
   );
+
+  const closeEditor = useCallback(() => {
+    setEditingId(null);
+  }, []);
+
+  const handleSave = useCallback(() => {
+    if (!editingId) return;
+    const exists = selectedProducts.some((p) => p.id === editingId);
+    if (exists) {
+      onChange(
+        selectedProducts.map((p) =>
+          p.id === editingId ? { ...p, advantages: draftAdvantages } : p
+        )
+      );
+    } else {
+      onChange([...selectedProducts, { id: editingId, advantages: draftAdvantages }]);
+    }
+    setEditingId(null);
+  }, [editingId, draftAdvantages, selectedProducts, onChange]);
 
   useEffect(() => {
-    if (editingId && editingTextareaRef.current) {
-      const textarea = editingTextareaRef.current;
+    if (editingId && dialogTextareaRef.current) {
+      const textarea = dialogTextareaRef.current;
       textarea.focus();
       const length = textarea.value.length;
       textarea.setSelectionRange(length, length);
     }
   }, [editingId]);
+
+  const editingProduct = editingId
+    ? PRODUCTS.find((p) => p.id === editingId) ?? null
+    : null;
 
   return (
     <div className="space-y-10">
@@ -172,7 +199,7 @@ export function StepProductSelect({
         <div className="mb-4">
           <h2 className="text-xl font-semibold">제품 선택</h2>
           <p className="mt-1 text-sm text-muted-foreground">
-            후기에 포함할 제품을 선택하고 장점을 수정하세요 (복수 선택 가능)
+            후기에 포함할 제품을 선택하고 장점을 작성하세요 (복수 선택 가능)
           </p>
         </div>
 
@@ -184,6 +211,7 @@ export function StepProductSelect({
           return (
             <Card
               key={product.id}
+              onClick={() => handleToggle(product.id, product.defaultAdvantages)}
               className={`cursor-pointer transition-all duration-200 ${
                 selected
                   ? "ring-2 ring-primary bg-primary/5"
@@ -191,19 +219,13 @@ export function StepProductSelect({
               }`}
             >
               <CardContent className="p-0">
-                {/* Product Header */}
-                <button
-                  type="button"
-                  className="flex w-full items-center gap-3 px-4 pt-4 pb-3 text-left"
-                  onClick={() =>
-                    handleToggle(product.id, product.defaultAdvantages)
-                  }
-                >
+                <div className="flex items-center gap-3 px-4 pt-4 pb-3">
                   <Checkbox
                     checked={selected}
                     onCheckedChange={() =>
                       handleToggle(product.id, product.defaultAdvantages)
                     }
+                    onClick={(e) => e.stopPropagation()}
                   />
                   <div className="flex items-center gap-2">
                     <Icon className="h-5 w-5 text-muted-foreground" />
@@ -212,74 +234,22 @@ export function StepProductSelect({
                   <Badge variant="secondary" className="ml-auto text-[10px]">
                     {product.category}
                   </Badge>
-                </button>
+                </div>
 
-                {/* Expandable Advantages */}
-                <AnimatePresence>
-                  {selected && (
-                    <motion.div
-                      initial={{ height: 0, opacity: 0 }}
-                      animate={{ height: "auto", opacity: 1 }}
-                      exit={{ height: 0, opacity: 0 }}
-                      transition={{ duration: 0.2, ease: "easeInOut" }}
-                      className="overflow-hidden"
-                    >
-                      <div className="border-t border-border px-4 pt-3 pb-4">
-                        <Label className="mb-2 text-xs text-muted-foreground">
-                          제품 장점
-                        </Label>
-                        <Textarea
-                          ref={
-                            editingId === product.id
-                              ? editingTextareaRef
-                              : undefined
-                          }
-                          value={getAdvantages(product.id)}
-                          onChange={(e) =>
-                            handleAdvantagesChange(product.id, e.target.value)
-                          }
-                          placeholder="제품의 장점을 작성하세요..."
-                          readOnly={editingId !== product.id}
-                          className={`min-h-[80px] text-xs ${
-                            editingId === product.id
-                              ? ""
-                              : "bg-muted/40 cursor-default focus-visible:ring-0"
-                          }`}
-                          onClick={(e) => e.stopPropagation()}
-                        />
-                        <div className="mt-2 flex justify-end">
-                          {editingId === product.id ? (
-                            <Button
-                              type="button"
-                              size="sm"
-                              variant="default"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                setEditingId(null);
-                              }}
-                            >
-                              <Check className="h-3.5 w-3.5" />
-                              확인
-                            </Button>
-                          ) : (
-                            <Button
-                              type="button"
-                              size="sm"
-                              variant="outline"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                setEditingId(product.id);
-                              }}
-                            >
-                              <Pencil className="h-3.5 w-3.5" />
-                              수정
-                            </Button>
-                          )}
-                        </div>
-                      </div>
-                    </motion.div>
-                  )}
-                </AnimatePresence>
+                <div className="border-t border-border px-4 py-3 flex justify-end">
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant={selected ? "default" : "outline"}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      openEditor(product.id, product.defaultAdvantages);
+                    }}
+                  >
+                    <Pencil className="h-3.5 w-3.5" />
+                    장점 작성
+                  </Button>
+                </div>
               </CardContent>
             </Card>
           );
@@ -302,6 +272,51 @@ export function StepProductSelect({
           </motion.div>
         )}
       </section>
+
+      {/* Advantages Editor Dialog */}
+      <Dialog
+        open={editingId !== null}
+        onOpenChange={(open) => {
+          if (!open) closeEditor();
+        }}
+      >
+        <DialogContent className="max-w-xl">
+          <DialogHeader>
+            <DialogTitle>
+              {editingProduct ? `${editingProduct.name} 장점 작성` : "제품 장점 작성"}
+            </DialogTitle>
+            <DialogDescription>
+              후기에 반영할 제품의 장점을 자유롭게 작성하세요.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-2">
+            <Label className="text-xs text-muted-foreground">제품 장점</Label>
+            <Textarea
+              ref={dialogTextareaRef}
+              value={draftAdvantages}
+              onChange={(e) => setDraftAdvantages(e.target.value)}
+              placeholder="제품의 장점을 작성하세요..."
+              className="min-h-[180px] text-sm"
+            />
+            {editingProduct && !isSelected(editingProduct.id) && (
+              <p className="text-xs text-muted-foreground">
+                저장하면 이 제품이 자동으로 선택됩니다.
+              </p>
+            )}
+          </div>
+
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={closeEditor}>
+              취소
+            </Button>
+            <Button type="button" variant="default" onClick={handleSave}>
+              <Check className="h-3.5 w-3.5" />
+              저장
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
