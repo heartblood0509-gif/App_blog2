@@ -28,6 +28,9 @@ import {
   Trash2,
   ChevronDown,
   ChevronUp,
+  Pencil,
+  Check,
+  X,
 } from "lucide-react";
 import type {
   QualityResult,
@@ -45,6 +48,11 @@ interface StepGenerateProps {
   isLoading: boolean;
   onRegenerate: () => void;
   onCopy: () => void;
+  /**
+   * 사용자가 textarea에서 본문을 수정하고 「✓ 수정 완료」를 눌렀을 때 호출.
+   * page.tsx가 generatedContent + contentDirty 를 갱신하고, 마커 재파싱·자동 가공이 자동 트리거된다.
+   */
+  onContentEdit: (newContent: string) => void;
   onQualityFix: () => void;
 
   // 이미지 관련
@@ -500,6 +508,7 @@ export function StepGenerate({
   isLoading,
   onRegenerate,
   onCopy,
+  onContentEdit,
   onQualityFix,
   imageSlots,
   userPhotosBySlot,
@@ -516,6 +525,25 @@ export function StepGenerate({
   onTransformSlot,
   onCustomPromptChange,
 }: StepGenerateProps) {
+  // 본문 직접 수정 모드 (로컬 state).
+  // - draftContent: 편집창의 현재 값 (편집 모드 진입 시 content로 초기화)
+  // - 「✓ 수정 완료」: onContentEdit으로 부모에 commit
+  // - 「취소」: draft 버리고 미리보기로 복귀
+  const [isEditing, setIsEditing] = useState(false);
+  const [draftContent, setDraftContent] = useState("");
+
+  const handleEditStart = () => {
+    setDraftContent(content);
+    setIsEditing(true);
+  };
+  const handleEditCommit = () => {
+    onContentEdit(draftContent);
+    setIsEditing(false);
+  };
+  const handleEditCancel = () => {
+    setIsEditing(false);
+  };
+
   const excludedSet = new Set(excludedSlotIds);
   const activeSlots = imageSlots.filter((s) => !excludedSet.has(s.id));
   const doneCount = activeSlots.filter((s) => generatedImages[s.id]).length;
@@ -544,11 +572,44 @@ export function StepGenerate({
           </p>
         </div>
         <div className="flex gap-2">
+          {!isEditing ? (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleEditStart}
+              disabled={!content || isLoading}
+              className="gap-2"
+            >
+              <Pencil className="h-4 w-4" />
+              본문 수정
+            </Button>
+          ) : (
+            <>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={handleEditCancel}
+                className="gap-2"
+              >
+                <X className="h-4 w-4" />
+                취소
+              </Button>
+              <Button
+                variant="default"
+                size="sm"
+                onClick={handleEditCommit}
+                className="gap-2"
+              >
+                <Check className="h-4 w-4" />
+                수정 완료
+              </Button>
+            </>
+          )}
           <Button
             variant="outline"
             size="sm"
             onClick={onCopy}
-            disabled={!content || isLoading}
+            disabled={!content || isLoading || isEditing}
             className="gap-2"
           >
             <Copy className="h-4 w-4" />
@@ -558,7 +619,7 @@ export function StepGenerate({
             variant="outline"
             size="sm"
             onClick={onRegenerate}
-            disabled={isLoading}
+            disabled={isLoading || isEditing}
             className="gap-2"
           >
             {isLoading ? (
@@ -600,7 +661,7 @@ export function StepGenerate({
                 </div>
               )}
 
-              {content && (
+              {content && !isEditing && (
                 <ScrollArea className="h-[calc(100dvh-18rem)] min-h-[560px] max-h-[900px] pr-4">
                   <div>
                     {isLoading && (
@@ -635,12 +696,39 @@ export function StepGenerate({
                   </div>
                 </ScrollArea>
               )}
+
+              {content && isEditing && (
+                <div className="space-y-2">
+                  <div className="flex items-start gap-2 rounded-md border border-yellow-500/30 bg-yellow-500/5 px-3 py-2 text-xs text-yellow-700 dark:text-yellow-400">
+                    <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                    <div className="space-y-0.5">
+                      <p>
+                        <strong>[이미지: ...]</strong> 줄과 <strong>## 소제목</strong> 줄은 가급적 건드리지 마세요.
+                      </p>
+                      <p className="text-muted-foreground">
+                        이미지 마커 줄을 수정하면 업로드한 사진/생성한 이미지가 사라질 수 있어요. 본문 텍스트만 자유롭게 고치세요.
+                      </p>
+                    </div>
+                  </div>
+                  <Textarea
+                    value={draftContent}
+                    onChange={(e) => setDraftContent(e.target.value)}
+                    className="h-[calc(100dvh-22rem)] min-h-[520px] max-h-[860px] resize-none font-mono text-sm leading-relaxed"
+                    spellCheck={false}
+                    placeholder="본문을 자유롭게 수정하세요"
+                  />
+                  <div className="flex items-center justify-between text-xs text-muted-foreground">
+                    <span>총 {draftContent.length.toLocaleString()}자</span>
+                    <span>「수정 완료」를 눌러야 미리보기·품질 검증에 반영됩니다</span>
+                  </div>
+                </div>
+              )}
             </CardContent>
           </Card>
         </div>
 
         {/* Right: Quality Panel (약 33%, 보조 사이드) */}
-        <div className="flex-[1]">
+        <div className={`flex-[1] ${isEditing ? "pointer-events-none opacity-60" : ""}`}>
           <Card className="h-full">
             <CardHeader>
               <div className="flex items-center justify-between">
@@ -648,12 +736,16 @@ export function StepGenerate({
                   <BarChart3 className="h-4 w-4" />
                   품질 검증
                 </CardTitle>
-                {qualityResult && (
-                  <Badge
-                    variant={qualityResult.isPass ? "default" : "destructive"}
-                  >
-                    {qualityResult.isPass ? "통과" : "미통과"}
-                  </Badge>
+                {isEditing ? (
+                  <Badge variant="outline">수정 후 재검증</Badge>
+                ) : (
+                  qualityResult && (
+                    <Badge
+                      variant={qualityResult.isPass ? "default" : "destructive"}
+                    >
+                      {qualityResult.isPass ? "통과" : "미통과"}
+                    </Badge>
+                  )
                 )}
               </div>
             </CardHeader>

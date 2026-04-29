@@ -60,6 +60,7 @@ const initialState: WizardState = {
   selectedTitle: "",
   generatedContent: "",
   qualityResult: null,
+  contentDirty: false,
   imageSlots: [],
   userPhotosBySlot: {},
   excludedSlotIds: [],
@@ -277,11 +278,35 @@ export default function Home() {
     }
   }, [state.selectedProducts, state.narrativeType, state.toneType, state.mainKeyword, state.subKeywords, state.persona, updateState]);
 
+  // /api/validate 호출. fetchContent와 본문 직접 수정(handleContentEdit) 양쪽에서 재사용한다.
+  const runValidation = useCallback(
+    async (text: string) => {
+      try {
+        const res = await fetch("/api/validate", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            text,
+            keyword: state.mainKeyword,
+            charRange: state.charCountRange,
+          }),
+        });
+        if (!res.ok) return;
+        const quality = await res.json();
+        updateState({ qualityResult: quality });
+      } catch {
+        // 검증 실패는 사용자 흐름을 막지 않음
+      }
+    },
+    [state.mainKeyword, state.charCountRange, updateState]
+  );
+
   const fetchContent = useCallback(async () => {
     updateState({
       isLoading: true,
       generatedContent: "",
       qualityResult: null,
+      contentDirty: false,
       generatedImages: {},
       customPromptsBySlot: {},
     });
@@ -348,27 +373,14 @@ export default function Home() {
       }
 
       // 생성 완료 후 품질 검증
-      const validateRes = await fetch("/api/validate", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          text: content,
-          keyword: state.mainKeyword,
-          charRange: state.charCountRange,
-        }),
-      });
-      if (validateRes.ok) {
-        const quality = await validateRes.json();
-        updateState({ qualityResult: quality, isLoading: false });
-      } else {
-        updateState({ isLoading: false });
-      }
+      updateState({ isLoading: false });
+      await runValidation(content);
     } catch (err) {
       const msg = err instanceof Error ? err.message : "글 생성 실패";
       toast.error(msg);
       updateState({ isLoading: false });
     }
-  }, [state.selectedProducts, state.narrativeType, state.toneType, state.mainKeyword, state.subKeywords, state.persona, state.requirements, state.charCountRange, state.selectedTitle, state.referenceAnalysis, state.toneExample, updateState]);
+  }, [state.selectedProducts, state.narrativeType, state.toneType, state.mainKeyword, state.subKeywords, state.persona, state.requirements, state.charCountRange, state.selectedTitle, state.referenceAnalysis, state.toneExample, updateState, runValidation]);
 
   const handleQualityFix = useCallback(async () => {
     if (!state.qualityResult || state.qualityResult.isPass) return;
@@ -807,12 +819,31 @@ export default function Home() {
   }, [fetchTitles]);
 
   const handleContentRegenerate = useCallback(() => {
+    if (state.contentDirty) {
+      const ok = window.confirm(
+        "직접 수정한 본문이 모두 사라집니다. 다시 생성할까요?"
+      );
+      if (!ok) return;
+    }
     fetchContent();
-  }, [fetchContent]);
+  }, [fetchContent, state.contentDirty]);
 
   const handleContentCopy = useCallback(() => {
     navigator.clipboard.writeText(state.generatedContent);
   }, [state.generatedContent]);
+
+  // 사용자가 「✓ 수정 완료」를 누르면 호출됨.
+  // 본문이 변하면 page.tsx의 useEffect가 자동으로 마커 재파싱·자동 가공을 다시 돌리고,
+  // 슬롯은 description+index 매칭으로 보존된다.
+  // 품질 검증도 즉시 재실행해서 우측 패널을 갱신한다.
+  const handleContentEdit = useCallback(
+    (next: string) => {
+      if (next === state.generatedContent) return;
+      updateState({ generatedContent: next, contentDirty: true });
+      runValidation(next);
+    },
+    [state.generatedContent, updateState, runValidation]
+  );
 
   const renderStep = () => {
     switch (state.currentStep) {
@@ -862,6 +893,7 @@ export default function Home() {
             isLoading={state.isLoading}
             onRegenerate={handleContentRegenerate}
             onCopy={handleContentCopy}
+            onContentEdit={handleContentEdit}
             onQualityFix={handleQualityFix}
             imageSlots={state.imageSlots}
             userPhotosBySlot={state.userPhotosBySlot}

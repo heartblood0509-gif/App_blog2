@@ -144,6 +144,8 @@ export interface WizardState {
   // Step 5: 생성 결과
   generatedContent: string;
   qualityResult: QualityResult | null;
+  /** 사용자가 본문을 직접 수정한 적이 있는지. 재생성 confirm 다이얼로그에 사용 */
+  contentDirty: boolean;
 
   // Step 5: 이미지 슬롯 관련
   /** 본문에서 파싱된 이미지 슬롯 (content가 바뀌면 재계산) */
