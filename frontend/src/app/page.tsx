@@ -23,23 +23,35 @@ import type {
   UserPhoto,
   Channel,
   PostCategory,
+  ThreadsState,
 } from "@/types";
+import { initialThreadsState } from "@/types";
 import { parseImageMarkers, ensureSubtitleCoverage, ensureHookImage, dedupeSubtitleEchoes, stripBrTags } from "@/lib/image/marker-parser";
 
-import { StepProductSelect } from "@/components/steps/step-product-select";
+import { StepChannelSelect } from "@/components/steps/step-channel-select";
 import { StepNarrative } from "@/components/steps/step-narrative";
 import { StepSettings } from "@/components/steps/step-settings";
 import { StepTitleSelect } from "@/components/steps/step-title-select";
 import { StepGenerate } from "@/components/steps/step-generate";
 import { StepPublish } from "@/components/steps/step-publish";
+import { StepThreadsAnalysis } from "@/components/steps-threads/step-threads-analysis";
+import { StepThreadsSettings } from "@/components/steps-threads/step-threads-settings";
+import { StepThreadsGenerate } from "@/components/steps-threads/step-threads-generate";
 
-const STEPS = [
-  { label: "제품 선택", icon: Package },
+const BLOG_STEPS = [
+  { label: "채널 선택", icon: Package },
   { label: "글 구조", icon: BookOpen },
   { label: "글 설정", icon: Settings },
   { label: "제목 선택", icon: Type },
   { label: "글 생성", icon: FileText },
   { label: "발행", icon: Send },
+];
+
+const THREADS_STEPS = [
+  { label: "채널 선택", icon: Package },
+  { label: "분석 방식", icon: BookOpen },
+  { label: "글 설정", icon: Settings },
+  { label: "쓰레드 생성", icon: FileText },
 ];
 
 const initialState: WizardState = {
@@ -71,6 +83,7 @@ const initialState: WizardState = {
   currentStep: 0,
   referenceAnalysis: "",
   isLoading: false,
+  threads: initialThreadsState,
 };
 
 export default function Home() {
@@ -156,16 +169,44 @@ export default function Home() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [state.generatedContent]);
 
+  const STEPS = state.channel === "thread" ? THREADS_STEPS : BLOG_STEPS;
+
   const canAdvance = (): boolean => {
+    // 쓰레드 채널 분기
+    if (state.channel === "thread") {
+      switch (state.currentStep) {
+        case 0:
+          return true; // 채널만 고르면 통과
+        case 1:
+          return (
+            state.threads.analysisMode !== null &&
+            state.threads.analysisResult.trim() !== ""
+          );
+        case 2:
+          return state.threads.analysisMode === "image" ||
+            state.threads.analysisMode === "template"
+            ? state.threads.settings.topic.trim() !== ""
+            : true;
+        case 3:
+          return true;
+        default:
+          return false;
+      }
+    }
+
+    // 블로그 채널 (기존 로직 그대로)
     switch (state.currentStep) {
       case 0:
-        return state.selectedProducts.length > 0 && state.channel !== null;
+        // Step 0은 채널 선택 전용. 채널만 고르면 통과.
+        return state.channel !== null;
       case 1: {
         // 카테고리는 블로그 채널일 때만 필수
         if (state.channel === "blog" && state.postCategory === null) return false;
-        // 서사 구조/말투/URL 체크는 후기성 카테고리일 때만 적용
+        // 서사 구조/말투/URL/제품 체크는 후기성 카테고리일 때만 적용
         // (브랜드/AEO 등 다른 카테고리는 향후 다른 구성을 가질 예정)
         if (state.postCategory === "review") {
+          // 제품 선택 (Step 0에서 분리됨 — Step 1로 이동)
+          if (state.selectedProducts.length === 0) return false;
           if (state.narrativeSource === null || state.toneType === null) return false;
           // 직접 레퍼런스 모드만 URL 필수 (감정/결론 선공형은 내장 샘플 사용)
           const urlRequired = state.narrativeSource === "custom-reference";
@@ -188,6 +229,31 @@ export default function Home() {
 
   const advanceHint = (): string | undefined => {
     if (canAdvance()) return undefined;
+
+    // 쓰레드 채널 hint
+    if (state.channel === "thread") {
+      switch (state.currentStep) {
+        case 0:
+          return state.channel === null ? "채널을 선택해주세요" : undefined;
+        case 1:
+          if (state.threads.analysisMode === null) return "분석 방식을 선택해주세요";
+          if (state.threads.analysisResult.trim() === "")
+            return "분석을 완료해주세요";
+          return undefined;
+        case 2:
+          if (
+            (state.threads.analysisMode === "image" ||
+              state.threads.analysisMode === "template") &&
+            state.threads.settings.topic.trim() === ""
+          ) {
+            return "주제를 입력해주세요";
+          }
+          return undefined;
+        default:
+          return undefined;
+      }
+    }
+
     switch (state.currentStep) {
       case 0:
         if (state.channel === null) return "채널을 선택해주세요";
@@ -742,12 +808,14 @@ export default function Home() {
     const nextStep = state.currentStep + 1;
     updateState({ currentStep: nextStep });
 
-    // 레퍼런스 분석은 Step 2의 명시적 [서사 구조 분석] 버튼으로만 트리거됨
-    if (nextStep === 3 && state.titleSuggestions.length === 0) {
-      fetchTitles().catch(() => {});
-    }
-    if (nextStep === 4 && state.generatedContent === "") {
-      fetchContent().catch(() => {});
+    // 자동 fetch는 블로그 채널에만 적용 (쓰레드는 사용자가 명시적으로 버튼을 눌러야 함)
+    if (state.channel === "blog") {
+      if (nextStep === 3 && state.titleSuggestions.length === 0) {
+        fetchTitles().catch(() => {});
+      }
+      if (nextStep === 4 && state.generatedContent === "") {
+        fetchContent().catch(() => {});
+      }
     }
   };
 
@@ -766,9 +834,37 @@ export default function Home() {
 
   const handleChannelChange = useCallback(
     (channel: Channel) => {
-      updateState({ channel });
+      // 채널이 실제로 바뀐 경우 블로그 관련 입력값까지 모두 리셋해
+      // 다른 채널/플로우의 stale state가 다음 진행을 막지 않도록 한다.
+      if (channel !== state.channel) {
+        updateState({
+          channel,
+          currentStep: 0,
+          threads: initialThreadsState,
+          selectedProducts: [],
+          postCategory: null,
+          narrativeSource: null,
+          narrativeType: null,
+          toneType: null,
+          toneExample: "",
+          referenceUrl: "",
+          referenceAnalysis: "",
+        });
+      } else {
+        updateState({ channel });
+      }
     },
-    [updateState]
+    [updateState, state.channel]
+  );
+
+  const handleThreadsChange = useCallback(
+    (partial: Partial<ThreadsState>) => {
+      setState((prev) => ({
+        ...prev,
+        threads: { ...prev.threads, ...partial },
+      }));
+    },
+    []
   );
 
   const handlePostCategoryChange = useCallback(
@@ -845,12 +941,47 @@ export default function Home() {
   );
 
   const renderStep = () => {
+    // 쓰레드 채널 분기
+    if (state.channel === "thread") {
+      switch (state.currentStep) {
+        case 0:
+          return (
+            <StepChannelSelect
+              channel={state.channel}
+              onChannelChange={handleChannelChange}
+            />
+          );
+        case 1:
+          return (
+            <StepThreadsAnalysis
+              threads={state.threads}
+              onChange={handleThreadsChange}
+            />
+          );
+        case 2:
+          return (
+            <StepThreadsSettings
+              settings={state.threads.settings}
+              onChange={(settings) => handleThreadsChange({ settings })}
+              analysisMode={state.threads.analysisMode}
+            />
+          );
+        case 3:
+          return (
+            <StepThreadsGenerate
+              threads={state.threads}
+              onChange={handleThreadsChange}
+            />
+          );
+        default:
+          return null;
+      }
+    }
+
     switch (state.currentStep) {
       case 0:
         return (
-          <StepProductSelect
-            selectedProducts={state.selectedProducts}
-            onChange={handleProductChange}
+          <StepChannelSelect
             channel={state.channel}
             onChannelChange={handleChannelChange}
           />
@@ -864,11 +995,13 @@ export default function Home() {
             toneExample={state.toneExample}
             channel={state.channel}
             postCategory={state.postCategory}
+            selectedProducts={state.selectedProducts}
             onNarrativeSourceChange={handleNarrativeSourceChange}
             onReferenceUrlChange={handleReferenceUrlChange}
             onToneChange={handleToneChange}
             onToneExampleChange={(example: string) => updateState({ toneExample: example })}
             onPostCategoryChange={handlePostCategoryChange}
+            onSelectedProductsChange={handleProductChange}
             referenceAnalysis={state.referenceAnalysis}
             isAnalyzing={state.isLoading}
             onAnalyze={() => fetchReferenceAnalysis().catch(() => {})}

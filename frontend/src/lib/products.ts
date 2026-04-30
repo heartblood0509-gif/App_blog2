@@ -2,7 +2,7 @@ import type { ProductId } from "@/types";
 
 /**
  * 공용 제품 기본 정보
- * 서버(brand-context.ts)와 클라이언트(step-product-select.tsx) 모두 이 파일에서 임포트
+ * 서버(brand-context.ts)와 클라이언트(product-selection-section.tsx) 모두 이 파일에서 임포트
  */
 export interface ProductBase {
   id: ProductId;

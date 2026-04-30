@@ -13,3 +13,4 @@ build/
 accounts.json
 .publish_counter.json
 .claude/
+.worktreeinclude
