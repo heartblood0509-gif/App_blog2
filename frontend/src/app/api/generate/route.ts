@@ -29,6 +29,7 @@ export async function POST(request: Request) {
       charCount,
       selectedTitle,
       referenceAnalysis,
+      topic,
       apiKey,
     } = body as {
       products: SelectedProduct[];
@@ -42,6 +43,7 @@ export async function POST(request: Request) {
       charCount: { min: number; max: number };
       selectedTitle: string;
       referenceAnalysis?: string;
+      topic?: string;
       apiKey?: string;
     };
 
@@ -57,6 +59,7 @@ export async function POST(request: Request) {
       charCount,
       selectedTitle,
       referenceAnalysis,
+      topic,
     });
 
     // 1차 생성 (버퍼)

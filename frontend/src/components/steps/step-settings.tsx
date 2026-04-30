@@ -21,8 +21,8 @@ const PERSONA_PRESETS = [
 ];
 
 const CHAR_COUNT_OPTIONS: CharCountRange[] = [
-  { min: 1500, max: 2000, label: "1500~2000자" },
   { min: 0, max: 0, label: "레퍼런스 맞춤" },
+  { min: 1500, max: 2000, label: "1500~2000자" },
 ];
 
 interface StepSettingsProps {
@@ -57,6 +57,27 @@ export function StepSettings({ state, onChange }: StepSettingsProps) {
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
         {/* Left Column */}
         <div className="space-y-6">
+          {/* Topic — 선택 입력. 비우면 키워드만 보고 AI가 알아서 판단. */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2 text-sm">
+                <FileText className="h-4 w-4" />
+                주제
+                <Badge variant="secondary" className="text-[10px]">
+                  선택
+                </Badge>
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <Textarea
+                placeholder="비워두면 키워드만 보고 AI가 알아서 글을 구성합니다.&#10;채워두면 입력한 주제에 정확히 맞춰 제목과 본문이 만들어집니다."
+                value={state.topic}
+                onChange={(e) => onChange({ topic: e.target.value })}
+                rows={3}
+              />
+            </CardContent>
+          </Card>
+
           {/* Main Keyword */}
           <Card>
             <CardHeader>
@@ -97,35 +118,37 @@ export function StepSettings({ state, onChange }: StepSettingsProps) {
             </CardContent>
           </Card>
 
-          {/* Persona */}
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2 text-sm">
-                <User className="h-4 w-4" />
-                페르소나
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="mb-3 flex flex-wrap gap-2">
-                {PERSONA_PRESETS.map((preset) => (
-                  <Button
-                    key={preset}
-                    variant={state.persona === preset ? "default" : "outline"}
-                    size="xs"
-                    onClick={() => handlePersonaPreset(preset)}
-                  >
-                    {preset}
-                  </Button>
-                ))}
-              </div>
-              <Textarea
-                placeholder="글을 작성하는 사람의 페르소나를 설정하세요"
-                value={state.persona}
-                onChange={(e) => onChange({ persona: e.target.value })}
-                className="min-h-[60px]"
-              />
-            </CardContent>
-          </Card>
+          {/* Persona — 브랜드 모드에선 화자가 1인칭 고정이라 노출 X */}
+          {state.postCategory !== "brand" && (
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2 text-sm">
+                  <User className="h-4 w-4" />
+                  페르소나
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="mb-3 flex flex-wrap gap-2">
+                  {PERSONA_PRESETS.map((preset) => (
+                    <Button
+                      key={preset}
+                      variant={state.persona === preset ? "default" : "outline"}
+                      size="xs"
+                      onClick={() => handlePersonaPreset(preset)}
+                    >
+                      {preset}
+                    </Button>
+                  ))}
+                </div>
+                <Textarea
+                  placeholder="글을 작성하는 사람의 페르소나를 설정하세요"
+                  value={state.persona}
+                  onChange={(e) => onChange({ persona: e.target.value })}
+                  className="min-h-[60px]"
+                />
+              </CardContent>
+            </Card>
+          )}
         </div>
 
         {/* Right Column */}

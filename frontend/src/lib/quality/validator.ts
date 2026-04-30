@@ -64,10 +64,12 @@ export function validateContent(
   // 미통과 사유 수집 (공백 포함 글자수 기준)
   const failReasons: string[] = [];
 
-  if (charCount < charRange.min) {
+  // "레퍼런스 맞춤" (min:0 && max:0) 모드는 글자수 검증을 skip — 레퍼런스 길이 자연 수렴이 더 좋은 퀄리티를 만듦
+  const skipCharCount = charRange.min === 0 && charRange.max === 0;
+  if (!skipCharCount && charCount < charRange.min) {
     failReasons.push(`글자수 부족: ${charCount.toLocaleString()}자 (최소 ${charRange.min.toLocaleString()}자)`);
   }
-  if (charCount > charRange.max + 500) {
+  if (!skipCharCount && charCount > charRange.max + 500) {
     failReasons.push(`글자수 초과: ${charCount.toLocaleString()}자 (최대 ${(charRange.max + 500).toLocaleString()}자)`);
   }
   if (keywordCount < 4) {

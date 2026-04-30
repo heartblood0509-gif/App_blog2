@@ -13,6 +13,7 @@ export async function POST(request: Request) {
       mainKeyword,
       subKeywords,
       persona,
+      topic,
       apiKey,
     } = body as {
       products: SelectedProduct[];
@@ -21,6 +22,7 @@ export async function POST(request: Request) {
       mainKeyword: string;
       subKeywords?: string;
       persona?: string;
+      topic?: string;
       apiKey?: string;
     };
 
@@ -31,6 +33,7 @@ export async function POST(request: Request) {
       mainKeyword,
       subKeywords,
       persona,
+      topic,
     });
 
     const result = await generateText(prompt, CONFIG.GENERATION_MODEL, apiKey);
