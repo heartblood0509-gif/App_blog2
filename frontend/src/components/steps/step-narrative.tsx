@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -29,7 +29,8 @@ import {
   Star,
   Building2,
 } from "lucide-react";
-import type { NarrativeSource, ToneType, Channel, PostCategory } from "@/types";
+import type { NarrativeSource, ToneType, Channel, PostCategory, SelectedProduct } from "@/types";
+import { ProductSelectionSection } from "@/components/steps/product-selection-section";
 
 type NarrativeOption = {
   id: NarrativeSource;
@@ -148,11 +149,13 @@ interface StepNarrativeProps {
   toneExample: string;
   channel: Channel | null;
   postCategory: PostCategory | null;
+  selectedProducts: SelectedProduct[];
   onNarrativeSourceChange: (source: NarrativeSource) => void;
   onReferenceUrlChange: (url: string) => void;
   onToneChange: (type: ToneType) => void;
   onToneExampleChange: (example: string) => void;
   onPostCategoryChange: (category: PostCategory) => void;
+  onSelectedProductsChange: (products: SelectedProduct[]) => void;
   // 레퍼런스 분석 (URL 입력 후 명시적 [분석] 버튼으로 트리거)
   referenceAnalysis: string;
   isAnalyzing: boolean;
@@ -167,17 +170,40 @@ export function StepNarrative({
   toneExample,
   channel,
   postCategory,
+  selectedProducts,
   onNarrativeSourceChange,
   onReferenceUrlChange,
   onToneChange,
   onToneExampleChange,
   onPostCategoryChange,
+  onSelectedProductsChange,
   referenceAnalysis,
   isAnalyzing,
   onAnalyze,
   onReferenceAnalysisChange,
 }: StepNarrativeProps) {
   const selectedOption = NARRATIVES.find((n) => n.id === narrativeSource) ?? null;
+
+  // 점진 노출 시각 피드백: 새 섹션이 처음 노출되는 순간만 부드럽게 스크롤
+  const productSectionRef = useRef<HTMLDivElement | null>(null);
+  const narrativeSectionRef = useRef<HTMLDivElement | null>(null);
+  const prevPostCategoryRef = useRef(postCategory);
+  const prevHasProductsRef = useRef(selectedProducts.length > 0);
+
+  useEffect(() => {
+    if (prevPostCategoryRef.current !== "review" && postCategory === "review") {
+      productSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+    prevPostCategoryRef.current = postCategory;
+  }, [postCategory]);
+
+  useEffect(() => {
+    const hasProducts = selectedProducts.length > 0;
+    if (!prevHasProductsRef.current && hasProducts && postCategory === "review") {
+      narrativeSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+    prevHasProductsRef.current = hasProducts;
+  }, [selectedProducts.length, postCategory]);
 
   // 레퍼런스 분석 보기/수정 패널 상태
   const [isAnalysisOpen, setIsAnalysisOpen] = useState(true);
@@ -253,11 +279,36 @@ export function StepNarrative({
             </div>
           </section>
 
+          {/* Product Selection — 후기성 카테고리일 때 점진 노출 */}
           {postCategory === "review" && (
-            <>
+            <motion.div
+              key="product-section"
+              ref={productSectionRef}
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.25 }}
+              className="space-y-10"
+            >
+              <Separator />
+              <ProductSelectionSection
+                selectedProducts={selectedProducts}
+                onChange={onSelectedProductsChange}
+              />
+            </motion.div>
+          )}
+
+          {postCategory === "review" && selectedProducts.length > 0 && (
+            <motion.div
+              key="narrative-section"
+              ref={narrativeSectionRef}
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.25 }}
+              className="space-y-10"
+            >
               <Separator />
 
-              {/* Narrative Structure Section — 후기성 블로그에서만 노출 */}
+              {/* Narrative Structure Section — 후기성 블로그 + 제품 선택 시 노출 */}
               <section>
         <div className="mb-4">
           <h2 className="text-xl font-semibold">서사 구조</h2>
@@ -649,7 +700,7 @@ export function StepNarrative({
           )}
         </AnimatePresence>
       </section>
-            </>
+            </motion.div>
           )}
         </>
       )}

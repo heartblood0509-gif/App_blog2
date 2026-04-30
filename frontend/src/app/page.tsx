@@ -28,7 +28,7 @@ import type {
 import { initialThreadsState } from "@/types";
 import { parseImageMarkers, ensureSubtitleCoverage, ensureHookImage, dedupeSubtitleEchoes, stripBrTags } from "@/lib/image/marker-parser";
 
-import { StepProductSelect } from "@/components/steps/step-product-select";
+import { StepChannelSelect } from "@/components/steps/step-channel-select";
 import { StepNarrative } from "@/components/steps/step-narrative";
 import { StepSettings } from "@/components/steps/step-settings";
 import { StepTitleSelect } from "@/components/steps/step-title-select";
@@ -39,7 +39,7 @@ import { StepThreadsSettings } from "@/components/steps-threads/step-threads-set
 import { StepThreadsGenerate } from "@/components/steps-threads/step-threads-generate";
 
 const BLOG_STEPS = [
-  { label: "제품 선택", icon: Package },
+  { label: "채널 선택", icon: Package },
   { label: "글 구조", icon: BookOpen },
   { label: "글 설정", icon: Settings },
   { label: "제목 선택", icon: Type },
@@ -197,13 +197,16 @@ export default function Home() {
     // 블로그 채널 (기존 로직 그대로)
     switch (state.currentStep) {
       case 0:
-        return state.selectedProducts.length > 0 && state.channel !== null;
+        // Step 0은 채널 선택 전용. 채널만 고르면 통과.
+        return state.channel !== null;
       case 1: {
         // 카테고리는 블로그 채널일 때만 필수
         if (state.channel === "blog" && state.postCategory === null) return false;
-        // 서사 구조/말투/URL 체크는 후기성 카테고리일 때만 적용
+        // 서사 구조/말투/URL/제품 체크는 후기성 카테고리일 때만 적용
         // (브랜드/AEO 등 다른 카테고리는 향후 다른 구성을 가질 예정)
         if (state.postCategory === "review") {
+          // 제품 선택 (Step 0에서 분리됨 — Step 1로 이동)
+          if (state.selectedProducts.length === 0) return false;
           if (state.narrativeSource === null || state.toneType === null) return false;
           // 직접 레퍼런스 모드만 URL 필수 (감정/결론 선공형은 내장 샘플 사용)
           const urlRequired = state.narrativeSource === "custom-reference";
@@ -831,12 +834,21 @@ export default function Home() {
 
   const handleChannelChange = useCallback(
     (channel: Channel) => {
-      // 채널이 실제로 바뀐 경우에만 잔여 데이터 리셋
+      // 채널이 실제로 바뀐 경우 블로그 관련 입력값까지 모두 리셋해
+      // 다른 채널/플로우의 stale state가 다음 진행을 막지 않도록 한다.
       if (channel !== state.channel) {
         updateState({
           channel,
           currentStep: 0,
           threads: initialThreadsState,
+          selectedProducts: [],
+          postCategory: null,
+          narrativeSource: null,
+          narrativeType: null,
+          toneType: null,
+          toneExample: "",
+          referenceUrl: "",
+          referenceAnalysis: "",
         });
       } else {
         updateState({ channel });
@@ -934,9 +946,7 @@ export default function Home() {
       switch (state.currentStep) {
         case 0:
           return (
-            <StepProductSelect
-              selectedProducts={state.selectedProducts}
-              onChange={handleProductChange}
+            <StepChannelSelect
               channel={state.channel}
               onChannelChange={handleChannelChange}
             />
@@ -971,9 +981,7 @@ export default function Home() {
     switch (state.currentStep) {
       case 0:
         return (
-          <StepProductSelect
-            selectedProducts={state.selectedProducts}
-            onChange={handleProductChange}
+          <StepChannelSelect
             channel={state.channel}
             onChannelChange={handleChannelChange}
           />
@@ -987,11 +995,13 @@ export default function Home() {
             toneExample={state.toneExample}
             channel={state.channel}
             postCategory={state.postCategory}
+            selectedProducts={state.selectedProducts}
             onNarrativeSourceChange={handleNarrativeSourceChange}
             onReferenceUrlChange={handleReferenceUrlChange}
             onToneChange={handleToneChange}
             onToneExampleChange={(example: string) => updateState({ toneExample: example })}
             onPostCategoryChange={handlePostCategoryChange}
+            onSelectedProductsChange={handleProductChange}
             referenceAnalysis={state.referenceAnalysis}
             isAnalyzing={state.isLoading}
             onAnalyze={() => fetchReferenceAnalysis().catch(() => {})}
