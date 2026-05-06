@@ -63,6 +63,7 @@ const initialState: WizardState = {
   toneType: null,
   toneExample: "",
   referenceUrl: "",
+  selectedCustomReferenceId: null,
   mainKeyword: "",
   subKeywords: "",
   persona: "",
@@ -848,6 +849,7 @@ export default function Home() {
           toneType: null,
           toneExample: "",
           referenceUrl: "",
+          selectedCustomReferenceId: null,
           referenceAnalysis: "",
         });
       } else {

@@ -42,6 +42,29 @@ export type NarrativeSource =
   | "conclusion-first"
   | "custom-reference";
 
+// ─────────────────────────────────────────────
+// 사용자 저장 레퍼런스 라이브러리 (Phase 2~)
+// ─────────────────────────────────────────────
+
+/** 저장된 레퍼런스가 어느 블로그 모드에서 만들어졌는지 */
+export type ReferenceCategory = "review" | "brand";
+
+/**
+ * 사용자가 분석 후 "이름 붙여 저장"한 레퍼런스 한 건.
+ * localStorage에 카테고리 무관 단일 키로 보관, category 필드로 필터링.
+ */
+export interface CustomReference {
+  id: string;             // `ref-${Date.now()}`
+  name: string;           // 사용자가 붙인 이름
+  category: ReferenceCategory;
+  sourceUrl: string;
+  flow: string[];         // 카드 시각화용 단계 배열 (없으면 빈 배열)
+  analysisMd: string;     // 글 생성 프롬프트에 그대로 주입할 본문
+  createdAt: string;      // ISO
+  /** 브랜드 카테고리에서만 의미 — 어느 템플릿 자리에 들어갈지 */
+  brandTemplateId?: "intro" | "info" | "value-proof" | "detail";
+}
+
 // 말투 타입
 export type ToneType = "존댓말" | "반말" | "음슴체";
 
@@ -195,6 +218,13 @@ export interface WizardState {
    * - "empathy-first"면 선택 사항 (비우면 내장 레퍼런스 사용)
    */
   referenceUrl: string;
+
+  /**
+   * 라이브러리에서 선택된 사용자 저장 레퍼런스 id.
+   * 값이 있으면 narrativeSource는 "custom-reference"로 강제되고
+   * 해당 ref의 analysisMd가 referenceAnalysis에 주입됨.
+   */
+  selectedCustomReferenceId: string | null;
 
   // Step 3: 글 설정
   mainKeyword: string;
