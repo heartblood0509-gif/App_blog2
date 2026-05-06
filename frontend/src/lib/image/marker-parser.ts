@@ -236,6 +236,83 @@ export function ensureSubtitleCoverage(content: string): string {
   return result.join("\n");
 }
 
+/**
+ * HOOK과 첫 ## 소제목 사이 도입부가 길고 마커가 부족하면 자동 주입.
+ *
+ * AI가 도입부를 1개의 큰 섹션으로 처리해서 마커를 안 박는 경우의 안전장치.
+ * 함정 폭로형 같은 글에서 HOOK 다음 자기 고백·사명감 단락이 길게 이어질 때
+ * 텍스트만 8~10단락 노출되어 가독성이 떨어지는 사고를 방지한다.
+ *
+ * 규칙:
+ * - 첫 ##/### 소제목 직전까지를 "도입부"로 간주
+ * - 도입부 본문(마커 제외)이 600자 미만이면 패스
+ * - 도입부에 마커가 2개 이상 이미 있으면 패스 (HOOK 마커 + 다른 마커)
+ * - 600자 이상 + 마커 ≤ 1 → 자동 주입 (HOOK 마커 다음 빈 줄들 중 ~60% 지점)
+ *
+ * @param content AI 출력 (ensureHookImage / dedupeSubtitleEchoes 직후)
+ * @param mainKeyword 주입 마커 description에 활용
+ * @returns 도입부 마커가 보장된 마크다운 (변경 없으면 원본 그대로)
+ */
+export function ensureIntroImage(content: string, mainKeyword: string): string {
+  if (!content) return content;
+
+  const lines = content.split("\n");
+
+  // 1. 첫 ##/### 소제목 인덱스 찾기
+  let firstHeadingIdx = -1;
+  for (let i = 0; i < lines.length; i++) {
+    if (/^#{2,3}(\{[^}]+\})?\s+/.test(lines[i])) {
+      firstHeadingIdx = i;
+      break;
+    }
+  }
+  if (firstHeadingIdx === -1) return content; // 소제목 없으면 도입부 개념 없음
+
+  const introLines = lines.slice(0, firstHeadingIdx);
+
+  // 2. 도입부 마커 개수 (HOOK 마커 1개는 허용 — 그 외 추가 마커 있으면 이미 충분)
+  let markerCount = 0;
+  let firstMarkerIdx = -1;
+  for (let i = 0; i < introLines.length; i++) {
+    if (MARKER_RE.test(introLines[i])) {
+      markerCount++;
+      if (firstMarkerIdx === -1) firstMarkerIdx = i;
+    }
+  }
+  if (markerCount >= 2) return content; // 이미 도입부 마커 있음
+
+  // 3. 도입부 본문 길이 측정 (마커·HOOK 태그 줄 제외)
+  let bodyLength = 0;
+  for (const line of introLines) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+    if (MARKER_RE.test(trimmed)) continue;
+    if (trimmed.startsWith("<HOOK>") || trimmed.includes("</HOOK>")) continue;
+    bodyLength += trimmed.length;
+  }
+  if (bodyLength < 600) return content; // 짧은 도입부는 마커 불필요
+
+  // 4. 주입 위치 후보 — HOOK 마커 이후의 빈 줄들
+  const startSearchIdx = firstMarkerIdx === -1 ? 0 : firstMarkerIdx + 2;
+  const blankIndices: number[] = [];
+  for (let i = startSearchIdx; i < introLines.length; i++) {
+    if (introLines[i].trim() === "") blankIndices.push(i);
+  }
+  if (blankIndices.length < 1) return content; // 빈 줄 없으면 박을 자리 애매
+
+  // 5. ~60% 지점 빈 줄 선택 (자기 고백·사명감 단락이 보통 도입부 후반에 위치)
+  const targetIdx = blankIndices[Math.floor(blankIndices.length * 0.6)];
+
+  // 6. 마커 description 생성
+  const description = `${mainKeyword || "도입부"} 관련 감정 전환 장면, 자연광 실내, 한국인 피사체, 실사 DSLR 사진`;
+
+  // 7. 주입 (target 빈 줄 다음 줄에 마커, 추가 빈 줄 1개)
+  const result = [...lines];
+  result.splice(targetIdx + 1, 0, `[이미지: ${description}]`, "");
+
+  return result.join("\n");
+}
+
 /** 소제목 바로 아래 본문의 처음 ~80자 추출 (다음 소제목/마커/해시까지 도달 전에 찾음) */
 function extractBodyPreview(lines: string[], startIdx: number): string {
   for (let k = startIdx; k < Math.min(startIdx + 5, lines.length); k++) {

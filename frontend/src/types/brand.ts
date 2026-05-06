@@ -108,8 +108,14 @@ export type BrandTemplateId =
   | "value-proof" // 가치입증글
   | "detail"; // 상세페이지글 (UI에서 비활성)
 
-/** 정보성글 변형 — 향후 "info-2" | "info-3" 추가 대비 */
-export type BrandInfoVariantId = "info-1";
+/** 정보성글 변형 — info-1~4는 코드 보존용(UI 미노출), info-custom + info-5가 활성 */
+export type BrandInfoVariantId =
+  | "info-1"
+  | "info-2"
+  | "info-3"
+  | "info-4"
+  | "info-5"
+  | "info-custom";
 
 // ─────────────────────────────────────────────
 // 위저드 상태 (후기성 WizardState 와 격리된 별개 타입)

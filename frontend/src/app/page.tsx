@@ -26,7 +26,7 @@ import type {
   ThreadsState,
 } from "@/types";
 import { initialThreadsState } from "@/types";
-import { parseImageMarkers, ensureSubtitleCoverage, ensureHookImage, dedupeSubtitleEchoes, stripBrTags } from "@/lib/image/marker-parser";
+import { parseImageMarkers, ensureSubtitleCoverage, ensureHookImage, ensureIntroImage, dedupeSubtitleEchoes, stripBrTags } from "@/lib/image/marker-parser";
 
 import { StepChannelSelect } from "@/components/steps/step-channel-select";
 import { StepNarrative } from "@/components/steps/step-narrative";
@@ -86,6 +86,7 @@ const initialState: WizardState = {
   customPromptsBySlot: {},
   currentStep: 0,
   referenceAnalysis: "",
+  referenceText: "",
   isLoading: false,
   threads: initialThreadsState,
 };
@@ -118,11 +119,13 @@ export default function Home() {
     // 0) <br> 태그를 줄바꿈으로 치환 (미리보기와 발행물 표시 일치)
     // 1) 최상단 후킹 이미지 보장 (본문 맨 첫 줄에 마커 없으면 자동 주입)
     // 2) 소제목 직전 중복 일반 문장 제거 (네이버에서 인용구+텍스트 이중 노출 방지)
-    // 3) 소제목 커버리지 보장 (누락된 곳에 마커 자동 주입)
+    // 3) 도입부 이미지 보장 (HOOK~첫 소제목 사이 본문이 길면 마커 자동 주입)
+    // 4) 소제목 커버리지 보장 (누락된 곳에 마커 자동 주입)
     const cleanedContent = stripBrTags(rawContent);
     const hookedContent = ensureHookImage(cleanedContent, state.selectedTitle, state.mainKeyword);
     const dedupedContent = dedupeSubtitleEchoes(hookedContent);
-    const coveredContent = ensureSubtitleCoverage(dedupedContent);
+    const introCoveredContent = ensureIntroImage(dedupedContent, state.mainKeyword);
+    const coveredContent = ensureSubtitleCoverage(introCoveredContent);
 
     // 처리 완료된 결과와 비교 — 원본이 같아도 아직 후킹/소제목 주입이 안 된 상태면 진행
     if (coveredContent === prevContentRef.current) return;
@@ -223,6 +226,10 @@ export default function Home() {
           if (!state.selectedBrandProfileId) return false;
           if (!state.selectedBrandTemplate) return false;
           if (state.selectedBrandTemplate === "info" && !state.selectedBrandInfoVariant) return false;
+          // info-custom 모드: 견본 글 분석 결과 필수 (URL 또는 본문 입력 후 분석 완료까지 강제)
+          if (state.selectedBrandInfoVariant === "info-custom") {
+            if (state.referenceAnalysis.trim().length === 0) return false;
+          }
         }
         return true;
       }
@@ -296,25 +303,40 @@ export default function Home() {
     }
   };
 
-  const fetchReferenceAnalysis = useCallback(async () => {
-    if (!state.referenceUrl) return;
+  const fetchReferenceAnalysis = useCallback(async (overrideMode?: "url" | "text") => {
+    const mode = overrideMode ?? "url";
+    let textToAnalyze = "";
+
+    if (mode === "url") {
+      if (!state.referenceUrl) return;
+    } else {
+      if (!state.referenceText.trim()) return;
+    }
+
     updateState({ isLoading: true });
     try {
-      const crawlRes = await fetch("/api/crawl", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ url: state.referenceUrl }),
-      });
-      if (!crawlRes.ok) {
-        const err = await crawlRes.json();
-        throw new Error(err.error || "크롤링에 실패했습니다.");
+      if (mode === "url") {
+        const crawlRes = await fetch("/api/crawl", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ url: state.referenceUrl }),
+        });
+        if (!crawlRes.ok) {
+          const err = await crawlRes.json();
+          throw new Error(err.error || "크롤링에 실패했습니다.");
+        }
+        const crawlData = await crawlRes.json();
+        textToAnalyze = crawlData.content;
+        // 텍스트 모드와 동일하게 referenceText에도 채워넣어 생성 단계에서 활용
+        updateState({ referenceText: textToAnalyze });
+      } else {
+        textToAnalyze = state.referenceText.trim();
       }
-      const crawlData = await crawlRes.json();
 
       const analyzeRes = await fetch("/api/analyze", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ referenceText: crawlData.content }),
+        body: JSON.stringify({ referenceText: textToAnalyze }),
       });
       if (!analyzeRes.ok) {
         const err = await analyzeRes.json();
@@ -329,7 +351,7 @@ export default function Home() {
       toast.error(msg);
       updateState({ isLoading: false });
     }
-  }, [state.referenceUrl, updateState]);
+  }, [state.referenceUrl, state.referenceText, updateState]);
 
   // 브랜드 모드에서 selectedBrandProfileId 로 프로필 객체를 가져옴
   const fetchBrandProfile = useCallback(async (): Promise<unknown | null> => {
@@ -464,6 +486,15 @@ export default function Home() {
             requirements: state.requirements || undefined,
             charCount: state.charCountRange,
             selectedTitle: state.selectedTitle,
+            // info-custom 모드 — 사용자 견본 글 + 분석 결과 동적 주입
+            referenceText:
+              state.selectedBrandInfoVariant === "info-custom"
+                ? state.referenceText || undefined
+                : undefined,
+            referenceAnalysis:
+              state.selectedBrandInfoVariant === "info-custom"
+                ? state.referenceAnalysis || undefined
+                : undefined,
           }),
         });
       } else {
@@ -520,10 +551,13 @@ export default function Home() {
       // reader의 마지막 updateState가 React에 커밋될 기회 부여 (race 방어)
       await Promise.resolve();
 
-      // 스트리밍 완료 직후 <br> 정화 → 후킹 → 중복 제거 → 소제목 커버리지 보장
+      // 스트리밍 완료 직후 <br> 정화 → 후킹 → 중복 제거 → 도입부 안전망 → 소제목 커버리지
       const finalized = ensureSubtitleCoverage(
-        dedupeSubtitleEchoes(
-          ensureHookImage(stripBrTags(content), state.selectedTitle, state.mainKeyword)
+        ensureIntroImage(
+          dedupeSubtitleEchoes(
+            ensureHookImage(stripBrTags(content), state.selectedTitle, state.mainKeyword)
+          ),
+          state.mainKeyword
         )
       );
       if (finalized !== content) {
@@ -539,7 +573,7 @@ export default function Home() {
       toast.error(msg);
       updateState({ isLoading: false });
     }
-  }, [state.postCategory, state.selectedBrandTemplate, state.selectedBrandInfoVariant, state.topic, state.selectedProducts, state.narrativeType, state.toneType, state.mainKeyword, state.subKeywords, state.persona, state.requirements, state.charCountRange, state.selectedTitle, state.referenceAnalysis, state.toneExample, fetchBrandProfile, updateState, runValidation]);
+  }, [state.postCategory, state.selectedBrandTemplate, state.selectedBrandInfoVariant, state.topic, state.selectedProducts, state.narrativeType, state.toneType, state.mainKeyword, state.subKeywords, state.persona, state.requirements, state.charCountRange, state.selectedTitle, state.referenceAnalysis, state.referenceText, state.toneExample, fetchBrandProfile, updateState, runValidation]);
 
   const handleQualityFix = useCallback(async () => {
     if (!state.qualityResult || state.qualityResult.isPass) return;
@@ -596,10 +630,13 @@ export default function Home() {
       // reader의 마지막 updateState가 커밋될 기회 부여 (race 방어)
       await Promise.resolve();
 
-      // 품질 수정 완료 직후 <br> 정화 → 후킹 → 중복 제거 → 소제목 커버리지 재보장
+      // 품질 수정 완료 직후 <br> 정화 → 후킹 → 중복 제거 → 도입부 안전망 → 소제목 커버리지
       const finalizedFix = ensureSubtitleCoverage(
-        dedupeSubtitleEchoes(
-          ensureHookImage(stripBrTags(fixed), state.selectedTitle, state.mainKeyword)
+        ensureIntroImage(
+          dedupeSubtitleEchoes(
+            ensureHookImage(stripBrTags(fixed), state.selectedTitle, state.mainKeyword)
+          ),
+          state.mainKeyword
         )
       );
       if (finalizedFix !== fixed) {
@@ -997,10 +1034,10 @@ export default function Home() {
 
   const handleBrandTemplateChange = useCallback(
     (template: import("@/types/brand").BrandTemplateId) => {
-      // 템플릿이 바뀌면 변형 선택은 초기화 (info → other 시 잔여 변형 무효)
+      // 템플릿이 바뀌면 변형 선택은 초기화 — 사용자가 명시적으로 카드를 골라야 함
       updateState({
         selectedBrandTemplate: template,
-        selectedBrandInfoVariant: template === "info" ? "info-1" : null,
+        selectedBrandInfoVariant: null,
       });
     },
     [updateState]
@@ -1008,7 +1045,14 @@ export default function Home() {
 
   const handleBrandInfoVariantChange = useCallback(
     (variant: import("@/types/brand").BrandInfoVariantId) => {
-      updateState({ selectedBrandInfoVariant: variant });
+      // info-custom 진입/이탈 시 견본 입력 잔여 상태 초기화
+      const isCustom = variant === "info-custom";
+      updateState({
+        selectedBrandInfoVariant: variant,
+        ...(isCustom
+          ? {} // 들어올 때는 기존 입력 유지 (재진입 편의)
+          : { referenceUrl: "", referenceText: "", referenceAnalysis: "" }),
+      });
     },
     [updateState]
   );
@@ -1030,6 +1074,13 @@ export default function Home() {
   const handleReferenceUrlChange = useCallback(
     (url: string) => {
       updateState({ referenceUrl: url, referenceAnalysis: "" });
+    },
+    [updateState]
+  );
+
+  const handleReferenceTextChange = useCallback(
+    (text: string) => {
+      updateState({ referenceText: text, referenceAnalysis: "" });
     },
     [updateState]
   );
@@ -1130,6 +1181,7 @@ export default function Home() {
           <StepNarrative
             narrativeSource={state.narrativeSource}
             referenceUrl={state.referenceUrl}
+            referenceText={state.referenceText}
             toneType={state.toneType}
             toneExample={state.toneExample}
             channel={state.channel}
@@ -1137,6 +1189,7 @@ export default function Home() {
             selectedProducts={state.selectedProducts}
             onNarrativeSourceChange={handleNarrativeSourceChange}
             onReferenceUrlChange={handleReferenceUrlChange}
+            onReferenceTextChange={handleReferenceTextChange}
             onToneChange={handleToneChange}
             onToneExampleChange={(example: string) => updateState({ toneExample: example })}
             onPostCategoryChange={handlePostCategoryChange}
@@ -1144,6 +1197,7 @@ export default function Home() {
             referenceAnalysis={state.referenceAnalysis}
             isAnalyzing={state.isLoading}
             onAnalyze={() => fetchReferenceAnalysis().catch(() => {})}
+            onAnalyzeText={() => fetchReferenceAnalysis("text").catch(() => {})}
             onReferenceAnalysisChange={(value) =>
               updateState({ referenceAnalysis: value })
             }

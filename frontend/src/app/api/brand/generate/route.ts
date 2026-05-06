@@ -25,6 +25,8 @@ export async function POST(request: Request) {
       charCount,
       selectedTitle,
       apiKey,
+      referenceText,
+      referenceAnalysis,
     } = body as {
       profile: BrandProfile;
       template: BrandTemplateId;
@@ -36,6 +38,8 @@ export async function POST(request: Request) {
       charCount: { min: number; max: number };
       selectedTitle: string;
       apiKey?: string;
+      referenceText?: string;
+      referenceAnalysis?: string;
     };
 
     if (!profile || !template || !mainKeyword || !selectedTitle) {
@@ -62,6 +66,8 @@ export async function POST(request: Request) {
       selectedTitle,
       charCount,
       requirements,
+      referenceText,
+      referenceAnalysis,
     });
 
     // 1차 생성 (버퍼)
