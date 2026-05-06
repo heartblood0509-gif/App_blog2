@@ -83,6 +83,7 @@ const initialState: WizardState = {
   customPromptsBySlot: {},
   currentStep: 0,
   referenceAnalysis: "",
+  referenceExcerpts: [],
   isLoading: false,
   threads: initialThreadsState,
 };
@@ -312,6 +313,7 @@ export default function Home() {
         state.toneType === null ? { toneType: "레퍼런스" as const } : {};
       updateState({
         referenceAnalysis: analyzeData.analysis,
+        referenceExcerpts: Array.isArray(analyzeData.excerpts) ? analyzeData.excerpts : [],
         isLoading: false,
         ...autoTone,
       });
@@ -402,6 +404,7 @@ export default function Home() {
           charCount: state.charCountRange,
           selectedTitle: state.selectedTitle,
           referenceAnalysis: state.referenceAnalysis || undefined,
+          referenceExcerpts: state.referenceExcerpts.length > 0 ? state.referenceExcerpts : undefined,
         }),
       });
 
@@ -858,6 +861,7 @@ export default function Home() {
           referenceUrl: "",
           selectedCustomReferenceId: null,
           referenceAnalysis: "",
+          referenceExcerpts: [],
         });
       } else {
         updateState({ channel });
@@ -898,6 +902,7 @@ export default function Home() {
         narrativeType,
         // 모드가 바뀌면 이전 분석 결과는 무효 (URL도 새로 입력)
         referenceAnalysis: "",
+        referenceExcerpts: [],
         ...autoTone,
       });
     },
@@ -906,7 +911,7 @@ export default function Home() {
 
   const handleReferenceUrlChange = useCallback(
     (url: string) => {
-      updateState({ referenceUrl: url, referenceAnalysis: "" });
+      updateState({ referenceUrl: url, referenceAnalysis: "", referenceExcerpts: [] });
     },
     [updateState]
   );

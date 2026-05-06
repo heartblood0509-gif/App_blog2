@@ -17,6 +17,11 @@ interface GenerationParams {
   charCount: { min: number; max: number };
   selectedTitle: string;
   referenceAnalysis?: string;
+  /**
+   * 분석 LLM이 추출한 원본 본보기 문장. "레퍼런스 그대로" 톤 선택 시에만 사용.
+   * 다른 톤에서는 무시됨 (회귀 0 보호).
+   */
+  referenceExcerpts?: string[];
 }
 
 export function buildGenerationPrompt(params: GenerationParams): string {
@@ -31,6 +36,7 @@ export function buildGenerationPrompt(params: GenerationParams): string {
     requirements,
     selectedTitle,
     referenceAnalysis,
+    referenceExcerpts,
   } = params;
 
   const sections: string[] = [];
@@ -268,6 +274,27 @@ ${referenceText}`);
   // 다른 톤(존댓말/반말/음슴체)은 위 toneLabel + (있으면) toneExample만으로 LLM이 잘 따라옴 — 회귀 방지를 위해 그대로 유지
   if (toneType === "레퍼런스") {
     sections.push(getTonePrompt("레퍼런스"));
+
+    // 원본 본보기 문장 주입 + 강한 복사 금지 지시 (Part C)
+    // - 분석 결과(메타)만으로는 어미·리듬을 진짜로 흉내내기 어려워 본보기를 직접 보여줌
+    // - 단 표절 위험을 막기 위해 "어조·리듬만 흡수, 표현·단어 절대 복사 금지"를 강하게 명시
+    if (referenceExcerpts && referenceExcerpts.length > 0) {
+      const excerptList = referenceExcerpts.map((s, i) => `${i + 1}. ${s}`).join("\n");
+      sections.push(`## 레퍼런스 본보기 문장 (어조·리듬만 흡수)
+아래는 원본 글에서 어미·말투가 가장 잘 드러난 문장 ${referenceExcerpts.length}개입니다.
+
+${excerptList}
+
+### 사용 방법 (매우 중요)
+- 위 문장들의 **어조·리듬·어미 패턴·문장 길이감만** 흡수해서 새 글을 쓰세요
+- 줄바꿈 빈도, 느낌표·평서문 비율, 한 줄당 어절 수 같은 **형식적 특징**을 따라가세요
+
+### ⛔ 절대 금지 (표절 방지)
+- 위 문장의 **표현·단어·예시·구체적 명사**는 절대 복사하지 마세요
+- 위 문장 그대로(또는 살짝 변형해서) 본문에 넣으면 실패 = 다시 쓰기
+- **모든 내용은 사용자가 제공한 제품·키워드·후기로 새로 쓰세요**
+- 본보기와 5어절 이상 연속 일치하는 표현은 발견 시 자동 검출되어 경고됩니다`);
+    }
   }
 
   // ──────────────────────────────────────

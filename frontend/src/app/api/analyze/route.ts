@@ -17,9 +17,9 @@ export async function POST(request: Request) {
     const prompt = buildAnalysisPrompt(referenceText);
     const result = await generateText(prompt, CONFIG.ANALYSIS_MODEL, apiKey);
 
-    const { analysis, flow } = extractFlowFromAnalysis(result);
+    const { analysis, flow, excerpts } = extractFlowFromAnalysis(result);
 
-    return Response.json({ analysis, flow });
+    return Response.json({ analysis, flow, excerpts });
   } catch (error) {
     const message =
       error instanceof Error ? error.message : "분석 중 오류가 발생했습니다.";

@@ -59,6 +59,7 @@ export interface CustomReference {
   category: ReferenceCategory;
   sourceUrl: string;
   flow: string[];         // 카드 시각화용 단계 배열 (없으면 빈 배열)
+  excerpts: string[];     // 톤이 잘 드러난 원본 본보기 문장 (8개 권장, "레퍼런스 그대로" 모드 주입용)
   analysisMd: string;     // 글 생성 프롬프트에 그대로 주입할 본문
   createdAt: string;      // ISO
   /** 브랜드 카테고리에서만 의미 — 어느 템플릿 자리에 들어갈지 */
@@ -265,6 +266,13 @@ export interface WizardState {
 
   // 레퍼런스 분석 결과
   referenceAnalysis: string;
+
+  /**
+   * 분석 시 LLM이 추출한 "톤이 잘 드러난 원본 본보기 문장" 8개.
+   * "레퍼런스 그대로" 톤 선택 시에만 글 생성 프롬프트에 주입.
+   * 다른 톤(존댓말/반말/음슴체)에서는 사용 안 함 (회귀 0 보호).
+   */
+  referenceExcerpts: string[];
 
   // 로딩 상태
   isLoading: boolean;
