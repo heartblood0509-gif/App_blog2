@@ -9,10 +9,15 @@ interface TitleGenerationParams {
   mainKeyword: string;
   subKeywords?: string;
   persona?: string;
+  /** 글의 주제 (선택). 비우면 키워드만 보고 AI가 알아서, 채우면 그 주제에 맞춰 제목 후보 생성 */
+  topic?: string;
 }
 
 export function buildTitlePrompt(params: TitleGenerationParams): string {
-  const { products, narrativeType, mainKeyword, subKeywords, persona } = params;
+  const { products, narrativeType, mainKeyword, subKeywords, persona, topic } = params;
+  const topicSection = topic && topic.trim()
+    ? `\n## 글의 주제 (이 주제에 정확히 맞춰 제목을 만들 것)\n${topic.trim()}`
+    : "";
 
   const productNames = products
     .map((p) => BRAND_PRODUCTS[p.id]?.name)
@@ -51,7 +56,7 @@ ${narrativeHint}
 - 메인 키워드: "${mainKeyword}"
 ${subKeywords ? `- 서브 키워드: ${subKeywords}` : ""}
 - 관련 제품: ${productNames}
-${persona ? `- 글쓴이 페르소나: ${persona}` : ""}
+${persona ? `- 글쓴이 페르소나: ${persona}` : ""}${topicSection}
 
 ## 제목 구조
 메인 키워드 + 문제 상황 경험 결과 후킹 요소

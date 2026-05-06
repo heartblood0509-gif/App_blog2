@@ -30,6 +30,7 @@ export async function POST(request: Request) {
       selectedTitle,
       referenceAnalysis,
       referenceExcerpts,
+      topic,
       apiKey,
     } = body as {
       products: SelectedProduct[];
@@ -44,6 +45,7 @@ export async function POST(request: Request) {
       selectedTitle: string;
       referenceAnalysis?: string;
       referenceExcerpts?: string[];
+      topic?: string;
       apiKey?: string;
     };
 
@@ -60,6 +62,7 @@ export async function POST(request: Request) {
       selectedTitle,
       referenceAnalysis,
       referenceExcerpts,
+      topic,
     });
 
     // 1차 생성 (버퍼)

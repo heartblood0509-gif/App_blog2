@@ -22,6 +22,8 @@ interface GenerationParams {
    * 다른 톤에서는 무시됨 (회귀 0 보호).
    */
   referenceExcerpts?: string[];
+  /** 글의 주제 (선택). 비우면 키워드만 보고 AI가 알아서, 채우면 그 주제에 정확히 맞춰 본문 생성 */
+  topic?: string;
 }
 
 export function buildGenerationPrompt(params: GenerationParams): string {
@@ -37,9 +39,20 @@ export function buildGenerationPrompt(params: GenerationParams): string {
     selectedTitle,
     referenceAnalysis,
     referenceExcerpts,
+    topic,
   } = params;
 
   const sections: string[] = [];
+
+  // 주제 입력값이 있으면 가장 먼저 명시 (다른 모든 지시보다 우선)
+  if (topic && topic.trim()) {
+    sections.push(`# 🎯 글의 주제 — 사용자 지정
+
+이 글의 주제는 다음과 같습니다:
+${topic.trim()}
+
+제목과 본문은 위 주제를 정확히 다루어야 합니다. 키워드는 도구일 뿐, 글의 중심은 이 주제입니다.`);
+  }
 
   // ──────────────────────────────────────
   // 섹션 -1: 🚨 최우선 규칙 (narrativeType이 지정된 경우만)
