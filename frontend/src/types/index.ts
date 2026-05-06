@@ -196,7 +196,17 @@ export interface WizardState {
    */
   referenceUrl: string;
 
+  // Step 2 브랜드 분기 (postCategory === "brand"일 때만 의미)
+  /** 선택된 브랜드 프로필 ID (예: "brand1") */
+  selectedBrandProfileId: string | null;
+  /** 선택된 브랜드 글 템플릿 (소개/정보/가치입증/상세) */
+  selectedBrandTemplate: import("./brand").BrandTemplateId | null;
+  /** 정보성글 선택 시 하위 변형 (info-1 등). 다른 템플릿이면 null */
+  selectedBrandInfoVariant: import("./brand").BrandInfoVariantId | null;
+
   // Step 3: 글 설정
+  /** 글 주제 (선택 입력, 양쪽 공용). 비우면 키워드만 보고 AI가 알아서 */
+  topic: string;
   mainKeyword: string;
   subKeywords: string;
   persona: string;
@@ -234,6 +244,14 @@ export interface WizardState {
 
   // 레퍼런스 분석 결과
   referenceAnalysis: string;
+
+  /**
+   * 견본 글 본문.
+   * - URL 모드: 크롤링 결과가 자동으로 채워짐
+   * - 본문 직접 붙여넣기 모드(브랜드 info-custom 전용): 사용자가 직접 입력
+   * - 후기성에서는 미사용
+   */
+  referenceText: string;
 
   // 로딩 상태
   isLoading: boolean;

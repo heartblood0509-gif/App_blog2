@@ -1,0 +1,398 @@
+"use client";
+
+import { useState } from "react";
+import { motion } from "framer-motion";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import {
+  Sparkles,
+  BookOpen,
+  Award,
+  ShoppingBag,
+  Check,
+  Loader2,
+  Search,
+  Pencil,
+  Save,
+  X,
+  ArrowRight,
+} from "lucide-react";
+import type { BrandTemplateId, BrandInfoVariantId } from "@/types/brand";
+import { INFO_VARIANTS } from "@/lib/brand/prompts/templates/info";
+
+type TemplateCard = {
+  id: BrandTemplateId;
+  name: string;
+  description: string;
+  icon: React.ElementType;
+  enabled: boolean;
+};
+
+const TEMPLATES: TemplateCard[] = [
+  { id: "intro", name: "소개글", description: "나 또는 내 브랜드를 소개하고 신뢰를 쌓는 글", icon: Sparkles, enabled: true },
+  { id: "info", name: "정보성글", description: "유입을 위한 정보성 글 (브랜드 추구방향과 일치)", icon: BookOpen, enabled: true },
+  { id: "value-proof", name: "가치입증글", description: "정보성글 직접 레퍼런스로 대체됨", icon: Award, enabled: false },
+  { id: "detail", name: "상세페이지글", description: "구매 전환 직전 단계의 글", icon: ShoppingBag, enabled: false },
+];
+
+interface BrandTemplateSectionProps {
+  selectedTemplate: BrandTemplateId | null;
+  selectedInfoVariant: BrandInfoVariantId | null;
+  onTemplateChange: (template: BrandTemplateId) => void;
+  onInfoVariantChange: (variant: BrandInfoVariantId) => void;
+  // info-custom 전용 — 견본 글 입력 영역
+  referenceUrl: string;
+  referenceText: string;
+  referenceAnalysis: string;
+  isAnalyzing: boolean;
+  onReferenceUrlChange: (url: string) => void;
+  onReferenceTextChange: (text: string) => void;
+  onReferenceAnalysisChange: (value: string) => void;
+  onAnalyzeUrl: () => void;
+  onAnalyzeText: () => void;
+}
+
+export function BrandTemplateSection({
+  selectedTemplate,
+  selectedInfoVariant,
+  onTemplateChange,
+  onInfoVariantChange,
+  referenceUrl,
+  referenceText,
+  referenceAnalysis,
+  isAnalyzing,
+  onReferenceUrlChange,
+  onReferenceTextChange,
+  onReferenceAnalysisChange,
+  onAnalyzeUrl,
+  onAnalyzeText,
+}: BrandTemplateSectionProps) {
+  // 입력 모드 탭 (UI 로컬 상태)
+  const [inputMode, setInputMode] = useState<"url" | "text">("url");
+  // 분석 결과 편집 모드
+  const [analysisEditing, setAnalysisEditing] = useState(false);
+  const [analysisDraft, setAnalysisDraft] = useState("");
+
+  const isCustomSelected = selectedInfoVariant === "info-custom";
+
+  return (
+    <section>
+      <div className="mb-4">
+        <h2 className="text-xl font-semibold">글 템플릿</h2>
+        <p className="mt-1 text-sm text-muted-foreground">
+          어떤 종류의 브랜드 글을 만들지 선택하세요
+        </p>
+      </div>
+
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-4">
+        {TEMPLATES.map((tpl) => {
+          const selected = selectedTemplate === tpl.id;
+          const Icon = tpl.icon;
+          const disabled = !tpl.enabled;
+
+          return (
+            <Card
+              key={tpl.id}
+              onClick={disabled ? undefined : () => onTemplateChange(tpl.id)}
+              aria-disabled={disabled}
+              className={`transition-all duration-200 ${
+                disabled
+                  ? "cursor-not-allowed opacity-50 grayscale"
+                  : selected
+                    ? "cursor-pointer ring-2 ring-primary bg-primary/5"
+                    : "cursor-pointer hover:ring-1 hover:ring-muted-foreground/30"
+              }`}
+            >
+              <CardHeader>
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <Icon className="h-5 w-5 text-primary" />
+                    <CardTitle className="text-base">{tpl.name}</CardTitle>
+                  </div>
+                  {disabled && (
+                    <Badge variant="secondary" className="text-[10px]">
+                      준비 중
+                    </Badge>
+                  )}
+                  {!disabled && selected && (
+                    <motion.div
+                      initial={{ scale: 0 }}
+                      animate={{ scale: 1 }}
+                      className="flex h-6 w-6 items-center justify-center rounded-full bg-primary"
+                    >
+                      <Check className="h-3.5 w-3.5 text-primary-foreground" />
+                    </motion.div>
+                  )}
+                </div>
+                <CardDescription className="text-xs leading-relaxed">
+                  {tpl.description}
+                </CardDescription>
+              </CardHeader>
+            </Card>
+          );
+        })}
+      </div>
+
+      {selectedTemplate === "info" && (
+        <motion.div
+          key="info-variants"
+          initial={{ opacity: 0, height: 0 }}
+          animate={{ opacity: 1, height: "auto" }}
+          transition={{ duration: 0.2 }}
+          className="mt-6 space-y-4 overflow-hidden"
+        >
+          <div>
+            <h3 className="text-base font-semibold">서사 구조 템플릿</h3>
+            <p className="mt-0.5 text-sm text-muted-foreground">
+              글의 전체적인 흐름을 선택하세요
+            </p>
+          </div>
+
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 md:grid-cols-3">
+            {INFO_VARIANTS.map((variant) => {
+              const isSel = selectedInfoVariant === variant.id;
+              const Icon = variant.icon;
+
+              return (
+                <Card
+                  key={variant.id}
+                  className={`cursor-pointer transition-all duration-200 ${
+                    isSel
+                      ? "ring-2 ring-primary bg-primary/5"
+                      : "hover:ring-1 hover:ring-muted-foreground/30"
+                  }`}
+                  onClick={() => onInfoVariantChange(variant.id)}
+                >
+                  <CardHeader>
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <Icon className="h-5 w-5 text-primary" />
+                        <CardTitle className="text-base">{variant.name}</CardTitle>
+                        {variant.isFinale && (
+                          <Badge variant="secondary" className="text-[10px]">
+                            ⭐ 최종장
+                          </Badge>
+                        )}
+                      </div>
+                      {isSel && (
+                        <motion.div
+                          initial={{ scale: 0 }}
+                          animate={{ scale: 1 }}
+                          className="flex h-6 w-6 items-center justify-center rounded-full bg-primary"
+                        >
+                          <Check className="h-3.5 w-3.5 text-primary-foreground" />
+                        </motion.div>
+                      )}
+                    </div>
+                    <CardDescription className="text-xs leading-relaxed">
+                      {variant.description}
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="flex flex-wrap items-center gap-1">
+                      {variant.flow.map((step, i) => (
+                        <span key={step} className="flex items-center gap-1">
+                          <span
+                            className={`rounded-md px-2 py-0.5 text-[10px] font-medium ${
+                              isSel
+                                ? "bg-primary/15 text-primary"
+                                : "bg-muted text-muted-foreground"
+                            }`}
+                          >
+                            {step}
+                          </span>
+                          {i < variant.flow.length - 1 && (
+                            <ArrowRight className="h-3 w-3 text-muted-foreground/50" />
+                          )}
+                        </span>
+                      ))}
+                    </div>
+                  </CardContent>
+                </Card>
+              );
+            })}
+          </div>
+
+          {isCustomSelected && (
+            <motion.div
+              key="info-custom-input"
+              initial={{ opacity: 0, height: 0 }}
+              animate={{ opacity: 1, height: "auto" }}
+              transition={{ duration: 0.2 }}
+              className="space-y-4 overflow-hidden rounded-lg border border-dashed border-muted-foreground/30 bg-muted/30 p-4"
+            >
+              {/* 탭 전환 */}
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => setInputMode("url")}
+                  className={`rounded-md px-3 py-1.5 text-xs font-medium transition ${
+                    inputMode === "url"
+                      ? "bg-primary text-primary-foreground"
+                      : "bg-background hover:bg-muted"
+                  }`}
+                >
+                  URL로 가져오기
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setInputMode("text")}
+                  className={`rounded-md px-3 py-1.5 text-xs font-medium transition ${
+                    inputMode === "text"
+                      ? "bg-primary text-primary-foreground"
+                      : "bg-background hover:bg-muted"
+                  }`}
+                >
+                  본문 직접 붙여넣기
+                </button>
+              </div>
+
+              {inputMode === "url" ? (
+                <div className="space-y-2">
+                  <label className="text-xs font-medium">참고할 블로그 글 URL</label>
+                  <div className="flex gap-2">
+                    <Input
+                      type="url"
+                      placeholder="https://blog.naver.com/..."
+                      value={referenceUrl}
+                      onChange={(e) => onReferenceUrlChange(e.target.value)}
+                      disabled={isAnalyzing}
+                      className="flex-1"
+                    />
+                    <Button
+                      type="button"
+                      onClick={onAnalyzeUrl}
+                      disabled={isAnalyzing || referenceUrl.trim().length === 0}
+                      size="sm"
+                    >
+                      {isAnalyzing ? (
+                        <>
+                          <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+                          분석 중
+                        </>
+                      ) : (
+                        <>
+                          <Search className="mr-1.5 h-3.5 w-3.5" />
+                          서사 구조 분석
+                        </>
+                      )}
+                    </Button>
+                  </div>
+                  <p className="text-[11px] text-muted-foreground">
+                    네이버 블로그 URL만 자동 크롤링됩니다. 다른 플랫폼은 본문 직접 붙여넣기를 이용해주세요.
+                  </p>
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  <label className="text-xs font-medium">참고할 글 본문</label>
+                  <Textarea
+                    placeholder="평소 마음에 드는 블로그 글의 본문을 그대로 붙여넣으세요. AI가 톤과 구조를 학습합니다."
+                    value={referenceText}
+                    onChange={(e) => onReferenceTextChange(e.target.value)}
+                    disabled={isAnalyzing}
+                    className="min-h-[160px] text-xs"
+                  />
+                  <Button
+                    type="button"
+                    onClick={onAnalyzeText}
+                    disabled={isAnalyzing || referenceText.trim().length < 100}
+                    size="sm"
+                  >
+                    {isAnalyzing ? (
+                      <>
+                        <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+                        분석 중
+                      </>
+                    ) : (
+                      <>
+                        <Search className="mr-1.5 h-3.5 w-3.5" />
+                        서사 구조 분석
+                      </>
+                    )}
+                  </Button>
+                  {referenceText.trim().length > 0 &&
+                    referenceText.trim().length < 100 && (
+                      <p className="text-[11px] text-amber-600">
+                        본문이 너무 짧습니다 (최소 100자 이상 권장).
+                      </p>
+                    )}
+                </div>
+              )}
+
+              {/* 분석 결과 */}
+              {referenceAnalysis.trim().length > 0 && (
+                <div className="space-y-2 rounded-md border bg-background p-3">
+                  <div className="flex items-center justify-between">
+                    <p className="text-xs font-medium">📋 서사 구조 분석 결과</p>
+                    {!analysisEditing ? (
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        className="h-6 text-xs"
+                        onClick={() => {
+                          setAnalysisDraft(referenceAnalysis);
+                          setAnalysisEditing(true);
+                        }}
+                      >
+                        <Pencil className="mr-1 h-3 w-3" />
+                        편집
+                      </Button>
+                    ) : (
+                      <div className="flex gap-1">
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          className="h-6 text-xs"
+                          onClick={() => {
+                            onReferenceAnalysisChange(analysisDraft);
+                            setAnalysisEditing(false);
+                          }}
+                        >
+                          <Save className="mr-1 h-3 w-3" />
+                          저장
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          className="h-6 text-xs"
+                          onClick={() => setAnalysisEditing(false)}
+                        >
+                          <X className="mr-1 h-3 w-3" />
+                          취소
+                        </Button>
+                      </div>
+                    )}
+                  </div>
+                  {analysisEditing ? (
+                    <Textarea
+                      value={analysisDraft}
+                      onChange={(e) => setAnalysisDraft(e.target.value)}
+                      className="min-h-[200px] text-xs"
+                    />
+                  ) : (
+                    <ScrollArea className="h-48 w-full">
+                      <div className="prose prose-sm max-w-none text-xs">
+                        <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                          {referenceAnalysis}
+                        </ReactMarkdown>
+                      </div>
+                    </ScrollArea>
+                  )}
+                </div>
+              )}
+            </motion.div>
+          )}
+        </motion.div>
+      )}
+    </section>
+  );
+}

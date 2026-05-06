@@ -30,7 +30,10 @@ import {
   Building2,
 } from "lucide-react";
 import type { NarrativeSource, ToneType, Channel, PostCategory, SelectedProduct } from "@/types";
+import type { BrandTemplateId, BrandInfoVariantId } from "@/types/brand";
 import { ProductSelectionSection } from "@/components/steps/product-selection-section";
+import { BrandProfileSection } from "@/components/brand/brand-profile-section";
+import { BrandTemplateSection } from "@/components/brand/brand-template-section";
 
 type NarrativeOption = {
   id: NarrativeSource;
@@ -104,7 +107,7 @@ const POST_CATEGORIES: Array<{
   enabled: boolean;
 }> = [
   { id: "review", name: "후기성 블로그", description: "실사용자 톤의 자연스러운 후기", icon: Star, enabled: true },
-  { id: "brand", name: "브랜드 블로그", description: "브랜드 보이스의 공식 콘텐츠", icon: Building2, enabled: false },
+  { id: "brand", name: "브랜드 블로그", description: "브랜드 보이스의 공식 콘텐츠", icon: Building2, enabled: true },
   { id: "aeo", name: "AEO 블로그", description: "AI 답변 엔진 최적화 글", icon: Search, enabled: false },
 ];
 
@@ -145,6 +148,8 @@ const TONES: {
 interface StepNarrativeProps {
   narrativeSource: NarrativeSource | null;
   referenceUrl: string;
+  /** 브랜드 info-custom 본문 직접 입력 모드용 (후기성에서는 미사용) */
+  referenceText: string;
   toneType: ToneType | null;
   toneExample: string;
   channel: Channel | null;
@@ -152,6 +157,7 @@ interface StepNarrativeProps {
   selectedProducts: SelectedProduct[];
   onNarrativeSourceChange: (source: NarrativeSource) => void;
   onReferenceUrlChange: (url: string) => void;
+  onReferenceTextChange: (text: string) => void;
   onToneChange: (type: ToneType) => void;
   onToneExampleChange: (example: string) => void;
   onPostCategoryChange: (category: PostCategory) => void;
@@ -160,12 +166,22 @@ interface StepNarrativeProps {
   referenceAnalysis: string;
   isAnalyzing: boolean;
   onAnalyze: () => void;
+  /** 브랜드 info-custom 본문 직접 입력 모드 — 텍스트 기반 분석 */
+  onAnalyzeText: () => void;
   onReferenceAnalysisChange: (value: string) => void;
+  // 브랜드 분기 (postCategory === "brand"일 때 사용)
+  selectedBrandProfileId: string | null;
+  selectedBrandTemplate: BrandTemplateId | null;
+  selectedBrandInfoVariant: BrandInfoVariantId | null;
+  onBrandProfileChange: (profileId: string) => void;
+  onBrandTemplateChange: (template: BrandTemplateId) => void;
+  onBrandInfoVariantChange: (variant: BrandInfoVariantId) => void;
 }
 
 export function StepNarrative({
   narrativeSource,
   referenceUrl,
+  referenceText,
   toneType,
   toneExample,
   channel,
@@ -173,6 +189,7 @@ export function StepNarrative({
   selectedProducts,
   onNarrativeSourceChange,
   onReferenceUrlChange,
+  onReferenceTextChange,
   onToneChange,
   onToneExampleChange,
   onPostCategoryChange,
@@ -180,7 +197,14 @@ export function StepNarrative({
   referenceAnalysis,
   isAnalyzing,
   onAnalyze,
+  onAnalyzeText,
   onReferenceAnalysisChange,
+  selectedBrandProfileId,
+  selectedBrandTemplate,
+  selectedBrandInfoVariant,
+  onBrandProfileChange,
+  onBrandTemplateChange,
+  onBrandInfoVariantChange,
 }: StepNarrativeProps) {
   const selectedOption = NARRATIVES.find((n) => n.id === narrativeSource) ?? null;
 
@@ -700,6 +724,50 @@ export function StepNarrative({
           )}
         </AnimatePresence>
       </section>
+            </motion.div>
+          )}
+
+          {/* Brand Profile + Template — 브랜드 카테고리 분기 */}
+          {postCategory === "brand" && (
+            <motion.div
+              key="brand-profile-section"
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.25 }}
+              className="space-y-10"
+            >
+              <Separator />
+              <BrandProfileSection
+                selectedProfileId={selectedBrandProfileId}
+                onSelect={onBrandProfileChange}
+              />
+            </motion.div>
+          )}
+
+          {postCategory === "brand" && selectedBrandProfileId && (
+            <motion.div
+              key="brand-template-section"
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.25 }}
+              className="space-y-10"
+            >
+              <Separator />
+              <BrandTemplateSection
+                selectedTemplate={selectedBrandTemplate}
+                selectedInfoVariant={selectedBrandInfoVariant}
+                onTemplateChange={onBrandTemplateChange}
+                onInfoVariantChange={onBrandInfoVariantChange}
+                referenceUrl={referenceUrl}
+                referenceText={referenceText}
+                referenceAnalysis={referenceAnalysis}
+                isAnalyzing={isAnalyzing}
+                onReferenceUrlChange={onReferenceUrlChange}
+                onReferenceTextChange={onReferenceTextChange}
+                onReferenceAnalysisChange={onReferenceAnalysisChange}
+                onAnalyzeUrl={onAnalyze}
+                onAnalyzeText={onAnalyzeText}
+              />
             </motion.div>
           )}
         </>
