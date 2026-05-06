@@ -251,8 +251,11 @@ ${referenceText}`);
   if (requirements) userInput.push(`- 추가 요청: ${requirements}`);
 
   // 말투
-  const toneLabel = toneType === "존댓말" ? "존댓말 (친한 언니/형 느낌)" :
-    toneType === "반말" ? "반말 (동갑 친구 느낌)" : "음슴체 (커뮤니티 후기 느낌)";
+  const toneLabel =
+    toneType === "존댓말" ? "존댓말 (친한 언니/형 느낌)" :
+    toneType === "반말" ? "반말 (동갑 친구 느낌)" :
+    toneType === "음슴체" ? "음슴체 (커뮤니티 후기 느낌)" :
+    "레퍼런스 그대로 (레퍼런스 글의 어미·말투를 그대로 따라감)";
   userInput.push(`- 말투: ${toneLabel}`);
 
   if (toneExample) {
@@ -260,6 +263,12 @@ ${referenceText}`);
   }
 
   sections.push(userInput.join("\n"));
+
+  // 말투 "레퍼런스 그대로" 선택 시 — 사용자 톤 강제하지 않고 레퍼런스 어미를 따라가도록 별도 가이드 주입
+  // 다른 톤(존댓말/반말/음슴체)은 위 toneLabel + (있으면) toneExample만으로 LLM이 잘 따라옴 — 회귀 방지를 위해 그대로 유지
+  if (toneType === "레퍼런스") {
+    sections.push(getTonePrompt("레퍼런스"));
+  }
 
   // ──────────────────────────────────────
   // 섹션 5: 참고 사항 (후순위)
