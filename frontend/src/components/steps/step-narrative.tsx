@@ -15,9 +15,7 @@ import {
   Heart,
   Zap,
   Link as LinkIcon,
-  ArrowRight,
   Check,
-  AlertCircle,
   Search,
   Loader2,
   ClipboardList,
@@ -31,6 +29,7 @@ import {
 } from "lucide-react";
 import type { NarrativeSource, ToneType, Channel, PostCategory, SelectedProduct } from "@/types";
 import { ProductSelectionSection } from "@/components/steps/product-selection-section";
+import { NarrativeFlowCard } from "@/components/narrative/narrative-flow-card";
 
 type NarrativeOption = {
   id: NarrativeSource;
@@ -318,69 +317,18 @@ export function StepNarrative({
         </div>
 
         <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
-          {NARRATIVES.map((narrative) => {
-            const selected = narrativeSource === narrative.id;
-            const Icon = narrative.icon;
-
-            return (
-              <Card
-                key={narrative.id}
-                className={`cursor-pointer transition-all duration-200 ${
-                  selected
-                    ? "ring-2 ring-primary bg-primary/5"
-                    : "hover:ring-1 hover:ring-muted-foreground/30"
-                }`}
-                onClick={() => onNarrativeSourceChange(narrative.id)}
-              >
-                <CardHeader>
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <Icon className="h-5 w-5 text-primary" />
-                      <CardTitle className="text-base">{narrative.name}</CardTitle>
-                    </div>
-                    {selected && (
-                      <motion.div
-                        initial={{ scale: 0 }}
-                        animate={{ scale: 1 }}
-                        className="flex h-6 w-6 items-center justify-center rounded-full bg-primary"
-                      >
-                        <Check className="h-3.5 w-3.5 text-primary-foreground" />
-                      </motion.div>
-                    )}
-                  </div>
-                  <CardDescription className="text-xs leading-relaxed">
-                    {narrative.description}
-                  </CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <div className="flex flex-wrap items-center gap-1">
-                    {narrative.flow.map((step, i) => (
-                      <span key={step} className="flex items-center gap-1">
-                        <span
-                          className={`rounded-md px-2 py-0.5 text-[10px] font-medium ${
-                            selected
-                              ? "bg-primary/15 text-primary"
-                              : "bg-muted text-muted-foreground"
-                          }`}
-                        >
-                          {step}
-                        </span>
-                        {i < narrative.flow.length - 1 && (
-                          <ArrowRight className="h-3 w-3 text-muted-foreground/50" />
-                        )}
-                      </span>
-                    ))}
-                  </div>
-                  {narrative.urlInput === "required" && (
-                    <div className="mt-3 flex items-center gap-1 text-[10px] text-amber-600 dark:text-amber-500">
-                      <AlertCircle className="h-3 w-3" />
-                      레퍼런스 URL 필수
-                    </div>
-                  )}
-                </CardContent>
-              </Card>
-            );
-          })}
+          {NARRATIVES.map((narrative) => (
+            <NarrativeFlowCard
+              key={narrative.id}
+              name={narrative.name}
+              description={narrative.description}
+              icon={narrative.icon}
+              flow={narrative.flow}
+              selected={narrativeSource === narrative.id}
+              onClick={() => onNarrativeSourceChange(narrative.id)}
+              urlRequired={narrative.urlInput === "required"}
+            />
+          ))}
         </div>
 
         {/* Reference URL Input (필요한 선택지에서만 노출) */}
