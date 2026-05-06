@@ -29,6 +29,7 @@ export async function POST(request: Request) {
       charCount,
       selectedTitle,
       referenceAnalysis,
+      referenceExcerpts,
       topic,
       apiKey,
     } = body as {
@@ -43,6 +44,7 @@ export async function POST(request: Request) {
       charCount: { min: number; max: number };
       selectedTitle: string;
       referenceAnalysis?: string;
+      referenceExcerpts?: string[];
       topic?: string;
       apiKey?: string;
     };
@@ -59,6 +61,7 @@ export async function POST(request: Request) {
       charCount,
       selectedTitle,
       referenceAnalysis,
+      referenceExcerpts,
       topic,
     });
 

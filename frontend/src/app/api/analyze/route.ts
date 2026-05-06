@@ -1,6 +1,7 @@
 import { buildAnalysisPrompt } from "@/lib/prompts/analysis";
 import { generateText } from "@/lib/gemini";
 import { CONFIG } from "@/lib/config";
+import { extractFlowFromAnalysis } from "@/lib/analysis-parser";
 
 export async function POST(request: Request) {
   try {
@@ -16,7 +17,9 @@ export async function POST(request: Request) {
     const prompt = buildAnalysisPrompt(referenceText);
     const result = await generateText(prompt, CONFIG.ANALYSIS_MODEL, apiKey);
 
-    return Response.json({ analysis: result });
+    const { analysis, flow, excerpts } = extractFlowFromAnalysis(result);
+
+    return Response.json({ analysis, flow, excerpts });
   } catch (error) {
     const message =
       error instanceof Error ? error.message : "분석 중 오류가 발생했습니다.";
