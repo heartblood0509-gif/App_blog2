@@ -1,4 +1,4 @@
-import type { NarrativeType, ToneType, SelectedProduct } from "@/types";
+import type { NarrativeType, ProductInfo, ToneType, SelectedProduct } from "@/types";
 import { BRAND_PRODUCTS } from "./brand-context";
 
 interface TitleGenerationParams {
@@ -11,16 +11,18 @@ interface TitleGenerationParams {
   persona?: string;
   /** 글의 주제 (선택). 비우면 키워드만 보고 AI가 알아서, 채우면 그 주제에 맞춰 제목 후보 생성 */
   topic?: string;
+  /** 사용자 등록 제품 메타데이터 (시드 6개에 없는 제품에 대한 fallback) */
+  customProductInfoById?: Record<string, ProductInfo>;
 }
 
 export function buildTitlePrompt(params: TitleGenerationParams): string {
-  const { products, narrativeType, mainKeyword, subKeywords, persona, topic } = params;
+  const { products, narrativeType, mainKeyword, subKeywords, persona, topic, customProductInfoById } = params;
   const topicSection = topic && topic.trim()
     ? `\n## 글의 주제 (이 주제에 정확히 맞춰 제목을 만들 것)\n${topic.trim()}`
     : "";
 
   const productNames = products
-    .map((p) => BRAND_PRODUCTS[p.id]?.name)
+    .map((p) => BRAND_PRODUCTS[p.id]?.name ?? customProductInfoById?.[p.id]?.name)
     .filter(Boolean)
     .join(", ");
 

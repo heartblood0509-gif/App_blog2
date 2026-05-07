@@ -1,4 +1,4 @@
-import type { NarrativeType, ToneType, SelectedProduct } from "@/types";
+import type { NarrativeType, ProductInfo, ToneType, SelectedProduct } from "@/types";
 import { getTonePrompt } from "./tone-rules";
 import { buildProductContext } from "./product-placement";
 import { getDefaultReference } from "./default-reference";
@@ -24,6 +24,8 @@ interface GenerationParams {
   referenceExcerpts?: string[];
   /** 글의 주제 (선택). 비우면 키워드만 보고 AI가 알아서, 채우면 그 주제에 정확히 맞춰 본문 생성 */
   topic?: string;
+  /** 사용자 등록 제품 메타데이터 (시드 6개에 없는 제품에 대한 fallback) */
+  customProductInfoById?: Record<string, ProductInfo>;
 }
 
 export function buildGenerationPrompt(params: GenerationParams): string {
@@ -40,6 +42,7 @@ export function buildGenerationPrompt(params: GenerationParams): string {
     referenceAnalysis,
     referenceExcerpts,
     topic,
+    customProductInfoById,
   } = params;
 
   const sections: string[] = [];
@@ -254,7 +257,7 @@ ${referenceText}`);
   // ──────────────────────────────────────
   // 섹션 3: 제품 정보 + 실제 후기
   // ──────────────────────────────────────
-  const productContext = buildProductContext(products);
+  const productContext = buildProductContext(products, customProductInfoById);
   if (productContext) {
     sections.push(productContext);
   }

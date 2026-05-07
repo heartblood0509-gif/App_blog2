@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { motion } from "framer-motion";
+import { toast } from "sonner";
 import { Card, CardContent } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Badge } from "@/components/ui/badge";
@@ -25,11 +26,16 @@ import {
   FlaskConical,
   Pencil,
   Check,
+  Plus,
+  Trash2,
+  Package,
 } from "lucide-react";
-import type { ProductId, SelectedProduct } from "@/types";
-import { PRODUCTS } from "@/lib/products";
+import type { ProductId, SelectedProduct, UserProduct } from "@/types";
+import type { ProductBase } from "@/lib/products";
+import { PRODUCTS, isSeedProduct } from "@/lib/products";
+import { ProductForm } from "@/components/steps/product-form";
 
-const PRODUCT_ICONS: Record<ProductId, React.ElementType> = {
+const SEED_PRODUCT_ICONS: Record<string, React.ElementType> = {
   "hair-loss-shampoo": Droplets,
   "therapy-shampoo": Sparkles,
   "body-lotion": Hand,
@@ -38,18 +44,43 @@ const PRODUCT_ICONS: Record<ProductId, React.ElementType> = {
   "hair-tonic": FlaskConical,
 };
 
+function getProductIcon(id: string): React.ElementType {
+  return SEED_PRODUCT_ICONS[id] ?? Package;
+}
+
 interface ProductSelectionSectionProps {
   selectedProducts: SelectedProduct[];
   onChange: (products: SelectedProduct[]) => void;
+  userProducts: UserProduct[];
+  onUserProductsChange: () => void;
+  onProductDeleted: (id: string) => void;
 }
 
 export function ProductSelectionSection({
   selectedProducts,
   onChange,
+  userProducts,
+  onUserProductsChange,
+  onProductDeleted,
 }: ProductSelectionSectionProps) {
   const [editingId, setEditingId] = useState<ProductId | null>(null);
   const [draftAdvantages, setDraftAdvantages] = useState("");
   const dialogTextareaRef = useRef<HTMLTextAreaElement | null>(null);
+
+  // 등록·수정 폼 상태
+  const [formOpen, setFormOpen] = useState(false);
+  const [editingProduct, setEditingProduct] = useState<UserProduct | null>(null);
+
+  // 시드 + 사용자 머지 (그리드 렌더용 — ProductBase 모양)
+  const allProducts: ProductBase[] = [
+    ...PRODUCTS,
+    ...userProducts.map((u) => ({
+      id: u.id,
+      name: u.name,
+      category: u.category,
+      defaultAdvantages: u.defaultAdvantages,
+    })),
+  ];
 
   const isSelected = useCallback(
     (id: ProductId) => selectedProducts.some((p) => p.id === id),
@@ -81,7 +112,7 @@ export function ProductSelectionSection({
     setEditingId(null);
   }, []);
 
-  const handleSave = useCallback(() => {
+  const handleSaveAdvantages = useCallback(() => {
     if (!editingId) return;
     const exists = selectedProducts.some((p) => p.id === editingId);
     if (exists) {
@@ -105,23 +136,100 @@ export function ProductSelectionSection({
     }
   }, [editingId]);
 
-  const editingProduct = editingId
-    ? PRODUCTS.find((p) => p.id === editingId) ?? null
+  const editingProductForAdvantages = editingId
+    ? allProducts.find((p) => p.id === editingId) ?? null
     : null;
+
+  // ─────────────────────────────────────────────
+  // 사용자 제품 등록·수정·삭제
+  // ─────────────────────────────────────────────
+
+  const handleCreate = useCallback(() => {
+    setEditingProduct(null);
+    setFormOpen(true);
+  }, []);
+
+  const handleEditUserProduct = useCallback((p: UserProduct, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setEditingProduct(p);
+    setFormOpen(true);
+  }, []);
+
+  const handleDeleteUserProduct = useCallback(
+    async (p: UserProduct, e: React.MouseEvent) => {
+      e.stopPropagation();
+      if (!confirm(`"${p.name}" 제품을 삭제할까요?`)) return;
+      try {
+        const res = await fetch(`/api/products?id=${encodeURIComponent(p.id)}`, {
+          method: "DELETE",
+          cache: "no-store",
+        });
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({}));
+          throw new Error(err.error || "삭제 실패");
+        }
+        toast.success("제품이 삭제되었습니다.");
+        onProductDeleted(p.id);
+        onUserProductsChange();
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : "삭제 실패";
+        toast.error(msg);
+      }
+    },
+    [onProductDeleted, onUserProductsChange]
+  );
+
+  const handleSaveUserProduct = useCallback(
+    async (payload: Omit<UserProduct, "id">) => {
+      try {
+        const isEdit = editingProduct !== null;
+        const url = isEdit
+          ? `/api/products?id=${encodeURIComponent(editingProduct!.id)}`
+          : `/api/products`;
+        const method = isEdit ? "PUT" : "POST";
+        const res = await fetch(url, {
+          method,
+          headers: { "Content-Type": "application/json" },
+          cache: "no-store",
+          body: JSON.stringify(payload),
+        });
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({}));
+          throw new Error(err.error || `${isEdit ? "수정" : "등록"} 실패`);
+        }
+        toast.success(`제품이 ${isEdit ? "수정" : "등록"}되었습니다.`);
+        onUserProductsChange();
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : "저장 실패";
+        toast.error(msg);
+        throw err;
+      }
+    },
+    [editingProduct, onUserProductsChange]
+  );
 
   return (
     <section>
-      <div className="mb-4">
-        <h2 className="text-xl font-semibold">제품 선택</h2>
-        <p className="mt-1 text-sm text-muted-foreground">
-          후기에 포함할 제품을 선택하고 장점을 작성하세요 (복수 선택 가능)
-        </p>
+      <div className="mb-4 flex items-center justify-between">
+        <div>
+          <h2 className="text-xl font-semibold">제품 선택</h2>
+          <p className="mt-1 text-sm text-muted-foreground">
+            후기에 포함할 제품을 선택하고 장점을 작성하세요 (복수 선택 가능)
+          </p>
+        </div>
+        <Button variant="outline" size="sm" onClick={handleCreate} className="gap-1">
+          <Plus className="h-4 w-4" />새 등록
+        </Button>
       </div>
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-        {PRODUCTS.map((product) => {
+        {allProducts.map((product) => {
           const selected = isSelected(product.id);
-          const Icon = PRODUCT_ICONS[product.id];
+          const Icon = getProductIcon(product.id);
+          const isUser = !isSeedProduct(product.id);
+          const userRecord = isUser
+            ? userProducts.find((u) => u.id === product.id) ?? null
+            : null;
 
           return (
             <Card
@@ -146,12 +254,43 @@ export function ProductSelectionSection({
                     <Icon className="h-5 w-5 text-muted-foreground" />
                     <span className="font-medium">{product.name}</span>
                   </div>
-                  <Badge variant="secondary" className="ml-auto text-[10px]">
-                    {product.category}
-                  </Badge>
+                  <div className="ml-auto flex items-center gap-1">
+                    {isUser && (
+                      <Badge variant="outline" className="text-[10px]">
+                        내 제품
+                      </Badge>
+                    )}
+                    <Badge variant="secondary" className="text-[10px]">
+                      {product.category}
+                    </Badge>
+                  </div>
                 </div>
 
-                <div className="border-t border-border px-4 py-3 flex justify-end">
+                <div className="border-t border-border px-4 py-3 flex justify-end gap-2">
+                  {isUser && userRecord && (
+                    <>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="ghost"
+                        className="h-7 px-2"
+                        onClick={(e) => handleEditUserProduct(userRecord, e)}
+                      >
+                        <Pencil className="mr-1 h-3 w-3" />
+                        수정
+                      </Button>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="ghost"
+                        className="h-7 px-2 text-destructive"
+                        onClick={(e) => handleDeleteUserProduct(userRecord, e)}
+                      >
+                        <Trash2 className="mr-1 h-3 w-3" />
+                        삭제
+                      </Button>
+                    </>
+                  )}
                   <Button
                     type="button"
                     size="sm"
@@ -180,14 +319,14 @@ export function ProductSelectionSection({
           선택된 제품:{" "}
           <span className="font-medium text-foreground">
             {selectedProducts
-              .map((p) => PRODUCTS.find((prod) => prod.id === p.id)?.name)
+              .map((p) => allProducts.find((prod) => prod.id === p.id)?.name)
               .filter(Boolean)
               .join(", ")}
           </span>
         </motion.div>
       )}
 
-      {/* Advantages Editor Dialog */}
+      {/* 장점 작성 다이얼로그 */}
       <Dialog
         open={editingId !== null}
         onOpenChange={(open) => {
@@ -197,7 +336,7 @@ export function ProductSelectionSection({
         <DialogContent className="max-w-xl">
           <DialogHeader>
             <DialogTitle>
-              {editingProduct ? `${editingProduct.name} 장점 작성` : "제품 장점 작성"}
+              {editingProductForAdvantages ? `${editingProductForAdvantages.name} 장점 작성` : "제품 장점 작성"}
             </DialogTitle>
             <DialogDescription>
               후기에 반영할 제품의 장점을 자유롭게 작성하세요.
@@ -213,7 +352,7 @@ export function ProductSelectionSection({
               placeholder="제품의 장점을 작성하세요..."
               className="min-h-[180px] text-sm"
             />
-            {editingProduct && !isSelected(editingProduct.id) && (
+            {editingProductForAdvantages && !isSelected(editingProductForAdvantages.id) && (
               <p className="text-xs text-muted-foreground">
                 저장하면 이 제품이 자동으로 선택됩니다.
               </p>
@@ -224,13 +363,25 @@ export function ProductSelectionSection({
             <Button type="button" variant="outline" onClick={closeEditor}>
               취소
             </Button>
-            <Button type="button" variant="default" onClick={handleSave}>
+            <Button type="button" variant="default" onClick={handleSaveAdvantages}>
               <Check className="h-3.5 w-3.5" />
               저장
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* 새 등록·수정 다이얼로그 */}
+      <ProductForm
+        open={formOpen}
+        initial={editingProduct}
+        existingNames={[
+          ...PRODUCTS.map((p) => p.name),
+          ...userProducts.map((u) => u.name),
+        ]}
+        onClose={() => setFormOpen(false)}
+        onSave={handleSaveUserProduct}
+      />
     </section>
   );
 }

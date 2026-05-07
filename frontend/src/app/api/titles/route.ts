@@ -1,7 +1,7 @@
 import { buildTitlePrompt } from "@/lib/prompts/title";
 import { generateText } from "@/lib/gemini";
 import { CONFIG } from "@/lib/config";
-import type { NarrativeType, ToneType, SelectedProduct } from "@/types";
+import type { NarrativeType, ProductInfo, ToneType, SelectedProduct } from "@/types";
 
 export async function POST(request: Request) {
   try {
@@ -14,6 +14,7 @@ export async function POST(request: Request) {
       subKeywords,
       persona,
       topic,
+      customProductInfoById,
       apiKey,
     } = body as {
       products: SelectedProduct[];
@@ -23,6 +24,7 @@ export async function POST(request: Request) {
       subKeywords?: string;
       persona?: string;
       topic?: string;
+      customProductInfoById?: Record<string, ProductInfo>;
       apiKey?: string;
     };
 
@@ -34,6 +36,7 @@ export async function POST(request: Request) {
       subKeywords,
       persona,
       topic,
+      customProductInfoById,
     });
 
     const result = await generateText(prompt, CONFIG.GENERATION_MODEL, apiKey);
