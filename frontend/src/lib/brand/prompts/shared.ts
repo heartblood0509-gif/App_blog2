@@ -141,6 +141,37 @@ export const BRAND_ASSET_USAGE_RULES = `[자산 사용 규칙 — 필수]
 - 윤희와 임두환을 무리하게 함께 등장시키지 마라. 글 주제에 맞춰 한 명만 등장하거나, 한 명을 주·한 명을 보조로 자연스럽게 배치한다.
 - 감동 에피소드(예: "50년 만에 손잡은 노부부")는 신뢰·여유·휴식 문맥에서만 활용한다. 가격 폭로·비교 글에 억지로 끼워 넣지 마라.`;
 
+/**
+ * 정보성글 전용 — 브랜드 노출 0건 강제 규칙.
+ *
+ * 정보성글은 "정보 = 사업 정합성, 본문엔 홍보 흔적 0"이 원칙.
+ * 본 규칙은 buildSharedRulesForInfo()를 통해 정보성글에만 합성된다.
+ * intro/value-proof/detail에는 합성되지 않으므로 다른 템플릿엔 영향 없음.
+ */
+export const BRAND_ZERO_EXPOSURE_RULES = `[브랜드 노출 금기 — 절대 위반 금지]
+
+이 글은 정보성글입니다. 정보 제공 그 자체가 목적이며, 우리 회사·우리 사람·우리 상품을 본문에서 알리지 않습니다. 본문은 우리와 무관한 일반 정보처럼 읽혀야 합니다.
+
+본문/제목 어디에도 다음이 등장하면 절대 안 됩니다:
+1. 회사명·브랜드명 (자사·자사 라벨 모두)
+2. 대표·임원·직원 실명 (가명·이니셜 포함 X)
+3. 자사 서비스·상품 고유명사 (자사가 만든 코스명·패키지명 등)
+4. 시그니처 표현 그대로 인용 (의미 차용은 OK, 문장 그대로는 X)
+5. "저희 회사", "당사", "우리 [회사명]" 같은 자사 지칭 표현
+6. 브랜드명을 추측 가능하게 만드는 직간접 단서 (특정 회사의 전매특허 표현 등)
+
+대신 사용 가능한 표현:
+- "10년 이상 현장에 있어보면", "수십 차례 직접 인솔해보면" 같은 익명 권위
+- "업계에서는", "현장에 있는 사람이라면" 같은 일반화 표현
+- 1인칭 "저는", "제가" 사용 가능 — 단 회사·이름 단서는 본문에 0건
+
+검산 (글 완성 전 반드시 확인):
+1. 본문에 회사명이 0건인가?
+2. 본문에 인물 실명이 0건인가?
+3. 본문에 자사 서비스 고유명사가 0건인가?
+4. 본문에 시그니처 표현이 그대로 등장한 게 0건인가?
+1건이라도 있으면 다시 작성한다.`;
+
 /** 사용자 입력 주제가 있을 때만 합성. 없으면 빈 문자열 반환. */
 export function buildTopicSection(topic?: string | null): string {
   if (!topic || topic.trim().length === 0) return "";
@@ -163,4 +194,49 @@ export function buildSharedRules(): string {
     BRAND_IMAGE_PLACEMENT_RULES,
     BRAND_ASSET_USAGE_RULES,
   ].join("\n\n");
+}
+
+/**
+ * 정보성글 전용 공통 규칙 합성기.
+ *
+ * 차이:
+ *   - BRAND_ASSET_USAGE_RULES 제외 (자산 활용 권유 = 노출 신호이므로 빼버림)
+ *   - BRAND_ZERO_EXPOSURE_RULES 추가 (회사명·인물명 노출 0 강제)
+ *
+ * intro/value-proof/detail은 buildSharedRules()를 그대로 사용 — 본 함수는 정보성글에서만 호출.
+ */
+export function buildSharedRulesForInfo(): string {
+  return [
+    BRAND_RESPONSE_FORMAT,
+    BRAND_SEO_RULES,
+    BRAND_READABILITY_RULES,
+    BRAND_TITLE_RULES,
+    BRAND_AVOID_AD_TONE,
+    BRAND_HEADING_QUOTE_RULES,
+    BRAND_IMAGE_PLACEMENT_RULES,
+    BRAND_ZERO_EXPOSURE_RULES,
+  ].join("\n\n");
+}
+
+/**
+ * 정보 명제(propositions) 컨텍스트 블록 빌더.
+ *
+ * distill API가 추출한 명제들을 본문 생성 LLM에게 "정보 재료"로 주입.
+ * 브랜드 프로필을 직접 주입하지 않으므로 회사명·인물명이 본문에 새지 않는다.
+ */
+export function buildPropositionsBlock(
+  propositions: Array<{ statement: string; evidence: string }>
+): string {
+  if (!propositions || propositions.length === 0) return "";
+  const lines = propositions
+    .map((p, i) => `${i + 1}. ${p.statement}\n   근거: ${p.evidence}`)
+    .join("\n");
+  return `[정보 재료 — 본문에서 활용할 일반 정보 명제]
+다음 명제들은 메인 키워드 도메인의 일반 정보입니다. 본문에서 이 명제들을 자연스럽게 풀어내되:
+- 명제 자체가 본문의 "정보 알맹이"입니다.
+- 명제는 일반 정보처럼 표현하세요. 특정 회사의 주장이 아닌, 도메인 상식·구조·메커니즘으로 서술합니다.
+- 모든 명제를 다 쓸 필요는 없습니다. 글 흐름에 맞는 것만 선별 활용.
+- 명제의 근거(수치·구조)는 본문에 자연스럽게 녹입니다.
+
+${lines}`;
 }

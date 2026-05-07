@@ -118,6 +118,30 @@ export type BrandInfoVariantId =
   | "info-custom";
 
 // ─────────────────────────────────────────────
+// 정보 명제 (Distill 결과 — 정보성글 전용)
+//
+// 브랜드 프로필을 LLM에 직접 주입하면 본문에 회사명·인물명·시그니처가 새므로,
+// 1단계 distill 호출에서 "정보 명제"로 추상화한 뒤 2단계 본문 생성에 사용한다.
+// 정보성글에서만 의미 있음 (intro/value-proof/detail은 미사용).
+// ─────────────────────────────────────────────
+
+export interface BrandProposition {
+  /** 일반 정보 명제 1~2문장. 회사명·인물명 노출 금지 */
+  statement: string;
+  /** 명제를 뒷받침하는 구체 수치/근거 (브랜드명 X) */
+  evidence: string;
+  /** 출처 라벨 (디버깅·UI용). "차별점#2", "권위자산#3" 등 */
+  source: string;
+}
+
+export interface DistillResult {
+  /** 5~10개 명제 */
+  propositions: BrandProposition[];
+  /** 캐시 재사용 판정 키. `${profileId}:${mainKeyword}` */
+  cacheKey: string;
+}
+
+// ─────────────────────────────────────────────
 // 위저드 상태 (후기성 WizardState 와 격리된 별개 타입)
 // ─────────────────────────────────────────────
 

@@ -7,7 +7,12 @@
 import { buildBrandGenerationPrompt } from "@/lib/brand/prompts/generation";
 import { generateStream } from "@/lib/gemini";
 import { CONFIG } from "@/lib/config";
-import type { BrandProfile, BrandTemplateId, BrandInfoVariantId } from "@/types/brand";
+import type {
+  BrandProfile,
+  BrandTemplateId,
+  BrandInfoVariantId,
+  BrandProposition,
+} from "@/types/brand";
 
 export const maxDuration = 60;
 
@@ -27,6 +32,7 @@ export async function POST(request: Request) {
       apiKey,
       referenceText,
       referenceAnalysis,
+      propositions,
     } = body as {
       profile: BrandProfile;
       template: BrandTemplateId;
@@ -40,6 +46,7 @@ export async function POST(request: Request) {
       apiKey?: string;
       referenceText?: string;
       referenceAnalysis?: string;
+      propositions?: BrandProposition[];
     };
 
     if (!profile || !template || !mainKeyword || !selectedTitle) {
@@ -56,6 +63,18 @@ export async function POST(request: Request) {
       );
     }
 
+    // 정보성글(활성 변형)은 propositions 필수
+    if (
+      template === "info" &&
+      (infoVariantId === "info-5" || infoVariantId === "info-custom") &&
+      (!propositions || propositions.length === 0)
+    ) {
+      return Response.json(
+        { error: "정보성글 본문 생성에는 propositions가 필요합니다. distill API를 먼저 호출하세요." },
+        { status: 400 }
+      );
+    }
+
     const prompt = buildBrandGenerationPrompt({
       profile,
       template,
@@ -68,6 +87,7 @@ export async function POST(request: Request) {
       requirements,
       referenceText,
       referenceAnalysis,
+      propositions,
     });
 
     // 1차 생성 (버퍼)

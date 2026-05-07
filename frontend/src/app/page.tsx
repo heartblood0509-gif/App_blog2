@@ -25,6 +25,7 @@ import type {
   PostCategory,
   ThreadsState,
 } from "@/types";
+import type { BrandProfile, BrandProposition } from "@/types/brand";
 import { initialThreadsState } from "@/types";
 import { parseImageMarkers, ensureSubtitleCoverage, ensureHookImage, ensureIntroImage, dedupeSubtitleEchoes, stripBrTags } from "@/lib/image/marker-parser";
 
@@ -67,6 +68,8 @@ const initialState: WizardState = {
   selectedBrandProfileId: null,
   selectedBrandTemplate: null,
   selectedBrandInfoVariant: null,
+  brandPropositions: null,
+  brandPropositionsCacheKey: null,
   topic: "",
   mainKeyword: "",
   subKeywords: "",
@@ -364,18 +367,83 @@ export default function Home() {
   }, [state.referenceUrl, state.toneType, state.referenceText, updateState]);
 
   // 브랜드 모드에서 selectedBrandProfileId 로 프로필 객체를 가져옴
-  const fetchBrandProfile = useCallback(async (): Promise<unknown | null> => {
+  const fetchBrandProfile = useCallback(async (): Promise<BrandProfile | null> => {
     if (!state.selectedBrandProfileId) return null;
     try {
       const res = await fetch("/api/brand/profiles", { cache: "no-store" });
       if (!res.ok) return null;
       const all = await res.json();
       if (!Array.isArray(all)) return null;
-      return all.find((p) => p?.id === state.selectedBrandProfileId) ?? null;
+      return (all.find((p: BrandProfile) => p?.id === state.selectedBrandProfileId) ?? null) as BrandProfile | null;
     } catch {
       return null;
     }
   }, [state.selectedBrandProfileId]);
+
+  /**
+   * 정보성글 — 본문/제목 생성 직전에 distill 결과를 보장.
+   * 캐시 키(`${profileId}:${mainKeyword}`)가 일치하면 기존 결과 재사용,
+   * 다르면 `/api/brand/distill` 호출 후 state에 저장.
+   *
+   * 정보성글이 아니거나 브랜드 모드가 아니면 null 반환 (no-op).
+   */
+  const ensureBrandPropositions = useCallback(
+    async (profileArg?: BrandProfile | null): Promise<BrandProposition[] | null> => {
+      if (state.postCategory !== "brand") return null;
+      if (state.selectedBrandTemplate !== "info") return null;
+
+      const profile = profileArg ?? (await fetchBrandProfile());
+      if (!profile) {
+        throw new Error("브랜드 프로필을 불러오지 못했습니다.");
+      }
+
+      const cacheKey = `${profile.id}:${state.mainKeyword}`;
+      // 캐시 히트
+      if (
+        state.brandPropositionsCacheKey === cacheKey &&
+        state.brandPropositions &&
+        state.brandPropositions.length > 0
+      ) {
+        return state.brandPropositions;
+      }
+
+      // 미스 — distill 호출
+      const res = await fetch("/api/brand/distill", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          profile,
+          mainKeyword: state.mainKeyword,
+          subKeywords: state.subKeywords || undefined,
+          topic: state.topic || undefined,
+        }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || "정보 명제 추출에 실패했습니다.");
+      }
+      const data = (await res.json()) as {
+        propositions: BrandProposition[];
+        cacheKey: string;
+      };
+      updateState({
+        brandPropositions: data.propositions,
+        brandPropositionsCacheKey: data.cacheKey,
+      });
+      return data.propositions;
+    },
+    [
+      state.postCategory,
+      state.selectedBrandTemplate,
+      state.mainKeyword,
+      state.subKeywords,
+      state.topic,
+      state.brandPropositions,
+      state.brandPropositionsCacheKey,
+      fetchBrandProfile,
+      updateState,
+    ]
+  );
 
   const fetchTitles = useCallback(async () => {
     updateState({ isLoading: true, titleSuggestions: [] });
@@ -386,6 +454,17 @@ export default function Home() {
         if (!profile) {
           throw new Error("브랜드 프로필을 불러오지 못했습니다.");
         }
+
+        // 정보성글이면 distill 보장 (캐시 미스 시 자동 호출)
+        let propositions: BrandProposition[] | undefined;
+        if (state.selectedBrandTemplate === "info") {
+          const result = await ensureBrandPropositions(profile);
+          if (!result || result.length === 0) {
+            throw new Error("정보 명제를 준비하지 못했습니다.");
+          }
+          propositions = result;
+        }
+
         const res = await fetch("/api/brand/titles", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -397,6 +476,7 @@ export default function Home() {
             subKeywords: state.subKeywords || undefined,
             topic: state.topic || undefined,
             count: 5,
+            propositions,
           }),
         });
         if (!res.ok) {
@@ -439,14 +519,24 @@ export default function Home() {
       toast.error(msg);
       updateState({ isLoading: false });
     }
-  }, [state.postCategory, state.selectedBrandTemplate, state.selectedBrandInfoVariant, state.selectedProducts, state.narrativeType, state.toneType, state.mainKeyword, state.subKeywords, state.persona, state.topic, fetchBrandProfile, updateState]);
+  }, [state.postCategory, state.selectedBrandTemplate, state.selectedBrandInfoVariant, state.selectedProducts, state.narrativeType, state.toneType, state.mainKeyword, state.subKeywords, state.persona, state.topic, fetchBrandProfile, ensureBrandPropositions, updateState]);
 
   // 검증 호출. fetchContent와 본문 직접 수정(handleContentEdit) 양쪽에서 재사용한다.
+  // 브랜드 모드에서는 template/profile을 함께 보내야 정보성글 한정 노출 검증이 동작한다.
   const runValidation = useCallback(
     async (text: string) => {
       try {
         const endpoint =
           state.postCategory === "brand" ? "/api/brand/validate" : "/api/validate";
+
+        // 브랜드 모드면 template/profile 추가 (정보성글 한정 브랜드 노출 검증용)
+        const extraBody: Record<string, unknown> = {};
+        if (state.postCategory === "brand") {
+          extraBody.template = state.selectedBrandTemplate;
+          const profile = await fetchBrandProfile();
+          if (profile) extraBody.profile = profile;
+        }
+
         const res = await fetch(endpoint, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -454,6 +544,7 @@ export default function Home() {
             text,
             keyword: state.mainKeyword,
             charRange: state.charCountRange,
+            ...extraBody,
           }),
         });
         if (!res.ok) return;
@@ -463,7 +554,7 @@ export default function Home() {
         // 검증 실패는 사용자 흐름을 막지 않음
       }
     },
-    [state.postCategory, state.mainKeyword, state.charCountRange, updateState]
+    [state.postCategory, state.selectedBrandTemplate, state.mainKeyword, state.charCountRange, fetchBrandProfile, updateState]
   );
 
   const fetchContent = useCallback(async () => {
@@ -483,6 +574,17 @@ export default function Home() {
         if (!profile) {
           throw new Error("브랜드 프로필을 불러오지 못했습니다.");
         }
+
+        // 정보성글이면 distill 보장 (보통 fetchTitles 단계에서 이미 캐시됨)
+        let propositions: BrandProposition[] | undefined;
+        if (state.selectedBrandTemplate === "info") {
+          const result = await ensureBrandPropositions(profile);
+          if (!result || result.length === 0) {
+            throw new Error("정보 명제를 준비하지 못했습니다.");
+          }
+          propositions = result;
+        }
+
         res = await fetch("/api/brand/generate", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -505,6 +607,7 @@ export default function Home() {
               state.selectedBrandInfoVariant === "info-custom"
                 ? state.referenceAnalysis || undefined
                 : undefined,
+            propositions,
           }),
         });
       } else {
@@ -584,7 +687,7 @@ export default function Home() {
       toast.error(msg);
       updateState({ isLoading: false });
     }
-  }, [state.postCategory, state.selectedBrandTemplate, state.selectedBrandInfoVariant, state.topic, state.selectedProducts, state.narrativeType, state.toneType, state.mainKeyword, state.subKeywords, state.persona, state.requirements, state.charCountRange, state.selectedTitle, state.referenceAnalysis, state.referenceText, state.toneExample, fetchBrandProfile, updateState, runValidation]);
+  }, [state.postCategory, state.selectedBrandTemplate, state.selectedBrandInfoVariant, state.topic, state.selectedProducts, state.narrativeType, state.toneType, state.mainKeyword, state.subKeywords, state.persona, state.requirements, state.charCountRange, state.selectedTitle, state.referenceAnalysis, state.referenceText, state.toneExample, fetchBrandProfile, ensureBrandPropositions, updateState, runValidation]);
 
   const handleQualityFix = useCallback(async () => {
     if (!state.qualityResult || state.qualityResult.isPass) return;
@@ -597,6 +700,14 @@ export default function Home() {
         if (!profile) {
           throw new Error("브랜드 프로필을 불러오지 못했습니다.");
         }
+
+        // 정보성글이면 propositions 동봉 (수정 시에도 익명 톤 유지)
+        let propositions: BrandProposition[] | undefined;
+        if (state.selectedBrandTemplate === "info") {
+          const result = await ensureBrandPropositions(profile);
+          propositions = result || undefined;
+        }
+
         res = await fetch("/api/brand/fix", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -607,6 +718,7 @@ export default function Home() {
             content: state.generatedContent,
             failReasons: state.qualityResult.failReasons,
             keyword: state.mainKeyword,
+            propositions,
           }),
         });
       } else {
@@ -657,6 +769,15 @@ export default function Home() {
 
       const validateEndpoint =
         state.postCategory === "brand" ? "/api/brand/validate" : "/api/validate";
+
+      // 브랜드 모드면 template/profile 추가 (정보성글 한정 노출 검증)
+      const validateExtra: Record<string, unknown> = {};
+      if (state.postCategory === "brand") {
+        validateExtra.template = state.selectedBrandTemplate;
+        const profileForValidate = await fetchBrandProfile();
+        if (profileForValidate) validateExtra.profile = profileForValidate;
+      }
+
       const validateRes = await fetch(validateEndpoint, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -664,6 +785,7 @@ export default function Home() {
           text: fixed,
           keyword: state.mainKeyword,
           charRange: state.charCountRange,
+          ...validateExtra,
         }),
       });
       if (validateRes.ok) {
@@ -682,7 +804,7 @@ export default function Home() {
       toast.error(msg);
       updateState({ isLoading: false });
     }
-  }, [state.postCategory, state.selectedBrandTemplate, state.selectedBrandInfoVariant, state.generatedContent, state.qualityResult, state.mainKeyword, state.charCountRange, fetchBrandProfile, updateState]);
+  }, [state.postCategory, state.selectedBrandTemplate, state.selectedBrandInfoVariant, state.generatedContent, state.qualityResult, state.mainKeyword, state.charCountRange, fetchBrandProfile, ensureBrandPropositions, updateState]);
 
   // ─────────────────────────────
   // 이미지 핸들러
@@ -1040,7 +1162,12 @@ export default function Home() {
 
   const handleBrandProfileChange = useCallback(
     (profileId: string) => {
-      updateState({ selectedBrandProfileId: profileId });
+      // 프로필이 바뀌면 distill 캐시 무효화 (프로필별 자산이 다르므로)
+      updateState({
+        selectedBrandProfileId: profileId,
+        brandPropositions: null,
+        brandPropositionsCacheKey: null,
+      });
     },
     [updateState]
   );
@@ -1048,9 +1175,12 @@ export default function Home() {
   const handleBrandTemplateChange = useCallback(
     (template: import("@/types/brand").BrandTemplateId) => {
       // 템플릿이 바뀌면 변형 선택은 초기화 — 사용자가 명시적으로 카드를 골라야 함
+      // distill 캐시도 무효화 (정보성글 ↔ 다른 템플릿 전환 시 재호출)
       updateState({
         selectedBrandTemplate: template,
         selectedBrandInfoVariant: null,
+        brandPropositions: null,
+        brandPropositionsCacheKey: null,
       });
     },
     [updateState]
@@ -1059,9 +1189,12 @@ export default function Home() {
   const handleBrandInfoVariantChange = useCallback(
     (variant: import("@/types/brand").BrandInfoVariantId) => {
       // info-custom 진입/이탈 시 견본 입력 잔여 상태 초기화
+      // 변형 전환 시 distill 캐시도 무효화 (info-5 ↔ info-custom 톤 차이)
       const isCustom = variant === "info-custom";
       updateState({
         selectedBrandInfoVariant: variant,
+        brandPropositions: null,
+        brandPropositionsCacheKey: null,
         ...(isCustom
           ? {} // 들어올 때는 기존 입력 유지 (재진입 편의)
           : { referenceUrl: "", referenceText: "", referenceAnalysis: "" }),

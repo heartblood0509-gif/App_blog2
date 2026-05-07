@@ -4,15 +4,23 @@
  * 사용자가 입력한 견본 글(referenceText)과 그 분석 결과(referenceAnalysis)를
  * 그대로 학습시켜, 같은 톤·서사 구조·소제목 패턴으로 새 글을 작성한다.
  *
- * - 레퍼런스 글 자체 파일 없음 (런타임에 사용자 입력 동적 주입).
- * - 톤 추출도 사용자 입력 글 기준 (tone-extractor 재활용).
- * - 골격(SKELETON)도 강제 X — 견본 구조 자체가 골격이 됨.
+ * 정보성글 정책 (info 전체 공통):
+ *   - 본문/제목에 회사명·인물명·시그니처 노출 0
+ *   - 브랜드 프로필 직접 주입 X. distill propositions를 보조 정보로 사용
+ *   - 화자는 익명 업계 전문가 (견본 글에 화자가 명시돼 있어도 우리 브랜드로 치환 X)
+ *
+ * info-custom 특이사항:
+ *   - 견본 글이 본문 톤·서사의 1순위. propositions는 "참고 정보"로 라벨링하여 톤 충돌 방지.
+ *   - 골격(SKELETON) 미강제 — 견본 구조 자체가 골격.
  */
-import type { BrandProfile } from "@/types/brand";
-import { buildBrandContext } from "../../../brand-context";
-import { buildNarratorRule } from "../../../narrator";
+import type { BrandProfile, BrandProposition } from "@/types/brand";
+import { buildAnonymousExpertNarrator } from "../../../narrator";
 import { buildToneRule } from "../../../tone-extractor";
-import { buildSharedRules, buildTopicSection } from "../../../shared";
+import {
+  buildSharedRulesForInfo,
+  buildTopicSection,
+  buildPropositionsBlock,
+} from "../../../shared";
 
 interface BuildInfoCustomPromptOptions {
   profile: BrandProfile;
@@ -26,11 +34,12 @@ interface BuildInfoCustomPromptOptions {
   referenceText?: string;
   /** 견본 글에 대한 AI 구조 분석 결과 (서사·톤·소제목·SEO) */
   referenceAnalysis?: string;
+  /** distill API에서 추출한 정보 명제. 정보성글에서는 필수 */
+  propositions?: BrandProposition[];
 }
 
 export function buildInfoCustomPrompt(opts: BuildInfoCustomPromptOptions): string {
   const {
-    profile,
     mainKeyword,
     subKeywords,
     topic,
@@ -39,12 +48,20 @@ export function buildInfoCustomPrompt(opts: BuildInfoCustomPromptOptions): strin
     requirements,
     referenceText,
     referenceAnalysis,
+    propositions,
   } = opts;
+
+  if (!propositions || propositions.length === 0) {
+    throw new Error(
+      "정보성글 본문 생성에는 propositions가 필요합니다. distill API를 먼저 호출하세요."
+    );
+  }
 
   const sections: string[] = [];
 
-  sections.push(`당신은 한국어 브랜드 블로그를 쓰는 전문 에디터입니다.
-아래 모든 정보를 종합해서 [정보성글] 한 편을 마크다운으로 작성하세요.`);
+  sections.push(`당신은 한국어 [정보성글]을 쓰는 전문 에디터입니다.
+이 글은 일반 정보 제공이 목적이며, 특정 회사·인물을 알리는 글이 절대 아닙니다.
+아래 모든 정보를 종합해서 마크다운 본문 한 편을 작성하세요.`);
 
   const charCountLine =
     charCount.min > 0 && charCount.max > 0
@@ -60,8 +77,11 @@ export function buildInfoCustomPrompt(opts: BuildInfoCustomPromptOptions): strin
     sections.push(`[추가 요구사항]\n${requirements.trim()}`);
   }
 
-  sections.push(buildBrandContext(profile));
-  sections.push(buildNarratorRule(profile, "info"));
+  // 정보 명제 — 보조 재료 (견본 톤이 우선)
+  sections.push(buildPropositionsBlock(propositions));
+
+  // 화자는 익명 전문가
+  sections.push(buildAnonymousExpertNarrator());
 
   // 톤 학습 — 사용자 견본 글 기준
   if (referenceText && referenceText.trim().length > 0) {
@@ -80,14 +100,16 @@ ${referenceText.trim()}`);
 ${referenceAnalysis.trim()}`);
   }
 
-  // 핵심 지시
-  sections.push(`[핵심 지시 — 직접 레퍼런스 모드]
-- 위 견본 글의 서사 구조·톤·소제목 패턴·문단 호흡을 그대로 따른다.
-- 단, 주제·키워드·소재만 새로 입력된 메인 키워드와 주제로 교체한다.
-- 견본 글이 다른 산업/도메인이더라도 톤과 흐름을 차용하되, 브랜드 컨텍스트(우리 화자·금기어·자산)는 반드시 준수한다.
-- 견본 글에 없는 광고 문구·억지 자랑 금지.`);
+  // 핵심 지시 — propositions와 견본 글의 우선순위 명시
+  sections.push(`[핵심 지시 — 직접 레퍼런스 모드 (정보성글)]
+- 견본 글의 서사 구조·톤·소제목 패턴·문단 호흡을 그대로 따른다.
+- 주제·키워드·소재만 새로 입력된 메인 키워드와 주제로 교체한다.
+- 견본 글에 등장한 회사명·지역·인물·산업 어휘는 새 도메인의 것으로 모두 교체한다.
+- [정보 재료] 명제는 본문 흐름에 맞을 때만 보조적으로 활용한다 (모두 다 박지 마라).
+- 견본 글에 없는 광고 문구·억지 자랑·자사 노출 금지.`);
 
-  sections.push(buildSharedRules());
+  // 정보성글 전용 공통 규칙
+  sections.push(buildSharedRulesForInfo());
 
   sections.push(`[출력 — 마크다운 본문만, 설명·코드블록 마커 X]`);
 

@@ -1,7 +1,15 @@
 /**
  * 브랜드 글 생성 — 템플릿별 dispatch 진입점.
+ *
+ * 정보성글(info-5, info-custom)은 distill로 추출한 propositions가 필수.
+ * 호출 측(page.tsx)에서 distill을 먼저 실행한 뒤 결과를 함께 넘겨야 한다.
  */
-import type { BrandProfile, BrandTemplateId, BrandInfoVariantId } from "@/types/brand";
+import type {
+  BrandProfile,
+  BrandTemplateId,
+  BrandInfoVariantId,
+  BrandProposition,
+} from "@/types/brand";
 import { buildIntroPrompt } from "./templates/intro/prompt";
 import { buildInfo1Prompt } from "./templates/info/info-1/prompt";
 import { buildInfo2Prompt } from "./templates/info/info-2/prompt";
@@ -25,6 +33,8 @@ export interface BuildBrandPromptOptions {
   referenceText?: string;
   /** info-custom 모드 전용 — 견본 글 구조 분석 결과 */
   referenceAnalysis?: string;
+  /** 정보성글(info-5, info-custom) 전용 — distill API에서 추출한 정보 명제 */
+  propositions?: BrandProposition[];
 }
 
 export function buildBrandGenerationPrompt(opts: BuildBrandPromptOptions): string {
@@ -34,8 +44,10 @@ export function buildBrandGenerationPrompt(opts: BuildBrandPromptOptions): strin
     case "intro":
       return buildIntroPrompt(opts);
     case "info":
+      // 활성 변형 — propositions 필수 (각 빌더 내부에서 검증)
       if (infoVariantId === "info-custom") return buildInfoCustomPrompt(opts);
       if (infoVariantId === "info-5") return buildInfo5Prompt(opts);
+      // 보존(archived) 변형 — UI 미노출이지만 옛 동작 보존을 위해 호출 가능 상태로 둠
       if (infoVariantId === "info-1" || !infoVariantId) return buildInfo1Prompt(opts);
       if (infoVariantId === "info-2") return buildInfo2Prompt(opts);
       if (infoVariantId === "info-3") return buildInfo3Prompt(opts);
