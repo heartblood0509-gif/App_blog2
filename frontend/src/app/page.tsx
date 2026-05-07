@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback, useEffect, useRef } from "react";
+import { useState, useCallback, useEffect, useMemo, useRef } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -24,8 +24,12 @@ import type {
   Channel,
   PostCategory,
   ThreadsState,
+  UserProduct,
+  ProductInfo,
 } from "@/types";
 import { initialThreadsState } from "@/types";
+import { fetchUserProducts } from "@/lib/products";
+import { buildCustomProductInfo } from "@/lib/prompts/brand-context";
 import { parseImageMarkers, ensureSubtitleCoverage, ensureHookImage, ensureIntroImage, dedupeSubtitleEchoes, stripBrTags } from "@/lib/image/marker-parser";
 
 import { StepChannelSelect } from "@/components/steps/step-channel-select";
@@ -95,6 +99,29 @@ const initialState: WizardState = {
 
 export default function Home() {
   const [state, setState] = useState<WizardState>(initialState);
+  const [userProducts, setUserProducts] = useState<UserProduct[]>([]);
+
+  const refetchUserProducts = useCallback(async () => {
+    const list = await fetchUserProducts();
+    setUserProducts(list);
+  }, []);
+
+  useEffect(() => {
+    refetchUserProducts();
+  }, [refetchUserProducts]);
+
+  const customProductInfoById = useMemo<Record<string, ProductInfo>>(
+    () =>
+      Object.fromEntries(userProducts.map((p) => [p.id, buildCustomProductInfo(p)])),
+    [userProducts]
+  );
+
+  const handleProductDeleted = useCallback((deletedId: string) => {
+    setState((prev) => ({
+      ...prev,
+      selectedProducts: prev.selectedProducts.filter((p) => p.id !== deletedId),
+    }));
+  }, []);
 
   const updateState = useCallback((partial: Partial<WizardState>) => {
     setState((prev) => ({ ...prev, ...partial }));
@@ -423,6 +450,7 @@ export default function Home() {
           subKeywords: state.subKeywords || undefined,
           persona: state.persona || undefined,
           topic: state.topic || undefined,
+          customProductInfoById,
         }),
       });
       if (!res.ok) {
@@ -439,7 +467,7 @@ export default function Home() {
       toast.error(msg);
       updateState({ isLoading: false });
     }
-  }, [state.postCategory, state.selectedBrandTemplate, state.selectedBrandInfoVariant, state.selectedProducts, state.narrativeType, state.toneType, state.mainKeyword, state.subKeywords, state.persona, state.topic, fetchBrandProfile, updateState]);
+  }, [state.postCategory, state.selectedBrandTemplate, state.selectedBrandInfoVariant, state.selectedProducts, state.narrativeType, state.toneType, state.mainKeyword, state.subKeywords, state.persona, state.topic, customProductInfoById, fetchBrandProfile, updateState]);
 
   // 검증 호출. fetchContent와 본문 직접 수정(handleContentEdit) 양쪽에서 재사용한다.
   const runValidation = useCallback(
@@ -526,6 +554,7 @@ export default function Home() {
             referenceAnalysis: state.referenceAnalysis || undefined,
             referenceExcerpts: state.referenceExcerpts.length > 0 ? state.referenceExcerpts : undefined,
             topic: state.topic || undefined,
+            customProductInfoById,
           }),
         });
       }
@@ -584,7 +613,7 @@ export default function Home() {
       toast.error(msg);
       updateState({ isLoading: false });
     }
-  }, [state.postCategory, state.selectedBrandTemplate, state.selectedBrandInfoVariant, state.topic, state.selectedProducts, state.narrativeType, state.toneType, state.mainKeyword, state.subKeywords, state.persona, state.requirements, state.charCountRange, state.selectedTitle, state.referenceAnalysis, state.referenceText, state.toneExample, fetchBrandProfile, updateState, runValidation]);
+  }, [state.postCategory, state.selectedBrandTemplate, state.selectedBrandInfoVariant, state.topic, state.selectedProducts, state.narrativeType, state.toneType, state.mainKeyword, state.subKeywords, state.persona, state.requirements, state.charCountRange, state.selectedTitle, state.referenceAnalysis, state.referenceExcerpts, state.referenceText, state.toneExample, customProductInfoById, fetchBrandProfile, updateState, runValidation]);
 
   const handleQualityFix = useCallback(async () => {
     if (!state.qualityResult || state.qualityResult.isPass) return;
@@ -1228,6 +1257,9 @@ export default function Home() {
             onBrandProfileChange={handleBrandProfileChange}
             onBrandTemplateChange={handleBrandTemplateChange}
             onBrandInfoVariantChange={handleBrandInfoVariantChange}
+            userProducts={userProducts}
+            onUserProductsChange={refetchUserProducts}
+            onProductDeleted={handleProductDeleted}
           />
         );
       case 2:
