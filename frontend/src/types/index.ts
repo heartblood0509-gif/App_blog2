@@ -1,11 +1,5 @@
-// 제품 관련 타입
-export type ProductId =
-  | "hair-loss-shampoo"
-  | "therapy-shampoo"
-  | "body-lotion"
-  | "soap"
-  | "scalp-brush"
-  | "hair-tonic";
+// 제품 관련 타입 — 시드 6개의 ID 외에도 사용자가 등록한 product1, product2... 가 들어올 수 있어 string으로 확장
+export type ProductId = string;
 
 export interface ProductInfo {
   id: ProductId;
@@ -13,7 +7,8 @@ export interface ProductInfo {
   category: string;
   relatedSymptoms: string[];
   naturalMentionPatterns: string[];
-  ingredientPoints: string[];
+  /** 현재 프롬프트 빌더에선 미사용. 시드 데이터에만 남아있음 */
+  ingredientPoints?: string[];
   defaultAdvantages: string;
   /** 실제 사용자 후기 (톤 레퍼런스용) */
   realReviews?: string[];
@@ -26,6 +21,19 @@ export interface ProductInfo {
 export interface SelectedProduct {
   id: ProductId;
   advantages: string;
+}
+
+/** 사용자가 직접 등록한 제품 — 시드 6개와 동일한 프롬프트 품질을 위해 모든 메타데이터 필수 */
+export interface UserProduct {
+  id: string;
+  name: string;
+  category: string;
+  defaultAdvantages: string;
+  relatedSymptoms: string[];
+  naturalMentionPatterns: string[];
+  keyInsight: string;
+  sensoryDetails: string[];
+  realReviews: string[];
 }
 
 // 서사 구조 타입

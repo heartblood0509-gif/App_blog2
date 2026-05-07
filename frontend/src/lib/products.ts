@@ -1,4 +1,5 @@
-import type { ProductId } from "@/types";
+import type { ProductId, UserProduct } from "@/types";
+import { toast } from "sonner";
 
 /**
  * 공용 제품 기본 정보
@@ -111,4 +112,27 @@ export const PRODUCTS: ProductBase[] = [
 
 export function getProductByIdFromBase(id: string): ProductBase | undefined {
   return PRODUCTS.find((p) => p.id === id);
+}
+
+/** 사용자가 등록한 제품 목록 조회 — Next.js 캐싱으로 stale UI 방지를 위해 no-store */
+export async function fetchUserProducts(): Promise<UserProduct[]> {
+  try {
+    const res = await fetch("/api/products", { cache: "no-store" });
+    if (!res.ok) return [];
+    const data = await res.json();
+    return Array.isArray(data) ? data : [];
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : "제품 목록을 불러오지 못했습니다.";
+    toast.error(msg);
+    return [];
+  }
+}
+
+export function isSeedProduct(id: string): boolean {
+  return PRODUCTS.some((p) => p.id === id);
+}
+
+export function isSeedProductName(name: string): boolean {
+  const trimmed = name.trim();
+  return PRODUCTS.some((p) => p.name === trimmed);
 }
