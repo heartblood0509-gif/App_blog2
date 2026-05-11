@@ -27,7 +27,7 @@ import {
   Star,
   Building2,
 } from "lucide-react";
-import type { NarrativeSource, ToneType, Channel, PostCategory, SelectedProduct } from "@/types";
+import type { NarrativeSource, ToneType, Channel, PostCategory, SelectedProduct, UserProduct } from "@/types";
 import type { BrandTemplateId, BrandInfoVariantId } from "@/types/brand";
 import { ProductSelectionSection } from "@/components/steps/product-selection-section";
 import { NarrativeFlowCard } from "@/components/narrative/narrative-flow-card";
@@ -184,6 +184,10 @@ interface StepNarrativeProps {
   onBrandTemplateChange: (template: BrandTemplateId) => void;
   onBrandInfoVariantChange: (variant: BrandInfoVariantId) => void;
   onAnalysisRecordSelect: (recordId: string) => void;
+  // 후기성 — 사용자 등록 제품
+  userProducts: UserProduct[];
+  onUserProductsChange: () => void;
+  onProductDeleted: (id: string) => void;
 }
 
 export function StepNarrative({
@@ -215,6 +219,9 @@ export function StepNarrative({
   onBrandTemplateChange,
   onBrandInfoVariantChange,
   onAnalysisRecordSelect,
+  userProducts,
+  onUserProductsChange,
+  onProductDeleted,
 }: StepNarrativeProps) {
   const selectedOption = NARRATIVES.find((n) => n.id === narrativeSource) ?? null;
 
@@ -327,6 +334,9 @@ export function StepNarrative({
               <ProductSelectionSection
                 selectedProducts={selectedProducts}
                 onChange={onSelectedProductsChange}
+                userProducts={userProducts}
+                onUserProductsChange={onUserProductsChange}
+                onProductDeleted={onProductDeleted}
               />
             </motion.div>
           )}

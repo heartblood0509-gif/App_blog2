@@ -2,7 +2,7 @@ import { buildGenerationPrompt } from "@/lib/prompts/generation";
 import { generateStream } from "@/lib/gemini";
 import { CONFIG } from "@/lib/config";
 import { validateNarrativeOpening } from "@/lib/quality/narrative-validator";
-import type { NarrativeType, ToneType, SelectedProduct } from "@/types";
+import type { NarrativeType, ProductInfo, ToneType, SelectedProduct } from "@/types";
 
 export const maxDuration = 60;
 
@@ -31,6 +31,7 @@ export async function POST(request: Request) {
       referenceAnalysis,
       referenceExcerpts,
       topic,
+      customProductInfoById,
       apiKey,
     } = body as {
       products: SelectedProduct[];
@@ -46,6 +47,7 @@ export async function POST(request: Request) {
       referenceAnalysis?: string;
       referenceExcerpts?: string[];
       topic?: string;
+      customProductInfoById?: Record<string, ProductInfo>;
       apiKey?: string;
     };
 
@@ -63,6 +65,7 @@ export async function POST(request: Request) {
       referenceAnalysis,
       referenceExcerpts,
       topic,
+      customProductInfoById,
     });
 
     // 1차 생성 (버퍼)

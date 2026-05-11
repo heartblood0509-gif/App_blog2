@@ -1,4 +1,4 @@
-import type { SelectedProduct } from "@/types";
+import type { ProductInfo, SelectedProduct } from "@/types";
 import { BRAND_PRODUCTS } from "./brand-context";
 
 /**
@@ -37,12 +37,13 @@ export const PRODUCT_PLACEMENT_RULES = `## 제품 배치 규칙 (자연스러운
 - 현실적인 선택 강조 (비용, 시간 등 고려)`;
 
 export function buildProductContext(
-  selectedProducts: SelectedProduct[]
+  selectedProducts: SelectedProduct[],
+  customProductInfoById: Record<string, ProductInfo> = {}
 ): string {
   if (selectedProducts.length === 0) return "";
 
   const lines = selectedProducts.map((sp) => {
-    const product = BRAND_PRODUCTS[sp.id];
+    const product = BRAND_PRODUCTS[sp.id] ?? customProductInfoById[sp.id];
     if (!product) return "";
 
     let section = `### 제품: ${product.name}

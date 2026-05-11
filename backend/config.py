@@ -23,6 +23,9 @@ BRAND_PROFILES_FILE = Path(__file__).parent / "brand_profiles.json"
 # 분석 보관함 — 사용자 분석 + 내장 템플릿 통합 저장소
 ANALYSIS_RECORDS_FILE = Path(__file__).parent / "analysis_records.json"
 
+# 사용자 등록 제품 파일 (후기성 블로그 글쓰기 모드용)
+PRODUCTS_FILE = Path(__file__).parent / "products.json"
+
 # 서버 설정
 HOST = os.getenv("HOST", "0.0.0.0")
 PORT = int(os.getenv("PORT", "8000"))

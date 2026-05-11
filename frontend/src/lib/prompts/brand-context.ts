@@ -1,4 +1,4 @@
-import type { ProductInfo } from "@/types";
+import type { ProductInfo, UserProduct } from "@/types";
 import { PRODUCTS } from "@/lib/products";
 
 export const BRAND_PRODUCTS: Record<string, ProductInfo> = {
@@ -90,4 +90,19 @@ export function getProductNames(ids: string[]): string[] {
   return ids
     .map((id) => BRAND_PRODUCTS[id]?.name)
     .filter(Boolean) as string[];
+}
+
+/** 사용자 등록 제품을 시드 ProductInfo 모양으로 변환 — buildProductContext lookup fallback에 사용 */
+export function buildCustomProductInfo(p: UserProduct): ProductInfo {
+  return {
+    id: p.id,
+    name: p.name,
+    category: p.category,
+    defaultAdvantages: p.defaultAdvantages,
+    relatedSymptoms: p.relatedSymptoms,
+    naturalMentionPatterns: p.naturalMentionPatterns,
+    keyInsight: p.keyInsight,
+    sensoryDetails: p.sensoryDetails,
+    realReviews: p.realReviews,
+  };
 }
