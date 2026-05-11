@@ -3,6 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from routers.publish import router as publish_router
 from routers.accounts import router as accounts_router
 from routers.brand_profiles import router as brand_profiles_router
+from routers.aeo_profiles import router as aeo_profiles_router
 from routers.products import router as products_router
 from config import HOST, PORT
 
@@ -19,6 +20,7 @@ app.add_middleware(
 app.include_router(publish_router, prefix="/publish", tags=["publish"])
 app.include_router(accounts_router, prefix="/accounts", tags=["accounts"])
 app.include_router(brand_profiles_router, prefix="/brand-profiles", tags=["brand-profiles"])
+app.include_router(aeo_profiles_router, prefix="/aeo-profiles", tags=["aeo-profiles"])
 app.include_router(products_router, prefix="/products", tags=["products"])
 
 

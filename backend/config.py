@@ -20,6 +20,9 @@ ACCOUNTS_FILE = Path(__file__).parent / "accounts.json"
 # 브랜드 프로필 파일 (브랜드 블로그 글쓰기 모드용)
 BRAND_PROFILES_FILE = Path(__file__).parent / "brand_profiles.json"
 
+# AEO 프로필 파일 (AEO 블로그 글쓰기 모드용)
+AEO_PROFILES_FILE = Path(__file__).parent / "aeo_profiles.json"
+
 # 사용자 등록 제품 파일 (후기성 블로그 글쓰기 모드용)
 PRODUCTS_FILE = Path(__file__).parent / "products.json"
 
