@@ -21,6 +21,7 @@ import { toast } from "sonner";
 import { BlogContentRenderer } from "@/components/blog-content-renderer";
 import type { BlogAccount, ImageSlot } from "@/types";
 import { pruneExcludedMarkers } from "@/lib/image/marker-parser";
+import { useBusy } from "@/lib/busy";
 
 interface StepPublishProps {
   content: string;
@@ -46,6 +47,41 @@ export function StepPublish({
   const [newNaverPw, setNewNaverPw] = useState("");
   const [isAdding, setIsAdding] = useState(false);
   const [autoPublish, setAutoPublish] = useState(false); // 기본: 검토 후 수동 발행
+  // §D 수동 발행 세션 — Chrome 창이 살아있는 동안 busy 유지.
+  const [manualSessionId, setManualSessionId] = useState<string | null>(null);
+
+  // 자동 발행 중 + 수동 발행 Chrome 창 살아있는 동안 둘 다 busy.
+  useBusy("publish:auto", isPublishing);
+  useBusy(`publish:manual:${manualSessionId ?? "none"}`, manualSessionId !== null);
+
+  // 수동 발행 시 5초 폴링으로 Chrome 닫힘 감지 → manualSessionId 해제 (busy 자동 풀림).
+  useEffect(() => {
+    if (!manualSessionId) return;
+    let cancelled = false;
+    const tick = async () => {
+      if (cancelled) return;
+      try {
+        const res = await fetch(
+          `/api/publish/manual-status?id=${encodeURIComponent(manualSessionId)}`,
+          { cache: "no-store" },
+        );
+        const data = await res.json();
+        if (!cancelled && data.disconnected) {
+          setManualSessionId(null);
+          toast.info("수동 발행 세션이 종료되었습니다.");
+          return;
+        }
+      } catch {
+        // 폴링 실패는 무시. 다음 tick 에 재시도.
+      }
+      if (!cancelled) setTimeout(tick, 5000);
+    };
+    const timer = setTimeout(tick, 5000);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [manualSessionId]);
 
   // 계정 목록 가져오기
   const fetchAccounts = useCallback(async () => {
@@ -208,6 +244,10 @@ export function StepPublish({
         throw new Error(data.error || "발행에 실패했습니다.");
       }
       if (data.mode === "awaiting_manual_publish") {
+        // §D — Chrome 창이 살아있는 동안 busy 유지. 닫히면 폴링이 감지해 자동 해제.
+        if (data.manual_session_id) {
+          setManualSessionId(data.manual_session_id);
+        }
         toast.info(data.message || "Chrome 창에서 직접 '발행' 버튼을 눌러주세요", {
           duration: 10000,
         });
