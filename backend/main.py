@@ -18,6 +18,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from routers.publish import router as publish_router
 from routers.accounts import router as accounts_router
 from routers.brand_profiles import router as brand_profiles_router
+from routers.analysis_records import router as analysis_records_router, ensure_builtin_seeds
 from routers.products import router as products_router
 from config import HOST, PORT
 from auth import verify_app_token
@@ -135,13 +136,13 @@ else:
         allow_headers=["*"],
     )
 
-
 # §A-1 — state-changing 라우터들은 모두 APP_TOKEN 검증을 통과해야 한다.
 _protected = [Depends(verify_app_token)]
 
 app.include_router(publish_router, prefix="/publish", tags=["publish"], dependencies=_protected)
 app.include_router(accounts_router, prefix="/accounts", tags=["accounts"], dependencies=_protected)
 app.include_router(brand_profiles_router, prefix="/brand-profiles", tags=["brand-profiles"], dependencies=_protected)
+app.include_router(analysis_records_router, prefix="/analysis-records", tags=["analysis-records"], dependencies=_protected)
 app.include_router(products_router, prefix="/products", tags=["products"], dependencies=_protected)
 
 
@@ -157,6 +158,11 @@ async def _on_startup() -> None:
         # 마이그레이션 실패가 부팅을 막지는 않음. atomic write 라 원본은 안 깨짐.
         import logging
         logging.getLogger(__name__).exception("startup migration failed")
+
+
+# 첫 기동 시 builtin 분석 레코드 시드 (이미 있으면 덮어쓰지 않음).
+# 모듈 import 시점에 즉시 실행 — origin/main 의 호출 위치와 동일하게 유지.
+ensure_builtin_seeds()
 
 
 @app.get("/health")

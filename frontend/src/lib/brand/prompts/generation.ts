@@ -1,7 +1,12 @@
 /**
  * 브랜드 글 생성 — 템플릿별 dispatch 진입점.
  */
-import type { BrandProfile, BrandTemplateId, BrandInfoVariantId } from "@/types/brand";
+import type {
+  BrandProfile,
+  BrandTemplateId,
+  BrandInfoVariantId,
+  AnalysisRecord,
+} from "@/types/brand";
 import { buildIntroPrompt } from "./templates/intro/prompt";
 import { buildInfo1Prompt } from "./templates/info/info-1/prompt";
 import { buildInfo2Prompt } from "./templates/info/info-2/prompt";
@@ -9,6 +14,7 @@ import { buildInfo3Prompt } from "./templates/info/info-3/prompt";
 import { buildInfo4Prompt } from "./templates/info/info-4/prompt";
 import { buildInfo5Prompt } from "./templates/info/info-5/prompt";
 import { buildInfoCustomPrompt } from "./templates/info/info-custom/prompt";
+import { buildInfoStructureBasedPrompt } from "./templates/info/info-structure-based/prompt";
 import { buildValueProofPrompt } from "./templates/value-proof/prompt";
 
 export interface BuildBrandPromptOptions {
@@ -21,10 +27,16 @@ export interface BuildBrandPromptOptions {
   selectedTitle: string;
   charCount: { min: number; max: number };
   requirements?: string;
-  /** info-custom 모드 전용 — 사용자가 제공한 견본 글 본문 */
+  /** info-custom 모드 전용 — 사용자가 제공한 견본 글 본문 (톤 통계 추출 입력) */
   referenceText?: string;
-  /** info-custom 모드 전용 — 견본 글 구조 분석 결과 */
+  /** info-custom 모드 전용 — 견본 글 구조 분석 결과 (마크다운) */
   referenceAnalysis?: string;
+  /** info-custom 모드 전용 — 분석에서 추출된 본보기 문장 (어미 패턴 통계로만 변환됨) */
+  referenceExcerpts?: string[];
+  /** info-structure-based 모드 전용 — 보관함에서 선택된 분석 레코드 ID */
+  analysisRecordId?: string;
+  /** info-structure-based 모드 전용 — API 라우트가 백엔드에서 fetch한 분석 레코드 */
+  analysisRecord?: AnalysisRecord;
 }
 
 export function buildBrandGenerationPrompt(opts: BuildBrandPromptOptions): string {
@@ -34,6 +46,12 @@ export function buildBrandGenerationPrompt(opts: BuildBrandPromptOptions): strin
     case "intro":
       return buildIntroPrompt(opts);
     case "info":
+      if (infoVariantId === "info-structure-based") {
+        if (!opts.analysisRecord) {
+          throw new Error("[서사 구조 기반 작성] 모드는 보관함에서 분석을 선택해야 합니다.");
+        }
+        return buildInfoStructureBasedPrompt({ ...opts, analysisRecord: opts.analysisRecord });
+      }
       if (infoVariantId === "info-custom") return buildInfoCustomPrompt(opts);
       if (infoVariantId === "info-5") return buildInfo5Prompt(opts);
       if (infoVariantId === "info-1" || !infoVariantId) return buildInfo1Prompt(opts);

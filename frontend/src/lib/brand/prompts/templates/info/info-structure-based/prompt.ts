@@ -1,21 +1,16 @@
 /**
- * 정보성글 변형 — 직접 레퍼런스 제공 모드.
+ * 정보성글 변형 — 서사 구조 기반 작성.
  *
- * 사용자가 입력한 견본 글(referenceText)과 그 분석 결과(referenceAnalysis)를
- * 그대로 학습시켜, 같은 톤·서사 구조·소제목 패턴으로 새 글을 작성한다.
- *
- * - 레퍼런스 글 자체 파일 없음 (런타임에 사용자 입력 동적 주입).
- * - 톤 추출도 사용자 입력 글 기준 (tone-extractor 재활용).
- * - 골격(SKELETON)도 강제 X — 견본 구조 자체가 골격이 됨.
+ * 입력: 보관함에서 선택된 분석 레코드 (analysis 마크다운 + flow + excerptPattern)
+ * 핵심: 원본 견본 글 본문은 LLM에 절대 주입되지 않는다. 분석 결과만 전달.
+ *       표절 위험 0 — 사용자 직관 "구조만 따라가면 된다"의 정공법 구현.
  */
-import type { BrandProfile } from "@/types/brand";
+import type { BrandProfile, AnalysisRecord } from "@/types/brand";
 import { buildAnonymousBrandContext } from "../../../brand-context";
 import { buildAnonymousNarratorRule } from "../../../narrator";
-import { buildToneRule } from "../../../tone-extractor";
-import { buildExcerptPatternRule } from "../../../excerpt-pattern";
 import { buildSharedRules, buildTopicSection } from "../../../shared";
 
-interface BuildInfoCustomPromptOptions {
+interface BuildInfoStructureBasedPromptOptions {
   profile: BrandProfile;
   mainKeyword: string;
   subKeywords?: string;
@@ -23,15 +18,13 @@ interface BuildInfoCustomPromptOptions {
   selectedTitle: string;
   charCount: { min: number; max: number };
   requirements?: string;
-  /** 사용자가 제공한 견본 글 본문 — 톤 통계 추출 입력으로만 사용. LLM에 주입하지 않음. */
-  referenceText?: string;
-  /** 견본 글에 대한 AI 구조 분석 결과 (서사·톤·소제목·SEO) — LLM에 주입 */
-  referenceAnalysis?: string;
-  /** 분석에서 추출된 본보기 문장 8개 — 통계 패턴으로만 변환되어 LLM에 주입 */
-  referenceExcerpts?: string[];
+  /** 보관함에서 선택된 분석 레코드 (필수) */
+  analysisRecord: AnalysisRecord;
 }
 
-export function buildInfoCustomPrompt(opts: BuildInfoCustomPromptOptions): string {
+export function buildInfoStructureBasedPrompt(
+  opts: BuildInfoStructureBasedPromptOptions
+): string {
   const {
     profile,
     mainKeyword,
@@ -40,9 +33,7 @@ export function buildInfoCustomPrompt(opts: BuildInfoCustomPromptOptions): strin
     selectedTitle,
     charCount,
     requirements,
-    referenceText,
-    referenceAnalysis,
-    referenceExcerpts,
+    analysisRecord,
   } = opts;
 
   const sections: string[] = [];
@@ -67,28 +58,28 @@ export function buildInfoCustomPrompt(opts: BuildInfoCustomPromptOptions): strin
   sections.push(buildAnonymousBrandContext(profile));
   sections.push(buildAnonymousNarratorRule());
 
-  // 톤 학습 — 사용자 견본 글의 통계만 추출 (원본 본문은 LLM에 미주입)
-  if (referenceText && referenceText.trim().length > 0) {
-    sections.push(buildToneRule(referenceText));
+  // 보관함 분석의 단계 라벨 — 본문 흐름 가이드
+  if (analysisRecord.flow && analysisRecord.flow.length > 0) {
+    sections.push(`[본문 흐름 — ${analysisRecord.flow.length}단계 순서대로 전개]
+${analysisRecord.flow.map((step, i) => `${i + 1}. ${step}`).join("\n")}`);
   }
 
-  // EXCERPTS → 어미·호흡 패턴 통계로 변환 (원본 문장 자체는 미노출)
-  if (referenceExcerpts && referenceExcerpts.length > 0) {
-    const excerptRule = buildExcerptPatternRule(referenceExcerpts);
-    if (excerptRule) sections.push(excerptRule);
+  // 어미·호흡 패턴 — 통계 요약만 (원본 문장 X)
+  if (analysisRecord.excerptPattern && analysisRecord.excerptPattern.trim()) {
+    sections.push(`[어미·호흡 패턴 — 이 결로 작성, 원본 본보기 문장은 비공개]
+${analysisRecord.excerptPattern.trim()}`);
   }
 
-  // 견본 분석 결과 — 추출된 서사 구조·소제목·SEO 패턴 (원본 본문 X, 분석 마크다운만)
-  if (referenceAnalysis && referenceAnalysis.trim().length > 0) {
-    sections.push(`[견본 글 구조 분석 — AI가 추출한 패턴 정리. 새 글은 이 구조·흐름·소제목 패턴을 따를 것]
-${referenceAnalysis.trim()}`);
-  }
+  // 분석 마크다운 — 서사 구조·소제목·톤 가이드 (원본 글 본문 X)
+  sections.push(`[서사 구조 분석 — 이 구조·소제목·톤 가이드를 따를 것]
+${analysisRecord.analysis.trim()}`);
 
-  // 핵심 지시 — 표절 차단 + 브랜드 노출 차단
-  sections.push(`[핵심 지시 — 직접 레퍼런스 모드]
-- 위 구조 분석의 서사 흐름·소제목 패턴·문단 호흡 분포를 따른다.
+  // 핵심 지시 — 표절 차단 + 브랜드 노출 차단의 마지막 방어선
+  sections.push(`[핵심 지시 — 서사 구조 기반 모드]
+- 위 분석의 흐름·소제목 패턴·톤 분포만 흡수한다.
+- 원본 견본 글의 본문은 시스템에서 의도적으로 숨겨두었으므로 LLM에 노출되지 않는다.
 - 어휘·소재·사례·인물·금액·고유명사는 사용자 입력 메인 키워드와 브랜드 도메인에 맞춰 처음부터 새로 창작한다.
-- 견본의 산업·지역·인물명이 분석 안에 잠복해 있으면 절대 본문에 그대로 사용하지 않는다.
+- 분석 안에 견본의 산업·지역·인물명이 잠복해 있더라도(예: 인테리어, 군산 등) 본문에 그대로 사용하지 않는다.
 
 [정보성글 본질 — 브랜드 노출 차단 (절대 위반 금지)]
 - 정보성글은 "내 브랜드를 직접 언급하지 않는 것"이 본질이다. 광고처럼 보이는 순간 글 가치 0이 된다.

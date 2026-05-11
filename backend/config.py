@@ -4,6 +4,7 @@ from dotenv import load_dotenv
 
 from paths import (
     ACCOUNTS_FILE,
+    ANALYSIS_RECORDS_FILE,
     BRAND_PROFILES_FILE,
     CHROME_PROFILES_DIR,
     PRODUCTS_FILE,
@@ -15,7 +16,7 @@ load_dotenv()
 NAVER_BLOG_URL = "https://blog.naver.com"
 
 # 서버 설정 — Electron 모드에선 main.ts가 PORT/HOST를 env로 주입.
-# 기본은 127.0.0.1 (LAN 노출 차단).
+# 기본은 127.0.0.1 (LAN 노출 차단). 경로 변수들은 paths.py 단일 출처에서 import.
 HOST = os.getenv("HOST", "127.0.0.1")
 PORT = int(os.getenv("PORT", "8000"))
 
@@ -29,7 +30,9 @@ __all__ = [
     "HOST",
     "PORT",
     "ACCOUNTS_FILE",
+    "ANALYSIS_RECORDS_FILE",
     "BRAND_PROFILES_FILE",
     "PRODUCTS_FILE",
     "CHROME_PROFILES_DIR",
+    "FRONTEND_ORIGIN",
 ]

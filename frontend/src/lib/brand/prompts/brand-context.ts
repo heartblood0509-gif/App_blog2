@@ -127,3 +127,60 @@ ${profile.episodes.map((e) => `- [${e.type}] ${e.content}`).join("\n")}`
 
   return sections.join("\n\n");
 }
+
+/**
+ * 익명 브랜드 컨텍스트 — 정보성글 전용 (브랜드 노출 차단).
+ *
+ * 이유: buildBrandContext는 회사명·인물명·시그니처 표현·자랑 통계까지 풍부하게 주입해서
+ * LLM이 본문에 자꾸 박는다. 정보성글에서는 도메인 카테고리와 글 쓰기 룰(금기)만 추출하고,
+ * 브랜드 식별자는 모두 차단한다.
+ *
+ * 활용 가능: 카테고리(도메인 식별), 빌런(공통의 적), 금기(글 룰)
+ * 차단: 이름·인물·스토리·에피소드·자산·차별점·비유·시그니처·CTA 채널·추천 코스
+ *
+ * 후기성·소개·가치입증·상세 모드는 영향 없음 (해당 모드는 buildBrandContext 그대로 사용).
+ */
+export function buildAnonymousBrandContext(profile: BrandProfile): string {
+  const sections: string[] = [];
+
+  sections.push(
+    `[글 카테고리 — 도메인 식별용]
+- 이 글은 "${profile.category}" 도메인의 정보성글입니다.
+- 도메인 지식·시장 통찰·업계 관행은 본문에 활용하되, 자사 식별 정보(회사명·인물명·서비스명·시그니처 표현)는 본문에 절대 노출하지 않습니다.`
+  );
+
+  // 공통의 적 — 도메인 폭로 톤에 필요. 단, 경쟁사 실명 등이 박혀있으면 그 줄은 제외.
+  if (profile.villains?.length) {
+    const safeVillains = profile.villains.filter(
+      (v) => !profile.forbidden?.competitorNames || !/주식회사|\(주\)/.test(v)
+    );
+    if (safeVillains.length) {
+      sections.push(
+        `[공통의 적 — 폭로 대상으로 활용 가능]\n${safeVillains.map((s) => `- ${s}`).join("\n")}`
+      );
+    }
+  }
+
+  // 금기 룰 — 글 전체 룰이라 그대로 유지
+  const forbiddenLines: string[] = [];
+  if (profile.forbidden?.competitorNames) {
+    forbiddenLines.push(
+      "- 경쟁사 실명 절대 노출 금지 (\"대형 여행사\", \"일부 업체\" 등으로 치환)"
+    );
+  }
+  if (profile.forbidden?.adStyle) {
+    forbiddenLines.push(
+      "- 광고 직접 표현 금지 (\"꼭 사세요\", \"지금 결제\", CTA 링크 직접 박기 류)"
+    );
+  }
+  if (profile.forbidden?.forbiddenWords?.length) {
+    forbiddenLines.push(
+      `- 다음 단어는 본문에 절대 노출 금지: ${profile.forbidden.forbiddenWords.join(", ")}`
+    );
+  }
+  if (forbiddenLines.length) {
+    sections.push(`[금기 — 글에 절대 등장 X]\n${forbiddenLines.join("\n")}`);
+  }
+
+  return sections.join("\n\n");
+}

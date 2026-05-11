@@ -78,5 +78,6 @@ _migrate_default_data()
 
 # routers/config 가 import할 경로
 ACCOUNTS_FILE: Path = DATA_DIR / "accounts.json"
+ANALYSIS_RECORDS_FILE: Path = DATA_DIR / "analysis_records.json"
 BRAND_PROFILES_FILE: Path = DATA_DIR / "brand_profiles.json"
 PRODUCTS_FILE: Path = DATA_DIR / "products.json"
