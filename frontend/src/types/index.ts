@@ -243,6 +243,8 @@ export interface WizardState {
   selectedBrandTemplate: import("./brand").BrandTemplateId | null;
   /** 정보성글 선택 시 하위 변형 (info-1 등). 다른 템플릿이면 null */
   selectedBrandInfoVariant: import("./brand").BrandInfoVariantId | null;
+  /** info-structure-based 모드 — 보관함에서 선택된 분석 레코드 ID */
+  selectedAnalysisRecordId: string | null;
 
   // Step 3: 글 설정
   /** 글 주제 (선택 입력, 양쪽 공용). 비우면 키워드만 보고 AI가 알아서 */

@@ -41,3 +41,19 @@ export function extractFlowFromAnalysis(rawAnalysis: string): {
 
   return { analysis, flow, excerpts };
 }
+
+/**
+ * 분석 마크다운 본문의 "## 흐름 한 줄" 섹션에서 단계 배열을 추출.
+ *
+ * - 예) "문제 제기 → 위험 경고 → 전문가 선언" → ["문제 제기", "위험 경고", "전문가 선언"]
+ * - FLOW HTML 코멘트가 떨어져 나간 후의 마크다운에서도 작동 (보관함 카드 fallback용)
+ * - 매칭 실패 시 빈 배열
+ */
+export function extractFlowFromMarkdownBody(rawAnalysis: string): string[] {
+  const match = rawAnalysis.match(/##\s*흐름\s*한\s*줄\s*\n+([^\n]+)/);
+  if (!match) return [];
+  return match[1]
+    .split(/→|➔|➡|->/)
+    .map((s) => s.trim())
+    .filter(Boolean);
+}

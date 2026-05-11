@@ -7,7 +7,12 @@
 import { buildBrandGenerationPrompt } from "@/lib/brand/prompts/generation";
 import { generateStream } from "@/lib/gemini";
 import { CONFIG } from "@/lib/config";
-import type { BrandProfile, BrandTemplateId, BrandInfoVariantId } from "@/types/brand";
+import type {
+  BrandProfile,
+  BrandTemplateId,
+  BrandInfoVariantId,
+  AnalysisRecord,
+} from "@/types/brand";
 
 export const maxDuration = 60;
 
@@ -27,6 +32,8 @@ export async function POST(request: Request) {
       apiKey,
       referenceText,
       referenceAnalysis,
+      referenceExcerpts,
+      analysisRecordId,
     } = body as {
       profile: BrandProfile;
       template: BrandTemplateId;
@@ -40,6 +47,8 @@ export async function POST(request: Request) {
       apiKey?: string;
       referenceText?: string;
       referenceAnalysis?: string;
+      referenceExcerpts?: string[];
+      analysisRecordId?: string;
     };
 
     if (!profile || !template || !mainKeyword || !selectedTitle) {
@@ -56,6 +65,35 @@ export async function POST(request: Request) {
       );
     }
 
+    // info-structure-based 모드 — 보관함 분석 레코드를 백엔드에서 fetch
+    let analysisRecord: AnalysisRecord | undefined;
+    if (infoVariantId === "info-structure-based") {
+      if (!analysisRecordId) {
+        return Response.json(
+          { error: "[서사 구조 기반 작성] 모드는 보관함에서 분석을 선택해야 합니다." },
+          { status: 400 }
+        );
+      }
+      try {
+        const recordRes = await fetch(
+          `${CONFIG.BACKEND_URL}/analysis-records/${encodeURIComponent(analysisRecordId)}`,
+          { cache: "no-store" }
+        );
+        if (!recordRes.ok) {
+          return Response.json(
+            { error: "선택한 분석 레코드를 불러오지 못했습니다." },
+            { status: 400 }
+          );
+        }
+        analysisRecord = (await recordRes.json()) as AnalysisRecord;
+      } catch {
+        return Response.json(
+          { error: "백엔드 보관함에 연결할 수 없습니다." },
+          { status: 502 }
+        );
+      }
+    }
+
     const prompt = buildBrandGenerationPrompt({
       profile,
       template,
@@ -68,6 +106,9 @@ export async function POST(request: Request) {
       requirements,
       referenceText,
       referenceAnalysis,
+      referenceExcerpts,
+      analysisRecordId,
+      analysisRecord,
     });
 
     // 1차 생성 (버퍼)

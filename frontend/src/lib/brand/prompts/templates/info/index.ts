@@ -17,7 +17,7 @@
  *   - 활성: info-5(함정 폭로형) + info-custom(직접 레퍼런스).
  *   - 추상 서사 타입은 사용자가 레퍼런스 글 줄 때마다 1개씩 점진 추가.
  */
-import { AlertTriangle, Edit3, Sparkles } from "lucide-react";
+import { Edit3, Sparkles } from "lucide-react";
 import type { BrandInfoVariantId } from "@/types/brand";
 
 export interface InfoVariantMeta {
@@ -34,17 +34,11 @@ export interface InfoVariantMeta {
   isFinale?: boolean;
   /** 사용자 입력 레퍼런스 카드 — 클릭 시 입력 영역 노출 */
   isCustom?: boolean;
+  /** 보관함 분석 선택 카드 — 클릭 시 분석 선택 UI 노출 */
+  isLibrary?: boolean;
 }
 
 export const INFO_VARIANTS: InfoVariantMeta[] = [
-  {
-    id: "info-5",
-    name: "함정 폭로형",
-    description:
-      "사기·함정·비양심을 폭로하며 N가지 주의사항으로 솔루션을 제시합니다. 불안한 독자를 전문가 권위로 안심시킨 뒤, 부드러운 CTA로 마무리하는 구조.",
-    icon: AlertTriangle,
-    flow: ["피해 사례", "경고", "고백", "주의사항", "객관 입장", "마무리"],
-  },
   {
     id: "info-custom",
     name: "직접 레퍼런스",

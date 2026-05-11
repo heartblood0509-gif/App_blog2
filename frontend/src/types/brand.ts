@@ -108,14 +108,59 @@ export type BrandTemplateId =
   | "value-proof" // 가치입증글
   | "detail"; // 상세페이지글 (UI에서 비활성)
 
-/** 정보성글 변형 — info-1~4는 코드 보존용(UI 미노출), info-custom + info-5가 활성 */
+/** 정보성글 변형 — info-1~4는 코드 보존용(UI 미노출), info-5/custom/structure-based가 활성 */
 export type BrandInfoVariantId =
   | "info-1"
   | "info-2"
   | "info-3"
   | "info-4"
   | "info-5"
-  | "info-custom";
+  | "info-custom"
+  | "info-structure-based";
+
+// ─────────────────────────────────────────────
+// 분석 보관함 — 사용자 분석 + 내장 템플릿 통합
+// ─────────────────────────────────────────────
+
+/**
+ * 서사 구조 분석 레코드.
+ *
+ * 출처는 두 가지:
+ * - "user": 사용자가 직접 레퍼런스 모드에서 분석 후 저장한 결과
+ * - "builtin": 시스템 내장 템플릿 (예: 함정 폭로형)
+ *
+ * 핵심 원칙: 원본 견본 글 본문은 이 레코드에 저장하지 않는다.
+ * 분석 마크다운(analysis) + 단계 라벨(flow) + 어미 패턴 통계 요약(excerptPattern)만 보관.
+ */
+export interface AnalysisRecord {
+  id: string;
+  /** UI 표시명 */
+  label: string;
+  /** "user" | "builtin" */
+  sourceType: "user" | "builtin";
+  /** 사용자 분석인 경우 원본 URL (있을 때만) */
+  sourceUrl?: string;
+  /** 분석 본문 (마크다운, FLOW/EXCERPTS HTML 코멘트는 제거된 형태) */
+  analysis: string;
+  /** 단계 라벨 — 카드 시각화 + 본문 흐름 가이드 */
+  flow: string[];
+  /** 어미·호흡 패턴 통계 요약 (raw excerpts 문장 X) */
+  excerptPattern: string;
+  /** ISO timestamp */
+  createdAt: string;
+  /** true면 사용자 삭제·수정 불가 */
+  isBuiltin: boolean;
+}
+
+/** 보관함 신규/수정 페이로드 (id·createdAt·isBuiltin 제외) */
+export interface AnalysisRecordUpsert {
+  label: string;
+  sourceType: "user" | "builtin";
+  sourceUrl?: string;
+  analysis: string;
+  flow: string[];
+  excerptPattern: string;
+}
 
 // ─────────────────────────────────────────────
 // 위저드 상태 (후기성 WizardState 와 격리된 별개 타입)

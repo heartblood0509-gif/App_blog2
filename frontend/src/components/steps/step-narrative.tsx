@@ -179,9 +179,11 @@ interface StepNarrativeProps {
   selectedBrandProfileId: string | null;
   selectedBrandTemplate: BrandTemplateId | null;
   selectedBrandInfoVariant: BrandInfoVariantId | null;
+  selectedAnalysisRecordId: string | null;
   onBrandProfileChange: (profileId: string) => void;
   onBrandTemplateChange: (template: BrandTemplateId) => void;
   onBrandInfoVariantChange: (variant: BrandInfoVariantId) => void;
+  onAnalysisRecordSelect: (recordId: string) => void;
   // 후기성 — 사용자 등록 제품
   userProducts: UserProduct[];
   onUserProductsChange: () => void;
@@ -212,9 +214,11 @@ export function StepNarrative({
   selectedBrandProfileId,
   selectedBrandTemplate,
   selectedBrandInfoVariant,
+  selectedAnalysisRecordId,
   onBrandProfileChange,
   onBrandTemplateChange,
   onBrandInfoVariantChange,
+  onAnalysisRecordSelect,
   userProducts,
   onUserProductsChange,
   onProductDeleted,
@@ -732,6 +736,8 @@ export function StepNarrative({
                 onReferenceAnalysisChange={onReferenceAnalysisChange}
                 onAnalyzeUrl={onAnalyze}
                 onAnalyzeText={onAnalyzeText}
+                selectedAnalysisRecordId={selectedAnalysisRecordId}
+                onAnalysisRecordSelect={onAnalysisRecordSelect}
               />
             </motion.div>
           )}
