@@ -179,9 +179,11 @@ interface StepNarrativeProps {
   selectedBrandProfileId: string | null;
   selectedBrandTemplate: BrandTemplateId | null;
   selectedBrandInfoVariant: BrandInfoVariantId | null;
+  selectedAnalysisRecordId: string | null;
   onBrandProfileChange: (profileId: string) => void;
   onBrandTemplateChange: (template: BrandTemplateId) => void;
   onBrandInfoVariantChange: (variant: BrandInfoVariantId) => void;
+  onAnalysisRecordSelect: (recordId: string) => void;
 }
 
 export function StepNarrative({
@@ -208,9 +210,11 @@ export function StepNarrative({
   selectedBrandProfileId,
   selectedBrandTemplate,
   selectedBrandInfoVariant,
+  selectedAnalysisRecordId,
   onBrandProfileChange,
   onBrandTemplateChange,
   onBrandInfoVariantChange,
+  onAnalysisRecordSelect,
 }: StepNarrativeProps) {
   const selectedOption = NARRATIVES.find((n) => n.id === narrativeSource) ?? null;
 
@@ -722,6 +726,8 @@ export function StepNarrative({
                 onReferenceAnalysisChange={onReferenceAnalysisChange}
                 onAnalyzeUrl={onAnalyze}
                 onAnalyzeText={onAnalyzeText}
+                selectedAnalysisRecordId={selectedAnalysisRecordId}
+                onAnalysisRecordSelect={onAnalysisRecordSelect}
               />
             </motion.div>
           )}

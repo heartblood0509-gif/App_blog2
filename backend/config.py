@@ -20,6 +20,9 @@ ACCOUNTS_FILE = Path(__file__).parent / "accounts.json"
 # 브랜드 프로필 파일 (브랜드 블로그 글쓰기 모드용)
 BRAND_PROFILES_FILE = Path(__file__).parent / "brand_profiles.json"
 
+# 분석 보관함 — 사용자 분석 + 내장 템플릿 통합 저장소
+ANALYSIS_RECORDS_FILE = Path(__file__).parent / "analysis_records.json"
+
 # 서버 설정
 HOST = os.getenv("HOST", "0.0.0.0")
 PORT = int(os.getenv("PORT", "8000"))

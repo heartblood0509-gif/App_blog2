@@ -113,5 +113,58 @@
       ],
       "adStyle": true
     }
+  },
+  {
+    "id": "brand2",
+    "label": "미르엔",
+    "name": "미르엔 탈모샴푸",
+    "category": "",
+    "oneLine": "",
+    "coreValues": [
+      "맥주효모"
+    ],
+    "narrator": {
+      "name": "윤서준",
+      "role": "대표",
+      "authority": "",
+      "character": "",
+      "fixed": true
+    },
+    "supportingPersona": {
+      "name": "",
+      "role": "",
+      "authority": "",
+      "character": "",
+      "appearAs": ""
+    },
+    "story": {
+      "origin": "",
+      "crisis": "",
+      "revival": "",
+      "encounter": ""
+    },
+    "episodes": [],
+    "authorityAssets": [],
+    "services": [],
+    "targets": {
+      "primary": "탈모로 고생하는 모든 사람들",
+      "secondary": "",
+      "tertiary": ""
+    },
+    "differentiators": [
+      "맥주효모수"
+    ],
+    "villains": [],
+    "metaphors": [],
+    "signaturePhrases": [],
+    "recommendedRoutes": [],
+    "cta": {
+      "channels": []
+    },
+    "forbidden": {
+      "competitorNames": true,
+      "forbiddenWords": [],
+      "adStyle": true
+    }
   }
 ]
