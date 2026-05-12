@@ -45,6 +45,7 @@ hiddenimports += [
     "routers.publish",
     "routers.accounts",
     "routers.brand_profiles",
+    "routers.analysis_records",
     "routers.products",
     "core",
     "core.markdown_converter",
