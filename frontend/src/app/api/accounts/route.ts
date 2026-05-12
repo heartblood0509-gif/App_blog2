@@ -1,10 +1,8 @@
-import { CONFIG } from "@/lib/config";
-
-const BACKEND_URL = CONFIG.BACKEND_URL;
+import { backendFetch } from "@/lib/backend-fetch";
 
 export async function GET() {
   try {
-    const res = await fetch(`${BACKEND_URL}/accounts/`, { cache: "no-store" });
+    const res = await backendFetch("/accounts/", { cache: "no-store" });
     if (!res.ok) {
       return Response.json([], { status: 200 });
     }
@@ -18,7 +16,7 @@ export async function GET() {
 export async function POST(request: Request) {
   try {
     const body = await request.json();
-    const res = await fetch(`${BACKEND_URL}/accounts/`, {
+    const res = await backendFetch("/accounts/", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
@@ -46,7 +44,7 @@ export async function DELETE(request: Request) {
     if (!accountId) {
       return Response.json({ error: "계정 ID가 필요합니다." }, { status: 400 });
     }
-    const res = await fetch(`${BACKEND_URL}/accounts/${accountId}`, {
+    const res = await backendFetch(`/accounts/${accountId}`, {
       method: "DELETE",
     });
     const data = await res.json();

@@ -24,6 +24,7 @@ from pathlib import Path
 from playwright.async_api import async_playwright, Frame, Page, Browser
 
 from config import CHROME_PROFILES_DIR
+from paths import LOG_DIR
 
 
 # ===== Stealth 설정 (App_blog_auto3 기반) =====
@@ -226,7 +227,7 @@ class NaverBlogPublisher:
     async def _save_error_screenshot(self, name: str):
         if self.page:
             try:
-                path = f"/tmp/app_blog2_error_{name}.png"
+                path = str(LOG_DIR / f"error_{name}.png")
                 await self.page.screenshot(path=path)
                 print(f"📸 에러 스크린샷: {path}")
             except Exception:
@@ -763,7 +764,7 @@ class NaverBlogPublisher:
             print(f"  ⚠ 서식 초기화 실패(무시): {e}")
 
     async def _diagnose_body_format(self, frame: Frame):
-        """본문 첫 3개 paragraph 의 DOM 구조와 computed style 을 /tmp/ 에 덤프.
+        """본문 첫 3개 paragraph 의 DOM 구조와 computed style 을 로그 폴더에 덤프.
 
         취소선이 어디서 오는지 root cause 파악용.
         """
@@ -813,7 +814,7 @@ class NaverBlogPublisher:
                     return result;
                 }
             """)
-            diag_path = "/tmp/app_blog2_format_diagnosis.json"
+            diag_path = str(LOG_DIR / "format_diagnosis.json")
             Path(diag_path).write_text(
                 json.dumps(diag, ensure_ascii=False, indent=2),
                 encoding="utf-8",
@@ -2567,6 +2568,7 @@ class NaverBlogPublisher:
         profile_path: str = "",
         image_slots: list[dict] | None = None,
         auto_publish: bool = True,
+        on_manual_close=None,
     ) -> dict:
         """네이버 블로그 발행.
 
@@ -2665,3 +2667,10 @@ class NaverBlogPublisher:
                     # Chrome 열어둠 — GC 방지 위해 모듈 리스트에 (pw, browser) 참조 유지
                     _detached_contexts.append((self._pw, self.browser))
                     print(f"  (열린 Chrome {len(_detached_contexts)}개 유지 중)")
+                    # §D — 수동 발행 중 BrowserContext 가 닫히면 외부 콜백 통지.
+                    # 사용자가 X 로 Chrome 을 닫거나 직접 발행 후 자동 종료될 때 트리거.
+                    if on_manual_close is not None:
+                        try:
+                            self.browser.on("close", lambda _ctx: on_manual_close())
+                        except Exception:
+                            pass
