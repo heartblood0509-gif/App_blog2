@@ -77,6 +77,7 @@ const initialState: WizardState = {
   selectedAeoTemplate: null,
   aeoTargetQueries: [],
   aeoSources: [],
+  selectedAnalysisRecordId: null,
   topic: "",
   mainKeyword: "",
   subKeywords: "",
@@ -279,6 +280,10 @@ export default function Home() {
           if (state.selectedBrandInfoVariant === "info-custom") {
             if (state.referenceAnalysis.trim().length === 0) return false;
           }
+          // info-structure-based 모드: 보관함에서 분석 선택 필수
+          if (state.selectedBrandInfoVariant === "info-structure-based") {
+            if (!state.selectedAnalysisRecordId) return false;
+          }
         }
         if (state.postCategory === "aeo") {
           // AEO 프로필 + 글 타입 선택 필수.
@@ -347,6 +352,11 @@ export default function Home() {
           if (!state.selectedBrandTemplate) return "글 템플릿을 선택해주세요";
           if (state.selectedBrandTemplate === "info" && !state.selectedBrandInfoVariant)
             return "정보성글 변형을 선택해주세요";
+          if (
+            state.selectedBrandInfoVariant === "info-structure-based" &&
+            !state.selectedAnalysisRecordId
+          )
+            return "보관함에서 분석을 선택해주세요";
         }
         if (state.postCategory === "aeo") {
           if (!state.selectedAeoProfileId) return "AEO 프로필을 선택해주세요";
@@ -394,7 +404,10 @@ export default function Home() {
       const analyzeRes = await fetch("/api/analyze", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ referenceText: textToAnalyze }),
+        body: JSON.stringify({
+          referenceText: textToAnalyze,
+          mode: state.postCategory === "brand" ? "brand" : "review",
+        }),
       });
       if (!analyzeRes.ok) {
         const err = await analyzeRes.json();
@@ -417,7 +430,7 @@ export default function Home() {
       toast.error(msg);
       updateState({ isLoading: false });
     }
-  }, [state.referenceUrl, state.toneType, state.referenceText, updateState]);
+  }, [state.referenceUrl, state.toneType, state.referenceText, state.postCategory, updateState]);
 
   // 브랜드 모드에서 selectedBrandProfileId 로 프로필 객체를 가져옴
   const fetchBrandProfile = useCallback(async (): Promise<unknown | null> => {
@@ -707,7 +720,7 @@ export default function Home() {
             requirements: state.requirements || undefined,
             charCount: state.charCountRange,
             selectedTitle: state.selectedTitle,
-            // info-custom 모드 — 사용자 견본 글 + 분석 결과 동적 주입
+            // info-custom 모드 — 사용자 견본 글 + 분석 결과 동적 주입 (원본 본문은 톤 통계 추출 입력으로만 사용)
             referenceText:
               state.selectedBrandInfoVariant === "info-custom"
                 ? state.referenceText || undefined
@@ -715,6 +728,16 @@ export default function Home() {
             referenceAnalysis:
               state.selectedBrandInfoVariant === "info-custom"
                 ? state.referenceAnalysis || undefined
+                : undefined,
+            referenceExcerpts:
+              state.selectedBrandInfoVariant === "info-custom" &&
+              state.referenceExcerpts.length > 0
+                ? state.referenceExcerpts
+                : undefined,
+            // info-structure-based 모드 — 보관함 분석 ID
+            analysisRecordId:
+              state.selectedBrandInfoVariant === "info-structure-based"
+                ? state.selectedAnalysisRecordId || undefined
                 : undefined,
           }),
         });
@@ -1383,10 +1406,11 @@ export default function Home() {
 
   const handleBrandTemplateChange = useCallback(
     (template: import("@/types/brand").BrandTemplateId) => {
-      // 템플릿이 바뀌면 변형 선택은 초기화 — 사용자가 명시적으로 카드를 골라야 함
+      // 템플릿이 바뀌면 변형 선택과 보관함 선택은 초기화 — 사용자가 명시적으로 다시 골라야 함
       updateState({
         selectedBrandTemplate: template,
         selectedBrandInfoVariant: null,
+        selectedAnalysisRecordId: null,
       });
     },
     [updateState]
@@ -1394,13 +1418,28 @@ export default function Home() {
 
   const handleBrandInfoVariantChange = useCallback(
     (variant: import("@/types/brand").BrandInfoVariantId) => {
-      // info-custom 진입/이탈 시 견본 입력 잔여 상태 초기화
+      // 변형마다 사용하는 잔여 상태가 달라 진입/이탈 시 정리
       const isCustom = variant === "info-custom";
+      const isLibrary = variant === "info-structure-based";
       updateState({
         selectedBrandInfoVariant: variant,
         ...(isCustom
           ? {} // 들어올 때는 기존 입력 유지 (재진입 편의)
           : { referenceUrl: "", referenceText: "", referenceAnalysis: "" }),
+        ...(isLibrary
+          ? {} // 보관함 모드는 selectedAnalysisRecordId 유지
+          : { selectedAnalysisRecordId: null }),
+      });
+    },
+    [updateState]
+  );
+
+  const handleAnalysisRecordSelect = useCallback(
+    (recordId: string) => {
+      // 카드 1클릭에 variant + recordId 둘 다 결정 (안전망)
+      updateState({
+        selectedAnalysisRecordId: recordId,
+        selectedBrandInfoVariant: "info-structure-based",
       });
     },
     [updateState]
@@ -1577,6 +1616,7 @@ export default function Home() {
             selectedBrandProfileId={state.selectedBrandProfileId}
             selectedBrandTemplate={state.selectedBrandTemplate}
             selectedBrandInfoVariant={state.selectedBrandInfoVariant}
+            selectedAnalysisRecordId={state.selectedAnalysisRecordId}
             onBrandProfileChange={handleBrandProfileChange}
             onBrandTemplateChange={handleBrandTemplateChange}
             onBrandInfoVariantChange={handleBrandInfoVariantChange}
@@ -1584,6 +1624,7 @@ export default function Home() {
             selectedAeoTemplate={state.selectedAeoTemplate}
             onAeoProfileChange={handleAeoProfileChange}
             onAeoTemplateChange={handleAeoTemplateChange}
+            onAnalysisRecordSelect={handleAnalysisRecordSelect}
             userProducts={userProducts}
             onUserProductsChange={refetchUserProducts}
             onProductDeleted={handleProductDeleted}

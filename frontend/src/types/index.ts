@@ -243,6 +243,8 @@ export interface WizardState {
   selectedBrandTemplate: import("./brand").BrandTemplateId | null;
   /** 정보성글 선택 시 하위 변형 (info-1 등). 다른 템플릿이면 null */
   selectedBrandInfoVariant: import("./brand").BrandInfoVariantId | null;
+  /** info-structure-based 모드 — 보관함에서 선택된 분석 레코드 ID */
+  selectedAnalysisRecordId: string | null;
 
   // Step 2 AEO 분기 (postCategory === "aeo"일 때만 의미)
   /** 선택된 AEO 프로필 ID (예: "aeo1") */

@@ -1,0 +1,94 @@
+{
+  "name": "app-blog2-desktop",
+  "version": "0.1.0",
+  "private": true,
+  "description": "App Blog Publisher — Electron desktop wrapper for App_blog2",
+  "main": "electron/dist/main.js",
+  "scripts": {
+    "dev": "cross-env NODE_ENV=development tsc -p electron && cross-env NODE_ENV=development electron electron/dist/main.js",
+    "build:electron": "tsc -p electron",
+    "build:next": "npm --prefix frontend run build",
+    "build:backend": "cmd /c backend\\build-windows.bat",
+    "dist": "npm run build:electron && npm run build:next && electron-builder",
+    "publish": "npm run build:electron && npm run build:next && electron-builder --publish always",
+    "verify:orphans": "powershell -ExecutionPolicy Bypass -File scripts/verify-orphans.ps1",
+    "verify:update": "powershell -ExecutionPolicy Bypass -File scripts/verify-update.ps1",
+    "smoke:packaged": "powershell -ExecutionPolicy Bypass -File scripts/smoke-packaged.ps1",
+    "sync-version": "node scripts/sync-version.js",
+    "version": "node scripts/sync-version.js && git add frontend/package.json backend/version.txt",
+    "verify:no-dev-flags": "node scripts/verify-no-dev-flags.js"
+  },
+  "dependencies": {
+    "electron-log": "^5.4.3",
+    "electron-updater": "^6.3.9",
+    "koffi": "^2.10.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.0",
+    "cross-env": "^7.0.3",
+    "electron": "^33.0.0",
+    "electron-builder": "^25.0.0",
+    "typescript": "^5.5.0"
+  },
+  "build": {
+    "appId": "com.heartblood.appblog2",
+    "productName": "App Blog Publisher",
+    "directories": {
+      "output": "release",
+      "buildResources": "build"
+    },
+    "files": [
+      "electron/dist/**",
+      "package.json",
+      "!**/__pycache__"
+    ],
+    "extraResources": [
+      {
+        "from": "electron/splash.html",
+        "to": "splash.html"
+      },
+      {
+        "from": "frontend/.next/standalone",
+        "to": "frontend",
+        "filter": [
+          "**/*",
+          "!**/node_modules/.cache"
+        ]
+      },
+      {
+        "from": "frontend/.next/static",
+        "to": "frontend/frontend/.next/static"
+      },
+      {
+        "from": "frontend/public",
+        "to": "frontend/frontend/public"
+      },
+      {
+        "from": "backend/dist/BlogPublisher",
+        "to": "backend"
+      },
+      {
+        "from": "backend/default-data",
+        "to": "backend/default-data"
+      },
+      {
+        "from": "playwright-cache",
+        "to": "ms-playwright"
+      }
+    ],
+    "win": {
+      "target": "nsis"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "deleteAppDataOnUninstall": false
+    },
+    "publish": {
+      "provider": "github",
+      "owner": "heartblood0509-gif",
+      "repo": "App_blog2"
+    }
+  }
+}
