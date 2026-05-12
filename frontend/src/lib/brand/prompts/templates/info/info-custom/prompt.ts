@@ -104,7 +104,7 @@ ${referenceAnalysis.trim()}`);
 - 위에 주어진 [글 카테고리]·[공통의 적]·[금기]만 활용해 글을 쓴다.
 - 도메인 지식·시장 통찰은 본문에 녹여 활용하되, 화자 정체성·소속·고유명사는 노출하지 않는다 ("우리 회사가 14년 했는데..." X / "이 업계 14년 경력자로서..." O).`);
 
-  sections.push(buildSharedRules());
+  sections.push(buildSharedRules({ mode: "follow-reference" }));
 
   sections.push(`[출력 — 마크다운 본문만, 설명·코드블록 마커 X]`);
 
