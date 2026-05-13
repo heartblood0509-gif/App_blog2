@@ -318,6 +318,13 @@ export interface WizardState {
    */
   referenceText: string;
 
+  /**
+   * 브랜드 direct reference 모드(info-custom)에서 AI가 원본 제목을 분석해 추출한 제목 공식.
+   * /api/analyze 응답의 titleFormula 필드를 그대로 보관. 제목 생성 시 buildBrandTitlePrompt에 전달.
+   * 후기성 모드에서는 채워지지 않음.
+   */
+  referenceTitleFormula: unknown | null;
+
   // 로딩 상태
   isLoading: boolean;
 

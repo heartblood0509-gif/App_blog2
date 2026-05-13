@@ -137,6 +137,39 @@ export type BrandDetailVariantId =
 export type TemplateScope = "intro" | "info" | "value-proof" | "detail";
 
 // ─────────────────────────────────────────────
+// 제목 만드는 법 (titleFormula)
+// ─────────────────────────────────────────────
+
+/**
+ * 톤 견본 1개 — 메인 키워드 뒤에 붙는 꼬리 패턴 + 라벨.
+ *
+ * builtin 카드는 7개 패턴, user 카드는 보통 1개 패턴(레퍼런스 제목에서 추출).
+ * LLM은 이 견본의 톤을 학습 후 새 제목으로 변형 (그대로 베끼지 않음).
+ */
+export interface BrandTitleFormulaPattern {
+  /** 패턴 라벨 — UI 표시용 (예: "후회 유도") */
+  label: string;
+  /** 메인 키워드 뒤에 붙는 꼬리 문장 (예: "모르고 진행하면 결국 후회하는 이유") */
+  tail: string;
+}
+
+/**
+ * 카드별 "제목 만드는 법" — 분석 마크다운과 분리된 별도 칸.
+ *
+ * 본문 생성에는 사용하지 않음. 제목 빌더에서만 import.
+ */
+export interface BrandTitleFormula {
+  /** 구조 이름 (예: "함정 폭로형") */
+  structureLabel: string;
+  /** 허용 감정 화이트리스트 (예: ["공포", "손실회피", "의심"]) */
+  emotions: string[];
+  /** 공식 흐름 텍스트 (예: "메인 키워드 → 손해 암시 → 경고 또는 후회 유도") */
+  formula: string;
+  /** 톤 견본 패턴 목록 — builtin 7개, user 1개 권장 */
+  patterns: BrandTitleFormulaPattern[];
+}
+
+// ─────────────────────────────────────────────
 // 분석 보관함 — 사용자 분석 + 내장 템플릿 통합
 // ─────────────────────────────────────────────
 
@@ -170,6 +203,8 @@ export interface AnalysisRecord {
   isBuiltin: boolean;
   /** 분석이 속한 템플릿 범위 — 보관함 분리용. 미지정 시 "info" fallback (하위호환) */
   templateScope?: TemplateScope;
+  /** 제목 만드는 법 — 카드별 톤 견본. builtin은 시드로 채워지고, user는 분석 단계에서 AI가 채움 */
+  titleFormula?: BrandTitleFormula;
 }
 
 /** 보관함 신규/수정 페이로드 (id·createdAt·isBuiltin 제외) */
@@ -181,6 +216,7 @@ export interface AnalysisRecordUpsert {
   flow: string[];
   excerptPattern: string;
   templateScope?: TemplateScope;
+  titleFormula?: BrandTitleFormula;
 }
 
 // ─────────────────────────────────────────────
@@ -189,7 +225,12 @@ export interface AnalysisRecordUpsert {
 
 export interface BrandTitleSuggestion {
   title: string;
+  /** UI 뱃지에 표시될 라벨. 브랜드 모드는 "패턴 · 감정" 형태 (예: "후회 유도 · 공포") */
   type: string;
+  /** 톤 견본 패턴 라벨 (있을 때만) */
+  pattern?: string;
+  /** 사용된 감정 (있을 때만) */
+  emotion?: string;
 }
 
 export interface BrandWizardState {

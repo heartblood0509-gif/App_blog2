@@ -10,6 +10,7 @@
 
 const FLOW_COMMENT_RE = /<!--\s*FLOW:\s*(\[[\s\S]*?\])\s*-->/i;
 const EXCERPTS_COMMENT_RE = /<!--\s*EXCERPTS:\s*(\[[\s\S]*?\])\s*-->/i;
+const TITLE_FORMULA_COMMENT_RE = /<!--\s*TITLE_FORMULA:\s*(\{[\s\S]*?\})\s*-->/i;
 
 function parseStringArray(raw: string): string[] {
   try {
@@ -23,23 +24,45 @@ function parseStringArray(raw: string): string[] {
   return [];
 }
 
+/**
+ * TITLE_FORMULA HTML 코멘트에서 객체를 파싱.
+ * 구조 검증은 LLM·UI에 위임. 키 누락 시 null 반환.
+ */
+function parseTitleFormula(raw: string): unknown | null {
+  try {
+    const parsed = JSON.parse(raw);
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+      return parsed;
+    }
+  } catch {
+    // fall through
+  }
+  return null;
+}
+
 export function extractFlowFromAnalysis(rawAnalysis: string): {
   analysis: string;
   flow: string[];
   excerpts: string[];
+  titleFormula: unknown | null;
 } {
   const flowMatch = rawAnalysis.match(FLOW_COMMENT_RE);
   const excerptsMatch = rawAnalysis.match(EXCERPTS_COMMENT_RE);
+  const titleFormulaMatch = rawAnalysis.match(TITLE_FORMULA_COMMENT_RE);
 
   const flow = flowMatch ? parseStringArray(flowMatch[1]) : [];
   const excerpts = excerptsMatch ? parseStringArray(excerptsMatch[1]) : [];
+  const titleFormula = titleFormulaMatch
+    ? parseTitleFormula(titleFormulaMatch[1])
+    : null;
 
   const analysis = rawAnalysis
     .replace(FLOW_COMMENT_RE, "")
     .replace(EXCERPTS_COMMENT_RE, "")
+    .replace(TITLE_FORMULA_COMMENT_RE, "")
     .trim();
 
-  return { analysis, flow, excerpts };
+  return { analysis, flow, excerpts, titleFormula };
 }
 
 /**

@@ -21,9 +21,11 @@ export async function POST(request: Request) {
         : buildAnalysisPrompt(referenceText);
     const result = await generateText(prompt, CONFIG.ANALYSIS_MODEL, apiKey);
 
-    const { analysis, flow, excerpts } = extractFlowFromAnalysis(result);
+    const { analysis, flow, excerpts, titleFormula } =
+      extractFlowFromAnalysis(result);
 
-    return Response.json({ analysis, flow, excerpts });
+    // titleFormula는 brand 모드에서만 의미가 있음. 후기성 모드 응답에 섞여도 무해 (UI가 무시).
+    return Response.json({ analysis, flow, excerpts, titleFormula });
   } catch (error) {
     const message =
       error instanceof Error ? error.message : "분석 중 오류가 발생했습니다.";

@@ -103,6 +103,7 @@ const initialState: WizardState = {
   referenceAnalysis: "",
   referenceExcerpts: [],
   referenceText: "",
+  referenceTitleFormula: null,
   isLoading: false,
   threads: initialThreadsState,
 };
@@ -446,6 +447,8 @@ export default function Home() {
       updateState({
         referenceAnalysis: analyzeData.analysis,
         referenceExcerpts: Array.isArray(analyzeData.excerpts) ? analyzeData.excerpts : [],
+        // brand 모드 응답에만 titleFormula가 포함됨. 후기성에서는 undefined → null.
+        referenceTitleFormula: analyzeData.titleFormula ?? null,
         isLoading: false,
         ...autoTone,
       });
@@ -494,6 +497,32 @@ export default function Home() {
         if (!profile) {
           throw new Error("브랜드 프로필을 불러오지 못했습니다.");
         }
+        // info-custom(직접 레퍼런스) 모드: 보관함 카드가 아니라 referenceTitleFormula로 임시 객체 합성.
+        // structure-based 모드: 보관함 카드 ID 전송 (백엔드에서 fetch).
+        const isInfoCustom =
+          state.selectedBrandInfoVariant === "info-custom" &&
+          state.referenceTitleFormula !== null;
+        const isStructureBased =
+          state.selectedBrandInfoVariant === "info-structure-based" ||
+          state.selectedBrandIntroVariant === "intro-structure-based" ||
+          state.selectedBrandValueProofVariant === "value-proof-structure-based" ||
+          state.selectedBrandDetailVariant === "detail-structure-based";
+
+        const customAnalysisRecord = isInfoCustom
+          ? {
+              id: "direct-reference",
+              label: "직접 레퍼런스",
+              sourceType: "user" as const,
+              analysis: state.referenceAnalysis || "",
+              flow: [],
+              excerptPattern: "",
+              createdAt: "",
+              isBuiltin: false,
+              templateScope: "info" as const,
+              titleFormula: state.referenceTitleFormula,
+            }
+          : undefined;
+
         const res = await fetch("/api/brand/titles", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -505,6 +534,10 @@ export default function Home() {
             subKeywords: state.subKeywords || undefined,
             topic: state.topic || undefined,
             count: 5,
+            analysisRecord: customAnalysisRecord,
+            analysisRecordId: isStructureBased
+              ? state.selectedAnalysisRecordId || undefined
+              : undefined,
           }),
         });
         if (!res.ok) {
@@ -578,7 +611,7 @@ export default function Home() {
       toast.error(msg);
       updateState({ isLoading: false });
     }
-  }, [state.postCategory, state.selectedBrandTemplate, state.selectedBrandInfoVariant, state.selectedAeoTemplate, state.selectedProducts, state.narrativeType, state.toneType, state.mainKeyword, state.subKeywords, state.persona, state.topic, customProductInfoById, fetchBrandProfile, fetchAeoProfile, updateState]);
+  }, [state.postCategory, state.selectedBrandTemplate, state.selectedBrandInfoVariant, state.selectedBrandIntroVariant, state.selectedBrandValueProofVariant, state.selectedBrandDetailVariant, state.selectedAnalysisRecordId, state.referenceAnalysis, state.referenceTitleFormula, state.selectedAeoTemplate, state.selectedProducts, state.narrativeType, state.toneType, state.mainKeyword, state.subKeywords, state.persona, state.topic, customProductInfoById, fetchBrandProfile, fetchAeoProfile, updateState]);
 
   // 검증 호출. fetchContent와 본문 직접 수정(handleContentEdit) 양쪽에서 재사용한다.
   const runValidation = useCallback(
