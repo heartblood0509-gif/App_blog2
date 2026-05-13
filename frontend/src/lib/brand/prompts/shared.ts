@@ -47,11 +47,20 @@ export const BRAND_SEO_RULES = `[SEO 규칙]
 - 메인 키워드는 첫 문단 안에 반드시 1회 등장
 - 보조 키워드도 본문에 자연스럽게 녹여냄 (강제 X)`;
 
-export const BRAND_READABILITY_RULES = `[가독성 규칙]
-- 문장은 짧게 끊습니다 (모바일 1줄 ~ 1줄 반 권장)
-- 문단 사이 충분한 여백
-- 최소 2~4줄마다 문단 분할
+export const BRAND_READABILITY_RULES_DEFAULT = `[가독성 규칙 — 절대 위반 금지]
+- 한 문장 목표: 20~30자 (짧고 임팩트 있게, 호흡 짧게)
+- 한 문장이 60자 넘어가는데 마침표 없이 이어지는 것 절대 금지
+- 같은 주제·감정·시점이면 한 묶음 (3~4줄, 줄바꿈만 하고 빈 줄 없음)
+- 다른 주제·감정으로 넘어갈 때만 빈 줄 1개 — 기계적으로 매 2줄마다 빈 줄 넣지 말 것
+- 문단 사이 적절한 여백 (의미 단위 전환에서만)
 - 긴 문단·긴 문장 절대 금지
+- 스크롤하면서 끊기지 않게 리듬감 있게 구성
+- 모바일 기준 가독성 우선`;
+
+export const BRAND_READABILITY_RULES_FOLLOW_REFERENCE = `[가독성 규칙 — 견본 호흡 우선]
+- 견본의 문장 길이·문단 호흡을 그대로 따라간다 (견본 모드의 본질)
+- 단 지나치게 만연체(한 문장 100자+ 마침표 없이 이어짐)만 피한다 — 그 외엔 견본 톤 보존
+- 문단 사이 적절한 여백 (의미 단위 전환에서만)
 - 스크롤하면서 끊기지 않게 리듬감 있게 구성
 - 모바일 기준 가독성 우선`;
 
@@ -182,12 +191,24 @@ ${topic.trim()}
 제목과 본문은 위 주제를 정확히 다루어야 합니다. 키워드는 도구일 뿐, 글의 중심은 이 주제입니다.`;
 }
 
+/**
+ * 가독성 규칙 모드.
+ * - "default": 일반 변형 — 짧은 문장 강제 (20~30자 목표, 60자 금지)
+ * - "follow-reference": 견본 모드(info-custom, info-structure-based) — 견본 호흡 보존
+ */
+export type SharedRulesMode = "default" | "follow-reference";
+
 /** 모든 공통 규칙을 한 번에 합쳐 반환. 템플릿 프롬프트 끝부분에 붙임. */
-export function buildSharedRules(): string {
+export function buildSharedRules(options?: { mode?: SharedRulesMode }): string {
+  const mode = options?.mode ?? "default";
+  const readabilityRules =
+    mode === "follow-reference"
+      ? BRAND_READABILITY_RULES_FOLLOW_REFERENCE
+      : BRAND_READABILITY_RULES_DEFAULT;
   return [
     BRAND_RESPONSE_FORMAT,
     BRAND_SEO_RULES,
-    BRAND_READABILITY_RULES,
+    readabilityRules,
     BRAND_TITLE_RULES,
     BRAND_AVOID_AD_TONE,
     BRAND_HEADING_QUOTE_RULES,
@@ -205,11 +226,16 @@ export function buildSharedRules(): string {
  *
  * intro/value-proof/detail은 buildSharedRules()를 그대로 사용 — 본 함수는 정보성글에서만 호출.
  */
-export function buildSharedRulesForInfo(): string {
+export function buildSharedRulesForInfo(options?: { mode?: SharedRulesMode }): string {
+  const mode = options?.mode ?? "default";
+  const readabilityRules =
+    mode === "follow-reference"
+      ? BRAND_READABILITY_RULES_FOLLOW_REFERENCE
+      : BRAND_READABILITY_RULES_DEFAULT;
   return [
     BRAND_RESPONSE_FORMAT,
     BRAND_SEO_RULES,
-    BRAND_READABILITY_RULES,
+    readabilityRules,
     BRAND_TITLE_RULES,
     BRAND_AVOID_AD_TONE,
     BRAND_HEADING_QUOTE_RULES,

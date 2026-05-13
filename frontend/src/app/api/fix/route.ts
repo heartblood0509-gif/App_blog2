@@ -17,7 +17,7 @@ export async function POST(request: Request) {
     }
 
     // 1단계: 금지어 코드 치환 (AI 불필요)
-    let fixedContent = autoReplaceForbiddenWords(content);
+    const fixedContent = autoReplaceForbiddenWords(content);
 
     // 금지어만 문제였으면 AI 호출 없이 바로 반환
     const nonForbiddenReasons = (failReasons as string[]).filter(

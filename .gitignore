@@ -14,3 +14,10 @@ accounts.json
 .publish_counter.json
 .claude/
 .worktreeinclude
+
+# Electron packaging artifacts
+electron/dist/
+release/
+release-*/
+playwright-cache/
+*.bak

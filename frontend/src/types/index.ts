@@ -243,6 +243,18 @@ export interface WizardState {
   selectedBrandTemplate: import("./brand").BrandTemplateId | null;
   /** 정보성글 선택 시 하위 변형 (info-1 등). 다른 템플릿이면 null */
   selectedBrandInfoVariant: import("./brand").BrandInfoVariantId | null;
+  /** info-structure-based 모드 — 보관함에서 선택된 분석 레코드 ID */
+  selectedAnalysisRecordId: string | null;
+
+  // Step 2 AEO 분기 (postCategory === "aeo"일 때만 의미)
+  /** 선택된 AEO 프로필 ID (예: "aeo1") */
+  selectedAeoProfileId: string | null;
+  /** 선택된 AEO 글 타입 (정보성/비교추천) */
+  selectedAeoTemplate: import("./aeo").AeoTemplateId | null;
+  /** Phase 3에서 자동 추론 후 사용자 확정한 자연어 질문들 */
+  aeoTargetQueries: string[];
+  /** 출처·근거 (선택 입력, 비우면 경고 모달) */
+  aeoSources: import("./aeo").AeoSource[];
 
   /**
    * 정보성글 전용 — distill 결과 캐시.

@@ -41,7 +41,7 @@ export function validateNarrativeOpening(
  */
 function extractFirstParagraph(content: string): string {
   // 1) HOOK 블록 제거
-  let body = content.replace(/<HOOK>[\s\S]*?<\/HOOK>/gi, "").trim();
+  const body = content.replace(/<HOOK>[\s\S]*?<\/HOOK>/gi, "").trim();
 
   // 2) 빈 줄 기준 분리, 첫 번째 "실제 문단" 찾기
   //    (소제목 `## ...`, 이미지 마커 `[이미지: ...]`는 문단 아님)

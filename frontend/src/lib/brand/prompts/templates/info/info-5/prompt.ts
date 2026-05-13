@@ -19,6 +19,9 @@ import {
 } from "../../../shared";
 import { INFO_5_REFERENCE } from "./reference";
 
+// INFO_5_REFERENCE 는 톤 통계 추출(buildToneRule) 입력으로만 사용한다.
+// 견본 글 본문 자체는 LLM 프롬프트에 절대 주입하지 않는다 — 표절 차단의 핵심.
+
 interface BuildInfo5PromptOptions {
   profile: BrandProfile;
   mainKeyword: string;
@@ -68,10 +71,10 @@ const INFO_5_SKELETON = `[글 골격 — 정보성글 (함정 폭로형)]
 - 감정 단어 직설 사용 ("사기", "눈탱이", "비양심", "분노", "뼈 시리도록")
 - 시각적 강조 — 단어 사이 마침표 ("절.대.로", "비.양.심.")
 
-[본문 베끼기 금지 — 절대 위반 금지]
-- 견본 글의 산업(인테리어), 지역명(군산/전주/익산/서천), 사례(170만원 누수, 200만원 재산 피해)는 모두 새 도메인의 것으로 교체할 것
-- 견본 글의 톤·서사 구조·소제목 패턴은 따르되, 키워드와 사례는 사용자 입력 메인 키워드에 맞춰 새로 작성
-- 인테리어 흔적이 결과물에 남지 않게 할 것
+[표절 차단 — 절대 위반 금지]
+- 위 6단계 골격은 "흐름·전개 순서"만 가이드한다. 어떤 문장도 그대로 가져다 쓰지 마라.
+- 본문의 산업·지역·사례·인물·금액·고유명사는 모두 사용자 입력 메인 키워드와 브랜드 도메인에 맞춰 새로 창작한다.
+- 위 골격에 등장한 따옴표 안 예시("...")는 패턴 힌트일 뿐이다. 같은 표현을 그대로 쓰지 말고 본문의 도메인에 맞는 새 표현으로 작성한다.
 
 이미지 마커는 큰 섹션 전환 지점에 5~7개 배치.`;
 
@@ -112,9 +115,6 @@ export function buildInfo5Prompt(opts: BuildInfo5PromptOptions): string {
 
   // 톤은 견본 글에서 추출 (브랜드 의존 X)
   sections.push(buildToneRule(INFO_5_REFERENCE));
-
-  sections.push(`[참고 레퍼런스 글 — 이 톤·구조·어휘·소제목 패턴을 학습할 것. 본문 자체는 베끼지 말 것]
-${INFO_5_REFERENCE}`);
 
   sections.push(INFO_5_SKELETON);
 
