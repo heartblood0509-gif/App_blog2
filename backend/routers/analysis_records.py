@@ -69,6 +69,8 @@ class AnalysisRecordUpsert(BaseModel):
     analysis: str = Field(..., min_length=1)
     flow: list[str] = []
     excerptPattern: str = ""
+    # 분석이 속한 템플릿 범위 — 보관함 필터링 키 (intro/info/value-proof/detail). 미지정 시 "info" fallback (하위호환)
+    templateScope: Optional[str] = Field(default=None, pattern="^(intro|info|value-proof|detail)$")
 
 
 # ─────────────────────────────────────────────
@@ -76,9 +78,18 @@ class AnalysisRecordUpsert(BaseModel):
 # ─────────────────────────────────────────────
 
 @router.get("/")
-async def list_records() -> list[dict]:
-    """전체 분석 레코드 — builtin 먼저, 그 다음 사용자 분석 (createdAt 내림차순)."""
+async def list_records(scope: Optional[str] = None) -> list[dict]:
+    """전체 분석 레코드 — builtin 먼저, 그 다음 사용자 분석 (createdAt 내림차순).
+
+    scope: "intro" | "info" | "value-proof" | "detail" 지정 시 해당 템플릿만 필터링.
+           미지정 시 전체 반환 (하위호환).
+           record에 templateScope 누락 시 "info"로 간주 (마이그레이션 fallback).
+    """
     records = _load_records()
+    if scope:
+        if scope not in ("intro", "info", "value-proof", "detail"):
+            raise HTTPException(400, f"잘못된 scope: {scope}")
+        records = [r for r in records if (r.get("templateScope") or "info") == scope]
     builtins = [r for r in records if r.get("isBuiltin")]
     users = sorted(
         [r for r in records if not r.get("isBuiltin")],
@@ -218,18 +229,27 @@ BUILTIN_SEEDS: list[dict] = [
         "excerptPattern": "단정형 ~합니다체 위주, 단어 사이 마침표 강조 (절.대.로), 짧은 단언+긴 풀이 혼합",
         "createdAt": "2026-05-07T00:00:00+00:00",
         "isBuiltin": True,
+        "templateScope": "info",
     },
 ]
 
 
 def ensure_builtin_seeds():
-    """첫 기동 시 builtin 시드를 주입. 같은 ID가 이미 있으면 덮어쓰지 않음 (idempotent)."""
+    """첫 기동 시 builtin 시드를 주입. 같은 ID가 이미 있으면 덮어쓰지 않음 (idempotent).
+
+    추가로: templateScope 필드가 없는 기존 레코드에 "info"를 자동 보강 (하위호환 마이그레이션).
+    """
     records = _load_records()
     existing_ids = {r.get("id") for r in records}
-    added = False
+    changed = False
     for seed in BUILTIN_SEEDS:
         if seed["id"] not in existing_ids:
             records.append(seed)
-            added = True
-    if added:
+            changed = True
+    # templateScope 누락 보강 — 기존 데이터는 모두 정보성글로 간주
+    for r in records:
+        if "templateScope" not in r or r.get("templateScope") is None:
+            r["templateScope"] = "info"
+            changed = True
+    if changed:
         _save_records(records)

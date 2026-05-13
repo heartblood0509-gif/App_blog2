@@ -27,8 +27,18 @@ import {
   Eye,
 } from "lucide-react";
 import { toast } from "sonner";
-import type { BrandTemplateId, BrandInfoVariantId, AnalysisRecord } from "@/types/brand";
+import type {
+  BrandTemplateId,
+  BrandInfoVariantId,
+  BrandIntroVariantId,
+  BrandValueProofVariantId,
+  BrandDetailVariantId,
+  AnalysisRecord,
+} from "@/types/brand";
 import { INFO_VARIANTS } from "@/lib/brand/prompts/templates/info";
+import { INTRO_VARIANTS } from "@/lib/brand/prompts/templates/intro";
+import { VALUE_PROOF_VARIANTS } from "@/lib/brand/prompts/templates/value-proof";
+import { DETAIL_VARIANTS } from "@/lib/brand/prompts/templates/detail";
 import { extractFlowFromMarkdownBody } from "@/lib/analysis-parser";
 import { AnalysisLibrarySection } from "./analysis-library-section";
 import { AnalysisRecordForm } from "./analysis-record-form";
@@ -44,16 +54,25 @@ type TemplateCard = {
 const TEMPLATES: TemplateCard[] = [
   { id: "intro", name: "소개글", description: "나 또는 내 브랜드를 소개하고 신뢰를 쌓는 글", icon: Sparkles, enabled: true },
   { id: "info", name: "정보성글", description: "유입을 위한 정보성 글 (브랜드 추구방향과 일치)", icon: BookOpen, enabled: true },
-  { id: "value-proof", name: "가치입증글", description: "정보성글 직접 레퍼런스로 대체됨", icon: Award, enabled: false },
-  { id: "detail", name: "상세페이지글", description: "구매 전환 직전 단계의 글", icon: ShoppingBag, enabled: false },
+  { id: "value-proof", name: "가치입증글", description: "권위·수치·결과로 신뢰를 입증하는 글", icon: Award, enabled: true },
+  { id: "detail", name: "상세페이지글", description: "구매 전환 직전 단계의 글", icon: ShoppingBag, enabled: true },
 ];
 
 interface BrandTemplateSectionProps {
   selectedTemplate: BrandTemplateId | null;
   selectedInfoVariant: BrandInfoVariantId | null;
+  /** Step B에서 활성 — 소개글 변형 */
+  selectedIntroVariant: BrandIntroVariantId | null;
+  /** Step C에서 활성 — 가치입증글 변형 */
+  selectedValueProofVariant: BrandValueProofVariantId | null;
+  /** Step C에서 활성 — 상세페이지글 변형 */
+  selectedDetailVariant: BrandDetailVariantId | null;
   onTemplateChange: (template: BrandTemplateId) => void;
   onInfoVariantChange: (variant: BrandInfoVariantId) => void;
-  // info-custom 전용 — 견본 글 입력 영역
+  onIntroVariantChange: (variant: BrandIntroVariantId) => void;
+  onValueProofVariantChange: (variant: BrandValueProofVariantId) => void;
+  onDetailVariantChange: (variant: BrandDetailVariantId) => void;
+  // custom 전용 — 견본 글 입력 영역 (4개 템플릿 공통)
   referenceUrl: string;
   referenceText: string;
   referenceAnalysis: string;
@@ -63,7 +82,7 @@ interface BrandTemplateSectionProps {
   onReferenceAnalysisChange: (value: string) => void;
   onAnalyzeUrl: () => void;
   onAnalyzeText: () => void;
-  // info-structure-based 전용 — 보관함 분석 선택
+  // structure-based 전용 — 보관함 분석 선택 (4개 템플릿 공통)
   selectedAnalysisRecordId: string | null;
   onAnalysisRecordSelect: (recordId: string) => void;
 }
@@ -71,8 +90,14 @@ interface BrandTemplateSectionProps {
 export function BrandTemplateSection({
   selectedTemplate,
   selectedInfoVariant,
+  selectedIntroVariant,
+  selectedValueProofVariant,
+  selectedDetailVariant,
   onTemplateChange,
   onInfoVariantChange,
+  onIntroVariantChange,
+  onValueProofVariantChange,
+  onDetailVariantChange,
   referenceUrl,
   referenceText,
   referenceAnalysis,
@@ -97,13 +122,20 @@ export function BrandTemplateSection({
   // "보기" 모달용 — 내장 분석 마크다운 readonly 표시
   const [viewingRecord, setViewingRecord] = useState<AnalysisRecord | null>(null);
 
-  const isCustomSelected = selectedInfoVariant === "info-custom";
+  // 4개 템플릿 공통 — custom 모드 선택 여부 (견본 글 입력 영역 노출 조건)
+  const isCustomSelected =
+    selectedInfoVariant === "info-custom" ||
+    selectedIntroVariant === "intro-custom" ||
+    selectedValueProofVariant === "value-proof-custom" ||
+    selectedDetailVariant === "detail-custom";
 
-  // 정보성글 선택 시 내장 분석 카드 fetch
+  // 템플릿 선택 시 해당 scope의 내장 분석 카드 fetch (4개 템플릿 공통)
+  // Step A: info만 활성, 나머지는 Step B/C에서 카드 추가 시 자동으로 보임
   useEffect(() => {
-    if (selectedTemplate !== "info") return;
+    if (!selectedTemplate) return;
     let cancelled = false;
-    fetch("/api/analysis/records", { cache: "no-store" })
+    const url = `/api/analysis/records?scope=${encodeURIComponent(selectedTemplate)}`;
+    fetch(url, { cache: "no-store" })
       .then((res) => (res.ok ? res.json() : []))
       .then((data) => {
         if (cancelled) return;
@@ -116,13 +148,28 @@ export function BrandTemplateSection({
     };
   }, [selectedTemplate]);
 
-  // 내장 카드 1클릭 → variant + recordId 동시 설정
+  // 내장 카드 1클릭 → variant + recordId 동시 설정 (selectedTemplate에 따라 다른 variant 호출)
   const handleBuiltinCardClick = useCallback(
     (recordId: string) => {
-      onInfoVariantChange("info-structure-based");
+      if (selectedTemplate === "intro") {
+        onIntroVariantChange("intro-structure-based");
+      } else if (selectedTemplate === "value-proof") {
+        onValueProofVariantChange("value-proof-structure-based");
+      } else if (selectedTemplate === "detail") {
+        onDetailVariantChange("detail-structure-based");
+      } else {
+        onInfoVariantChange("info-structure-based");
+      }
       onAnalysisRecordSelect(recordId);
     },
-    [onInfoVariantChange, onAnalysisRecordSelect]
+    [
+      selectedTemplate,
+      onInfoVariantChange,
+      onIntroVariantChange,
+      onValueProofVariantChange,
+      onDetailVariantChange,
+      onAnalysisRecordSelect,
+    ]
   );
 
   const handleSaveToLibrary = async () => {
@@ -147,6 +194,8 @@ export function BrandTemplateSection({
           analysis: referenceAnalysis.trim(),
           flow: extractFlowFromMarkdownBody(referenceAnalysis),
           excerptPattern: "",
+          // 현재 선택된 템플릿 scope로 저장 — 다른 템플릿 보관함과 분리
+          templateScope: selectedTemplate ?? "info",
         }),
       });
       if (!res.ok) {
@@ -220,9 +269,12 @@ export function BrandTemplateSection({
         })}
       </div>
 
-      {selectedTemplate === "info" && (
+      {(selectedTemplate === "info" ||
+        selectedTemplate === "intro" ||
+        selectedTemplate === "value-proof" ||
+        selectedTemplate === "detail") && (
         <motion.div
-          key="info-variants"
+          key={`${selectedTemplate}-variants`}
           initial={{ opacity: 0, height: 0 }}
           animate={{ opacity: 1, height: "auto" }}
           transition={{ duration: 0.2 }}
@@ -236,11 +288,18 @@ export function BrandTemplateSection({
           </div>
 
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 md:grid-cols-3">
-            {/* 내장 카드들 — BUILTIN_SEEDS 자동 렌더링 (룰: isBuiltin === true) */}
+            {/* 내장 카드들 — selectedTemplate scope의 builtin records 자동 렌더링 */}
             {builtinRecords.map((r) => {
-              const isSel =
-                selectedInfoVariant === "info-structure-based" &&
-                selectedAnalysisRecordId === r.id;
+              // structure-based 변형 선택 여부 — selectedTemplate에 따라 다른 variant 비교
+              const structureBasedSelected =
+                selectedTemplate === "intro"
+                  ? selectedIntroVariant === "intro-structure-based"
+                  : selectedTemplate === "value-proof"
+                    ? selectedValueProofVariant === "value-proof-structure-based"
+                    : selectedTemplate === "detail"
+                      ? selectedDetailVariant === "detail-structure-based"
+                      : selectedInfoVariant === "info-structure-based";
+              const isSel = structureBasedSelected && selectedAnalysisRecordId === r.id;
               const displayFlow =
                 r.flow && r.flow.length > 0 ? r.flow : extractFlowFromMarkdownBody(r.analysis);
               return (
@@ -320,10 +379,39 @@ export function BrandTemplateSection({
               );
             })}
 
-            {/* 정적 카드 — INFO_VARIANTS (현재는 직접 레퍼런스 1개) */}
-            {INFO_VARIANTS.map((variant) => {
-              const isSel = selectedInfoVariant === variant.id;
+            {/* 정적 카드 — selectedTemplate에 따라 해당 VARIANTS 목록 사용 */}
+            {(selectedTemplate === "intro"
+              ? INTRO_VARIANTS
+              : selectedTemplate === "value-proof"
+                ? VALUE_PROOF_VARIANTS
+                : selectedTemplate === "detail"
+                  ? DETAIL_VARIANTS
+                  : INFO_VARIANTS
+            ).map((variant) => {
+              const isSel =
+                selectedTemplate === "intro"
+                  ? selectedIntroVariant === variant.id
+                  : selectedTemplate === "value-proof"
+                    ? selectedValueProofVariant === variant.id
+                    : selectedTemplate === "detail"
+                      ? selectedDetailVariant === variant.id
+                      : selectedInfoVariant === variant.id;
               const Icon = variant.icon;
+              const handleClick = () => {
+                if (selectedTemplate === "intro") {
+                  onIntroVariantChange(variant.id as import("@/types/brand").BrandIntroVariantId);
+                } else if (selectedTemplate === "value-proof") {
+                  onValueProofVariantChange(
+                    variant.id as import("@/types/brand").BrandValueProofVariantId
+                  );
+                } else if (selectedTemplate === "detail") {
+                  onDetailVariantChange(
+                    variant.id as import("@/types/brand").BrandDetailVariantId
+                  );
+                } else {
+                  onInfoVariantChange(variant.id as import("@/types/brand").BrandInfoVariantId);
+                }
+              };
 
               return (
                 <Card
@@ -333,14 +421,14 @@ export function BrandTemplateSection({
                       ? "ring-2 ring-primary bg-primary/5"
                       : "hover:ring-1 hover:ring-muted-foreground/30"
                   }`}
-                  onClick={() => onInfoVariantChange(variant.id)}
+                  onClick={handleClick}
                 >
                   <CardHeader>
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-2">
                         <Icon className="h-5 w-5 text-primary" />
                         <CardTitle className="text-base">{variant.name}</CardTitle>
-                        {variant.isFinale && (
+                        {"isFinale" in variant && variant.isFinale && (
                           <Badge variant="secondary" className="text-[10px]">
                             ⭐ 최종장
                           </Badge>
@@ -575,20 +663,22 @@ export function BrandTemplateSection({
             </motion.div>
           )}
 
-          {/* 서사 구조 보관함 — 항상 펼쳐진 상태로 노출, 사용자 분석만 표시 */}
-          <div className="mt-2 rounded-lg border border-dashed border-muted-foreground/30 bg-muted/30 p-4">
-            <AnalysisLibrarySection
-              selectedRecordId={
-                selectedInfoVariant === "info-structure-based"
-                  ? selectedAnalysisRecordId
-                  : null
-              }
-              onSelect={(id) => {
-                onInfoVariantChange("info-structure-based");
-                onAnalysisRecordSelect(id);
-              }}
-            />
-          </div>
+          {/* 서사 구조 보관함 — 사용자 분석 라이브러리. Step B에서는 정보성글에서만 노출 (intro의 사용자 분석은 향후 작업). */}
+          {selectedTemplate === "info" && (
+            <div className="mt-2 rounded-lg border border-dashed border-muted-foreground/30 bg-muted/30 p-4">
+              <AnalysisLibrarySection
+                selectedRecordId={
+                  selectedInfoVariant === "info-structure-based"
+                    ? selectedAnalysisRecordId
+                    : null
+                }
+                onSelect={(id) => {
+                  onInfoVariantChange("info-structure-based");
+                  onAnalysisRecordSelect(id);
+                }}
+              />
+            </div>
+          )}
         </motion.div>
       )}
 

@@ -243,7 +243,13 @@ export interface WizardState {
   selectedBrandTemplate: import("./brand").BrandTemplateId | null;
   /** 정보성글 선택 시 하위 변형 (info-1 등). 다른 템플릿이면 null */
   selectedBrandInfoVariant: import("./brand").BrandInfoVariantId | null;
-  /** info-structure-based 모드 — 보관함에서 선택된 분석 레코드 ID */
+  /** 소개글 선택 시 하위 변형 (Step B에서 활성). 다른 템플릿이면 null */
+  selectedBrandIntroVariant: import("./brand").BrandIntroVariantId | null;
+  /** 가치입증글 선택 시 하위 변형 (Step C에서 활성). 다른 템플릿이면 null */
+  selectedBrandValueProofVariant: import("./brand").BrandValueProofVariantId | null;
+  /** 상세페이지글 선택 시 하위 변형 (Step C에서 활성). 다른 템플릿이면 null */
+  selectedBrandDetailVariant: import("./brand").BrandDetailVariantId | null;
+  /** structure-based 모드 (4개 템플릿 공통) — 보관함에서 선택된 분석 레코드 ID */
   selectedAnalysisRecordId: string | null;
 
   // Step 2 AEO 분기 (postCategory === "aeo"일 때만 의미)

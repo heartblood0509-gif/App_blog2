@@ -117,16 +117,14 @@
   {
     "id": "brand2",
     "label": "미르엔",
-    "name": "미르엔 탈모샴푸",
-    "category": "",
-    "oneLine": "",
-    "coreValues": [
-      "맥주효모"
-    ],
+    "name": "미르엔",
+    "category": "헤어,바디제품",
+    "oneLine": "성분에 집착하는 브랜드",
+    "coreValues": [],
     "narrator": {
-      "name": "윤서준",
-      "role": "대표",
-      "authority": "",
+      "name": "윤희",
+      "role": "이사",
+      "authority": "미르엔 브랜드 제품 8년째 운영중",
       "character": "",
       "fixed": true
     },
@@ -138,23 +136,30 @@
       "appearAs": ""
     },
     "story": {
-      "origin": "",
+      "origin": "어렸을때부터 화장품에 관심이 많아 수많은 제품을 사용해보면서 예민한 두피와 민감한 내 바디피부에 딱 맞는 제품이 없어서 내가 만들어보자하고 시작하게 된 브랜드 입니다.",
       "crisis": "",
       "revival": "",
       "encounter": ""
     },
     "episodes": [],
-    "authorityAssets": [],
+    "authorityAssets": [
+      "다수의 제품 사용 경험을 통한 민감성 피부 문제 통찰",
+      "창업자의 직접적인 브랜드 개발 및 문제 해결 의지",
+      "동일 증상을 가진 고객들의 높은 만족도"
+    ],
     "services": [],
     "targets": {
-      "primary": "탈모로 고생하는 모든 사람들",
+      "primary": "예민한 두피와 민감한 바디 피부를 가진 고객",
       "secondary": "",
       "tertiary": ""
     },
     "differentiators": [
-      "맥주효모수"
+      "창업자의 개인적인 피부 고민(예민한 두피, 민감한 바디)에서 시작된 브랜드",
+      "기존 시장에 없던 민감성 피부 맞춤 제품 제공"
     ],
-    "villains": [],
+    "villains": [
+      "자연유래성분 소량넣고 주성분인것처럼 과장광고 하는 관행을 폭로하고 싶다"
+    ],
     "metaphors": [],
     "signaturePhrases": [],
     "recommendedRoutes": [],
