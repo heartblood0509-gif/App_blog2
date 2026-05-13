@@ -12,10 +12,16 @@ export async function GET(request: Request) {
   try {
     const { searchParams } = new URL(request.url);
     const recordId = searchParams.get("id");
+    const scope = searchParams.get("scope");
 
-    const url = recordId
-      ? `${BACKEND_URL}/analysis-records/${recordId}`
-      : `${BACKEND_URL}/analysis-records/`;
+    let url: string;
+    if (recordId) {
+      url = `${BACKEND_URL}/analysis-records/${recordId}`;
+    } else if (scope) {
+      url = `${BACKEND_URL}/analysis-records/?scope=${encodeURIComponent(scope)}`;
+    } else {
+      url = `${BACKEND_URL}/analysis-records/`;
+    }
     const res = await fetch(url, { cache: "no-store" });
     if (!res.ok) {
       const data = await res.json().catch(() => ({}));

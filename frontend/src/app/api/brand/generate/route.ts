@@ -11,6 +11,9 @@ import type {
   BrandProfile,
   BrandTemplateId,
   BrandInfoVariantId,
+  BrandIntroVariantId,
+  BrandValueProofVariantId,
+  BrandDetailVariantId,
   AnalysisRecord,
 } from "@/types/brand";
 
@@ -23,6 +26,9 @@ export async function POST(request: Request) {
       profile,
       template,
       infoVariantId,
+      introVariantId,
+      valueProofVariantId,
+      detailVariantId,
       mainKeyword,
       subKeywords,
       topic,
@@ -38,6 +44,9 @@ export async function POST(request: Request) {
       profile: BrandProfile;
       template: BrandTemplateId;
       infoVariantId?: BrandInfoVariantId | null;
+      introVariantId?: BrandIntroVariantId | null;
+      valueProofVariantId?: BrandValueProofVariantId | null;
+      detailVariantId?: BrandDetailVariantId | null;
       mainKeyword: string;
       subKeywords?: string;
       topic?: string | null;
@@ -58,16 +67,14 @@ export async function POST(request: Request) {
       );
     }
 
-    if (template === "detail") {
-      return Response.json(
-        { error: "상세페이지글은 아직 준비중입니다." },
-        { status: 400 }
-      );
-    }
-
-    // info-structure-based 모드 — 보관함 분석 레코드를 백엔드에서 fetch
+    // structure-based 모드 — 보관함 분석 레코드를 백엔드에서 fetch (4개 템플릿 공통)
     let analysisRecord: AnalysisRecord | undefined;
-    if (infoVariantId === "info-structure-based") {
+    const isStructureBased =
+      infoVariantId === "info-structure-based" ||
+      introVariantId === "intro-structure-based" ||
+      valueProofVariantId === "value-proof-structure-based" ||
+      detailVariantId === "detail-structure-based";
+    if (isStructureBased) {
       if (!analysisRecordId) {
         return Response.json(
           { error: "[서사 구조 기반 작성] 모드는 보관함에서 분석을 선택해야 합니다." },
@@ -98,6 +105,9 @@ export async function POST(request: Request) {
       profile,
       template,
       infoVariantId,
+      introVariantId,
+      valueProofVariantId,
+      detailVariantId,
       mainKeyword,
       subKeywords,
       topic,

@@ -118,6 +118,24 @@ export type BrandInfoVariantId =
   | "info-custom"
   | "info-structure-based";
 
+/** 소개글 변형 — 보관함 카드 기반 + 직접 레퍼런스 */
+export type BrandIntroVariantId =
+  | "intro-structure-based"
+  | "intro-custom";
+
+/** 가치입증글 변형 — 보관함 카드 기반 + 직접 레퍼런스 */
+export type BrandValueProofVariantId =
+  | "value-proof-structure-based"
+  | "value-proof-custom";
+
+/** 상세페이지글 변형 — 보관함 카드 기반 + 직접 레퍼런스 */
+export type BrandDetailVariantId =
+  | "detail-structure-based"
+  | "detail-custom";
+
+/** 분석 레코드가 속한 템플릿 범위 — 보관함 필터링 키 */
+export type TemplateScope = "intro" | "info" | "value-proof" | "detail";
+
 // ─────────────────────────────────────────────
 // 분석 보관함 — 사용자 분석 + 내장 템플릿 통합
 // ─────────────────────────────────────────────
@@ -150,6 +168,8 @@ export interface AnalysisRecord {
   createdAt: string;
   /** true면 사용자 삭제·수정 불가 */
   isBuiltin: boolean;
+  /** 분석이 속한 템플릿 범위 — 보관함 분리용. 미지정 시 "info" fallback (하위호환) */
+  templateScope?: TemplateScope;
 }
 
 /** 보관함 신규/수정 페이로드 (id·createdAt·isBuiltin 제외) */
@@ -160,6 +180,7 @@ export interface AnalysisRecordUpsert {
   analysis: string;
   flow: string[];
   excerptPattern: string;
+  templateScope?: TemplateScope;
 }
 
 // ─────────────────────────────────────────────
