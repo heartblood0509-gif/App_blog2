@@ -4,10 +4,11 @@ import { useCallback, useEffect, useState } from "react";
 import { motion } from "framer-motion";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Building2, Plus, Pencil, Trash2, Check } from "lucide-react";
+import { Building2, Plus, Pencil, Trash2, Check, Wand2 } from "lucide-react";
 import { toast } from "sonner";
 import type { BrandProfile } from "@/types/brand";
 import { BrandProfileForm } from "./brand-profile-form";
+import { BrandProfileAssistant } from "./brand-profile-assistant";
 
 interface BrandProfileSectionProps {
   selectedProfileId: string | null;
@@ -19,6 +20,7 @@ export function BrandProfileSection({ selectedProfileId, onSelect }: BrandProfil
   const [loading, setLoading] = useState(false);
   const [formOpen, setFormOpen] = useState(false);
   const [editing, setEditing] = useState<BrandProfile | null>(null);
+  const [assistantOpen, setAssistantOpen] = useState(false);
 
   const fetchProfiles = useCallback(async () => {
     setLoading(true);
@@ -43,6 +45,15 @@ export function BrandProfileSection({ selectedProfileId, onSelect }: BrandProfil
     setEditing(null);
     setFormOpen(true);
   }, []);
+
+  // AI 도우미가 저장 성공 시 — 목록 갱신 + 새 프로필 자동 선택
+  const handleAssistantSaved = useCallback(
+    (saved: BrandProfile) => {
+      fetchProfiles();
+      if (saved?.id) onSelect(saved.id);
+    },
+    [fetchProfiles, onSelect]
+  );
 
   const handleEdit = useCallback((p: BrandProfile, e: React.MouseEvent) => {
     e.stopPropagation();
@@ -109,9 +120,19 @@ export function BrandProfileSection({ selectedProfileId, onSelect }: BrandProfil
             글에 사용할 브랜드 프로필을 선택하세요
           </p>
         </div>
-        <Button variant="outline" size="sm" onClick={handleCreate} className="gap-1">
-          <Plus className="h-4 w-4" />새 등록
-        </Button>
+        <div className="flex gap-2">
+          <Button
+            variant="default"
+            size="sm"
+            onClick={() => setAssistantOpen(true)}
+            className="gap-1"
+          >
+            <Wand2 className="h-4 w-4" />AI 도움받기
+          </Button>
+          <Button variant="outline" size="sm" onClick={handleCreate} className="gap-1">
+            <Plus className="h-4 w-4" />새 등록
+          </Button>
+        </div>
       </div>
 
       {loading && profiles.length === 0 ? (
@@ -182,6 +203,12 @@ export function BrandProfileSection({ selectedProfileId, onSelect }: BrandProfil
         initial={editing}
         onClose={() => setFormOpen(false)}
         onSave={handleSave}
+      />
+
+      <BrandProfileAssistant
+        open={assistantOpen}
+        onClose={() => setAssistantOpen(false)}
+        onSaved={handleAssistantSaved}
       />
     </section>
   );
