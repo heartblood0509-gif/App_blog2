@@ -71,6 +71,9 @@ const initialState: WizardState = {
   selectedBrandProfileId: null,
   selectedBrandTemplate: null,
   selectedBrandInfoVariant: null,
+  selectedBrandIntroVariant: null,
+  selectedBrandValueProofVariant: null,
+  selectedBrandDetailVariant: null,
   selectedAnalysisRecordId: null,
   topic: "",
   mainKeyword: "",
@@ -252,16 +255,29 @@ export default function Home() {
           if (urlRequired && state.referenceAnalysis.trim().length === 0) return false;
         }
         if (state.postCategory === "brand") {
-          // 브랜드 프로필 + 템플릿 선택 필수. 정보성글이면 변형도 선택.
+          // 브랜드 프로필 + 템플릿 선택 필수. 정보성글/소개글/가치입증글이면 변형도 선택.
           if (!state.selectedBrandProfileId) return false;
           if (!state.selectedBrandTemplate) return false;
           if (state.selectedBrandTemplate === "info" && !state.selectedBrandInfoVariant) return false;
-          // info-custom 모드: 견본 글 분석 결과 필수 (URL 또는 본문 입력 후 분석 완료까지 강제)
-          if (state.selectedBrandInfoVariant === "info-custom") {
+          if (state.selectedBrandTemplate === "intro" && !state.selectedBrandIntroVariant) return false;
+          if (state.selectedBrandTemplate === "value-proof" && !state.selectedBrandValueProofVariant) return false;
+          if (state.selectedBrandTemplate === "detail" && !state.selectedBrandDetailVariant) return false;
+          // custom 모드 (4개 템플릿 공통): 견본 글 분석 결과 필수
+          if (
+            state.selectedBrandInfoVariant === "info-custom" ||
+            state.selectedBrandIntroVariant === "intro-custom" ||
+            state.selectedBrandValueProofVariant === "value-proof-custom" ||
+            state.selectedBrandDetailVariant === "detail-custom"
+          ) {
             if (state.referenceAnalysis.trim().length === 0) return false;
           }
-          // info-structure-based 모드: 보관함에서 분석 선택 필수
-          if (state.selectedBrandInfoVariant === "info-structure-based") {
+          // structure-based 모드 (4개 템플릿 공통): 보관함에서 분석 선택 필수
+          if (
+            state.selectedBrandInfoVariant === "info-structure-based" ||
+            state.selectedBrandIntroVariant === "intro-structure-based" ||
+            state.selectedBrandValueProofVariant === "value-proof-structure-based" ||
+            state.selectedBrandDetailVariant === "detail-structure-based"
+          ) {
             if (!state.selectedAnalysisRecordId) return false;
           }
         }
@@ -327,8 +343,17 @@ export default function Home() {
           if (!state.selectedBrandTemplate) return "글 템플릿을 선택해주세요";
           if (state.selectedBrandTemplate === "info" && !state.selectedBrandInfoVariant)
             return "정보성글 변형을 선택해주세요";
+          if (state.selectedBrandTemplate === "intro" && !state.selectedBrandIntroVariant)
+            return "소개글 변형을 선택해주세요";
+          if (state.selectedBrandTemplate === "value-proof" && !state.selectedBrandValueProofVariant)
+            return "가치입증글 변형을 선택해주세요";
+          if (state.selectedBrandTemplate === "detail" && !state.selectedBrandDetailVariant)
+            return "상세페이지글 변형을 선택해주세요";
           if (
-            state.selectedBrandInfoVariant === "info-structure-based" &&
+            (state.selectedBrandInfoVariant === "info-structure-based" ||
+              state.selectedBrandIntroVariant === "intro-structure-based" ||
+              state.selectedBrandValueProofVariant === "value-proof-structure-based" ||
+              state.selectedBrandDetailVariant === "detail-structure-based") &&
             !state.selectedAnalysisRecordId
           )
             return "보관함에서 분석을 선택해주세요";
@@ -531,29 +556,44 @@ export default function Home() {
             profile,
             template: state.selectedBrandTemplate,
             infoVariantId: state.selectedBrandInfoVariant,
+            introVariantId: state.selectedBrandIntroVariant,
+            valueProofVariantId: state.selectedBrandValueProofVariant,
+            detailVariantId: state.selectedBrandDetailVariant,
             mainKeyword: state.mainKeyword,
             subKeywords: state.subKeywords || undefined,
             topic: state.topic || undefined,
             requirements: state.requirements || undefined,
             charCount: state.charCountRange,
             selectedTitle: state.selectedTitle,
-            // info-custom 모드 — 사용자 견본 글 + 분석 결과 동적 주입 (원본 본문은 톤 통계 추출 입력으로만 사용)
+            // custom 모드 — 사용자 견본 글 + 분석 결과 동적 주입 (4개 템플릿 공통)
             referenceText:
-              state.selectedBrandInfoVariant === "info-custom"
+              state.selectedBrandInfoVariant === "info-custom" ||
+              state.selectedBrandIntroVariant === "intro-custom" ||
+              state.selectedBrandValueProofVariant === "value-proof-custom" ||
+              state.selectedBrandDetailVariant === "detail-custom"
                 ? state.referenceText || undefined
                 : undefined,
             referenceAnalysis:
-              state.selectedBrandInfoVariant === "info-custom"
+              state.selectedBrandInfoVariant === "info-custom" ||
+              state.selectedBrandIntroVariant === "intro-custom" ||
+              state.selectedBrandValueProofVariant === "value-proof-custom" ||
+              state.selectedBrandDetailVariant === "detail-custom"
                 ? state.referenceAnalysis || undefined
                 : undefined,
             referenceExcerpts:
-              state.selectedBrandInfoVariant === "info-custom" &&
+              (state.selectedBrandInfoVariant === "info-custom" ||
+                state.selectedBrandIntroVariant === "intro-custom" ||
+                state.selectedBrandValueProofVariant === "value-proof-custom" ||
+                state.selectedBrandDetailVariant === "detail-custom") &&
               state.referenceExcerpts.length > 0
                 ? state.referenceExcerpts
                 : undefined,
-            // info-structure-based 모드 — 보관함 분석 ID
+            // structure-based 모드 — 보관함 분석 ID (4개 템플릿 공통)
             analysisRecordId:
-              state.selectedBrandInfoVariant === "info-structure-based"
+              state.selectedBrandInfoVariant === "info-structure-based" ||
+              state.selectedBrandIntroVariant === "intro-structure-based" ||
+              state.selectedBrandValueProofVariant === "value-proof-structure-based" ||
+              state.selectedBrandDetailVariant === "detail-structure-based"
                 ? state.selectedAnalysisRecordId || undefined
                 : undefined,
           }),
@@ -1103,7 +1143,55 @@ export default function Home() {
       updateState({
         selectedBrandTemplate: template,
         selectedBrandInfoVariant: null,
+        selectedBrandIntroVariant: null,
+        selectedBrandValueProofVariant: null,
+        selectedBrandDetailVariant: null,
         selectedAnalysisRecordId: null,
+      });
+    },
+    [updateState]
+  );
+
+  const handleBrandIntroVariantChange = useCallback(
+    (variant: import("@/types/brand").BrandIntroVariantId) => {
+      const isCustom = variant === "intro-custom";
+      const isLibrary = variant === "intro-structure-based";
+      updateState({
+        selectedBrandIntroVariant: variant,
+        ...(isCustom
+          ? {}
+          : { referenceUrl: "", referenceText: "", referenceAnalysis: "" }),
+        ...(isLibrary ? {} : { selectedAnalysisRecordId: null }),
+      });
+    },
+    [updateState]
+  );
+
+  const handleBrandValueProofVariantChange = useCallback(
+    (variant: import("@/types/brand").BrandValueProofVariantId) => {
+      const isCustom = variant === "value-proof-custom";
+      const isLibrary = variant === "value-proof-structure-based";
+      updateState({
+        selectedBrandValueProofVariant: variant,
+        ...(isCustom
+          ? {}
+          : { referenceUrl: "", referenceText: "", referenceAnalysis: "" }),
+        ...(isLibrary ? {} : { selectedAnalysisRecordId: null }),
+      });
+    },
+    [updateState]
+  );
+
+  const handleBrandDetailVariantChange = useCallback(
+    (variant: import("@/types/brand").BrandDetailVariantId) => {
+      const isCustom = variant === "detail-custom";
+      const isLibrary = variant === "detail-structure-based";
+      updateState({
+        selectedBrandDetailVariant: variant,
+        ...(isCustom
+          ? {}
+          : { referenceUrl: "", referenceText: "", referenceAnalysis: "" }),
+        ...(isLibrary ? {} : { selectedAnalysisRecordId: null }),
       });
     },
     [updateState]
@@ -1293,10 +1381,16 @@ export default function Home() {
             selectedBrandProfileId={state.selectedBrandProfileId}
             selectedBrandTemplate={state.selectedBrandTemplate}
             selectedBrandInfoVariant={state.selectedBrandInfoVariant}
+            selectedBrandIntroVariant={state.selectedBrandIntroVariant}
+            selectedBrandValueProofVariant={state.selectedBrandValueProofVariant}
+            selectedBrandDetailVariant={state.selectedBrandDetailVariant}
             selectedAnalysisRecordId={state.selectedAnalysisRecordId}
             onBrandProfileChange={handleBrandProfileChange}
             onBrandTemplateChange={handleBrandTemplateChange}
             onBrandInfoVariantChange={handleBrandInfoVariantChange}
+            onBrandIntroVariantChange={handleBrandIntroVariantChange}
+            onBrandValueProofVariantChange={handleBrandValueProofVariantChange}
+            onBrandDetailVariantChange={handleBrandDetailVariantChange}
             onAnalysisRecordSelect={handleAnalysisRecordSelect}
             userProducts={userProducts}
             onUserProductsChange={refetchUserProducts}

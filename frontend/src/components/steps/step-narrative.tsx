@@ -28,7 +28,13 @@ import {
   Building2,
 } from "lucide-react";
 import type { NarrativeSource, ToneType, Channel, PostCategory, SelectedProduct, UserProduct } from "@/types";
-import type { BrandTemplateId, BrandInfoVariantId } from "@/types/brand";
+import type {
+  BrandTemplateId,
+  BrandInfoVariantId,
+  BrandIntroVariantId,
+  BrandValueProofVariantId,
+  BrandDetailVariantId,
+} from "@/types/brand";
 import { ProductSelectionSection } from "@/components/steps/product-selection-section";
 import { NarrativeFlowCard } from "@/components/narrative/narrative-flow-card";
 import { BrandProfileSection } from "@/components/brand/brand-profile-section";
@@ -179,10 +185,16 @@ interface StepNarrativeProps {
   selectedBrandProfileId: string | null;
   selectedBrandTemplate: BrandTemplateId | null;
   selectedBrandInfoVariant: BrandInfoVariantId | null;
+  selectedBrandIntroVariant: BrandIntroVariantId | null;
+  selectedBrandValueProofVariant: BrandValueProofVariantId | null;
+  selectedBrandDetailVariant: BrandDetailVariantId | null;
   selectedAnalysisRecordId: string | null;
   onBrandProfileChange: (profileId: string) => void;
   onBrandTemplateChange: (template: BrandTemplateId) => void;
   onBrandInfoVariantChange: (variant: BrandInfoVariantId) => void;
+  onBrandIntroVariantChange: (variant: BrandIntroVariantId) => void;
+  onBrandValueProofVariantChange: (variant: BrandValueProofVariantId) => void;
+  onBrandDetailVariantChange: (variant: BrandDetailVariantId) => void;
   onAnalysisRecordSelect: (recordId: string) => void;
   // 후기성 — 사용자 등록 제품
   userProducts: UserProduct[];
@@ -214,10 +226,16 @@ export function StepNarrative({
   selectedBrandProfileId,
   selectedBrandTemplate,
   selectedBrandInfoVariant,
+  selectedBrandIntroVariant,
+  selectedBrandValueProofVariant,
+  selectedBrandDetailVariant,
   selectedAnalysisRecordId,
   onBrandProfileChange,
   onBrandTemplateChange,
   onBrandInfoVariantChange,
+  onBrandIntroVariantChange,
+  onBrandValueProofVariantChange,
+  onBrandDetailVariantChange,
   onAnalysisRecordSelect,
   userProducts,
   onUserProductsChange,
@@ -725,8 +743,14 @@ export function StepNarrative({
               <BrandTemplateSection
                 selectedTemplate={selectedBrandTemplate}
                 selectedInfoVariant={selectedBrandInfoVariant}
+                selectedIntroVariant={selectedBrandIntroVariant}
+                selectedValueProofVariant={selectedBrandValueProofVariant}
+                selectedDetailVariant={selectedBrandDetailVariant}
                 onTemplateChange={onBrandTemplateChange}
                 onInfoVariantChange={onBrandInfoVariantChange}
+                onIntroVariantChange={onBrandIntroVariantChange}
+                onValueProofVariantChange={onBrandValueProofVariantChange}
+                onDetailVariantChange={onBrandDetailVariantChange}
                 referenceUrl={referenceUrl}
                 referenceText={referenceText}
                 referenceAnalysis={referenceAnalysis}
