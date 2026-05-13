@@ -1,6 +1,4 @@
-import { CONFIG } from "@/lib/config";
-
-const BACKEND_URL = CONFIG.BACKEND_URL;
+import { backendFetch } from "@/lib/backend-fetch";
 
 interface ImagePayload {
   slot_id: string;
@@ -29,7 +27,7 @@ export async function POST(request: Request) {
       );
     }
 
-    const res = await fetch(`${BACKEND_URL}/publish/`, {
+    const res = await backendFetch("/publish/", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({

@@ -7,6 +7,11 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 from config import ACCOUNTS_FILE, CHROME_PROFILES_DIR
+from credentials import (
+    BrokerError,
+    encrypt_pw,
+    list_accounts_with_disabled,
+)
 
 router = APIRouter()
 
@@ -21,10 +26,15 @@ def _load_accounts() -> list[dict]:
 
 
 def _save_accounts(accounts: list[dict]):
-    ACCOUNTS_FILE.write_text(
-        json.dumps(accounts, ensure_ascii=False, indent=2),
-        encoding="utf-8",
-    )
+    # §C-2 atomic write — temp + rename.
+    import os
+    tmp = ACCOUNTS_FILE.with_suffix(ACCOUNTS_FILE.suffix + ".tmp")
+    raw = json.dumps(accounts, ensure_ascii=False, indent=2)
+    with open(tmp, "w", encoding="utf-8") as f:
+        f.write(raw)
+        f.flush()
+        os.fsync(f.fileno())
+    os.replace(tmp, ACCOUNTS_FILE)
 
 
 def find_account(account_id: str) -> Optional[dict]:
@@ -47,21 +57,18 @@ class AccountResponse(BaseModel):
     id: str
     label: str
     naver_id: str
+    disabled: bool = False
 
 
 @router.get("/", response_model=list[AccountResponse])
 async def list_accounts():
-    """계정 목록 반환 (비밀번호 제외)"""
-    accounts = _load_accounts()
-    return [
-        AccountResponse(id=a["id"], label=a["label"], naver_id=a["naver_id"])
-        for a in accounts
-    ]
+    """계정 목록 반환. 비밀번호 미포함. disabled 는 복호화 실패 여부 (§C-3)."""
+    return list_accounts_with_disabled(ACCOUNTS_FILE)
 
 
 @router.post("/", response_model=AccountResponse)
 async def create_account(req: AccountCreate):
-    """새 계정 추가"""
+    """새 계정 추가. naver_pw 는 brokers /encrypt 거쳐 잠근 형태로만 저장."""
     accounts = _load_accounts()
 
     # ID 자동 생성 (blog1, blog2, ...)
@@ -76,16 +83,22 @@ async def create_account(req: AccountCreate):
         if a["naver_id"] == req.naver_id:
             raise HTTPException(400, f"이미 등록된 네이버 ID입니다: {req.naver_id}")
 
+    # 평문을 broker /encrypt 로 잠금. 실패 시 400 with 일반화 코드.
+    try:
+        encrypted = encrypt_pw(req.naver_pw)
+    except BrokerError as e:
+        raise HTTPException(400, f"credential-encrypt-failed:{e}")
+
     new_account = {
         "id": new_id,
         "label": req.label,
         "naver_id": req.naver_id,
-        "naver_pw": req.naver_pw,
+        "naver_pw_encrypted": encrypted,
     }
     accounts.append(new_account)
     _save_accounts(accounts)
 
-    return AccountResponse(id=new_id, label=req.label, naver_id=req.naver_id)
+    return AccountResponse(id=new_id, label=req.label, naver_id=req.naver_id, disabled=False)
 
 
 @router.delete("/{account_id}")

@@ -1,10 +1,8 @@
-import { CONFIG } from "@/lib/config";
-
-const BACKEND_URL = CONFIG.BACKEND_URL;
+import { backendFetch } from "@/lib/backend-fetch";
 
 export async function GET() {
   try {
-    const res = await fetch(`${BACKEND_URL}/brand-profiles/`, { cache: "no-store" });
+    const res = await backendFetch("/brand-profiles/", { cache: "no-store" });
     if (!res.ok) {
       return Response.json([], { status: 200 });
     }
@@ -18,7 +16,7 @@ export async function GET() {
 export async function POST(request: Request) {
   try {
     const body = await request.json();
-    const res = await fetch(`${BACKEND_URL}/brand-profiles/`, {
+    const res = await backendFetch("/brand-profiles/", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
@@ -47,7 +45,7 @@ export async function PUT(request: Request) {
       return Response.json({ error: "프로필 ID가 필요합니다." }, { status: 400 });
     }
     const body = await request.json();
-    const res = await fetch(`${BACKEND_URL}/brand-profiles/${profileId}`, {
+    const res = await backendFetch(`/brand-profiles/${profileId}`, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
@@ -75,7 +73,7 @@ export async function DELETE(request: Request) {
     if (!profileId) {
       return Response.json({ error: "프로필 ID가 필요합니다." }, { status: 400 });
     }
-    const res = await fetch(`${BACKEND_URL}/brand-profiles/${profileId}`, {
+    const res = await backendFetch(`/brand-profiles/${profileId}`, {
       method: "DELETE",
     });
     const data = await res.json();

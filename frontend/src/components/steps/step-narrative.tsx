@@ -35,10 +35,13 @@ import type {
   BrandValueProofVariantId,
   BrandDetailVariantId,
 } from "@/types/brand";
+import type { AeoTemplateId } from "@/types/aeo";
 import { ProductSelectionSection } from "@/components/steps/product-selection-section";
 import { NarrativeFlowCard } from "@/components/narrative/narrative-flow-card";
 import { BrandProfileSection } from "@/components/brand/brand-profile-section";
 import { BrandTemplateSection } from "@/components/brand/brand-template-section";
+import { AeoProfileSection } from "@/components/aeo/aeo-profile-section";
+import { AeoTemplateSection } from "@/components/aeo/aeo-template-section";
 
 type NarrativeOption = {
   id: NarrativeSource;
@@ -113,7 +116,7 @@ const POST_CATEGORIES: Array<{
 }> = [
   { id: "review", name: "후기성 블로그", description: "실사용자 톤의 자연스러운 후기", icon: Star, enabled: true },
   { id: "brand", name: "브랜드 블로그", description: "브랜드 보이스의 공식 콘텐츠", icon: Building2, enabled: true },
-  { id: "aeo", name: "AEO 블로그", description: "AI 답변 엔진 최적화 글", icon: Search, enabled: false },
+  { id: "aeo", name: "AEO 블로그", description: "AI 답변 엔진(ChatGPT/Claude/Perplexity) 인용을 노리는 글", icon: Search, enabled: true },
 ];
 
 const TONES: {
@@ -195,6 +198,11 @@ interface StepNarrativeProps {
   onBrandIntroVariantChange: (variant: BrandIntroVariantId) => void;
   onBrandValueProofVariantChange: (variant: BrandValueProofVariantId) => void;
   onBrandDetailVariantChange: (variant: BrandDetailVariantId) => void;
+  // AEO 분기 (postCategory === "aeo"일 때 사용)
+  selectedAeoProfileId: string | null;
+  selectedAeoTemplate: AeoTemplateId | null;
+  onAeoProfileChange: (profileId: string) => void;
+  onAeoTemplateChange: (template: AeoTemplateId) => void;
   onAnalysisRecordSelect: (recordId: string) => void;
   // 후기성 — 사용자 등록 제품
   userProducts: UserProduct[];
@@ -236,6 +244,10 @@ export function StepNarrative({
   onBrandIntroVariantChange,
   onBrandValueProofVariantChange,
   onBrandDetailVariantChange,
+  selectedAeoProfileId,
+  selectedAeoTemplate,
+  onAeoProfileChange,
+  onAeoTemplateChange,
   onAnalysisRecordSelect,
   userProducts,
   onUserProductsChange,
@@ -762,6 +774,39 @@ export function StepNarrative({
                 onAnalyzeText={onAnalyzeText}
                 selectedAnalysisRecordId={selectedAnalysisRecordId}
                 onAnalysisRecordSelect={onAnalysisRecordSelect}
+              />
+            </motion.div>
+          )}
+
+          {/* AEO Profile + Template — AEO 카테고리 분기 */}
+          {postCategory === "aeo" && (
+            <motion.div
+              key="aeo-profile-section"
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.25 }}
+              className="space-y-10"
+            >
+              <Separator />
+              <AeoProfileSection
+                selectedProfileId={selectedAeoProfileId}
+                onSelect={onAeoProfileChange}
+              />
+            </motion.div>
+          )}
+
+          {postCategory === "aeo" && selectedAeoProfileId && (
+            <motion.div
+              key="aeo-template-section"
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.25 }}
+              className="space-y-10"
+            >
+              <Separator />
+              <AeoTemplateSection
+                selectedTemplate={selectedAeoTemplate}
+                onTemplateChange={onAeoTemplateChange}
               />
             </motion.div>
           )}

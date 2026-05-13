@@ -1,3 +1,6 @@
+import asyncio
+import time
+import uuid
 from typing import List, Optional
 
 from fastapi import APIRouter, HTTPException
@@ -5,10 +8,25 @@ from pydantic import BaseModel
 
 from bots.naver_blog_publisher import NaverBlogPublisher
 from config import CHROME_PROFILES_DIR
+from credentials import BrokerError, decrypt_pw_for_account
 from routers.accounts import find_account
 from utils.image_storage import tempdir_context
 
 router = APIRouter()
+
+
+# §D — 수동 발행 모드용 세션 레지스트리.
+# 사용자가 Chrome 창을 닫거나 발행 완료 시 BrowserContext.on("close") 이벤트가
+# disconnected=True 로 마킹. frontend 가 /publish/manual-status/{id} 폴링으로 확인.
+_manual_sessions: dict[str, dict] = {}
+_MANUAL_SESSION_TTL_SEC = 60 * 30  # 30분 후 자동 정리
+
+
+def _cleanup_old_manual_sessions() -> None:
+    now = time.time()
+    expired = [k for k, v in _manual_sessions.items() if now - v.get("created_at", now) > _MANUAL_SESSION_TTL_SEC]
+    for k in expired:
+        _manual_sessions.pop(k, None)
 
 
 class ImageSlotData(BaseModel):
@@ -36,6 +54,16 @@ class PublishResponse(BaseModel):
     today_count: Optional[int] = None
     image_failures: Optional[int] = None
     mode: Optional[str] = None  # "published" | "awaiting_manual_publish"
+    manual_session_id: Optional[str] = None  # §D auto_publish=false 시에만 set
+
+
+class ValidateResponse(BaseModel):
+    ok: bool
+    error_codes: List[str] = []
+
+
+class ManualStatusResponse(BaseModel):
+    disconnected: bool
 
 
 @router.post("/", response_model=PublishResponse)
@@ -49,6 +77,24 @@ async def publish_to_naver(req: PublishRequest):
 
     # 이미지 슬롯을 임시 파일로 저장 (발행 종료 시 자동 정리)
     slot_dicts = [img.model_dump() for img in req.images]
+
+    # §D 수동 발행 모드면 미리 session id 생성
+    manual_session_id: Optional[str] = None
+    on_manual_close = None
+    if not req.auto_publish:
+        manual_session_id = uuid.uuid4().hex
+        _manual_sessions[manual_session_id] = {
+            "created_at": time.time(),
+            "disconnected": False,
+        }
+        _cleanup_old_manual_sessions()
+
+        def _mark_disconnected(_session_id: str = manual_session_id) -> None:
+            entry = _manual_sessions.get(_session_id)
+            if entry is not None:
+                entry["disconnected"] = True
+
+        on_manual_close = _mark_disconnected
 
     with tempdir_context(slot_dicts) as (tempdir, path_map):
         # publisher에 넘길 슬롯: base64 제거하고 path 주입
@@ -66,16 +112,23 @@ async def publish_to_naver(req: PublishRequest):
                 "path": str(path),
             })
 
+        # §C — broker 로 비밀번호 복호화. plaintext 는 함수 스코프 변수로만.
+        try:
+            naver_pw_plain = decrypt_pw_for_account(account)
+        except BrokerError as e:
+            raise HTTPException(400, f"credential-decrypt-failed:{e}")
+
         try:
             publisher = NaverBlogPublisher()
             result = await publisher.publish(
                 title=req.title,
                 content=req.content,
                 naver_id=account["naver_id"],
-                naver_pw=account["naver_pw"],
+                naver_pw=naver_pw_plain,
                 profile_path=profile_path,
                 image_slots=image_slots if image_slots else None,
                 auto_publish=req.auto_publish,
+                on_manual_close=on_manual_close,
             )
             today_count = result.get("today_count")
             mode = result.get("mode")
@@ -98,6 +151,48 @@ async def publish_to_naver(req: PublishRequest):
                 today_count=today_count,
                 image_failures=result.get("image_failures"),
                 mode=mode,
+                manual_session_id=manual_session_id if mode == "awaiting_manual_publish" else None,
             )
         except Exception as e:
             raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/manual-status/{session_id}", response_model=ManualStatusResponse)
+async def manual_status(session_id: str):
+    """§D — 수동 발행 세션의 Chrome 닫힘 여부. frontend 5초 폴링."""
+    entry = _manual_sessions.get(session_id)
+    if entry is None:
+        # 만료되었거나 존재 안 함 — disconnected 처럼 취급해 frontend 가 busy 해제하도록.
+        return ManualStatusResponse(disconnected=True)
+    return ManualStatusResponse(disconnected=bool(entry.get("disconnected")))
+
+
+@router.post("/validate", response_model=ValidateResponse)
+async def validate_publish(req: PublishRequest):
+    """§H — 발행 요청 dry-run. 실제 Playwright 로그인·발행 안 함.
+
+    응답은 상수 error_codes 만. 상세는 backend.log 로.
+    """
+    import logging
+    from pathlib import Path
+
+    logger = logging.getLogger(__name__)
+    account = find_account(req.account_id)
+    if not account:
+        return ValidateResponse(ok=False, error_codes=["account-not-found"])
+    try:
+        decrypt_pw_for_account(account)
+    except BrokerError:
+        logger.exception("validate decrypt failure for %s", req.account_id)
+        return ValidateResponse(ok=False, error_codes=["credential-decrypt-failed"])
+    profile_dir = Path(CHROME_PROFILES_DIR) / req.account_id
+    try:
+        profile_dir.mkdir(parents=True, exist_ok=True)
+    except Exception:
+        logger.exception("validate profile dir failure")
+        return ValidateResponse(ok=False, error_codes=["profile-dir-error"])
+    return ValidateResponse(ok=True, error_codes=[])
+
+
+# asyncio import 사용 (불필요 경고 방지 — 향후 확장 시 활용 예정)
+_ = asyncio

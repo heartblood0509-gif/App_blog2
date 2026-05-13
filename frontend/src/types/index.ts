@@ -252,6 +252,16 @@ export interface WizardState {
   /** structure-based 모드 (4개 템플릿 공통) — 보관함에서 선택된 분석 레코드 ID */
   selectedAnalysisRecordId: string | null;
 
+  // Step 2 AEO 분기 (postCategory === "aeo"일 때만 의미)
+  /** 선택된 AEO 프로필 ID (예: "aeo1") */
+  selectedAeoProfileId: string | null;
+  /** 선택된 AEO 글 타입 (정보성/비교추천) */
+  selectedAeoTemplate: import("./aeo").AeoTemplateId | null;
+  /** Phase 3에서 자동 추론 후 사용자 확정한 자연어 질문들 */
+  aeoTargetQueries: string[];
+  /** 출처·근거 (선택 입력, 비우면 경고 모달) */
+  aeoSources: import("./aeo").AeoSource[];
+
   // Step 3: 글 설정
   /** 글 주제 (선택 입력, 양쪽 공용). 비우면 키워드만 보고 AI가 알아서 */
   topic: string;
