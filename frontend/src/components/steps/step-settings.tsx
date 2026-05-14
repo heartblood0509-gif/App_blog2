@@ -4,7 +4,6 @@ import { useCallback, useEffect, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
@@ -51,7 +50,6 @@ export function StepSettings({ state, onChange }: StepSettingsProps) {
   const [aeoProfile, setAeoProfile] = useState<AeoProfile | null>(null);
   useEffect(() => {
     if (state.postCategory !== "aeo" || !state.selectedAeoProfileId) {
-      setAeoProfile(null);
       return;
     }
     let aborted = false;
@@ -277,7 +275,7 @@ export function StepSettings({ state, onChange }: StepSettingsProps) {
             </CardHeader>
             <CardContent>
               <TargetQuerySelector
-                profile={aeoProfile}
+                profile={state.postCategory === "aeo" ? aeoProfile : null}
                 mainKeyword={state.mainKeyword}
                 subKeywords={state.subKeywords}
                 topic={state.topic}

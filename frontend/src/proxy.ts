@@ -17,9 +17,54 @@ import type { NextRequest } from "next/server";
 
 const SESSION_COOKIE = "app_session";
 
+interface BasicAuthConfig {
+  username: string;
+  password: string;
+}
+
+function isVercelRuntime(): boolean {
+  return process.env.VERCEL === "1" || Boolean(process.env.VERCEL_ENV);
+}
+
+function getBasicAuthConfig(): BasicAuthConfig | null {
+  const username = process.env.APP_BASIC_AUTH_USER;
+  const password = process.env.APP_BASIC_AUTH_PASSWORD;
+  if (!username || !password) return null;
+  return { username, password };
+}
+
+function isBasicAuthValid(request: NextRequest, config: BasicAuthConfig): boolean {
+  const authorization = request.headers.get("authorization");
+  if (!authorization?.startsWith("Basic ")) return false;
+
+  try {
+    const decoded = atob(authorization.slice("Basic ".length));
+    const separator = decoded.indexOf(":");
+    if (separator === -1) return false;
+
+    const username = decoded.slice(0, separator);
+    const password = decoded.slice(separator + 1);
+    return username === config.username && password === config.password;
+  } catch {
+    return false;
+  }
+}
+
+function basicAuthChallenge(): NextResponse {
+  return new NextResponse("Authentication required", {
+    status: 401,
+    headers: {
+      "WWW-Authenticate": 'Basic realm="App Blog Publisher"',
+    },
+  });
+}
+
 function getExpectedToken(): string | null {
   const t = process.env.APP_SESSION_TOKEN;
   if (t) return t;
+  // Vercel 웹 배포는 Electron 이 APP_SESSION_TOKEN 을 주입하지 않는다.
+  // 별도 사용자 인증이 생기기 전까지는 API 라우트별 서버 검증에 맡긴다.
+  if (isVercelRuntime()) return null;
   // dev fallback
   if (process.env.ALLOW_INSECURE_DEV_AUTH === "1") return null;
   // packaged 빌드에서 env 누락 → 401 일괄 발급 (fail-closed)
@@ -27,6 +72,11 @@ function getExpectedToken(): string | null {
 }
 
 export function proxy(request: NextRequest): NextResponse {
+  const basicAuth = getBasicAuthConfig();
+  if (isVercelRuntime() && basicAuth && !isBasicAuthValid(request, basicAuth)) {
+    return basicAuthChallenge();
+  }
+
   const expected = getExpectedToken();
   const isApiRequest = request.nextUrl.pathname.startsWith("/api/");
 
