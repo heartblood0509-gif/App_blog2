@@ -61,8 +61,7 @@ export function buildBrandTitlePrompt(
     if (formula) {
       return buildFormulaBasedIntroPrompt(opts, formula);
     }
-    // 소개글은 폴백 없음 — titleFormula 없는 카드는 직접 입력 안내
-    return null;
+    return buildIntroFallbackPrompt(opts);
   }
 
   if (opts.template === "value-proof") {
@@ -70,7 +69,7 @@ export function buildBrandTitlePrompt(
     if (formula) {
       return buildFormulaBasedValueProofPrompt(opts, formula);
     }
-    return null;
+    return buildValueProofFallbackPrompt(opts);
   }
 
   if (opts.template === "detail") {
@@ -78,7 +77,7 @@ export function buildBrandTitlePrompt(
     if (formula) {
       return buildFormulaBasedDetailPrompt(opts, formula);
     }
-    return null;
+    return buildDetailFallbackPrompt(opts);
   }
 
   return null;
@@ -380,6 +379,51 @@ function buildFormulaBasedDetailPrompt(
     .map((p, i) => `${i + 1}. (${p.label}) "${p.tail}"`)
     .join("\n");
 
+  // 톤 구성 분기 — structureLabel별로 톤 개수·색깔·특화 가이드가 달라진다.
+  //   · 신뢰기간형: 4톤 (문제·기준 / 공감·경고 / 신뢰 / 결과 기대)
+  //   · 전액환불 보증형: 5톤 (리스크 제거 / 자신감 선언 / 손실 회피 / 고객 안심 / 충격 보장)
+  //   · 이벤트 유도형: 5톤 (한정·마감 / 혜택 강조 / 손실회피·비용 / 부담제거·상담 / 호기심)
+  let toneCount: number;
+  let toneGuide: string;
+  let extraGuide: string;
+  if (formula.structureLabel === "전액환불 보증형") {
+    toneCount = 5;
+    toneGuide = `  · 리스크 제거 톤 — "환불 / 끝까지 / 책임 / 자신" 결
+  · 자신감 선언 톤 — "자신 / 증명 / 확신 / 가능" 결
+  · 손실 회피 톤 — "후회 / 불안 / 부담 / 걱정" 결
+  · 고객 안심 톤 — "함께 / 도와 / 편하게 / 부담 없이" 결
+  · 충격 보장 톤 — "여기까지 / 드물게 / 보통은 / 괜히" 결`;
+    extraGuide = `
+
+[전액환불 보증형 특화 가이드]
+- ❌ 단순 환불 혜택·이벤트처럼 보이면 안 됨. "환불 이벤트 진행 중", "전액환불 이벤트" 같은 톤 금지.
+- ✅ "이 정도로 자신 있다는 거구나" 느낌이 들어야 함.
+- ✅ 환불·책임·보장·끝까지 같은 단어를 자신감 위에 얹어라 (자신감 없으면 절대 못 할 행동처럼 보여야 함).`;
+  } else if (formula.structureLabel === "이벤트 유도형") {
+    toneCount = 5;
+    toneGuide = `  · 한정·마감 톤 — "다시 없음 / 한정 / 선착순 / 마감 전" 결
+  · 혜택 강조 톤 — "무료 / 추가비용 X / 처음 / 더 많이" 결
+  · 손실회피·비용 톤 — "지나가면 / 미루셨다면 / 망설이셨다면 / 아까운" 결
+  · 부담제거·상담 톤 — "상담만 / 부담 없이 / 편하게 / 어렵지 않음" 결
+  · 호기심 톤 — "이유 / 왜 / 가장 많이 / 더 중요한" 결`;
+    extraGuide = `
+
+[이벤트 유도형 특화 가이드]
+- ❌ 허세 광고 톤 절대 금지 — "역대급", "대박", "미친 혜택", "무조건", "100%", "절대 후회 없음", "오늘 아니면 끝" 같은 단어 일체 사용 금지.
+- ❌ 흔한 광고 톤 금지 — "이벤트 진행 중", "특별 이벤트 안내", "다양한 혜택", "풍성한 이벤트", "할인 이벤트 오픈" 등.
+- ✅ "왜 지금 해야 하는지" 이유가 보여야 함 (단순 할인 X).
+- ✅ 구체성 — 가능하면 "이번 달 한정", "선착순", "추가 비용 없이", "ㅇㅇ만원 상당" 같이 조건이 구체적일 것.
+- ✅ 신뢰 위에 한정 혜택을 얹는 구조 — 단순 싸구려 할인처럼 보이면 안 됨.`;
+  } else {
+    // 기본 — 신뢰기간형
+    toneCount = 4;
+    toneGuide = `  · 문제·기준 톤 — "막힘 / 고민 / 어떤 기준" 결
+  · 공감·경고 톤 — "같은 고민 / 처음이라 불안 / 손해" 결
+  · 신뢰 톤 — "저희가 / 끝까지 / 책임 / 신뢰" 결
+  · 결과 기대 톤 — "달라질 / 만족도 / 체감" 결`;
+    extraGuide = "";
+  }
+
   const sections: string[] = [];
 
   sections.push(`당신은 한국어 브랜드 상세페이지 제목을 짓는 카피라이터입니다.
@@ -397,17 +441,14 @@ function buildFormulaBasedDetailPrompt(
 ${formula.emotions.join(" · ")}
 ※ 이 감정 범위 밖의 톤은 절대 사용하지 마라.`);
 
-  sections.push(`[톤 견본 패턴 — 학습용 (4개 톤으로 구성)]
+  sections.push(`[톤 견본 패턴 — 학습용 (${toneCount}개 톤으로 구성)]
 ${patternsBlock}
 
-※ 위 패턴들은 4가지 색깔로 묶여 있다:
-  · 문제·기준 톤 — "막힘 / 고민 / 어떤 기준" 결
-  · 공감·경고 톤 — "같은 고민 / 처음이라 불안 / 손해" 결
-  · 신뢰 톤 — "저희가 / 끝까지 / 책임 / 신뢰" 결
-  · 결과 기대 톤 — "달라질 / 만족도 / 체감" 결
+※ 위 패턴들은 ${toneCount}가지 색깔로 묶여 있다:
+${toneGuide}
 
 ※ 견본 문장을 그대로 복사하지 마라. 톤·호흡·감정만 흡수하고 메인 키워드에 맞게 변형하라.
-※ ${count}개 후보는 위 4가지 톤에서 골고루 분포되도록 큐레이션하라 (한 톤에 몰리지 않게).`);
+※ ${count}개 후보는 위 ${toneCount}가지 톤에서 골고루 분포되도록 큐레이션하라 (한 톤에 몰리지 않게).`);
 
   sections.push(`[과제]
 "${mainKeyword}"를 첫 단어로 한 상세페이지 제목 ${count}개를 작성하라.
@@ -423,7 +464,7 @@ ${patternsBlock}
 - ✅ 과장보다 현실감 — "계속 고민했던", "많이 망설이는", "끝까지 헷갈리는"
 - ✅ 신뢰 흐름 — 책임감·설명·소통·기준·과정
 - 회사명·"저희가" 1인칭 노출 자연스러우면 OK. 강제 X.
-- 단, 추상어(최고의·프리미엄·완벽한·혁신적인)는 여전히 금지.`);
+- 단, 추상어(최고의·프리미엄·완벽한·혁신적인)는 여전히 금지.${extraGuide}`);
 
   sections.push(BRAND_TITLE_BASE_RULES);
 
@@ -439,7 +480,174 @@ JSON 배열 하나만 출력. 마크다운 코드블록·설명·서두·후미 
 1. 모든 title이 "${mainKeyword}"로 시작하는가?
 2. 모든 emotion이 허용 화이트리스트(${formula.emotions.join(", ")}) 안에 있는가?
 3. 문장부호·추상어가 0건인가? (회사명·대표 노출은 OK)
-4. ${count}개 후보가 4가지 톤에서 골고루 분포되어 서로 다른 결인가?`);
+4. ${count}개 후보가 ${toneCount}가지 톤에서 골고루 분포되어 서로 다른 결인가?`);
+
+  return sections.join("\n\n");
+}
+
+// ─────────────────────────────────────────────
+// 소개글 폴백 — titleFormula 없을 때
+// 화자: 브랜드 대표·운영자 1인칭. 회사명·대표 노출 OK (ZERO_EXPOSURE 미부착).
+// ─────────────────────────────────────────────
+
+function buildIntroFallbackPrompt(opts: BuildBrandTitlePromptOptions): string {
+  const { profile, mainKeyword, subKeywords, topic, count = 5 } = opts;
+
+  const sections: string[] = [];
+
+  sections.push(`당신은 한국어 브랜드 소개글의 제목을 짓는 카피라이터입니다.
+브랜드 대표·운영자 1인칭 톤으로, 메인 키워드에 맞춰 소개글 제목 ${count}개를 작성하세요.`);
+
+  sections.push(`[글 도메인]
+카테고리: ${profile.category}
+메인 키워드: ${mainKeyword}${subKeywords ? `\n보조 키워드: ${subKeywords}` : ""}${topic ? `\n주제: ${topic}` : ""}`);
+
+  sections.push(`[톤 가이드]
+- 신뢰·공감·진심·안심을 자극하는 결
+- 단순 경력 자랑·과시 톤 금지. "사람이 등장하는 글"의 본질을 살릴 것
+- 1인칭 자기 노출 자연스러움 — "저희가", "끝까지 책임지고", "약속드립니다", "걸고" 등
+- 합니다체와 친근한 구어체를 적절히 섞어 따뜻한 인상
+- ${count}개가 서로 다른 톤(신념 / 약속 / 진심 / 안심 / 공감)으로 분산되어야 한다`);
+
+  sections.push(`[과제]
+"${mainKeyword}"를 첫 단어로 한 브랜드 소개글 제목 ${count}개를 작성하라.
+
+각 후보에 대해 함께 반환:
+- title: 메인 키워드로 시작하는 제목 문장
+- pattern: 후보의 톤을 짧게 라벨링 (예: "신념 고백", "대표 약속", "진심 호소")
+- emotion: 이 제목이 자극하는 감정 (예: "신뢰", "공감", "안심", "감사", "호감")`);
+
+  sections.push(`[소개글 노출 정책 — 정보성글과 정반대]
+- 회사명·브랜드명·대표 이름·서비스명 등장 OK.
+- "대표 이름 걸고", "저희가", "끝까지 책임지고 싶었습니다" 같은 1인칭 자기 노출 자연스러움.
+- 단, 추상어·광고어(최고의·프리미엄·완벽한)는 여전히 금지.`);
+
+  sections.push(BRAND_TITLE_BASE_RULES);
+
+  sections.push(`[응답 형식 — 엄격]
+JSON 배열 하나만 출력. 마크다운 코드블록·설명·서두·후미 일체 금지.
+
+[
+  {"title": "...", "pattern": "...", "emotion": "..."},
+  {"title": "...", "pattern": "...", "emotion": "..."}
+]
+
+검산:
+1. 모든 title이 "${mainKeyword}"로 시작하는가?
+2. 문장부호·추상어가 0건인가? (회사명·대표 노출은 OK)
+3. ${count}개 후보가 서로 다른 톤인가?`);
+
+  return sections.join("\n\n");
+}
+
+// ─────────────────────────────────────────────
+// 가치입증글 폴백 — titleFormula 없을 때
+// 화자: 브랜드 대표 1인칭. 결과·수치·실력으로 신뢰 증명 톤. 회사명 노출 OK.
+// ─────────────────────────────────────────────
+
+function buildValueProofFallbackPrompt(
+  opts: BuildBrandTitlePromptOptions
+): string {
+  const { profile, mainKeyword, subKeywords, topic, count = 5 } = opts;
+
+  const sections: string[] = [];
+
+  sections.push(`당신은 한국어 브랜드 가치입증글의 제목을 짓는 카피라이터입니다.
+"실제 사례·결과·실력으로 신뢰를 증명한다" 톤으로, 메인 키워드에 맞춰 제목 ${count}개를 작성하세요.`);
+
+  sections.push(`[글 도메인]
+카테고리: ${profile.category}
+메인 키워드: ${mainKeyword}${subKeywords ? `\n보조 키워드: ${subKeywords}` : ""}${topic ? `\n주제: ${topic}` : ""}`);
+
+  sections.push(`[톤 가이드]
+- 결과·구체 사례·수치로 신뢰를 증명하는 결
+- 단순 자랑 X. 반전 고백·실패 노출 후 통찰·해결 결로 풀 것
+- 극단 상황 활용 OK — "거의 불가능했던", "포기 직전이었던", "정말 어려웠던"
+- "실제 사례", "직접 경험", "실제 결과" 같은 어휘 자연스럽게
+- 희망 메시지 — "나도 가능할 수 있겠다" 느낌을 자극
+- ${count}개가 서로 다른 톤(결과 강조 / 드문 사례 / 희망 메시지)으로 분산되어야 한다`);
+
+  sections.push(`[과제]
+"${mainKeyword}"를 첫 단어로 한 가치입증 제목 ${count}개를 작성하라.
+
+각 후보에 대해 함께 반환:
+- title: 메인 키워드로 시작하는 제목 문장
+- pattern: 후보의 톤을 짧게 라벨링 (예: "수치 입증", "반전 고백", "시장 폭로", "결과 증명")
+- emotion: 이 제목이 자극하는 감정 (예: "신뢰", "희망", "공감", "안심")`);
+
+  sections.push(`[가치입증글 노출 정책]
+- 회사명·"저희가" 1인칭 노출 자연스러우면 OK. 강제 X.
+- 단, 추상어(최고의·프리미엄·완벽한)는 여전히 금지.`);
+
+  sections.push(BRAND_TITLE_BASE_RULES);
+
+  sections.push(`[응답 형식 — 엄격]
+JSON 배열 하나만 출력. 마크다운 코드블록·설명·서두·후미 일체 금지.
+
+[
+  {"title": "...", "pattern": "...", "emotion": "..."},
+  {"title": "...", "pattern": "...", "emotion": "..."}
+]
+
+검산:
+1. 모든 title이 "${mainKeyword}"로 시작하는가?
+2. 문장부호·추상어가 0건인가? (회사명·대표 노출은 OK)
+3. ${count}개 후보가 서로 다른 톤인가?`);
+
+  return sections.join("\n\n");
+}
+
+// ─────────────────────────────────────────────
+// 상세페이지글 폴백 — titleFormula 없을 때
+// 화자: 브랜드 대표 1인칭. 구매 직전 실무 안내 + 세세한 차이 강조 톤. 회사명 노출 OK.
+// ─────────────────────────────────────────────
+
+function buildDetailFallbackPrompt(opts: BuildBrandTitlePromptOptions): string {
+  const { profile, mainKeyword, subKeywords, topic, count = 5 } = opts;
+
+  const sections: string[] = [];
+
+  sections.push(`당신은 한국어 브랜드 상세페이지 제목을 짓는 카피라이터입니다.
+상세페이지는 클릭이 아닌 "전환(구매 욕구 + 신뢰)"이 목적입니다.
+브랜드 대표 1인칭 톤으로, 메인 키워드에 맞춰 상세페이지 제목 ${count}개를 작성하세요.`);
+
+  sections.push(`[글 도메인]
+카테고리: ${profile.category}
+메인 키워드: ${mainKeyword}${subKeywords ? `\n보조 키워드: ${subKeywords}` : ""}${topic ? `\n주제: ${topic}` : ""}`);
+
+  sections.push(`[톤 가이드]
+- 현실 고민을 직접 건드림 ("계속 고민했던", "많이 망설이는", "끝까지 헷갈리는")
+- 부드럽고 솔직한 정보 전달 — 가격·일정·진행 방식 같은 실무 정보, 세세한 차이·꼼꼼함 강조
+- 신뢰 흐름 — 책임감·설명·소통·기준·과정
+- 강매/과장 표현·광고어 절대 금지
+- ${count}개가 서로 다른 톤(문제·기준 / 공감·경고 / 신뢰 / 결과 기대)으로 분산되어야 한다`);
+
+  sections.push(`[과제]
+"${mainKeyword}"를 첫 단어로 한 상세페이지 제목 ${count}개를 작성하라.
+
+각 후보에 대해 함께 반환:
+- title: 메인 키워드로 시작하는 제목 문장
+- pattern: 후보의 톤을 짧게 라벨링 (예: "실무 안내", "차이 강조", "꼼꼼한 과정", "결정 도움")
+- emotion: 이 제목이 자극하는 감정 (예: "신뢰", "안심", "감사", "결정 확신")`);
+
+  sections.push(`[상세페이지 노출 정책]
+- 브랜드명·서비스명·"저희가" 1인칭 노출 자연스러우면 OK. 강제 X.
+- 단, 추상어(최고의·프리미엄·완벽한·혁신적인)는 여전히 금지.`);
+
+  sections.push(BRAND_TITLE_BASE_RULES);
+
+  sections.push(`[응답 형식 — 엄격]
+JSON 배열 하나만 출력. 마크다운 코드블록·설명·서두·후미 일체 금지.
+
+[
+  {"title": "...", "pattern": "...", "emotion": "..."},
+  {"title": "...", "pattern": "...", "emotion": "..."}
+]
+
+검산:
+1. 모든 title이 "${mainKeyword}"로 시작하는가?
+2. 문장부호·추상어가 0건인가? (회사명·대표 노출은 OK)
+3. ${count}개 후보가 서로 다른 톤인가?`);
 
   return sections.join("\n\n");
 }
