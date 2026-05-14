@@ -73,7 +73,14 @@ export function buildBrandTitlePrompt(
     return null;
   }
 
-  // detail 등 — 사용자가 공식 줄 때까지 빈 결과
+  if (opts.template === "detail") {
+    const formula = opts.analysisRecord?.titleFormula;
+    if (formula) {
+      return buildFormulaBasedDetailPrompt(opts, formula);
+    }
+    return null;
+  }
+
   return null;
 }
 
@@ -350,6 +357,89 @@ JSON 배열 하나만 출력. 마크다운 코드블록·설명·서두·후미 
 2. 모든 emotion이 허용 화이트리스트(${formula.emotions.join(", ")}) 안에 있는가?
 3. 문장부호·추상어가 0건인가? (회사명·대표 노출은 OK)
 4. ${count}개 후보가 3가지 톤에서 골고루 분포되어 서로 다른 결인가?`);
+
+  return sections.join("\n\n");
+}
+
+// ─────────────────────────────────────────────
+// 상세페이지글 — 톤 견본(titleFormula) 기반 프롬프트
+//
+// 특수성:
+// - 본문 1장(trust-period 신뢰기간형)에 4개 톤(문제·기준 / 공감·경고 / 신뢰 / 결과 기대)을 통합 시드.
+// - 상세페이지는 클릭(CTR)보다 "전환(구매 욕구 + 신뢰)" 중심.
+// - 회사명·대표 노출 OK (소개글·가치입증글과 동일 정책).
+// ─────────────────────────────────────────────
+
+function buildFormulaBasedDetailPrompt(
+  opts: BuildBrandTitlePromptOptions,
+  formula: BrandTitleFormula
+): string {
+  const { profile, mainKeyword, subKeywords, topic, count = 5 } = opts;
+
+  const patternsBlock = formula.patterns
+    .map((p, i) => `${i + 1}. (${p.label}) "${p.tail}"`)
+    .join("\n");
+
+  const sections: string[] = [];
+
+  sections.push(`당신은 한국어 브랜드 상세페이지 제목을 짓는 카피라이터입니다.
+상세페이지는 클릭이 아닌 "전환(구매 욕구 + 신뢰)"이 목적입니다.
+아래 견본을 학습한 뒤 메인 키워드에 맞춰 새 제목 ${count}개를 작성하세요.`);
+
+  sections.push(`[글 도메인]
+카테고리: ${profile.category}
+메인 키워드: ${mainKeyword}${subKeywords ? `\n보조 키워드: ${subKeywords}` : ""}${topic ? `\n주제: ${topic}` : ""}`);
+
+  sections.push(`[구조 — ${formula.structureLabel}]
+공식 흐름: ${formula.formula}`);
+
+  sections.push(`[허용 감정 — 화이트리스트]
+${formula.emotions.join(" · ")}
+※ 이 감정 범위 밖의 톤은 절대 사용하지 마라.`);
+
+  sections.push(`[톤 견본 패턴 — 학습용 (4개 톤으로 구성)]
+${patternsBlock}
+
+※ 위 패턴들은 4가지 색깔로 묶여 있다:
+  · 문제·기준 톤 — "막힘 / 고민 / 어떤 기준" 결
+  · 공감·경고 톤 — "같은 고민 / 처음이라 불안 / 손해" 결
+  · 신뢰 톤 — "저희가 / 끝까지 / 책임 / 신뢰" 결
+  · 결과 기대 톤 — "달라질 / 만족도 / 체감" 결
+
+※ 견본 문장을 그대로 복사하지 마라. 톤·호흡·감정만 흡수하고 메인 키워드에 맞게 변형하라.
+※ ${count}개 후보는 위 4가지 톤에서 골고루 분포되도록 큐레이션하라 (한 톤에 몰리지 않게).`);
+
+  sections.push(`[과제]
+"${mainKeyword}"를 첫 단어로 한 상세페이지 제목 ${count}개를 작성하라.
+
+각 후보에 대해 다음 3가지를 함께 반환:
+- title: 메인 키워드로 시작하는 제목 문장
+- pattern: 영감을 받은 톤 견본 라벨 (예: "${formula.patterns[0]?.label ?? ""}")
+- emotion: 이 제목이 자극하는 감정 (위 허용 감정 중 하나)`);
+
+  sections.push(`[상세페이지 톤 정책 — 핵심 원칙]
+- ❌ 단순 광고 제목 X. "문제를 해결해줄 수 있을 것 같다" 느낌이 본질.
+- ✅ 현실 고민을 직접 건드림 (사람은 문제 해결 가능성이 보일 때 움직임)
+- ✅ 과장보다 현실감 — "계속 고민했던", "많이 망설이는", "끝까지 헷갈리는"
+- ✅ 신뢰 흐름 — 책임감·설명·소통·기준·과정
+- 회사명·"저희가" 1인칭 노출 자연스러우면 OK. 강제 X.
+- 단, 추상어(최고의·프리미엄·완벽한·혁신적인)는 여전히 금지.`);
+
+  sections.push(BRAND_TITLE_BASE_RULES);
+
+  sections.push(`[응답 형식 — 엄격]
+JSON 배열 하나만 출력. 마크다운 코드블록·설명·서두·후미 일체 금지.
+
+[
+  {"title": "...", "pattern": "...", "emotion": "..."},
+  {"title": "...", "pattern": "...", "emotion": "..."}
+]
+
+검산:
+1. 모든 title이 "${mainKeyword}"로 시작하는가?
+2. 모든 emotion이 허용 화이트리스트(${formula.emotions.join(", ")}) 안에 있는가?
+3. 문장부호·추상어가 0건인가? (회사명·대표 노출은 OK)
+4. ${count}개 후보가 4가지 톤에서 골고루 분포되어 서로 다른 결인가?`);
 
   return sections.join("\n\n");
 }
