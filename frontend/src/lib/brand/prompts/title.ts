@@ -16,8 +16,17 @@ import type {
 } from "@/types/brand";
 import {
   BRAND_TITLE_BASE_RULES,
+  BRAND_TITLE_BASE_RULES_EXPRESSIVE,
   BRAND_TITLE_ZERO_EXPOSURE_RULES,
 } from "./shared";
+
+/**
+ * 문장부호 허용 구조 화이트리스트 — 강한 폭로톤 구조만 여기에 추가.
+ * 라벨 매칭이므로 시드 라벨과 정확히 일치해야 함.
+ */
+const PUNCTUATION_ALLOWED_STRUCTURES = new Set<string>([
+  "업계 내부고발형",
+]);
 
 export interface BuildBrandTitlePromptOptions {
   profile: BrandProfile;
@@ -94,7 +103,14 @@ ${patternsBlock}
 - pattern: 영감을 받은 톤 견본 라벨 (예: "${formula.patterns[0]?.label ?? ""}")
 - emotion: 이 제목이 자극하는 감정 (위 허용 감정 중 하나)`);
 
-  sections.push(BRAND_TITLE_BASE_RULES);
+  const punctuationAllowed = PUNCTUATION_ALLOWED_STRUCTURES.has(
+    formula.structureLabel
+  );
+  sections.push(
+    punctuationAllowed
+      ? BRAND_TITLE_BASE_RULES_EXPRESSIVE
+      : BRAND_TITLE_BASE_RULES
+  );
   sections.push(BRAND_TITLE_ZERO_EXPOSURE_RULES);
 
   sections.push(`[응답 형식 — 엄격]
@@ -108,7 +124,7 @@ JSON 배열 하나만 출력. 마크다운 코드블록·설명·서두·후미 
 검산:
 1. 모든 title이 "${mainKeyword}"로 시작하는가?
 2. 모든 emotion이 허용 화이트리스트(${formula.emotions.join(", ")}) 안에 있는가?
-3. 문장부호·추상어·회사명이 0건인가?
+3. ${punctuationAllowed ? "추상어·회사명이 0건인가? (문장부호는 톤 표현용 허용)" : "문장부호·추상어·회사명이 0건인가?"}
 4. ${count}개 후보가 서로 다른 톤 패턴인가?`);
 
   return sections.join("\n\n");
