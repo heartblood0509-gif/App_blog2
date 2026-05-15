@@ -47,9 +47,7 @@ const INFO_1_SKELETON = `[글 골격 — 정보성글 (Hook → Crisis → Solut
 5. CTA — 가치 전환
    · "X 여행이 아닌 Y 여행을 선택하세요" 류 프레임 전환
    · 광고 직접 표현 X — 초대 톤
-   · 마지막에 화자의 약속·각오로 닫음
-
-이미지 마커는 큰 섹션 전환 지점에 5~7개 배치.`;
+   · 마지막에 화자의 약속·각오로 닫음`;
 
 export function buildInfo1Prompt(opts: BuildInfo1PromptOptions): string {
   const { profile, mainKeyword, subKeywords, topic, selectedTitle, charCount, requirements } = opts;
