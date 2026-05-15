@@ -8,7 +8,12 @@ import { buildBrandFixPrompt } from "@/lib/brand/prompts/fix";
 import { generateStream } from "@/lib/gemini";
 import { autoReplaceForbiddenWords } from "@/lib/quality/forbidden-words";
 import { CONFIG } from "@/lib/config";
-import type { BrandProfile, BrandTemplateId, BrandInfoVariantId } from "@/types/brand";
+import type {
+  BrandProfile,
+  BrandTemplateId,
+  BrandInfoVariantId,
+  BrandProposition,
+} from "@/types/brand";
 
 export const maxDuration = 60;
 
@@ -23,6 +28,7 @@ export async function POST(request: Request) {
       failReasons,
       keyword,
       apiKey,
+      propositions,
     } = body as {
       profile: BrandProfile;
       template: BrandTemplateId;
@@ -31,6 +37,7 @@ export async function POST(request: Request) {
       failReasons: string[];
       keyword: string;
       apiKey?: string;
+      propositions?: BrandProposition[];
     };
 
     if (!profile || !template || !content || !failReasons || !keyword) {
@@ -71,6 +78,7 @@ export async function POST(request: Request) {
       content: fixedContent,
       failReasons: remainingReasons,
       keyword,
+      propositions,
     });
 
     const encoder = new TextEncoder();

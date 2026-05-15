@@ -66,3 +66,8 @@ export function buildAnonymousNarratorRule(): string {
   · ✅ "한 고객님이…", "예전에 만났던 분이…"
 - 화자가 도중에 바뀌지 않는다. 다른 인물(보조 인물)도 본문에 등장시키지 않는다.`;
 }
+
+/** 하위 호환: 기존 info-5/info-custom/fix 프롬프트에서 사용하던 이름. */
+export function buildAnonymousExpertNarrator(): string {
+  return buildAnonymousNarratorRule();
+}
