@@ -30,7 +30,46 @@ import type {
 import { initialThreadsState } from "@/types";
 import { fetchUserProducts } from "@/lib/products";
 import { buildCustomProductInfo } from "@/lib/prompts/brand-context";
-import { parseImageMarkers, ensureSubtitleCoverage, ensureHookImage, ensureIntroImage, dedupeSubtitleEchoes, stripBrTags } from "@/lib/image/marker-parser";
+import {
+  parseImageMarkers,
+  ensureSubtitleCoverage,
+  ensureHookImage,
+  ensureIntroImage,
+  dedupeSubtitleEchoes,
+  stripBrTags,
+  sanitizeBrandBodyText,
+  ensureBrandEnumerationImages,
+  ensureBrandSubtitleCoverage,
+  ensureBrandIntroImage,
+  ensureBrandBodyFillerImages,
+} from "@/lib/image/marker-parser";
+
+/**
+ * 후처리 파이프라인 — postCategory 별로 다른 규칙 적용.
+ * - brand: 브랜드 전용 5단계 (살균 → HOOK → 중복제거 → 열거 → 소제목 → 도입부 → 채움)
+ * - review/aeo: 기존 4단계 (HOOK → 중복제거 → 도입부 → 소제목)
+ */
+function applyImagePostProcessing(
+  raw: string,
+  postCategory: PostCategory | null,
+  selectedTitle: string,
+  mainKeyword: string,
+): string {
+  const cleaned = stripBrTags(raw);
+  if (postCategory === "brand") {
+    const sanitized = sanitizeBrandBodyText(cleaned);
+    const hooked = ensureHookImage(sanitized, selectedTitle, mainKeyword);
+    const deduped = dedupeSubtitleEchoes(hooked);
+    const enumerated = ensureBrandEnumerationImages(deduped);
+    const subtitled = ensureBrandSubtitleCoverage(enumerated);
+    const introCovered = ensureBrandIntroImage(subtitled, mainKeyword);
+    return ensureBrandBodyFillerImages(introCovered);
+  }
+  const hooked = ensureHookImage(cleaned, selectedTitle, mainKeyword);
+  const deduped = dedupeSubtitleEchoes(hooked);
+  const introCovered = ensureIntroImage(deduped, mainKeyword);
+  return ensureSubtitleCoverage(introCovered);
+}
 
 import { StepChannelSelect } from "@/components/steps/step-channel-select";
 import { StepNarrative } from "@/components/steps/step-narrative";
@@ -170,16 +209,13 @@ export default function Home() {
   useEffect(() => {
     const rawContent = state.generatedContent;
 
-    // 0) <br> 태그를 줄바꿈으로 치환 (미리보기와 발행물 표시 일치)
-    // 1) 최상단 후킹 이미지 보장 (본문 맨 첫 줄에 마커 없으면 자동 주입)
-    // 2) 소제목 직전 중복 일반 문장 제거 (네이버에서 인용구+텍스트 이중 노출 방지)
-    // 3) 도입부 이미지 보장 (HOOK~첫 소제목 사이 본문이 길면 마커 자동 주입)
-    // 4) 소제목 커버리지 보장 (누락된 곳에 마커 자동 주입)
-    const cleanedContent = stripBrTags(rawContent);
-    const hookedContent = ensureHookImage(cleanedContent, state.selectedTitle, state.mainKeyword);
-    const dedupedContent = dedupeSubtitleEchoes(hookedContent);
-    const introCoveredContent = ensureIntroImage(dedupedContent, state.mainKeyword);
-    const coveredContent = ensureSubtitleCoverage(introCoveredContent);
+    // 후처리 — postCategory 별로 다른 파이프라인 (applyImagePostProcessing 참조)
+    const coveredContent = applyImagePostProcessing(
+      rawContent,
+      state.postCategory,
+      state.selectedTitle,
+      state.mainKeyword,
+    );
 
     // 처리 완료된 결과와 비교 — 원본이 같아도 아직 후킹/소제목 주입이 안 된 상태면 진행
     if (coveredContent === prevContentRef.current) return;
@@ -891,14 +927,12 @@ export default function Home() {
       // reader의 마지막 updateState가 React에 커밋될 기회 부여 (race 방어)
       await Promise.resolve();
 
-      // 스트리밍 완료 직후 <br> 정화 → 후킹 → 중복 제거 → 도입부 안전망 → 소제목 커버리지
-      const finalized = ensureSubtitleCoverage(
-        ensureIntroImage(
-          dedupeSubtitleEchoes(
-            ensureHookImage(stripBrTags(content), state.selectedTitle, state.mainKeyword)
-          ),
-          state.mainKeyword
-        )
+      // 스트리밍 완료 직후 후처리 (applyImagePostProcessing — postCategory 별 분기)
+      const finalized = applyImagePostProcessing(
+        content,
+        state.postCategory,
+        state.selectedTitle,
+        state.mainKeyword,
       );
       if (finalized !== content) {
         content = finalized;
@@ -1043,14 +1077,12 @@ export default function Home() {
       // reader의 마지막 updateState가 커밋될 기회 부여 (race 방어)
       await Promise.resolve();
 
-      // 품질 수정 완료 직후 <br> 정화 → 후킹 → 중복 제거 → 도입부 안전망 → 소제목 커버리지
-      const finalizedFix = ensureSubtitleCoverage(
-        ensureIntroImage(
-          dedupeSubtitleEchoes(
-            ensureHookImage(stripBrTags(fixed), state.selectedTitle, state.mainKeyword)
-          ),
-          state.mainKeyword
-        )
+      // 품질 수정 완료 직후 후처리 (applyImagePostProcessing — postCategory 별 분기)
+      const finalizedFix = applyImagePostProcessing(
+        fixed,
+        state.postCategory,
+        state.selectedTitle,
+        state.mainKeyword,
       );
       if (finalizedFix !== fixed) {
         fixed = finalizedFix;

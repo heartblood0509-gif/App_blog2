@@ -398,6 +398,367 @@ function normalizeForDedupe(s: string): string {
   return s.replace(/\s+/g, " ").trim();
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// 브랜드 블로그 전용 (postCategory === "brand")
+//
+// 후기성 블로그(review)와 다른 이미지 배치 규칙을 적용한다.
+// 후기성 동작 보존을 위해 기존 함수와 분리. 호출은 app/page.tsx에서 분기.
+//
+// 규칙 요약:
+//   R2. 소제목 아래 이미지 — 단, 소제목 바로 다음에 열거가 시작되면 생략
+//   R3. 본문 추가 이미지 — 직전 이미지 3문단↑ + 다음 이미지 2문단↑ 남았을 때만
+//   R4. 열거(첫째/둘째/…) 3개↑ — 각 항목 바로 위에 이미지
+//   R5. 도입부 이미지 — 본문 3문단↑ 일 때만 중간에 1장
+//   R6. 본문 살균 — AI가 흘린 프롬프트 메타 텍스트 제거
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** 한국어 서수형 열거 마커 (첫째, 둘째, …, 열째) */
+const KO_ORDINAL_RE = /^(첫째|둘째|셋째|넷째|다섯째|여섯째|일곱째|여덟째|아홉째|열째)\s*[,.\s]/;
+
+/** 숫자 열거 마커 (1. 또는 1)) — 줄 시작 */
+const NUM_ORDINAL_RE = /^\d+[.)]\s+\S/;
+
+/** 이 줄이 열거 항목의 시작인가? */
+function isEnumerationItemLine(line: string): boolean {
+  const t = line.trim();
+  if (!t) return false;
+  if (KO_ORDINAL_RE.test(t)) return true;
+  if (NUM_ORDINAL_RE.test(t)) return true;
+  return false;
+}
+
+/** 소제목/이미지마커/HOOK 태그 줄을 제외한 일반 본문 줄인가? */
+function isBodyTextLine(line: string): boolean {
+  const t = line.trim();
+  if (!t) return false;
+  if (MARKER_RE.test(t)) return false;
+  if (/^#{1,6}(\{[^}]+\})?\s+/.test(t)) return false;
+  if (/^<\/?HOOK>/i.test(t)) return false;
+  return true;
+}
+
+/**
+ * R6. 본문에 새어 나온 프롬프트 메타 텍스트를 제거한다.
+ *
+ * AI가 가끔 시스템 프롬프트의 일부 (이미지 배치 규칙 섹션 등) 를 본문에
+ * 그대로 출력해버리는 사고를 막는다. 보수적으로 — 명백한 메타 패턴만 제거.
+ */
+export function sanitizeBrandBodyText(content: string): string {
+  if (!content) return content;
+
+  const lines = content.split("\n");
+  const result: string[] = [];
+
+  // 메타 블록 진입 감지: "검산 체크리스트" 같은 키워드를 만나면 다음 빈 줄까지 통째로 제거
+  const META_BLOCK_TRIGGERS = [
+    /^#{1,6}\s*이미지\s*배치/,
+    /^\[이미지\s*배치\s*[—\-]/,
+    /^검산\s*체크리스트/,
+    /^\d단계\s*[—\-]\s*소제목\s*커버리지/,
+    /^\d단계\s*[—\-]\s*도입부\s*커버리지/,
+    /^\d단계\s*[—\-]\s*잔여\s*분산/,
+    /^\d단계\s*[—\-]\s*마커\s*작성/,
+  ];
+
+  let skipUntilBlank = false;
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    const trimmed = line.trim();
+
+    if (skipUntilBlank) {
+      if (trimmed === "") skipUntilBlank = false;
+      continue;
+    }
+
+    if (META_BLOCK_TRIGGERS.some((re) => re.test(trimmed))) {
+      skipUntilBlank = true;
+      continue;
+    }
+
+    // 단일 줄 메타 — 자주 새는 패턴들
+    if (/^(자연스러움보다\s*우선|예외\s*없음\s*[—\-])/.test(trimmed)) continue;
+    if (/^[\-·]\s*(좋은|나쁜)\s*예\s*[:：]/.test(trimmed)) continue;
+
+    // 마커 안에 마커 (`[이미지: [이미지: ...]]`) → 안쪽 정리
+    if (trimmed.startsWith("[이미지:")) {
+      const fixed = line.replace(/\[이미지:\s*\[이미지:\s*/g, "[이미지: ");
+      result.push(fixed);
+      continue;
+    }
+
+    // 마커가 닫히지 않음 (`[이미지: 묘사` — 같은 줄에 `]` 없음) → 닫음
+    if (/^\s*\[이미지:[^\]]*$/.test(line)) {
+      result.push(line + "]");
+      continue;
+    }
+
+    result.push(line);
+  }
+
+  return result.join("\n");
+}
+
+/**
+ * R4. 본문에 열거(첫째/둘째/셋째 또는 1./2./3.) 항목이 3개 이상 등장하는
+ * 섹션을 찾아, 각 항목 바로 위에 [이미지: …] 마커를 주입한다.
+ *
+ * 섹션 = 두 ##/### 소제목 사이 (또는 문서 시작/끝). 한 섹션 안에 항목이
+ * 3개 이상이어야 적용 — 1~2개짜리 단발 항목은 일반 본문으로 취급.
+ */
+export function ensureBrandEnumerationImages(content: string): string {
+  if (!content) return content;
+
+  const lines = content.split("\n");
+
+  // 섹션별로 열거 항목 인덱스 모으기
+  const sections: number[][] = [];
+  let current: number[] = [];
+  for (let i = 0; i < lines.length; i++) {
+    if (/^#{2,3}(\{[^}]+\})?\s+/.test(lines[i])) {
+      if (current.length >= 3) sections.push(current);
+      current = [];
+      continue;
+    }
+    if (isEnumerationItemLine(lines[i])) current.push(i);
+  }
+  if (current.length >= 3) sections.push(current);
+
+  if (sections.length === 0) return content;
+
+  // 주입할 인덱스 모아두고 한 번에 처리 (역순 삽입)
+  const injectAtLine = new Set<number>();
+  for (const section of sections) {
+    for (const idx of section) {
+      // 이미 바로 위에 마커 있으면 건너뜀
+      let p = idx - 1;
+      while (p >= 0 && lines[p].trim() === "") p--;
+      if (p >= 0 && MARKER_RE.test(lines[p])) continue;
+      injectAtLine.add(idx);
+    }
+  }
+
+  if (injectAtLine.size === 0) return content;
+
+  const result: string[] = [];
+  for (let i = 0; i < lines.length; i++) {
+    if (injectAtLine.has(i)) {
+      const itemPreview = lines[i].trim().slice(0, 60);
+      const description = `${itemPreview} 관련 장면, 자연광 실내, 한국인 피사체, 실사 DSLR 사진`;
+      // 직전 줄이 빈 줄이 아니면 빈 줄 하나 추가
+      if (result.length > 0 && result[result.length - 1].trim() !== "") {
+        result.push("");
+      }
+      result.push(`[이미지: ${description}]`);
+      result.push("");
+    }
+    result.push(lines[i]);
+  }
+  return result.join("\n");
+}
+
+/**
+ * R2 (브랜드용). 모든 ##/### 소제목 바로 아래에 이미지 마커를 주입.
+ * 단, 다음 비공백 줄이 이미 마커이거나 열거 항목이면 생략.
+ *
+ * 보통은 ensureBrandEnumerationImages를 먼저 돌려서 열거 위에 마커가
+ * 박혀있는 상태이므로, 자연스럽게 "마커 있음 → 생략" 으로 처리된다.
+ */
+export function ensureBrandSubtitleCoverage(content: string): string {
+  if (!content) return content;
+
+  const lines = content.split("\n");
+  const result: string[] = [];
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    result.push(line);
+
+    const subtitleMatch = line.match(/^#{2,3}(\{[^}]+\})?\s+(.+)$/);
+    if (!subtitleMatch) continue;
+
+    const subtitleText = (subtitleMatch[2] || "").trim();
+    if (!subtitleText) continue;
+
+    let j = i + 1;
+    while (j < lines.length && lines[j].trim() === "") j++;
+    const nextNonBlank = j < lines.length ? lines[j] : "";
+
+    if (MARKER_RE.test(nextNonBlank)) continue;
+    if (isEnumerationItemLine(nextNonBlank)) continue; // R2 예외 — 열거 시작이면 생략
+
+    const bodyPreview = extractBodyPreview(lines, j);
+    const description = buildAutoDescription(subtitleText, bodyPreview);
+    result.push("");
+    result.push(`[이미지: ${description}]`);
+    result.push("");
+  }
+
+  return result.join("\n");
+}
+
+/**
+ * R5 (브랜드용). HOOK과 첫 ##/### 소제목 사이 도입부에 본문 문단이
+ * 3개 이상 있으면 중간에 마커 1장 자동 주입.
+ *
+ * 단, 도입부에 이미 마커가 2개 이상 있거나 (HOOK + 다른 마커) 본문 문단이
+ * 3개 미만이면 패스.
+ */
+export function ensureBrandIntroImage(content: string, mainKeyword: string): string {
+  if (!content) return content;
+
+  const lines = content.split("\n");
+
+  let firstHeadingIdx = -1;
+  for (let i = 0; i < lines.length; i++) {
+    if (/^#{2,3}(\{[^}]+\})?\s+/.test(lines[i])) {
+      firstHeadingIdx = i;
+      break;
+    }
+  }
+  if (firstHeadingIdx === -1) return content;
+
+  const introLines = lines.slice(0, firstHeadingIdx);
+
+  let markerCount = 0;
+  let firstMarkerIdx = -1;
+  for (let i = 0; i < introLines.length; i++) {
+    if (MARKER_RE.test(introLines[i])) {
+      markerCount++;
+      if (firstMarkerIdx === -1) firstMarkerIdx = i;
+    }
+  }
+  if (markerCount >= 2) return content;
+
+  // 도입부 본문 문단 수 세기 (마커·HOOK·빈 줄 제외, 연속 본문 줄을 1문단으로)
+  const paragraphRanges: { start: number; end: number }[] = [];
+  let curStart = -1;
+  for (let i = 0; i < introLines.length; i++) {
+    if (isBodyTextLine(introLines[i])) {
+      if (curStart === -1) curStart = i;
+    } else {
+      if (curStart !== -1) {
+        paragraphRanges.push({ start: curStart, end: i - 1 });
+        curStart = -1;
+      }
+    }
+  }
+  if (curStart !== -1) paragraphRanges.push({ start: curStart, end: introLines.length - 1 });
+
+  if (paragraphRanges.length < 3) return content;
+
+  // 중간 문단 직후에 주입 (예: 4문단이면 2번째 문단 끝 다음, 5문단이면 3번째 문단 끝 다음)
+  const targetParagraphIdx = Math.floor(paragraphRanges.length / 2);
+  const targetLine = paragraphRanges[targetParagraphIdx].end;
+
+  const description = `${mainKeyword || "도입부"} 관련 감정 전환 장면, 자연광 실내, 한국인 피사체, 실사 DSLR 사진`;
+
+  const result = [...lines];
+  result.splice(targetLine + 1, 0, "", `[이미지: ${description}]`, "");
+
+  return result.join("\n");
+}
+
+/**
+ * R3 (브랜드용). 직전 이미지에서 본문 3문단↑ 쌓이고 다음 이미지까지 본문
+ * 2문단↑ 남았을 때만 그 사이에 1장 자동 추가.
+ *
+ * "끝부분에 다닥다닥" 사고 방지: 곧 다음 소제목/열거 이미지가 나올 자리면
+ * 채움 이미지를 박지 않는다.
+ */
+export function ensureBrandBodyFillerImages(content: string): string {
+  if (!content) return content;
+
+  const lines = content.split("\n");
+
+  // 1) "본문 문단" 단위로 변환 — 각 문단의 시작/끝 라인 인덱스
+  const blocks: { kind: "text" | "marker" | "heading" | "hook"; startLine: number; endLine: number }[] = [];
+  let curKind: "text" | null = null;
+  let curStart = -1;
+  for (let i = 0; i < lines.length; i++) {
+    const t = lines[i].trim();
+    if (t === "") {
+      if (curKind === "text") {
+        blocks.push({ kind: "text", startLine: curStart, endLine: i - 1 });
+        curKind = null;
+        curStart = -1;
+      }
+      continue;
+    }
+    if (MARKER_RE.test(t)) {
+      if (curKind === "text") {
+        blocks.push({ kind: "text", startLine: curStart, endLine: i - 1 });
+        curKind = null;
+        curStart = -1;
+      }
+      blocks.push({ kind: "marker", startLine: i, endLine: i });
+      continue;
+    }
+    if (/^#{1,6}(\{[^}]+\})?\s+/.test(t)) {
+      if (curKind === "text") {
+        blocks.push({ kind: "text", startLine: curStart, endLine: i - 1 });
+        curKind = null;
+        curStart = -1;
+      }
+      blocks.push({ kind: "heading", startLine: i, endLine: i });
+      continue;
+    }
+    if (/^<\/?HOOK>/i.test(t)) {
+      if (curKind === "text") {
+        blocks.push({ kind: "text", startLine: curStart, endLine: i - 1 });
+        curKind = null;
+        curStart = -1;
+      }
+      blocks.push({ kind: "hook", startLine: i, endLine: i });
+      continue;
+    }
+    // 본문 텍스트
+    if (curKind !== "text") {
+      curKind = "text";
+      curStart = i;
+    }
+  }
+  if (curKind === "text") {
+    blocks.push({ kind: "text", startLine: curStart, endLine: lines.length - 1 });
+  }
+
+  // 2) 마커 사이 텍스트 문단 갭을 분석
+  // 마커 위치 인덱스(blocks 안의)
+  const markerBlockIdx: number[] = [];
+  for (let i = 0; i < blocks.length; i++) {
+    if (blocks[i].kind === "marker") markerBlockIdx.push(i);
+  }
+  if (markerBlockIdx.length === 0) return content; // 마커가 하나도 없으면 채움 의미 없음
+
+  // 각 마커 사이 (또는 마지막 마커 → 문서 끝) 텍스트 문단 수와 그 위치 수집
+  const insertAfterLine: { line: number; description: string }[] = [];
+
+  for (let m = 0; m < markerBlockIdx.length; m++) {
+    const startBlock = markerBlockIdx[m];
+    const endBlock = m + 1 < markerBlockIdx.length ? markerBlockIdx[m + 1] : blocks.length;
+
+    // 갭 사이에 있는 텍스트 문단들만 추출
+    const textBlocks = blocks.slice(startBlock + 1, endBlock).filter((b) => b.kind === "text");
+    if (textBlocks.length < 5) continue; // 3 + 2 = 최소 5문단 필요
+
+    // 3번째 문단 끝 다음에 삽입 (그러면 left=3, right=textBlocks.length-3 ≥ 2)
+    const target = textBlocks[2];
+    const previewLine = lines[target.startLine].trim();
+    const description = `${previewLine.slice(0, 60)} 관련 장면, 자연광 실내, 한국인 피사체, 실사 DSLR 사진`;
+    insertAfterLine.push({ line: target.endLine, description });
+  }
+
+  if (insertAfterLine.length === 0) return content;
+
+  // 역순으로 라인 삽입 (인덱스 안 깨짐)
+  const result = [...lines];
+  for (let k = insertAfterLine.length - 1; k >= 0; k--) {
+    const { line, description } = insertAfterLine[k];
+    result.splice(line + 1, 0, "", `[이미지: ${description}]`, "");
+  }
+
+  return result.join("\n");
+}
+
 /**
  * 주어진 마커의 ±500자 본문 맥락을 추출한다 (image prompt용).
  */
