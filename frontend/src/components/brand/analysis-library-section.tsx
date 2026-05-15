@@ -122,7 +122,7 @@ export function AnalysisLibrarySection({
       ) : userRecords.length === 0 ? (
         <Card className="p-6 text-center border-dashed">
           <p className="text-sm text-muted-foreground">
-            아직 추가한 분석이 없어요. [직접 레퍼런스]로 새 분석을 만들어보세요.
+            아직 추가한 분석이 없어요. [내 템플릿 만들기]로 새 분석을 만들어보세요.
           </p>
         </Card>
       ) : (

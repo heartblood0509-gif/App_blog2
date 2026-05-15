@@ -101,39 +101,43 @@ export interface BrandProfile {
 // 템플릿
 // ─────────────────────────────────────────────
 
-/** 4개 템플릿 ID */
+/** 5개 템플릿 ID — "custom"은 "내 템플릿 만들기" (사용자가 직접 가진 글의 톤·구조로 생성) */
 export type BrandTemplateId =
   | "intro" // 소개글
   | "info" // 정보성글
   | "value-proof" // 가치입증글
-  | "detail"; // 상세페이지글 (UI에서 비활성)
+  | "detail" // 상세페이지글
+  | "custom"; // 내 템플릿 만들기 — 4개 톤 통합 진입점
 
-/** 정보성글 변형 — info-1~4는 코드 보존용(UI 미노출), info-5/custom/structure-based가 활성 */
+/** 정보성글 변형 — info-1~4는 코드 보존용(UI 미노출), info-5/structure-based가 활성 */
 export type BrandInfoVariantId =
   | "info-1"
   | "info-2"
   | "info-3"
   | "info-4"
   | "info-5"
-  | "info-custom"
   | "info-structure-based";
 
-/** 소개글 변형 — 보관함 카드 기반 + 직접 레퍼런스 */
-export type BrandIntroVariantId =
-  | "intro-structure-based"
-  | "intro-custom";
+/** 소개글 변형 — 보관함 카드 기반만 */
+export type BrandIntroVariantId = "intro-structure-based";
 
-/** 가치입증글 변형 — 보관함 카드 기반 + 직접 레퍼런스 */
-export type BrandValueProofVariantId =
-  | "value-proof-structure-based"
-  | "value-proof-custom";
+/** 가치입증글 변형 — 보관함 카드 기반만 */
+export type BrandValueProofVariantId = "value-proof-structure-based";
 
-/** 상세페이지글 변형 — 보관함 카드 기반 + 직접 레퍼런스 */
-export type BrandDetailVariantId =
-  | "detail-structure-based"
-  | "detail-custom";
+/** 상세페이지글 변형 — 보관함 카드 기반만 */
+export type BrandDetailVariantId = "detail-structure-based";
 
-/** 분석 레코드가 속한 템플릿 범위 — 보관함 필터링 키 */
+/**
+ * "내 템플릿 만들기"에서 사용자가 고르는 브랜드 노출 모드.
+ *
+ * - "branded": 1인칭 대표 + 자사 노출 (구 intro/value-proof/detail-custom 톤)
+ * - "anonymous": 익명 전문가 + 브랜드 비노출 (구 info-custom 톤)
+ *
+ * 기존 4개 *-custom 빌더의 톤 차이를 1개 토글로 통합.
+ */
+export type BrandCustomReferenceMode = "branded" | "anonymous";
+
+/** 분석 레코드가 속한 템플릿 범위 — 보관함 메타데이터 (현재 필터링에는 미사용, 호환을 위해 보존) */
 export type TemplateScope = "intro" | "info" | "value-proof" | "detail";
 
 // ─────────────────────────────────────────────

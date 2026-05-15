@@ -252,6 +252,14 @@ export interface WizardState {
   /** structure-based 모드 (4개 템플릿 공통) — 보관함에서 선택된 분석 레코드 ID */
   selectedAnalysisRecordId: string | null;
 
+  /**
+   * "내 템플릿 만들기" 전용 — 브랜드 노출 모드.
+   * - "branded": 1인칭 대표 + 자사 노출 (기본값)
+   * - "anonymous": 익명 전문가 + 브랜드 비노출 (정보성글 톤)
+   * selectedBrandTemplate === "custom"일 때만 의미.
+   */
+  brandCustomReferenceMode: import("./brand").BrandCustomReferenceMode;
+
   // Step 2 AEO 분기 (postCategory === "aeo"일 때만 의미)
   /** 선택된 AEO 프로필 ID (예: "aeo1") */
   selectedAeoProfileId: string | null;
