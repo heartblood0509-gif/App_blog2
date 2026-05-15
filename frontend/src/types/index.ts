@@ -300,6 +300,10 @@ export interface WizardState {
   // 현재 단계
   currentStep: number;
 
+  // 한 번이라도 도달했던 가장 높은 단계 — 스테퍼 점프 허용 범위.
+  // Why: 글 생성 실패로 강제 되돌림되어도 사용자가 갔던 곳까지는 자유 이동 권한 유지.
+  maxVisitedStep: number;
+
   // 레퍼런스 분석 결과
   referenceAnalysis: string;
 
