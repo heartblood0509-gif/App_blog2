@@ -1883,7 +1883,19 @@ export default function Home() {
                   <button
                     type="button"
                     disabled={!isJumpable}
-                    onClick={() => updateState({ currentStep: index })}
+                    onClick={() => {
+                      updateState({ currentStep: index });
+                      // 점프로 단계 이동 시에도 handleNext와 동일한 자동 fetch 트리거 적용.
+                      // 블로그 채널에서만, 비어 있을 때만 호출.
+                      if (state.channel === "blog") {
+                        if (index === 3 && state.titleSuggestions.length === 0) {
+                          fetchTitles().catch(() => {});
+                        }
+                        if (index === 4 && state.generatedContent === "") {
+                          fetchContent().catch(() => {});
+                        }
+                      }
+                    }}
                     aria-label={`${step.label} 단계로 이동`}
                     aria-current={isActive ? "step" : undefined}
                     className={`flex flex-col items-center gap-2 rounded-lg p-1 transition-all ${
