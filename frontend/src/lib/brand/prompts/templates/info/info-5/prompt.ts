@@ -2,21 +2,14 @@
  * 정보성글 변형 5 — 함정 폭로형.
  *
  * 빌런: 비양심·미끼형 업체, 사기성 광고
- * 톤: 분노+공감으로 시작 → 익명 전문가 권위 → 정보 정리로 마무리
- *
- * 정보성글 정책 (info 전체 공통):
- *   - 본문/제목에 회사명·인물명·시그니처 노출 0
- *   - 브랜드 프로필 직접 주입 X. 대신 distill로 추출한 정보 명제(propositions) 사용
- *   - 화자는 익명 업계 전문가
+ * 톤: 분노+공감으로 시작 → 전문가 권위 → 부드러운 CTA로 마무리
+ * 핵심 무기: 피해 사례 인용 + 타겟 필터링 + 자기 고백 + 주의사항 N가지 + 객관 입장
  */
-import type { BrandProfile, BrandProposition } from "@/types/brand";
-import { buildAnonymousExpertNarrator } from "../../../narrator";
+import type { BrandProfile } from "@/types/brand";
+import { buildBrandContext } from "../../../brand-context";
+import { buildNarratorRule } from "../../../narrator";
 import { buildToneRule } from "../../../tone-extractor";
-import {
-  buildSharedRulesForInfo,
-  buildTopicSection,
-  buildPropositionsBlock,
-} from "../../../shared";
+import { buildSharedRules, buildTopicSection } from "../../../shared";
 import { INFO_5_REFERENCE } from "./reference";
 
 // INFO_5_REFERENCE 는 톤 통계 추출(buildToneRule) 입력으로만 사용한다.
@@ -30,8 +23,6 @@ interface BuildInfo5PromptOptions {
   selectedTitle: string;
   charCount: { min: number; max: number };
   requirements?: string;
-  /** distill API에서 추출한 정보 명제. 정보성글에서는 필수 */
-  propositions?: BrandProposition[];
 }
 
 const INFO_5_SKELETON = `[글 골격 — 정보성글 (함정 폭로형)]
@@ -46,23 +37,27 @@ const INFO_5_SKELETON = `[글 골격 — 정보성글 (함정 폭로형)]
    · 특정 조건(예산·상황) 충족하는 독자만 남김 — 글의 가치 상승 효과
    · 읽지 말라고 말하면서 오히려 읽고 싶게 만드는 역설 활용
 
-3. 전문가 시각의 분석 (자기 고백 X, 사명감 X)
-   · "현장에 있어보면 알 수 있는 사실들" 류 익명 전문가 톤
-   · 빌런(미끼형 업체)이 어떻게 함정을 만드는지 메커니즘 설명
-   · 도메인의 일반 구조·관행을 분석하듯 풀어냄
-   · 자기 회사·자기 이름·자기 회사 일화를 본문에 노출 X (개인 일화는 익명 전문가의 일반화된 경험으로 환원)
+3. 자기 고백 + 사명감
+   · 작가가 과거 비슷한 좌절을 겪은 일화 공유 (전문가 진정성)
+   · 비양심 업체 때문에 분노했던 경험
+   · "피해자에게 알려야겠다" 사명감으로 글 작성 동기 명시
 
 4. 주의사항 N가지 (본론 — 반드시 인용구 소제목)
    · "목숨걸고 조심해야 할 N가지" 류 강력한 메인 소제목 (##{postit})
    · 첫째/둘째/셋째 식 인라인 번호로 N가지 풀어냄
-   · 각 항목마다 구체 수치·일화·비유 활용 (단, 자사 일화 X — 일반 시장 사례·도메인 관행으로)
+   · 각 항목마다 구체 수치·일화·비유 활용
    · 셋째 같은 큰 항목 안에 추가 인용구 소제목으로 세분화 가능
    · 단정형 어미 + 시각적 강조(절.대.로, 비.양.심. 등 단어 사이 마침표)
 
-5. 정보 정리 — 마무리
-   · 앞서 풀어낸 주의사항·메커니즘을 한 번 더 짧게 정리
-   · "정보가 도움이 되셨길 바랍니다" 류 정중한 닫음
-   · 회사명·브랜드명·CTA 노출 X. 정보 제공으로 깔끔하게 마무리
+5. 객관 입장 — 상업성 유보
+   · "꼭 저희한테 맡기란 말 아닙니다" 류 겸손 한 마디
+   · "폭로가 된 글" 같은 자기 성찰 표현
+   · 우리 업체가 누구인지는 일부러 마지막까지 밝히지 않음
+
+6. 부드러운 CTA — 마무리
+   · "도움이 되셨다면 필요하신 분들만 문의해주세요" 류 부드러운 초대
+   · 브랜드명은 글 마지막 1~2문장에서만 노출 (글의 ~95% 지점)
+   · 광고 직접 표현 금지 — "감사" 톤으로 닫음
 
 [톤·말투 힌트]
 - 95% 구어체 ("~하실껍니다", "~이겠죠?", "~말입니다")
@@ -78,19 +73,12 @@ const INFO_5_SKELETON = `[글 골격 — 정보성글 (함정 폭로형)]
 이미지 마커는 큰 섹션 전환 지점에 5~7개 배치.`;
 
 export function buildInfo5Prompt(opts: BuildInfo5PromptOptions): string {
-  const { mainKeyword, subKeywords, topic, selectedTitle, charCount, requirements, propositions } = opts;
-
-  if (!propositions || propositions.length === 0) {
-    throw new Error(
-      "정보성글 본문 생성에는 propositions가 필요합니다. distill API를 먼저 호출하세요."
-    );
-  }
+  const { profile, mainKeyword, subKeywords, topic, selectedTitle, charCount, requirements } = opts;
 
   const sections: string[] = [];
 
-  sections.push(`당신은 한국어 [정보성글]을 쓰는 전문 에디터입니다.
-이 글은 일반 정보 제공이 목적이며, 특정 회사·인물을 알리는 글이 절대 아닙니다.
-아래 모든 정보를 종합해서 마크다운 본문 한 편을 작성하세요.`);
+  sections.push(`당신은 한국어 브랜드 블로그를 쓰는 전문 에디터입니다.
+아래 모든 정보를 종합해서 [정보성글] 한 편을 마크다운으로 작성하세요.`);
 
   const charCountLine =
     charCount.min > 0 && charCount.max > 0
@@ -106,19 +94,12 @@ export function buildInfo5Prompt(opts: BuildInfo5PromptOptions): string {
     sections.push(`[추가 요구사항]\n${requirements.trim()}`);
   }
 
-  // 정보 명제 — 브랜드 프로필 대신 이걸 본문 재료로
-  sections.push(buildPropositionsBlock(propositions));
-
-  // 화자는 익명 전문가 (회사·이름 식별 단서 0)
-  sections.push(buildAnonymousExpertNarrator());
-
-  // 톤은 견본 글에서 추출 (브랜드 의존 X)
+  sections.push(buildBrandContext(profile));
+  sections.push(buildNarratorRule(profile, "info"));
   sections.push(buildToneRule(INFO_5_REFERENCE));
 
   sections.push(INFO_5_SKELETON);
-
-  // 정보성글 전용 공통 규칙 (BRAND_ZERO_EXPOSURE_RULES 포함, BRAND_ASSET_USAGE_RULES 제외)
-  sections.push(buildSharedRulesForInfo());
+  sections.push(buildSharedRules());
 
   sections.push(`[출력 — 마크다운 본문만, 설명·코드블록 마커 X]`);
 
