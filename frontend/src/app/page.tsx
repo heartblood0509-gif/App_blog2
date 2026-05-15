@@ -150,6 +150,8 @@ const initialState: WizardState = {
   aeoSources: [],
   selectedAnalysisRecordId: null,
   brandCustomReferenceMode: "branded",
+  brandPropositions: null,
+  brandPropositionsCacheKey: null,
   topic: "",
   mainKeyword: "",
   subKeywords: "",
