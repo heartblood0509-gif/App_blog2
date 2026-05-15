@@ -30,7 +30,49 @@ import type {
 import { initialThreadsState } from "@/types";
 import { fetchUserProducts } from "@/lib/products";
 import { buildCustomProductInfo } from "@/lib/prompts/brand-context";
-import { parseImageMarkers, ensureSubtitleCoverage, ensureHookImage, ensureIntroImage, dedupeSubtitleEchoes, stripBrTags } from "@/lib/image/marker-parser";
+import {
+  parseImageMarkers,
+  ensureSubtitleCoverage,
+  ensureHookImage,
+  ensureIntroImage,
+  dedupeSubtitleEchoes,
+  stripBrTags,
+  sanitizeBrandBodyText,
+  ensureBrandEnumerationImages,
+  ensureBrandSubtitleCoverage,
+  ensureBrandIntroImage,
+  ensureBrandBodyFillerImages,
+  pruneEmptyIntroHook,
+} from "@/lib/image/marker-parser";
+
+/**
+ * 후처리 파이프라인 — postCategory 별로 다른 규칙 적용.
+ * - brand: 브랜드 전용 5단계 (살균 → HOOK → 중복제거 → 열거 → 소제목 → 도입부 → 채움)
+ * - review/aeo: 기존 4단계 (HOOK → 중복제거 → 도입부 → 소제목)
+ */
+function applyImagePostProcessing(
+  raw: string,
+  postCategory: PostCategory | null,
+  selectedTitle: string,
+  mainKeyword: string,
+): string {
+  const cleaned = stripBrTags(raw);
+  if (postCategory === "brand") {
+    const sanitized = sanitizeBrandBodyText(cleaned);
+    const hooked = ensureHookImage(sanitized, selectedTitle, mainKeyword);
+    const deduped = dedupeSubtitleEchoes(hooked);
+    const enumerated = ensureBrandEnumerationImages(deduped);
+    const subtitled = ensureBrandSubtitleCoverage(enumerated);
+    const introCovered = ensureBrandIntroImage(subtitled, mainKeyword);
+    const filled = ensureBrandBodyFillerImages(introCovered);
+    return pruneEmptyIntroHook(filled);
+  }
+  const hooked = ensureHookImage(cleaned, selectedTitle, mainKeyword);
+  const deduped = dedupeSubtitleEchoes(hooked);
+  const introCovered = ensureIntroImage(deduped, mainKeyword);
+  const subtitled = ensureSubtitleCoverage(introCovered);
+  return pruneEmptyIntroHook(subtitled);
+}
 
 import { StepChannelSelect } from "@/components/steps/step-channel-select";
 import { StepNarrative } from "@/components/steps/step-narrative";
@@ -107,6 +149,7 @@ const initialState: WizardState = {
   aeoTargetQueries: [],
   aeoSources: [],
   selectedAnalysisRecordId: null,
+  brandCustomReferenceMode: "branded",
   topic: "",
   mainKeyword: "",
   subKeywords: "",
@@ -126,6 +169,7 @@ const initialState: WizardState = {
   isImageGenerating: false,
   customPromptsBySlot: {},
   currentStep: 0,
+  maxVisitedStep: 0,
   referenceAnalysis: "",
   referenceExcerpts: [],
   referenceText: "",
@@ -199,16 +243,13 @@ export default function Home() {
   useEffect(() => {
     const rawContent = state.generatedContent;
 
-    // 0) <br> 태그를 줄바꿈으로 치환 (미리보기와 발행물 표시 일치)
-    // 1) 최상단 후킹 이미지 보장 (본문 맨 첫 줄에 마커 없으면 자동 주입)
-    // 2) 소제목 직전 중복 일반 문장 제거 (네이버에서 인용구+텍스트 이중 노출 방지)
-    // 3) 도입부 이미지 보장 (HOOK~첫 소제목 사이 본문이 길면 마커 자동 주입)
-    // 4) 소제목 커버리지 보장 (누락된 곳에 마커 자동 주입)
-    const cleanedContent = stripBrTags(rawContent);
-    const hookedContent = ensureHookImage(cleanedContent, state.selectedTitle, getEffectiveMainKeyword(state));
-    const dedupedContent = dedupeSubtitleEchoes(hookedContent);
-    const introCoveredContent = ensureIntroImage(dedupedContent, getEffectiveMainKeyword(state));
-    const coveredContent = ensureSubtitleCoverage(introCoveredContent);
+    // 후처리 — postCategory 별로 다른 파이프라인 (applyImagePostProcessing 참조)
+    const coveredContent = applyImagePostProcessing(
+      rawContent,
+      state.postCategory,
+      state.selectedTitle,
+      getEffectiveMainKeyword(state),
+    );
 
     // 처리 완료된 결과와 비교 — 원본이 같아도 아직 후킹/소제목 주입이 안 된 상태면 진행
     if (coveredContent === prevContentRef.current) return;
@@ -305,21 +346,18 @@ export default function Home() {
           if (urlRequired && state.referenceAnalysis.trim().length === 0) return false;
         }
         if (state.postCategory === "brand") {
-          // 브랜드 프로필 + 템플릿 선택 필수. 정보성글/소개글/가치입증글이면 변형도 선택.
+          // 브랜드 프로필 + 템플릿 선택 필수. intro/info/value-proof/detail이면 variant도 선택.
           if (!state.selectedBrandProfileId) return false;
           if (!state.selectedBrandTemplate) return false;
           if (state.selectedBrandTemplate === "info" && !state.selectedBrandInfoVariant) return false;
           if (state.selectedBrandTemplate === "intro" && !state.selectedBrandIntroVariant) return false;
           if (state.selectedBrandTemplate === "value-proof" && !state.selectedBrandValueProofVariant) return false;
           if (state.selectedBrandTemplate === "detail" && !state.selectedBrandDetailVariant) return false;
-          // custom 모드 (4개 템플릿 공통): 견본 글 분석 결과 필수
-          if (
-            state.selectedBrandInfoVariant === "info-custom" ||
-            state.selectedBrandIntroVariant === "intro-custom" ||
-            state.selectedBrandValueProofVariant === "value-proof-custom" ||
-            state.selectedBrandDetailVariant === "detail-custom"
-          ) {
-            if (state.referenceAnalysis.trim().length === 0) return false;
+          // "내 템플릿 만들기" — 견본 글 분석 결과 또는 보관함 선택 중 하나는 필수
+          if (state.selectedBrandTemplate === "custom") {
+            const hasAnalysis = state.referenceAnalysis.trim().length > 0;
+            const hasLibrary = !!state.selectedAnalysisRecordId;
+            if (!hasAnalysis && !hasLibrary) return false;
           }
           // structure-based 모드 (4개 템플릿 공통): 보관함에서 분석 선택 필수
           if (
@@ -404,6 +442,12 @@ export default function Home() {
             return "가치입증글 변형을 선택해주세요";
           if (state.selectedBrandTemplate === "detail" && !state.selectedBrandDetailVariant)
             return "상세페이지글 변형을 선택해주세요";
+          if (state.selectedBrandTemplate === "custom") {
+            const hasAnalysis = state.referenceAnalysis.trim().length > 0;
+            const hasLibrary = !!state.selectedAnalysisRecordId;
+            if (!hasAnalysis && !hasLibrary)
+              return "견본 글을 분석하거나 보관함에서 분석을 선택해주세요";
+          }
           if (
             (state.selectedBrandInfoVariant === "info-structure-based" ||
               state.selectedBrandIntroVariant === "intro-structure-based" ||
@@ -525,21 +569,23 @@ export default function Home() {
         if (!profile) {
           throw new Error("브랜드 프로필을 불러오지 못했습니다.");
         }
-        // info-custom(직접 레퍼런스) 모드: 보관함 카드가 아니라 referenceTitleFormula로 임시 객체 합성.
+        // "내 템플릿 만들기"(custom) 모드: 사용자 입력 분석을 referenceTitleFormula로 임시 객체 합성.
         // structure-based 모드: 보관함 카드 ID 전송 (백엔드에서 fetch).
-        const isInfoCustom =
-          state.selectedBrandInfoVariant === "info-custom" &&
-          state.referenceTitleFormula !== null;
+        const isCustomReference =
+          state.selectedBrandTemplate === "custom" &&
+          state.referenceTitleFormula !== null &&
+          !state.selectedAnalysisRecordId;
         const isStructureBased =
           state.selectedBrandInfoVariant === "info-structure-based" ||
           state.selectedBrandIntroVariant === "intro-structure-based" ||
           state.selectedBrandValueProofVariant === "value-proof-structure-based" ||
-          state.selectedBrandDetailVariant === "detail-structure-based";
+          state.selectedBrandDetailVariant === "detail-structure-based" ||
+          (state.selectedBrandTemplate === "custom" && !!state.selectedAnalysisRecordId);
 
-        const customAnalysisRecord = isInfoCustom
+        const customAnalysisRecord = isCustomReference
           ? {
               id: "direct-reference",
-              label: "직접 레퍼런스",
+              label: "내 템플릿",
               sourceType: "user" as const,
               analysis: state.referenceAnalysis || "",
               flow: [],
@@ -793,6 +839,16 @@ export default function Home() {
         if (!profile) {
           throw new Error("브랜드 프로필을 불러오지 못했습니다.");
         }
+        // "내 템플릿 만들기" — 사용자가 직접 분석한 글이 있으면 referenceText/Analysis 전송,
+        // 보관함에서 선택한 카드가 있으면 analysisRecordId 전송 (structure-based와 동일 경로).
+        const isCustomTemplate = state.selectedBrandTemplate === "custom";
+        const isCustomDirectInput = isCustomTemplate && !state.selectedAnalysisRecordId;
+        const isCustomLibrary = isCustomTemplate && !!state.selectedAnalysisRecordId;
+        const isStructureBasedVariant =
+          state.selectedBrandInfoVariant === "info-structure-based" ||
+          state.selectedBrandIntroVariant === "intro-structure-based" ||
+          state.selectedBrandValueProofVariant === "value-proof-structure-based" ||
+          state.selectedBrandDetailVariant === "detail-structure-based";
         res = await fetch("/api/brand/generate", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -809,35 +865,20 @@ export default function Home() {
             requirements: state.requirements || undefined,
             charCount: state.charCountRange,
             selectedTitle: state.selectedTitle,
-            // custom 모드 — 사용자 견본 글 + 분석 결과 동적 주입 (4개 템플릿 공통)
-            referenceText:
-              state.selectedBrandInfoVariant === "info-custom" ||
-              state.selectedBrandIntroVariant === "intro-custom" ||
-              state.selectedBrandValueProofVariant === "value-proof-custom" ||
-              state.selectedBrandDetailVariant === "detail-custom"
-                ? state.referenceText || undefined
-                : undefined,
-            referenceAnalysis:
-              state.selectedBrandInfoVariant === "info-custom" ||
-              state.selectedBrandIntroVariant === "intro-custom" ||
-              state.selectedBrandValueProofVariant === "value-proof-custom" ||
-              state.selectedBrandDetailVariant === "detail-custom"
-                ? state.referenceAnalysis || undefined
-                : undefined,
+            // "내 템플릿 만들기" 전용 — 브랜드 노출 모드 토글
+            referenceMode: isCustomTemplate ? state.brandCustomReferenceMode : undefined,
+            // 사용자 직접 입력 견본 글 + 분석 결과 (custom 템플릿에서 보관함 선택 안 했을 때)
+            referenceText: isCustomDirectInput ? state.referenceText || undefined : undefined,
+            referenceAnalysis: isCustomDirectInput
+              ? state.referenceAnalysis || undefined
+              : undefined,
             referenceExcerpts:
-              (state.selectedBrandInfoVariant === "info-custom" ||
-                state.selectedBrandIntroVariant === "intro-custom" ||
-                state.selectedBrandValueProofVariant === "value-proof-custom" ||
-                state.selectedBrandDetailVariant === "detail-custom") &&
-              state.referenceExcerpts.length > 0
+              isCustomDirectInput && state.referenceExcerpts.length > 0
                 ? state.referenceExcerpts
                 : undefined,
-            // structure-based 모드 — 보관함 분석 ID (4개 템플릿 공통)
+            // 보관함 분석 ID — structure-based 변형 또는 custom 템플릿에서 보관함 선택 시
             analysisRecordId:
-              state.selectedBrandInfoVariant === "info-structure-based" ||
-              state.selectedBrandIntroVariant === "intro-structure-based" ||
-              state.selectedBrandValueProofVariant === "value-proof-structure-based" ||
-              state.selectedBrandDetailVariant === "detail-structure-based"
+              isStructureBasedVariant || isCustomLibrary
                 ? state.selectedAnalysisRecordId || undefined
                 : undefined,
           }),
@@ -919,14 +960,12 @@ export default function Home() {
       // reader의 마지막 updateState가 React에 커밋될 기회 부여 (race 방어)
       await Promise.resolve();
 
-      // 스트리밍 완료 직후 <br> 정화 → 후킹 → 중복 제거 → 도입부 안전망 → 소제목 커버리지
-      const finalized = ensureSubtitleCoverage(
-        ensureIntroImage(
-          dedupeSubtitleEchoes(
-            ensureHookImage(stripBrTags(content), state.selectedTitle, getEffectiveMainKeyword(state))
-          ),
-          getEffectiveMainKeyword(state)
-        )
+      // 스트리밍 완료 직후 후처리 (applyImagePostProcessing — postCategory 별 분기)
+      const finalized = applyImagePostProcessing(
+        content,
+        state.postCategory,
+        state.selectedTitle,
+        getEffectiveMainKeyword(state),
       );
       if (finalized !== content) {
         content = finalized;
@@ -1071,14 +1110,12 @@ export default function Home() {
       // reader의 마지막 updateState가 커밋될 기회 부여 (race 방어)
       await Promise.resolve();
 
-      // 품질 수정 완료 직후 <br> 정화 → 후킹 → 중복 제거 → 도입부 안전망 → 소제목 커버리지
-      const finalizedFix = ensureSubtitleCoverage(
-        ensureIntroImage(
-          dedupeSubtitleEchoes(
-            ensureHookImage(stripBrTags(fixed), state.selectedTitle, getEffectiveMainKeyword(state))
-          ),
-          getEffectiveMainKeyword(state)
-        )
+      // 품질 수정 완료 직후 후처리 (applyImagePostProcessing — postCategory 별 분기)
+      const finalizedFix = applyImagePostProcessing(
+        fixed,
+        state.postCategory,
+        state.selectedTitle,
+        getEffectiveMainKeyword(state),
       );
       if (finalizedFix !== fixed) {
         fixed = finalizedFix;
@@ -1424,7 +1461,10 @@ export default function Home() {
     }
     bypassSourceWarningRef.current = false;
 
-    updateState({ currentStep: nextStep });
+    updateState({
+      currentStep: nextStep,
+      maxVisitedStep: Math.max(state.maxVisitedStep, nextStep),
+    });
 
     // 자동 fetch는 블로그 채널에만 적용 (쓰레드는 사용자가 명시적으로 버튼을 눌러야 함)
     if (state.channel === "blog") {
@@ -1468,6 +1508,7 @@ export default function Home() {
         updateState({
           channel,
           currentStep: 0,
+          maxVisitedStep: 0,
           threads: initialThreadsState,
           selectedProducts: [],
           postCategory: null,
@@ -1515,7 +1556,10 @@ export default function Home() {
 
   const handleBrandTemplateChange = useCallback(
     (template: import("@/types/brand").BrandTemplateId) => {
-      // 템플릿이 바뀌면 변형 선택과 보관함 선택은 초기화 — 사용자가 명시적으로 다시 골라야 함
+      // 템플릿이 바뀌면 변형 선택과 보관함 선택은 초기화 — 사용자가 명시적으로 다시 골라야 함.
+      // "custom"으로 진입할 때는 referenceUrl/Text/Analysis 그대로 유지 (재진입 편의).
+      // 다른 템플릿으로 이동 시에는 견본 입력은 비움.
+      const isCustomEntry = template === "custom";
       updateState({
         selectedBrandTemplate: template,
         selectedBrandInfoVariant: null,
@@ -1523,6 +1567,7 @@ export default function Home() {
         selectedBrandValueProofVariant: null,
         selectedBrandDetailVariant: null,
         selectedAnalysisRecordId: null,
+        ...(isCustomEntry ? {} : { referenceUrl: "", referenceText: "", referenceAnalysis: "" }),
       });
     },
     [updateState]
@@ -1530,13 +1575,12 @@ export default function Home() {
 
   const handleBrandIntroVariantChange = useCallback(
     (variant: import("@/types/brand").BrandIntroVariantId) => {
-      const isCustom = variant === "intro-custom";
       const isLibrary = variant === "intro-structure-based";
       updateState({
         selectedBrandIntroVariant: variant,
-        ...(isCustom
-          ? {}
-          : { referenceUrl: "", referenceText: "", referenceAnalysis: "" }),
+        referenceUrl: "",
+        referenceText: "",
+        referenceAnalysis: "",
         ...(isLibrary ? {} : { selectedAnalysisRecordId: null }),
       });
     },
@@ -1545,13 +1589,12 @@ export default function Home() {
 
   const handleBrandValueProofVariantChange = useCallback(
     (variant: import("@/types/brand").BrandValueProofVariantId) => {
-      const isCustom = variant === "value-proof-custom";
       const isLibrary = variant === "value-proof-structure-based";
       updateState({
         selectedBrandValueProofVariant: variant,
-        ...(isCustom
-          ? {}
-          : { referenceUrl: "", referenceText: "", referenceAnalysis: "" }),
+        referenceUrl: "",
+        referenceText: "",
+        referenceAnalysis: "",
         ...(isLibrary ? {} : { selectedAnalysisRecordId: null }),
       });
     },
@@ -1560,13 +1603,12 @@ export default function Home() {
 
   const handleBrandDetailVariantChange = useCallback(
     (variant: import("@/types/brand").BrandDetailVariantId) => {
-      const isCustom = variant === "detail-custom";
       const isLibrary = variant === "detail-structure-based";
       updateState({
         selectedBrandDetailVariant: variant,
-        ...(isCustom
-          ? {}
-          : { referenceUrl: "", referenceText: "", referenceAnalysis: "" }),
+        referenceUrl: "",
+        referenceText: "",
+        referenceAnalysis: "",
         ...(isLibrary ? {} : { selectedAnalysisRecordId: null }),
       });
     },
@@ -1575,14 +1617,12 @@ export default function Home() {
 
   const handleBrandInfoVariantChange = useCallback(
     (variant: import("@/types/brand").BrandInfoVariantId) => {
-      // 변형마다 사용하는 잔여 상태가 달라 진입/이탈 시 정리
-      const isCustom = variant === "info-custom";
       const isLibrary = variant === "info-structure-based";
       updateState({
         selectedBrandInfoVariant: variant,
-        ...(isCustom
-          ? {} // 들어올 때는 기존 입력 유지 (재진입 편의)
-          : { referenceUrl: "", referenceText: "", referenceAnalysis: "" }),
+        referenceUrl: "",
+        referenceText: "",
+        referenceAnalysis: "",
         ...(isLibrary
           ? {} // 보관함 모드는 selectedAnalysisRecordId 유지
           : { selectedAnalysisRecordId: null }),
@@ -1593,11 +1633,19 @@ export default function Home() {
 
   const handleAnalysisRecordSelect = useCallback(
     (recordId: string) => {
-      // 카드 1클릭에 variant + recordId 둘 다 결정 (안전망)
+      // "내 템플릿 만들기"에서 보관함 선택 시는 recordId만 설정.
+      // 기존 4개 템플릿의 builtin 카드 클릭은 brand-template-section.tsx 내부에서
+      // 해당 variant까지 함께 변경하므로 여기서는 별도 처리 불필요.
       updateState({
         selectedAnalysisRecordId: recordId,
-        selectedBrandInfoVariant: "info-structure-based",
       });
+    },
+    [updateState]
+  );
+
+  const handleBrandCustomReferenceModeChange = useCallback(
+    (mode: import("@/types/brand").BrandCustomReferenceMode) => {
+      updateState({ brandCustomReferenceMode: mode });
     },
     [updateState]
   );
@@ -1783,6 +1831,8 @@ export default function Home() {
             onBrandIntroVariantChange={handleBrandIntroVariantChange}
             onBrandValueProofVariantChange={handleBrandValueProofVariantChange}
             onBrandDetailVariantChange={handleBrandDetailVariantChange}
+            brandCustomReferenceMode={state.brandCustomReferenceMode}
+            onBrandCustomReferenceModeChange={handleBrandCustomReferenceModeChange}
             selectedAeoProfileId={state.selectedAeoProfileId}
             selectedAeoTemplate={state.selectedAeoTemplate}
             onAeoProfileChange={handleAeoProfileChange}
@@ -1809,6 +1859,7 @@ export default function Home() {
         return (
           <StepGenerate
             content={state.generatedContent}
+            title={state.selectedTitle}
             qualityResult={state.qualityResult}
             keyword={getEffectiveMainKeyword(state)}
             isLoading={state.isLoading}
@@ -1870,13 +1921,38 @@ export default function Home() {
               const Icon = step.icon;
               const isActive = index === state.currentStep;
               const isCompleted = index < state.currentStep;
+              const isJumpable =
+                index <= state.maxVisitedStep && index !== state.currentStep;
 
               return (
                 <li
                   key={step.label}
                   className="flex flex-1 items-center last:flex-none"
                 >
-                  <div className="flex flex-col items-center gap-2">
+                  <button
+                    type="button"
+                    disabled={!isJumpable}
+                    onClick={() => {
+                      updateState({ currentStep: index });
+                      // 점프로 단계 이동 시에도 handleNext와 동일한 자동 fetch 트리거 적용.
+                      // 블로그 채널에서만, 비어 있을 때만 호출.
+                      if (state.channel === "blog") {
+                        if (index === 3 && state.titleSuggestions.length === 0) {
+                          fetchTitles().catch(() => {});
+                        }
+                        if (index === 4 && state.generatedContent === "") {
+                          fetchContent().catch(() => {});
+                        }
+                      }
+                    }}
+                    aria-label={`${step.label} 단계로 이동`}
+                    aria-current={isActive ? "step" : undefined}
+                    className={`flex flex-col items-center gap-2 rounded-lg p-1 transition-all ${
+                      isJumpable
+                        ? "cursor-pointer hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50"
+                        : "cursor-default"
+                    }`}
+                  >
                     <div
                       className={`flex h-10 w-10 items-center justify-center rounded-full border-2 transition-all duration-300 ${
                         isCompleted
@@ -1903,7 +1979,7 @@ export default function Home() {
                     >
                       {step.label}
                     </span>
-                  </div>
+                  </button>
                   {index < STEPS.length - 1 && (
                     <div
                       className={`mx-2 mt-[-1.5rem] h-0.5 flex-1 transition-colors duration-300 ${

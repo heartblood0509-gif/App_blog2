@@ -47,9 +47,7 @@ const VALUE_PROOF_SKELETON = `[글 골격 — 가치입증글 (반전 고백 →
 5. 마무리 — 약속
    · "여러분은 그저 X만 즐기시면 됩니다" 류 안심 메시지
    · 주변의 비난을 감수하고도 가는 길에 대한 의지
-   · "[브랜드명]이 끝까지 책임지겠습니다" 류로 닫음
-
-이미지 마커는 큰 섹션 전환 지점에 5~7개 배치.`;
+   · "[브랜드명]이 끝까지 책임지겠습니다" 류로 닫음`;
 
 export function buildValueProofPrompt(opts: BuildValueProofPromptOptions): string {
   const { profile, mainKeyword, subKeywords, topic, selectedTitle, charCount, requirements } = opts;

@@ -68,9 +68,7 @@ const INFO_5_SKELETON = `[글 골격 — 정보성글 (함정 폭로형)]
 [표절 차단 — 절대 위반 금지]
 - 위 6단계 골격은 "흐름·전개 순서"만 가이드한다. 어떤 문장도 그대로 가져다 쓰지 마라.
 - 본문의 산업·지역·사례·인물·금액·고유명사는 모두 사용자 입력 메인 키워드와 브랜드 도메인에 맞춰 새로 창작한다.
-- 위 골격에 등장한 따옴표 안 예시("...")는 패턴 힌트일 뿐이다. 같은 표현을 그대로 쓰지 말고 본문의 도메인에 맞는 새 표현으로 작성한다.
-
-이미지 마커는 큰 섹션 전환 지점에 5~7개 배치.`;
+- 위 골격에 등장한 따옴표 안 예시("...")는 패턴 힌트일 뿐이다. 같은 표현을 그대로 쓰지 말고 본문의 도메인에 맞는 새 표현으로 작성한다.`;
 
 export function buildInfo5Prompt(opts: BuildInfo5PromptOptions): string {
   const { profile, mainKeyword, subKeywords, topic, selectedTitle, charCount, requirements } = opts;

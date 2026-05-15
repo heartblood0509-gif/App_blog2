@@ -38,9 +38,7 @@ const INFO_3_SKELETON = `[글 골격 — 정보성글 (수단 비교: 일반 패
 3. 마무리 — 행동 유도
    · "패키지로 가되, 고생은 하기 싫다" 류 합리적 여행자 호명
    · 한정·선착순 분위기는 자연스럽게 (광고 직접 표현 X)
-   · 화자의 각오로 닫음
-
-이미지 마커는 큰 섹션 전환 지점에 5~7개 배치.`;
+   · 화자의 각오로 닫음`;
 
 export function buildInfo3Prompt(opts: BuildInfo3PromptOptions): string {
   const { profile, mainKeyword, subKeywords, topic, selectedTitle, charCount, requirements } = opts;

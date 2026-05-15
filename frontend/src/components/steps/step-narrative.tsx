@@ -198,6 +198,9 @@ interface StepNarrativeProps {
   onBrandIntroVariantChange: (variant: BrandIntroVariantId) => void;
   onBrandValueProofVariantChange: (variant: BrandValueProofVariantId) => void;
   onBrandDetailVariantChange: (variant: BrandDetailVariantId) => void;
+  /** "내 템플릿 만들기" 전용 — 브랜드 노출 모드 */
+  brandCustomReferenceMode: import("@/types/brand").BrandCustomReferenceMode;
+  onBrandCustomReferenceModeChange: (mode: import("@/types/brand").BrandCustomReferenceMode) => void;
   // AEO 분기 (postCategory === "aeo"일 때 사용)
   selectedAeoProfileId: string | null;
   selectedAeoTemplate: AeoTemplateId | null;
@@ -244,6 +247,8 @@ export function StepNarrative({
   onBrandIntroVariantChange,
   onBrandValueProofVariantChange,
   onBrandDetailVariantChange,
+  brandCustomReferenceMode,
+  onBrandCustomReferenceModeChange,
   selectedAeoProfileId,
   selectedAeoTemplate,
   onAeoProfileChange,
@@ -772,6 +777,8 @@ export function StepNarrative({
                 onReferenceAnalysisChange={onReferenceAnalysisChange}
                 onAnalyzeUrl={onAnalyze}
                 onAnalyzeText={onAnalyzeText}
+                customReferenceMode={brandCustomReferenceMode}
+                onCustomReferenceModeChange={onBrandCustomReferenceModeChange}
                 selectedAnalysisRecordId={selectedAnalysisRecordId}
                 onAnalysisRecordSelect={onAnalysisRecordSelect}
               />

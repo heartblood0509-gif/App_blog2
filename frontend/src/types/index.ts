@@ -252,6 +252,14 @@ export interface WizardState {
   /** structure-based 모드 (4개 템플릿 공통) — 보관함에서 선택된 분석 레코드 ID */
   selectedAnalysisRecordId: string | null;
 
+  /**
+   * "내 템플릿 만들기" 전용 — 브랜드 노출 모드.
+   * - "branded": 1인칭 대표 + 자사 노출 (기본값)
+   * - "anonymous": 익명 전문가 + 브랜드 비노출 (정보성글 톤)
+   * selectedBrandTemplate === "custom"일 때만 의미.
+   */
+  brandCustomReferenceMode: import("./brand").BrandCustomReferenceMode;
+
   // Step 2 AEO 분기 (postCategory === "aeo"일 때만 의미)
   /** 선택된 AEO 프로필 ID (예: "aeo1") */
   selectedAeoProfileId: string | null;
@@ -308,6 +316,10 @@ export interface WizardState {
 
   // 현재 단계
   currentStep: number;
+
+  // 한 번이라도 도달했던 가장 높은 단계 — 스테퍼 점프 허용 범위.
+  // Why: 글 생성 실패로 강제 되돌림되어도 사용자가 갔던 곳까지는 자유 이동 권한 유지.
+  maxVisitedStep: number;
 
   // 레퍼런스 분석 결과
   referenceAnalysis: string;

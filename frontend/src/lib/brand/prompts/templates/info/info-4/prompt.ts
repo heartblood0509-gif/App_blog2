@@ -42,9 +42,7 @@ const INFO_4_SKELETON = `[글 골격 — 정보성글 (가치 비교: 모든 유
    · 브랜드 컨텍스트의 episodes 중 신뢰·여유·휴식 문맥에 맞는 1개를 자연스럽게 활용
    · 강제 X — 글 흐름과 맞을 때만, 같은 표현 반복 금지
    · "여행의 본질은 고생이 아니라 대접" 프레임으로 닫음
-   · 화자의 동행 약속
-
-이미지 마커는 큰 섹션 전환 지점에 5~7개 배치.`;
+   · 화자의 동행 약속`;
 
 export function buildInfo4Prompt(opts: BuildInfo4PromptOptions): string {
   const { profile, mainKeyword, subKeywords, topic, selectedTitle, charCount, requirements } = opts;
