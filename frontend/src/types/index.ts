@@ -262,6 +262,15 @@ export interface WizardState {
   /** 출처·근거 (선택 입력, 비우면 경고 모달) */
   aeoSources: import("./aeo").AeoSource[];
 
+  /**
+   * 정보성글 전용 — distill 결과 캐시.
+   * 브랜드 프로필 → 정보 명제로 추상화한 결과. 같은 (profileId + mainKeyword) 조합이면 재사용.
+   * 정보성글 외 템플릿(intro/value-proof/detail)에서는 항상 null 유지.
+   */
+  brandPropositions: import("./brand").BrandProposition[] | null;
+  /** distill 캐시 키 — `${profileId}:${mainKeyword}`. 변경되면 재호출 */
+  brandPropositionsCacheKey: string | null;
+
   // Step 3: 글 설정
   /** 글 주제 (선택 입력, 양쪽 공용). 비우면 키워드만 보고 AI가 알아서 */
   topic: string;

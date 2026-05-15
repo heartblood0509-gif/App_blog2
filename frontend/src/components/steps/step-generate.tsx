@@ -43,6 +43,7 @@ import { buildTextToImagePrompt } from "@/lib/prompts/image";
 
 interface StepGenerateProps {
   content: string;
+  title?: string;
   qualityResult: QualityResult | null;
   keyword: string;
   isLoading: boolean;
@@ -503,6 +504,7 @@ function SlotCard({
 
 export function StepGenerate({
   content,
+  title,
   qualityResult,
   keyword,
   isLoading,
@@ -668,6 +670,12 @@ export function StepGenerate({
                       <div className="mb-3 flex items-center gap-2 text-xs text-muted-foreground">
                         <Loader2 className="h-3 w-3 animate-spin" />
                         생성 중...
+                      </div>
+                    )}
+                    {title && (
+                      <div className="mb-6">
+                        <h1 className="text-xl font-bold leading-tight">{title}</h1>
+                        <Separator className="mt-4" />
                       </div>
                     )}
                     <BlogContentRenderer
