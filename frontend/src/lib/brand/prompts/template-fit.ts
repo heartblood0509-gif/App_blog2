@@ -50,11 +50,11 @@ const TEMPLATE_INTENTS: Record<string, string> = {
 
 /**
  * 호출 가능한 템플릿인지 (검증 대상인지) 판단.
- * - info-custom: 사용자 레퍼런스 기반이라 스킵
+ * - "내 템플릿 만들기"(custom): 사용자 레퍼런스 기반이라 스킵
  * - 미정의 템플릿: 스킵 (안전 폴백)
  */
 export function shouldRunFitCheck(input: TemplateFitInput): boolean {
-  if (input.template === "info" && input.infoVariantId === "info-custom") {
+  if (input.template === "custom") {
     return false;
   }
   // info 템플릿일 때는 변형 ID로 키 결정

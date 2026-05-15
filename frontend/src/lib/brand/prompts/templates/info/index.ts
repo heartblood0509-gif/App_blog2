@@ -1,23 +1,13 @@
 /**
  * 정보성글 변형 등록부.
  *
- * 새 변형을 추가하려면:
- *   1. info-N/ 폴더 생성 (prompt.ts + reference.ts)
- *   2. 아래 INFO_VARIANTS 배열에 추가
- *   3. types/brand.ts 의 BrandInfoVariantId 유니언에 "info-N" 추가
- *   4. lib/brand/prompts/generation.ts 의 case "info" switch에 분기 추가
- *
- * → UI(BrandTemplateSection)에 자동 노출됨.
- *
- * 메타 구조는 후기성 NARRATIVES (step-narrative.tsx)와 동일:
- *   id / name / description / icon / flow
- *
  * 현재 정책:
  *   - 크루즈 박힘 4타입(info-1~4)은 UI 미노출, 코드는 보존(롤백용 → INFO_VARIANTS_ARCHIVED).
- *   - 활성: info-5(함정 폭로형) + info-custom(직접 레퍼런스).
- *   - 추상 서사 타입은 사용자가 레퍼런스 글 줄 때마다 1개씩 점진 추가.
+ *   - 활성: info-5(함정 폭로형) + 그 외 builtin 4장은 보관함 builtin records로 동적 fetch.
+ *   - "직접 레퍼런스"는 별도 최상위 템플릿 "내 템플릿 만들기"(BrandTemplateId="custom")로 분리됨.
+ *   - 새 정보성 서사 타입은 보관함 builtin record 추가로 처리.
  */
-import { Edit3, Sparkles } from "lucide-react";
+import { Sparkles } from "lucide-react";
 import type { BrandInfoVariantId } from "@/types/brand";
 
 export interface InfoVariantMeta {
@@ -32,23 +22,11 @@ export interface InfoVariantMeta {
   flow: string[];
   /** ⭐ 최종장 뱃지 (info-4 같은 큰그림형) */
   isFinale?: boolean;
-  /** 사용자 입력 레퍼런스 카드 — 클릭 시 입력 영역 노출 */
-  isCustom?: boolean;
   /** 보관함 분석 선택 카드 — 클릭 시 분석 선택 UI 노출 */
   isLibrary?: boolean;
 }
 
-export const INFO_VARIANTS: InfoVariantMeta[] = [
-  {
-    id: "info-custom",
-    name: "직접 레퍼런스",
-    description:
-      "평소 마음에 드는 글 1개를 직접 던지면, 그 글의 톤·구조 그대로 새 글이 작성됩니다. 어떤 브랜드든 사용 가능한 만능 키.",
-    icon: Edit3,
-    flow: ["글 던지기", "구조 분석", "주제 입력", "맞춤 생성"],
-    isCustom: true,
-  },
-];
+export const INFO_VARIANTS: InfoVariantMeta[] = [];
 
 /**
  * 보존(코드 롤백용) — 크루즈 산업 전용 4타입.

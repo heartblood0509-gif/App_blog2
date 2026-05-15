@@ -22,7 +22,7 @@ export interface TemplateFitResult {
   reason: string;
   /** 미스매치일 때만 — 서로 각도가 다른 대체 주제 후보 (최대 3개) */
   suggestions: string[];
-  /** true면 검증을 수행하지 않음 (info-custom 등) */
+  /** true면 검증을 수행하지 않음 ("내 템플릿 만들기" 등) */
   skipped?: boolean;
 }
 
@@ -78,7 +78,7 @@ export async function checkTemplateFit(
   apiKey?: string
 ): Promise<TemplateFitResult> {
   if (!shouldRunFitCheck(input)) {
-    return passThrough("검증 대상 아님 (info-custom 등)");
+    return passThrough("검증 대상 아님 (내 템플릿 만들기 등)");
   }
 
   let raw = "";

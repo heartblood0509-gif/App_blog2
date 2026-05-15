@@ -1,9 +1,9 @@
 /**
  * 상세페이지글 변형 등록부.
  *
- * 정보성글 INFO_VARIANTS와 동일 패턴.
+ * 정적 카드는 현재 없음 — builtin 카드만 동적 fetch.
+ * "직접 레퍼런스"는 별도 최상위 템플릿 "내 템플릿 만들기"(BrandTemplateId="custom")로 분리됨.
  */
-import { Edit3 } from "lucide-react";
 import type { BrandDetailVariantId } from "@/types/brand";
 
 export interface DetailVariantMeta {
@@ -12,18 +12,7 @@ export interface DetailVariantMeta {
   description: string;
   icon: React.ElementType;
   flow: string[];
-  isCustom?: boolean;
   isLibrary?: boolean;
 }
 
-export const DETAIL_VARIANTS: DetailVariantMeta[] = [
-  {
-    id: "detail-custom",
-    name: "직접 레퍼런스",
-    description:
-      "평소 마음에 드는 상세페이지글 1개를 직접 던지면, 그 글의 톤·구조 그대로 새 글이 작성됩니다.",
-    icon: Edit3,
-    flow: ["글 던지기", "구조 분석", "주제 입력", "맞춤 생성"],
-    isCustom: true,
-  },
-];
+export const DETAIL_VARIANTS: DetailVariantMeta[] = [];
