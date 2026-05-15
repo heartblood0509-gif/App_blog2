@@ -1773,6 +1773,7 @@ export default function Home() {
         return (
           <StepGenerate
             content={state.generatedContent}
+            title={state.selectedTitle}
             qualityResult={state.qualityResult}
             keyword={state.mainKeyword}
             isLoading={state.isLoading}
