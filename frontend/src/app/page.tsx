@@ -43,6 +43,32 @@ import { StepThreadsSettings } from "@/components/steps-threads/step-threads-set
 import { StepThreadsGenerate } from "@/components/steps-threads/step-threads-generate";
 import { TemplateFitModal } from "@/components/brand/template-fit-modal";
 import { SourceWarningModal } from "@/components/aeo/source-warning-modal";
+import { EmptyInputsWarningModal } from "@/components/empty-inputs-warning-modal";
+
+// Step 2 (글 설정) 입력 칸 중 하나라도 채워졌는지 검사
+function hasAnyContextInput(state: WizardState): boolean {
+  return (
+    state.mainKeyword.trim().length > 0 ||
+    state.topic.trim().length > 0 ||
+    state.subKeywords.trim().length > 0 ||
+    state.requirements.trim().length > 0 ||
+    state.persona.trim().length > 0
+  );
+}
+
+// 메인 키워드가 비어있으면 다른 칸에서 키워드 후보를 유도해 항상 non-empty 보장.
+// 다운스트림 프롬프트(title.ts, generation.ts, fix.ts, brand/aeo)는 이 값을 받는다.
+function getEffectiveMainKeyword(state: WizardState): string {
+  const mk = state.mainKeyword.trim();
+  if (mk.length > 0) return mk;
+  const subFirst = state.subKeywords.split(",")[0]?.trim();
+  if (subFirst) return subFirst;
+  const topicFirst = state.topic.split("\n")[0]?.trim();
+  if (topicFirst) return topicFirst.split(/\s+/).slice(0, 3).join(" ");
+  const reqFirst = state.requirements.split("\n")[0]?.trim();
+  if (reqFirst) return reqFirst.split(/\s+/).slice(0, 3).join(" ");
+  return "";
+}
 
 const BLOG_STEPS = [
   { label: "채널 선택", icon: Package },
@@ -148,6 +174,9 @@ export default function Home() {
   const [sourceWarningOpen, setSourceWarningOpen] = useState(false);
   const bypassSourceWarningRef = useRef(false);
 
+  // Step 2 (글 설정) — 모든 입력 칸이 비었을 때 [다음] 누르면 안내 모달
+  const [emptyInputsWarningOpen, setEmptyInputsWarningOpen] = useState(false);
+
   const updateState = useCallback((partial: Partial<WizardState>) => {
     setState((prev) => ({ ...prev, ...partial }));
   }, []);
@@ -176,9 +205,9 @@ export default function Home() {
     // 3) 도입부 이미지 보장 (HOOK~첫 소제목 사이 본문이 길면 마커 자동 주입)
     // 4) 소제목 커버리지 보장 (누락된 곳에 마커 자동 주입)
     const cleanedContent = stripBrTags(rawContent);
-    const hookedContent = ensureHookImage(cleanedContent, state.selectedTitle, state.mainKeyword);
+    const hookedContent = ensureHookImage(cleanedContent, state.selectedTitle, getEffectiveMainKeyword(state));
     const dedupedContent = dedupeSubtitleEchoes(hookedContent);
-    const introCoveredContent = ensureIntroImage(dedupedContent, state.mainKeyword);
+    const introCoveredContent = ensureIntroImage(dedupedContent, getEffectiveMainKeyword(state));
     const coveredContent = ensureSubtitleCoverage(introCoveredContent);
 
     // 처리 완료된 결과와 비교 — 원본이 같아도 아직 후킹/소제목 주입이 안 된 상태면 진행
@@ -310,7 +339,7 @@ export default function Home() {
         return true;
       }
       case 2:
-        return state.mainKeyword.trim().length > 0;
+        return hasAnyContextInput(state);
       case 3:
         return state.selectedTitle.trim().length > 0;
       case 4:
@@ -390,7 +419,6 @@ export default function Home() {
         }
         return undefined;
       case 2:
-        if (state.mainKeyword.trim().length === 0) return "메인 키워드를 입력해주세요";
         return undefined;
       default:
         return undefined;
@@ -530,7 +558,7 @@ export default function Home() {
             profile,
             template: state.selectedBrandTemplate,
             infoVariantId: state.selectedBrandInfoVariant,
-            mainKeyword: state.mainKeyword,
+            mainKeyword: getEffectiveMainKeyword(state),
             subKeywords: state.subKeywords || undefined,
             topic: state.topic || undefined,
             count: 5,
@@ -564,7 +592,7 @@ export default function Home() {
           body: JSON.stringify({
             profile,
             template: state.selectedAeoTemplate,
-            mainKeyword: state.mainKeyword,
+            mainKeyword: getEffectiveMainKeyword(state),
             subKeywords: state.subKeywords || undefined,
             topic: state.topic || undefined,
             count: 5,
@@ -590,7 +618,7 @@ export default function Home() {
           products: state.selectedProducts,
           narrativeType: state.narrativeType,
           toneType: state.toneType,
-          mainKeyword: state.mainKeyword,
+          mainKeyword: getEffectiveMainKeyword(state),
           subKeywords: state.subKeywords || undefined,
           persona: state.persona || undefined,
           topic: state.topic || undefined,
@@ -628,7 +656,7 @@ export default function Home() {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             text,
-            keyword: state.mainKeyword,
+            keyword: getEffectiveMainKeyword(state),
             charRange: state.charCountRange,
           }),
         });
@@ -665,7 +693,7 @@ export default function Home() {
             template: state.selectedBrandTemplate,
             infoVariantId: state.selectedBrandInfoVariant,
             topic: effectiveTopic || undefined,
-            mainKeyword: state.mainKeyword,
+            mainKeyword: getEffectiveMainKeyword(state),
             subKeywords: state.subKeywords || undefined,
             selectedTitle: state.selectedTitle || undefined,
           }),
@@ -714,7 +742,7 @@ export default function Home() {
           body: JSON.stringify({
             template: state.selectedAeoTemplate,
             topic: effectiveTopic || undefined,
-            mainKeyword: state.mainKeyword,
+            mainKeyword: getEffectiveMainKeyword(state),
             subKeywords: state.subKeywords || undefined,
             selectedTitle: state.selectedTitle || undefined,
           }),
@@ -775,7 +803,7 @@ export default function Home() {
             introVariantId: state.selectedBrandIntroVariant,
             valueProofVariantId: state.selectedBrandValueProofVariant,
             detailVariantId: state.selectedBrandDetailVariant,
-            mainKeyword: state.mainKeyword,
+            mainKeyword: getEffectiveMainKeyword(state),
             subKeywords: state.subKeywords || undefined,
             topic: effectiveTopic || undefined,
             requirements: state.requirements || undefined,
@@ -825,7 +853,7 @@ export default function Home() {
           body: JSON.stringify({
             profile,
             template: state.selectedAeoTemplate,
-            mainKeyword: state.mainKeyword,
+            mainKeyword: getEffectiveMainKeyword(state),
             subKeywords: state.subKeywords || undefined,
             topic: effectiveTopic || undefined,
             requirements: state.requirements || undefined,
@@ -845,7 +873,7 @@ export default function Home() {
             narrativeType: state.narrativeType,
             toneType: state.toneType,
             toneExample: state.toneExample || undefined,
-            mainKeyword: state.mainKeyword,
+            mainKeyword: getEffectiveMainKeyword(state),
             subKeywords: state.subKeywords || undefined,
             persona: state.persona || undefined,
             requirements: state.requirements || undefined,
@@ -895,9 +923,9 @@ export default function Home() {
       const finalized = ensureSubtitleCoverage(
         ensureIntroImage(
           dedupeSubtitleEchoes(
-            ensureHookImage(stripBrTags(content), state.selectedTitle, state.mainKeyword)
+            ensureHookImage(stripBrTags(content), state.selectedTitle, getEffectiveMainKeyword(state))
           ),
-          state.mainKeyword
+          getEffectiveMainKeyword(state)
         )
       );
       if (finalized !== content) {
@@ -992,7 +1020,7 @@ export default function Home() {
             infoVariantId: state.selectedBrandInfoVariant,
             content: state.generatedContent,
             failReasons: state.qualityResult.failReasons,
-            keyword: state.mainKeyword,
+            keyword: getEffectiveMainKeyword(state),
           }),
         });
       } else if (state.postCategory === "aeo") {
@@ -1008,7 +1036,7 @@ export default function Home() {
             template: state.selectedAeoTemplate,
             content: state.generatedContent,
             failReasons: state.qualityResult.failReasons,
-            keyword: state.mainKeyword,
+            keyword: getEffectiveMainKeyword(state),
           }),
         });
       } else {
@@ -1018,7 +1046,7 @@ export default function Home() {
           body: JSON.stringify({
             content: state.generatedContent,
             failReasons: state.qualityResult.failReasons,
-            keyword: state.mainKeyword,
+            keyword: getEffectiveMainKeyword(state),
           }),
         });
       }
@@ -1047,9 +1075,9 @@ export default function Home() {
       const finalizedFix = ensureSubtitleCoverage(
         ensureIntroImage(
           dedupeSubtitleEchoes(
-            ensureHookImage(stripBrTags(fixed), state.selectedTitle, state.mainKeyword)
+            ensureHookImage(stripBrTags(fixed), state.selectedTitle, getEffectiveMainKeyword(state))
           ),
-          state.mainKeyword
+          getEffectiveMainKeyword(state)
         )
       );
       if (finalizedFix !== fixed) {
@@ -1064,7 +1092,7 @@ export default function Home() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           text: fixed,
-          keyword: state.mainKeyword,
+          keyword: getEffectiveMainKeyword(state),
           charRange: state.charCountRange,
         }),
       });
@@ -1368,7 +1396,15 @@ export default function Home() {
   ]);
 
   const handleNext = () => {
-    if (!canAdvance() || state.currentStep >= STEPS.length - 1) return;
+    if (state.currentStep >= STEPS.length - 1) return;
+
+    // Step 2 (글 설정) — 모든 칸이 비어있으면 안내 모달을 띄우고 진행 차단
+    if (state.currentStep === 2 && !hasAnyContextInput(state)) {
+      setEmptyInputsWarningOpen(true);
+      return;
+    }
+
+    if (!canAdvance()) return;
     const nextStep = state.currentStep + 1;
 
     // AEO 모드: Step 2(설정) → Step 3(제목) 진행 시 출처 누락이면 경고 모달.
@@ -1774,7 +1810,7 @@ export default function Home() {
           <StepGenerate
             content={state.generatedContent}
             qualityResult={state.qualityResult}
-            keyword={state.mainKeyword}
+            keyword={getEffectiveMainKeyword(state)}
             isLoading={state.isLoading}
             onRegenerate={handleContentRegenerate}
             onCopy={handleContentCopy}
@@ -1951,6 +1987,12 @@ export default function Home() {
         open={sourceWarningOpen}
         onProceedAnyway={handleSourceWarningProceed}
         onGoBack={handleSourceWarningGoBack}
+      />
+
+      {/* Step 2 빈 입력 안내 모달 */}
+      <EmptyInputsWarningModal
+        open={emptyInputsWarningOpen}
+        onClose={() => setEmptyInputsWarningOpen(false)}
       />
     </div>
   );

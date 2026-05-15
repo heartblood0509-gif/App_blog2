@@ -116,7 +116,7 @@ export function StepSettings({ state, onChange }: StepSettingsProps) {
             <CardHeader>
               <CardTitle className="flex items-center gap-2 text-sm">
                 <FileText className="h-4 w-4" />
-                주제
+                무엇에 대해 쓰고 싶나요?
                 <Badge variant="secondary" className="text-[10px]">
                   선택
                 </Badge>
@@ -124,7 +124,7 @@ export function StepSettings({ state, onChange }: StepSettingsProps) {
             </CardHeader>
             <CardContent>
               <Textarea
-                placeholder="비워두면 키워드만 보고 AI가 알아서 글을 구성합니다.&#10;채워두면 입력한 주제에 정확히 맞춰 제목과 본문이 만들어집니다."
+                placeholder="예: 미르엔 욕실 리모델링 후기를 신뢰감 있게 풀어주세요&#10;&#10;비워두면 키워드만 보고 AI가 알아서 글을 구성합니다.&#10;채워두면 입력한 내용에 맞춰 제목과 본문이 만들어집니다."
                 value={state.topic}
                 onChange={(e) => onChange({ topic: e.target.value })}
                 rows={3}
@@ -138,8 +138,8 @@ export function StepSettings({ state, onChange }: StepSettingsProps) {
               <CardTitle className="flex items-center gap-2 text-sm">
                 <Search className="h-4 w-4" />
                 메인 키워드
-                <Badge variant="destructive" className="text-[10px]">
-                  필수
+                <Badge variant="secondary" className="text-[10px]">
+                  선택
                 </Badge>
               </CardTitle>
             </CardHeader>
@@ -149,6 +149,9 @@ export function StepSettings({ state, onChange }: StepSettingsProps) {
                 value={state.mainKeyword}
                 onChange={(e) => onChange({ mainKeyword: e.target.value })}
               />
+              <p className="mt-2 text-xs font-medium text-destructive">
+                비워두면 글은 생성되지만, 검색 노출(상위노출)을 원한다면 메인 키워드 입력을 권장합니다.
+              </p>
             </CardContent>
           </Card>
 
@@ -158,6 +161,9 @@ export function StepSettings({ state, onChange }: StepSettingsProps) {
               <CardTitle className="flex items-center gap-2 text-sm">
                 <Hash className="h-4 w-4" />
                 서브 키워드
+                <Badge variant="secondary" className="text-[10px]">
+                  선택
+                </Badge>
               </CardTitle>
             </CardHeader>
             <CardContent>
