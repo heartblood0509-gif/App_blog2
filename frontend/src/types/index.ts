@@ -243,7 +243,13 @@ export interface WizardState {
   selectedBrandTemplate: import("./brand").BrandTemplateId | null;
   /** 정보성글 선택 시 하위 변형 (info-1 등). 다른 템플릿이면 null */
   selectedBrandInfoVariant: import("./brand").BrandInfoVariantId | null;
-  /** info-structure-based 모드 — 보관함에서 선택된 분석 레코드 ID */
+  /** 소개글 선택 시 하위 변형 (Step B에서 활성). 다른 템플릿이면 null */
+  selectedBrandIntroVariant: import("./brand").BrandIntroVariantId | null;
+  /** 가치입증글 선택 시 하위 변형 (Step C에서 활성). 다른 템플릿이면 null */
+  selectedBrandValueProofVariant: import("./brand").BrandValueProofVariantId | null;
+  /** 상세페이지글 선택 시 하위 변형 (Step C에서 활성). 다른 템플릿이면 null */
+  selectedBrandDetailVariant: import("./brand").BrandDetailVariantId | null;
+  /** structure-based 모드 (4개 템플릿 공통) — 보관함에서 선택된 분석 레코드 ID */
   selectedAnalysisRecordId: string | null;
 
   // Step 2 AEO 분기 (postCategory === "aeo"일 때만 의미)
@@ -320,6 +326,13 @@ export interface WizardState {
    * - 후기성에서는 미사용
    */
   referenceText: string;
+
+  /**
+   * 브랜드 direct reference 모드(info-custom)에서 AI가 원본 제목을 분석해 추출한 제목 공식.
+   * /api/analyze 응답의 titleFormula 필드를 그대로 보관. 제목 생성 시 buildBrandTitlePrompt에 전달.
+   * 후기성 모드에서는 채워지지 않음.
+   */
+  referenceTitleFormula: unknown | null;
 
   // 로딩 상태
   isLoading: boolean;

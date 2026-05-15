@@ -11,7 +11,9 @@ import type {
   BrandProfile,
   BrandTemplateId,
   BrandInfoVariantId,
-  BrandProposition,
+  BrandIntroVariantId,
+  BrandValueProofVariantId,
+  BrandDetailVariantId,
   AnalysisRecord,
 } from "@/types/brand";
 
@@ -24,6 +26,9 @@ export async function POST(request: Request) {
       profile,
       template,
       infoVariantId,
+      introVariantId,
+      valueProofVariantId,
+      detailVariantId,
       mainKeyword,
       subKeywords,
       topic,
@@ -33,13 +38,15 @@ export async function POST(request: Request) {
       apiKey,
       referenceText,
       referenceAnalysis,
-      propositions,
       referenceExcerpts,
       analysisRecordId,
     } = body as {
       profile: BrandProfile;
       template: BrandTemplateId;
       infoVariantId?: BrandInfoVariantId | null;
+      introVariantId?: BrandIntroVariantId | null;
+      valueProofVariantId?: BrandValueProofVariantId | null;
+      detailVariantId?: BrandDetailVariantId | null;
       mainKeyword: string;
       subKeywords?: string;
       topic?: string | null;
@@ -49,7 +56,6 @@ export async function POST(request: Request) {
       apiKey?: string;
       referenceText?: string;
       referenceAnalysis?: string;
-      propositions?: BrandProposition[];
       referenceExcerpts?: string[];
       analysisRecordId?: string;
     };
@@ -61,28 +67,14 @@ export async function POST(request: Request) {
       );
     }
 
-    if (template === "detail") {
-      return Response.json(
-        { error: "상세페이지글은 아직 준비중입니다." },
-        { status: 400 }
-      );
-    }
-
-    // 정보성글(활성 변형)은 propositions 필수
-    if (
-      template === "info" &&
-      (infoVariantId === "info-5" || infoVariantId === "info-custom") &&
-      (!propositions || propositions.length === 0)
-    ) {
-      return Response.json(
-        { error: "정보성글 본문 생성에는 propositions가 필요합니다. distill API를 먼저 호출하세요." },
-        { status: 400 }
-      );
-    }
-
-    // info-structure-based 모드 — 보관함 분석 레코드를 백엔드에서 fetch
+    // structure-based 모드 — 보관함 분석 레코드를 백엔드에서 fetch (4개 템플릿 공통)
     let analysisRecord: AnalysisRecord | undefined;
-    if (infoVariantId === "info-structure-based") {
+    const isStructureBased =
+      infoVariantId === "info-structure-based" ||
+      introVariantId === "intro-structure-based" ||
+      valueProofVariantId === "value-proof-structure-based" ||
+      detailVariantId === "detail-structure-based";
+    if (isStructureBased) {
       if (!analysisRecordId) {
         return Response.json(
           { error: "[서사 구조 기반 작성] 모드는 보관함에서 분석을 선택해야 합니다." },
@@ -113,6 +105,9 @@ export async function POST(request: Request) {
       profile,
       template,
       infoVariantId,
+      introVariantId,
+      valueProofVariantId,
+      detailVariantId,
       mainKeyword,
       subKeywords,
       topic,
@@ -121,7 +116,6 @@ export async function POST(request: Request) {
       requirements,
       referenceText,
       referenceAnalysis,
-      propositions,
       referenceExcerpts,
       analysisRecordId,
       analysisRecord,

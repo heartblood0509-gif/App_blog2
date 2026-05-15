@@ -275,7 +275,7 @@ export function StepSettings({ state, onChange }: StepSettingsProps) {
             </CardHeader>
             <CardContent>
               <TargetQuerySelector
-                profile={aeoProfile}
+                profile={state.postCategory === "aeo" ? aeoProfile : null}
                 mainKeyword={state.mainKeyword}
                 subKeywords={state.subKeywords}
                 topic={state.topic}
