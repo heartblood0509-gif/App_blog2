@@ -139,6 +139,7 @@ const initialState: WizardState = {
   isImageGenerating: false,
   customPromptsBySlot: {},
   currentStep: 0,
+  maxVisitedStep: 0,
   referenceAnalysis: "",
   referenceExcerpts: [],
   referenceText: "",
@@ -1420,7 +1421,10 @@ export default function Home() {
     }
     bypassSourceWarningRef.current = false;
 
-    updateState({ currentStep: nextStep });
+    updateState({
+      currentStep: nextStep,
+      maxVisitedStep: Math.max(state.maxVisitedStep, nextStep),
+    });
 
     // 자동 fetch는 블로그 채널에만 적용 (쓰레드는 사용자가 명시적으로 버튼을 눌러야 함)
     if (state.channel === "blog") {
@@ -1464,6 +1468,7 @@ export default function Home() {
         updateState({
           channel,
           currentStep: 0,
+          maxVisitedStep: 0,
           threads: initialThreadsState,
           selectedProducts: [],
           postCategory: null,
@@ -1866,13 +1871,26 @@ export default function Home() {
               const Icon = step.icon;
               const isActive = index === state.currentStep;
               const isCompleted = index < state.currentStep;
+              const isJumpable =
+                index <= state.maxVisitedStep && index !== state.currentStep;
 
               return (
                 <li
                   key={step.label}
                   className="flex flex-1 items-center last:flex-none"
                 >
-                  <div className="flex flex-col items-center gap-2">
+                  <button
+                    type="button"
+                    disabled={!isJumpable}
+                    onClick={() => updateState({ currentStep: index })}
+                    aria-label={`${step.label} 단계로 이동`}
+                    aria-current={isActive ? "step" : undefined}
+                    className={`flex flex-col items-center gap-2 rounded-lg p-1 transition-all ${
+                      isJumpable
+                        ? "cursor-pointer hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50"
+                        : "cursor-default"
+                    }`}
+                  >
                     <div
                       className={`flex h-10 w-10 items-center justify-center rounded-full border-2 transition-all duration-300 ${
                         isCompleted
@@ -1899,7 +1917,7 @@ export default function Home() {
                     >
                       {step.label}
                     </span>
-                  </div>
+                  </button>
                   {index < STEPS.length - 1 && (
                     <div
                       className={`mx-2 mt-[-1.5rem] h-0.5 flex-1 transition-colors duration-300 ${
