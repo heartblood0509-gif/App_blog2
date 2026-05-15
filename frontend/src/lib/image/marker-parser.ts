@@ -192,6 +192,35 @@ export function ensureHookImage(
 }
 
 /**
+ * 본문 맨 위 훅 이미지 마커 바로 다음(공백 줄 스킵)이 소제목(##/###) 또는
+ * 명시 인용구(>스타일>)로 시작하는 경우, 도입부 본문이 0줄이라는 뜻이므로
+ * 훅 이미지 마커를 제거한다.
+ *
+ * 강제로 박힌 훅 이미지와 소제목/인용구용 이미지가 거의 붙어 어색해지는 케이스 보정.
+ * 발행 봇은 슬롯 순서대로 처리하므로 훅 제거 후엔 다음 이미지가 자동으로 첫 슬롯이 된다.
+ */
+export function pruneEmptyIntroHook(content: string): string {
+  if (!content) return content;
+  const lines = content.split("\n");
+
+  let firstIdx = 0;
+  while (firstIdx < lines.length && lines[firstIdx].trim() === "") firstIdx++;
+  if (firstIdx >= lines.length) return content;
+  if (!MARKER_RE.test(lines[firstIdx])) return content;
+
+  let nextIdx = firstIdx + 1;
+  while (nextIdx < lines.length && lines[nextIdx].trim() === "") nextIdx++;
+  if (nextIdx >= lines.length) return content;
+
+  const SUBTITLE_RE = /^#{2,3}(\{[^}]+\})?\s+(.+)$/;
+  const QUOTE_RE = /^>\w+>\s+/;
+  if (SUBTITLE_RE.test(lines[nextIdx]) || QUOTE_RE.test(lines[nextIdx])) {
+    return lines.slice(nextIdx).join("\n");
+  }
+  return content;
+}
+
+/**
  * 모든 소제목(## 로 시작하는 줄) 바로 아래에 [이미지: ...] 마커가 있는지 확인하고,
  * 없으면 자동으로 주입하여 100% 소제목 커버리지를 보장한다.
  *

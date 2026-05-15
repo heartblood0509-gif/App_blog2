@@ -42,6 +42,7 @@ import {
   ensureBrandSubtitleCoverage,
   ensureBrandIntroImage,
   ensureBrandBodyFillerImages,
+  pruneEmptyIntroHook,
 } from "@/lib/image/marker-parser";
 
 /**
@@ -63,12 +64,14 @@ function applyImagePostProcessing(
     const enumerated = ensureBrandEnumerationImages(deduped);
     const subtitled = ensureBrandSubtitleCoverage(enumerated);
     const introCovered = ensureBrandIntroImage(subtitled, mainKeyword);
-    return ensureBrandBodyFillerImages(introCovered);
+    const filled = ensureBrandBodyFillerImages(introCovered);
+    return pruneEmptyIntroHook(filled);
   }
   const hooked = ensureHookImage(cleaned, selectedTitle, mainKeyword);
   const deduped = dedupeSubtitleEchoes(hooked);
   const introCovered = ensureIntroImage(deduped, mainKeyword);
-  return ensureSubtitleCoverage(introCovered);
+  const subtitled = ensureSubtitleCoverage(introCovered);
+  return pruneEmptyIntroHook(subtitled);
 }
 
 import { StepChannelSelect } from "@/components/steps/step-channel-select";
