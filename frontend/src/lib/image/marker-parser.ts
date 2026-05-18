@@ -180,6 +180,22 @@ export function stripBrTags(content: string): string {
 }
 
 /**
+ * 연속된 빈 줄(3개 이상)을 1개로 압축한다.
+ *
+ * AI(Gemini)가 가끔 본문 중간에 `<br>` 태그를 수십~수백 개 쏟아내는 사고가 있다.
+ * stripBrTags가 모두 `\n`으로 치환하면 빈 줄이 거대하게 누적되어 미리보기에
+ * 수천 픽셀의 빈 공간으로 나타난다.
+ *
+ * 일반 문단 간격(빈 줄 1개)과 마커 앞뒤 빈 줄은 그대로 보존되며,
+ * 사고성 빈 줄 폭주만 안전하게 1개로 압축한다. 본문 텍스트는 손대지 않는다.
+ */
+export function collapseBlankLines(content: string): string {
+  if (!content) return content;
+  // 3개 이상 연속 개행(\n\n\n+) → 빈 줄 1개(\n\n)
+  return content.replace(/\n{3,}/g, "\n\n");
+}
+
+/**
  * @deprecated extractHookAndBody로 교체됨. 하위 호환을 위해 유지.
  * 내부적으로 extractHookAndBody를 호출.
  */

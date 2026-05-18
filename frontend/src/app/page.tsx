@@ -44,6 +44,7 @@ import {
   ensureBrandBodyFillerImages,
   pruneEmptyIntroHook,
   enforceImageMarkerCap,
+  collapseBlankLines,
 } from "@/lib/image/marker-parser";
 
 // 카테고리별 이미지 총량 상한. 캡은 ensure 함수 누적 결과의 마지막 안전장치.
@@ -69,7 +70,8 @@ function applyImagePostProcessing(
   selectedTitle: string,
   mainKeyword: string,
 ): string {
-  const cleaned = stripBrTags(raw);
+  // stripBrTags가 `<br>` 폭주를 개행으로 치환해 빈 줄이 거대 누적되는 사고 차단
+  const cleaned = collapseBlankLines(stripBrTags(raw));
   const maxCount = resolveMaxCount(postCategory);
   if (postCategory === "brand") {
     const sanitized = sanitizeBrandBodyText(cleaned);
