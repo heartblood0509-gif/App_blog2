@@ -532,16 +532,12 @@ export default function Home() {
       }
       const analyzeData = await analyzeRes.json();
 
-      // 분석 완료 시 사용자가 아직 톤을 안 골랐으면 "레퍼런스 그대로"를 기본값으로 자동 선택
-      const autoTone =
-        state.toneType === null ? { toneType: "레퍼런스" as const } : {};
       updateState({
         referenceAnalysis: analyzeData.analysis,
         referenceExcerpts: Array.isArray(analyzeData.excerpts) ? analyzeData.excerpts : [],
         // brand 모드 응답에만 titleFormula가 포함됨. 후기성에서는 undefined → null.
         referenceTitleFormula: analyzeData.titleFormula ?? null,
         isLoading: false,
-        ...autoTone,
       });
       toast.success("레퍼런스 분석이 완료되었습니다.");
     } catch (err) {
@@ -1689,22 +1685,15 @@ export default function Home() {
     (source: NarrativeSource) => {
       // narrativeType 파생: custom-reference면 null, 나머지는 동일한 값
       const narrativeType = source === "custom-reference" ? null : source;
-      // 내장 레퍼런스가 있는 모드(empathy/conclusion)에서 사용자가 아직 톤을 안 골랐으면
-      // 기본값으로 "레퍼런스 그대로" 자동 선택. 사용자가 명시적으로 고른 톤은 유지.
-      const autoTone =
-        source !== "custom-reference" && state.toneType === null
-          ? { toneType: "레퍼런스" as const }
-          : {};
       updateState({
         narrativeSource: source,
         narrativeType,
         // 모드가 바뀌면 이전 분석 결과는 무효 (URL도 새로 입력)
         referenceAnalysis: "",
         referenceExcerpts: [],
-        ...autoTone,
       });
     },
-    [updateState, state.toneType]
+    [updateState]
   );
 
   const handleReferenceUrlChange = useCallback(
