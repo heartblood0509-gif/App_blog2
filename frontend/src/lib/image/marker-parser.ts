@@ -788,6 +788,125 @@ export function ensureBrandBodyFillerImages(content: string): string {
   return result.join("\n");
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// 이미지 마커 총량 상한 (캡) — 마지막 안전장치
+//
+// AI + 후처리 ensure 함수가 누적 박는 구조에서 한 글의 마커가 폭증하는 사고를
+// 막기 위한 최종 컷. 사용자 범위: 후기성·브랜드 8~12장 / AEO 4~8장.
+//
+// 보존 규칙 (절대 컷 대상 아님):
+//   - HOOK (첫 마커 — pruneEmptyIntroHook 이전에 호출되어야 의미가 있음)
+//   - 소제목 직후 마커 (## 또는 ##{style} 다음 빈 줄만 두고 등장하는 마커)
+//   - 페어 그룹 (groupId): 한쪽이 보존이면 짝도 보존
+//
+// 컷 알고리즘:
+//   - 후보 = 전체 - 보존
+//   - 전체 슬롯의 lineIndex 범위 [first, last]를 (K+1) 등분
+//   - 각 분할 지점에 가장 가까운 후보 선택 (보존은 가상 점유로만 작용)
+//   - 페어 한쪽 컷 시 짝도 동반 컷 → 결과가 maxCount보다 1~2장 적을 수 있음 (의도)
+//
+// 회귀 보호:
+//   - 보존 슬롯만으로 이미 maxCount 초과 → no-op (소제목 보존 최우선)
+//   - K ≤ 0 또는 후보 0개 → no-op
+// ─────────────────────────────────────────────────────────────────────────────
+const SUBTITLE_LINE_RE = /^#{2,3}(\{[^}]+\})?\s+.+$/;
+
+/**
+ * 한 글의 이미지 마커 수를 maxCount 이하로 강제로 제한한다.
+ *
+ * @param content 현재 본문 마크다운 (ensure 함수들 다 돈 직후 상태)
+ * @param maxCount 허용 상한 (후기성·브랜드 12, AEO 8)
+ * @returns 컷이 반영된 본문 (변경 없으면 원본 그대로)
+ */
+export function enforceImageMarkerCap(content: string, maxCount: number): string {
+  if (!content) return content;
+
+  const slots = parseImageMarkers(content);
+  if (slots.length <= maxCount) return content;
+
+  const lines = content.split("\n");
+
+  // 보존 슬롯 분류
+  const protectedIds = new Set<string>();
+
+  // HOOK = 첫 슬롯 (호출 시점이 pruneEmptyIntroHook 이전이라 안전)
+  if (slots.length > 0) protectedIds.add(slots[0].id);
+
+  // 소제목 직후 마커: 슬롯 lineIndex 이전의 가장 가까운 비공백 줄이 ##/### 인지
+  for (const slot of slots) {
+    let j = slot.lineIndex - 1;
+    while (j >= 0 && lines[j].trim() === "") j--;
+    if (j >= 0 && SUBTITLE_LINE_RE.test(lines[j])) {
+      protectedIds.add(slot.id);
+    }
+  }
+
+  // 페어 동반 보존: groupId가 있고 한쪽이 보존이면 짝도 보존
+  const byGroup = new Map<string, string[]>();
+  for (const slot of slots) {
+    if (!slot.groupId) continue;
+    if (!byGroup.has(slot.groupId)) byGroup.set(slot.groupId, []);
+    byGroup.get(slot.groupId)!.push(slot.id);
+  }
+  for (const ids of byGroup.values()) {
+    if (ids.some((id) => protectedIds.has(id))) {
+      ids.forEach((id) => protectedIds.add(id));
+    }
+  }
+
+  // 보존만으로 이미 maxCount 초과 → 소제목 보존 최우선, 강제 컷 없음
+  if (protectedIds.size >= maxCount) return content;
+
+  // 후보 풀
+  const candidates = slots.filter((s) => !protectedIds.has(s.id));
+  if (candidates.length === 0) return content;
+
+  // 잘라낼 갯수
+  const K = slots.length - maxCount;
+  if (K <= 0) return content;
+
+  // 전역 lineIndex 균등 컷: 전체 슬롯 [first, last] 범위를 (K+1) 등분
+  const first = slots[0].lineIndex;
+  const last = slots[slots.length - 1].lineIndex;
+  const range = Math.max(1, last - first);
+
+  const targetLineIndices: number[] = [];
+  for (let i = 1; i <= K; i++) {
+    targetLineIndices.push(first + Math.round((range * i) / (K + 1)));
+  }
+
+  // 각 target에 가장 가까운 후보 선택 (이미 선택된 후보 제외)
+  const selectedIds = new Set<string>();
+  const usedCandidateIds = new Set<string>();
+  for (const target of targetLineIndices) {
+    let bestCandidate: ImageSlot | null = null;
+    let bestDist = Infinity;
+    for (const c of candidates) {
+      if (usedCandidateIds.has(c.id)) continue;
+      const dist = Math.abs(c.lineIndex - target);
+      if (dist < bestDist) {
+        bestDist = dist;
+        bestCandidate = c;
+      }
+    }
+    if (bestCandidate) {
+      usedCandidateIds.add(bestCandidate.id);
+      selectedIds.add(bestCandidate.id);
+    }
+  }
+
+  // 페어 동반 컷: 선택된 후보가 페어 한쪽이면 짝도 컷
+  for (const id of [...selectedIds]) {
+    const slot = slots.find((s) => s.id === id);
+    if (!slot || !slot.groupId) continue;
+    const groupIds = byGroup.get(slot.groupId);
+    if (!groupIds) continue;
+    groupIds.forEach((gid) => selectedIds.add(gid));
+  }
+
+  return pruneExcludedMarkers(content, slots, selectedIds);
+}
+
 /**
  * 주어진 마커의 ±500자 본문 맥락을 추출한다 (image prompt용).
  */
