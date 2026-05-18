@@ -191,23 +191,8 @@ def _load_builtin_seeds_from_json() -> list[dict]:
 BUILTIN_SEEDS: list[dict] = _load_builtin_seeds_from_json()
 
 
-# 기본 카드 5장 중 builtin-info-5-trap 외 4장은 JSON 파일에 이미 존재 (별도 마이그레이션 경로).
-# 그 4장 + 함정폭로형에 titleFormula 자동 보강용 사전. ID로 매칭하여 누락 시 주입.
+# builtin 카드들에 titleFormula 자동 보강용 사전. ID로 매칭하여 누락 시 주입.
 BUILTIN_TITLE_FORMULAS: dict[str, dict] = {
-    "builtin-info-5-trap": {
-        "structureLabel": "함정 폭로형",
-        "emotions": ["공포", "손실회피", "의심"],
-        "formula": "메인 키워드 → 손해 암시 → 경고 또는 후회 유도",
-        "patterns": [
-            {"label": "후회 유도",   "tail": "모르고 진행하면 결국 후회하는 이유"},
-            {"label": "손해 경고",   "tail": "대부분 여기서 손해봅니다"},
-            {"label": "위험 경고",   "tail": "이것도 모르고 선택하면 위험합니다"},
-            {"label": "끝까지 경고", "tail": "끝까지 안 보면 후회할 수 있습니다"},
-            {"label": "속음 폭로",   "tail": "생각보다 많이 속는 부분"},
-            {"label": "문제 빈도",   "tail": "실제로 가장 많이 발생하는 문제"},
-            {"label": "강력 경고",   "tail": "절대 그냥 넘어가면 안 되는 이유"},
-        ],
-    },
     "builtin-info-whistleblower": {
         "structureLabel": "업계 내부고발형",
         "emotions": ["결연", "분노", "충격"],
