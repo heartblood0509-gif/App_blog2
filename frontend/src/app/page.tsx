@@ -43,7 +43,20 @@ import {
   ensureBrandIntroImage,
   ensureBrandBodyFillerImages,
   pruneEmptyIntroHook,
+  enforceImageMarkerCap,
 } from "@/lib/image/marker-parser";
+
+// 카테고리별 이미지 총량 상한. 캡은 ensure 함수 누적 결과의 마지막 안전장치.
+// null/매핑 없음은 review 기본값 12로 처리. 쓰레드 모드는 별도 렌더 경로라 호출 안 됨.
+const MAX_BY_CATEGORY: Record<string, number> = {
+  brand: 12,
+  review: 12,
+  aeo: 8,
+};
+function resolveMaxCount(postCategory: PostCategory | null): number {
+  if (!postCategory) return 12;
+  return MAX_BY_CATEGORY[postCategory] ?? 12;
+}
 
 /**
  * 후처리 파이프라인 — postCategory 별로 다른 규칙 적용.
@@ -57,6 +70,7 @@ function applyImagePostProcessing(
   mainKeyword: string,
 ): string {
   const cleaned = stripBrTags(raw);
+  const maxCount = resolveMaxCount(postCategory);
   if (postCategory === "brand") {
     const sanitized = sanitizeBrandBodyText(cleaned);
     const hooked = ensureHookImage(sanitized, selectedTitle, mainKeyword);
@@ -65,13 +79,16 @@ function applyImagePostProcessing(
     const subtitled = ensureBrandSubtitleCoverage(enumerated);
     const introCovered = ensureBrandIntroImage(subtitled, mainKeyword);
     const filled = ensureBrandBodyFillerImages(introCovered);
-    return pruneEmptyIntroHook(filled);
+    // 캡은 pruneEmptyIntroHook 이전에 — HOOK이 살아있는 상태에서 보호 가능하도록
+    const capped = enforceImageMarkerCap(filled, maxCount);
+    return pruneEmptyIntroHook(capped);
   }
   const hooked = ensureHookImage(cleaned, selectedTitle, mainKeyword);
   const deduped = dedupeSubtitleEchoes(hooked);
   const introCovered = ensureIntroImage(deduped, mainKeyword);
   const subtitled = ensureSubtitleCoverage(introCovered);
-  return pruneEmptyIntroHook(subtitled);
+  const capped = enforceImageMarkerCap(subtitled, maxCount);
+  return pruneEmptyIntroHook(capped);
 }
 
 import { StepChannelSelect } from "@/components/steps/step-channel-select";
