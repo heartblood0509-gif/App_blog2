@@ -26,6 +26,7 @@ import {
   X,
   Star,
   Building2,
+  HelpCircle,
 } from "lucide-react";
 import type { NarrativeSource, ToneType, Channel, PostCategory, SelectedProduct, UserProduct } from "@/types";
 import type {
@@ -117,6 +118,7 @@ const POST_CATEGORIES: Array<{
   { id: "review", name: "후기성 블로그", description: "실사용자 톤의 자연스러운 후기", icon: Star, enabled: true },
   { id: "brand", name: "브랜드 블로그", description: "브랜드 보이스의 공식 콘텐츠", icon: Building2, enabled: true },
   { id: "aeo", name: "AEO 블로그", description: "AI 답변 엔진(ChatGPT/Claude/Perplexity) 인용을 노리는 글", icon: Search, enabled: true },
+  { id: "seoAeo", name: "SEO·AEO 통합형", description: "검색 노출과 AI 답변 인용을 함께 노리는 질문형 글", icon: HelpCircle, enabled: true },
 ];
 
 const TONES: {
@@ -298,7 +300,7 @@ export function StepNarrative({
               </p>
             </div>
 
-            <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-4">
               {POST_CATEGORIES.map((cat) => {
                 const selected = postCategory === cat.id;
                 const Icon = cat.icon;
@@ -642,7 +644,7 @@ export function StepNarrative({
 
       <Separator />
 
-      {/* Tone Section */}
+      {/* Tone Section — review 블록 내부에 위치하여 seoAeo에서는 자연 숨김 */}
       <section>
         <div className="mb-4">
           <h2 className="text-xl font-semibold">말투 선택</h2>
@@ -778,8 +780,8 @@ export function StepNarrative({
             </motion.div>
           )}
 
-          {/* AEO Profile + Template — AEO 카테고리 분기 */}
-          {postCategory === "aeo" && (
+          {/* AEO Profile — AEO 또는 SEO·AEO 통합형 카테고리에서 공유 */}
+          {(postCategory === "aeo" || postCategory === "seoAeo") && (
             <motion.div
               key="aeo-profile-section"
               initial={{ opacity: 0, y: 10 }}

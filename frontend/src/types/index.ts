@@ -81,7 +81,12 @@ export type ToneType = "존댓말" | "반말" | "음슴체";
 export type Channel = "blog" | "thread" | "youtube" | "detail-page";
 
 // 블로그 포스팅 카테고리 (channel === "blog"일 때만 의미)
-export type PostCategory = "review" | "brand" | "aeo";
+export type PostCategory = "review" | "brand" | "aeo" | "seoAeo";
+
+// 누락된 카테고리 분기를 컴파일 타임에 잡기 위한 helper
+export function assertNeverCategory(_x: never): never {
+  throw new Error(`Unhandled PostCategory: ${String(_x)}`);
+}
 
 // 글자수 범위
 export interface CharCountRange {
