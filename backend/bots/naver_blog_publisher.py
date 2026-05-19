@@ -2210,12 +2210,62 @@ class NaverBlogPublisher:
             await self._exit_quotation(frame)
             await asyncio.sleep(0.3)
             await self._change_quotation_style(frame, quote_style)
-            await asyncio.sleep(0.3)
+            # React reconcile 충분히 기다림 (기존 0.3 → 2.5초, 2차 패치에서 1.5 → 2.5 증가)
+            # JS textContent 주입은 DOM만 변경하고 React state는 안 건드리므로,
+            # 스타일 변경 후 SmartEditor의 다음 reconcile에서 자기 state(빈 상태)대로
+            # 다시 그리면서 placeholder가 복귀하는 사고를 잡기 위함.
+            await asyncio.sleep(2.5)
         except Exception as e:
             print(f"      [try_quote] exit/style 실패: {str(e)[:60]}")
             return False
 
-        # 8. health check (페이지 살아있는지 최종 확인)
+        # 8. 사후 재검증 — 스타일 변경 후 텍스트 소멸 케이스 잡기
+        verify_js = """
+            () => {
+                const quotes = document.querySelectorAll('.se-component.se-quotation');
+                const q = quotes[quotes.length - 1];
+                if (!q) return false;
+                const para = q.querySelector('.se-quote .se-text-paragraph');
+                const t = para ? (para.textContent || '').trim() : '';
+                return t.length > 0;
+            }
+        """
+        still_has_text = await frame.evaluate(verify_js)
+        if not still_has_text:
+            # 9. 재주입 1회 시도 (기존 4번 주입 패턴 그대로)
+            print(f"      [try_quote] 사후 검증 실패 — 재주입 시도")
+            reinject_ok = await frame.evaluate(f"""
+                () => {{
+                    const quotes = document.querySelectorAll('.se-component.se-quotation');
+                    const q = quotes[quotes.length - 1];
+                    if (!q) return false;
+                    const span = q.querySelector('.se-quote .se-text-paragraph span.__se-node');
+                    if (!span) return false;
+                    span.textContent = '{escaped}';
+                    const ph = q.querySelector('.se-quote .se-placeholder');
+                    if (ph) ph.remove();
+                    const mod = q.querySelector('.se-quote');
+                    if (mod) mod.classList.remove('se-is-empty');
+                    const para = q.querySelector('.se-quote .se-text-paragraph');
+                    if (para) para.dispatchEvent(new InputEvent('input', {{
+                        bubbles:true, inputType:'insertText', data:'{escaped}'
+                    }}));
+                    return true;
+                }}
+            """)
+            if not reinject_ok:
+                print(f"      [try_quote] 재주입 selector 미스 → 폴백")
+                return False
+            await asyncio.sleep(1.5)
+
+            # 10. 최종 검증
+            final_has_text = await frame.evaluate(verify_js)
+            if not final_has_text:
+                print(f"      [try_quote] 재주입 후도 빈 채 → 폴백")
+                return False
+            print(f"      [try_quote] 재주입 성공")
+
+        # 11. health check (페이지 살아있는지 최종 확인)
         if not await self._is_editor_alive(frame):
             print(f"      [try_quote] health check 실패 — 페이지 깨짐 감지")
             return False
@@ -2278,6 +2328,110 @@ class NaverBlogPublisher:
         await self._insert_empty_line()
 
         print(f"    ✓ 인용구(굵은 글씨): {text[:30]}...")
+
+    async def _verify_all_quotations_after_body(
+        self, frame: Frame, headings: list[str]
+    ) -> None:
+        """본문 작성 완료 직후 모든 인용구를 일괄 검증 + 빈 거 재주입.
+
+        1차 패치(`_try_quotation_widget` 사후 검증)는 스타일 변경 직후의 reconcile만
+        잡는다. 실제 React reconcile은 후속 컴포넌트 작업·viewport 변동으로 더 늦게
+        트리거되어, 1차 검증 통과 후 사라지는 케이스가 있다. 글 작성이 모두 끝나
+        모든 reconcile이 안정화된 시점에 일괄 검증해야 마지막 사라짐을 잡을 수 있다.
+
+        매칭: headings는 마크다운에서 추출한 소제목 순서. _insert_heading이 순서대로
+        호출되므로 페이지 인용구 순서와 일치한다고 가정. 개수 불일치(굵은 글씨 폴백
+        발생 등) 시 일괄 검증을 안전하게 스킵.
+        """
+        if not headings:
+            return
+
+        # 1) 모든 reconcile 안정화 대기
+        await asyncio.sleep(2.5)
+
+        # 2) 모든 인용구 textContent 수집 (read-only)
+        states = await frame.evaluate("""
+            () => {
+                const quotes = document.querySelectorAll('.se-component.se-quotation');
+                return Array.from(quotes).map((q, i) => {
+                    const para = q.querySelector('.se-quote .se-text-paragraph');
+                    return { index: i, text: para ? (para.textContent || '').trim() : '' };
+                });
+            }
+        """)
+
+        # 3) 개수 불일치 시 스킵 (굵은 글씨 폴백 등 매칭 불가)
+        if len(states) != len(headings):
+            print(
+                f"  ⚠ 인용구 일괄 검증 스킵 — 인용구 수({len(states)}) ≠ 소제목 수({len(headings)})"
+            )
+            return
+
+        # 4) 빈 인용구 → 매칭된 headings 텍스트로 재주입
+        empty_indices: list[int] = []
+        recovered_indices: list[int] = []
+        for state, heading_text in zip(states, headings):
+            if state["text"]:
+                continue
+            empty_indices.append(state["index"])
+            escaped = heading_text.replace("\\", "\\\\").replace("'", "\\'")
+            ok = await frame.evaluate(f"""
+                () => {{
+                    const quotes = document.querySelectorAll('.se-component.se-quotation');
+                    const q = quotes[{state['index']}];
+                    if (!q) return false;
+                    const span = q.querySelector('.se-quote .se-text-paragraph span.__se-node');
+                    if (!span) return false;
+                    span.textContent = '{escaped}';
+                    const ph = q.querySelector('.se-quote .se-placeholder');
+                    if (ph) ph.remove();
+                    const mod = q.querySelector('.se-quote');
+                    if (mod) mod.classList.remove('se-is-empty');
+                    const para = q.querySelector('.se-quote .se-text-paragraph');
+                    if (para) para.dispatchEvent(new InputEvent('input', {{
+                        bubbles:true, inputType:'insertText', data:'{escaped}'
+                    }}));
+                    return true;
+                }}
+            """)
+            if ok:
+                recovered_indices.append(state["index"])
+                print(
+                    f"    [bulk-verify] 인용구 #{state['index']+1} 비어있음 → 재주입: {heading_text[:30]}"
+                )
+            else:
+                print(
+                    f"    [bulk-verify] 인용구 #{state['index']+1} 재주입 selector 미스"
+                )
+
+        if not empty_indices:
+            print(f"  ✓ 인용구 일괄 검증: 모두 정상 ({len(states)}개)")
+            return
+
+        print(
+            f"  ⚠ 인용구 일괄 검증: {len(empty_indices)}개 빈 채 발견 → "
+            f"{len(recovered_indices)}개 복구 시도"
+        )
+
+        # 5) 재주입 안정화 대기 → 최종 검증
+        await asyncio.sleep(1.5)
+        final = await frame.evaluate("""
+            () => {
+                const quotes = document.querySelectorAll('.se-component.se-quotation');
+                return Array.from(quotes).map((q, i) => {
+                    const para = q.querySelector('.se-quote .se-text-paragraph');
+                    return { index: i, text: para ? (para.textContent || '').trim() : '' };
+                });
+            }
+        """)
+        still_empty = [s["index"] for s in final if not s["text"]]
+        if still_empty:
+            print(
+                f"  ⚠ 최종 검증: 여전히 빈 인용구 {len(still_empty)}개 (#{[i+1 for i in still_empty]}) "
+                "— 발행 전 수동 확인 필요"
+            )
+        else:
+            print(f"  ✓ 최종 검증: 모든 인용구 복구 완료")
 
     async def _insert_image(self, frame: Frame, image_path: Path):
         """이미지 삽입 + 전후 여백 (App_blog_auto3 방식)"""
@@ -2508,6 +2662,13 @@ class NaverBlogPublisher:
 
         # ★ 본문 입력 후 DOM 정화 (App_blog2 안전망 — 만에 하나 남은 취소선 태그/스타일 제거)
         await self._cleanup_body_strikethrough(frame)
+
+        # ★ 모든 인용구 일괄 검증 + 빈 거 재주입 (2차 패치)
+        # 1차 사후 검증은 스타일 변경 직후만 잡지만, 실제 React reconcile은
+        # 후속 작업·viewport 변동으로 더 늦게 트리거됨. 모든 작업 끝난 후
+        # reconcile 안정화 시점에 일괄 검증해야 사라지는 마지막 순간을 잡음.
+        headings = [b.text for b in blocks if b.type == BlockType.HEADING]
+        await self._verify_all_quotations_after_body(frame, headings)
 
     # ===== 발행 버튼 (iframe+page 양쪽 탐색, App_blog_auto3 기반) =====
     async def _publish(self):

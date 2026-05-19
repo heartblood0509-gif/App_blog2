@@ -75,8 +75,7 @@ export interface CustomReference {
 }
 
 // 말투 타입
-// "레퍼런스" — 사용자 톤을 강제하지 않고 레퍼런스 글의 어미·말투를 그대로 따라감
-export type ToneType = "존댓말" | "반말" | "음슴체" | "레퍼런스";
+export type ToneType = "존댓말" | "반말" | "음슴체";
 
 // 콘텐츠 채널 타입 (블로그 외엔 향후 활성화 예정)
 export type Channel = "blog" | "thread" | "youtube" | "detail-page";
