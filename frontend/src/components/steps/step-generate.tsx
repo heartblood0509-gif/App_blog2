@@ -31,7 +31,12 @@ import {
   Pencil,
   Check,
   X,
+  MessageCircle,
+  ArrowRightLeft,
 } from "lucide-react";
+import { toast } from "sonner";
+import { useStreaming } from "@/hooks/use-streaming";
+import { ThreadsContentPreview } from "@/components/steps-threads/threads-content-preview";
 import type {
   QualityResult,
   ImageSlot,
@@ -595,6 +600,31 @@ export function StepGenerate({
     setIsEditing(false);
   };
 
+  // ─────────────────────────────────────────────
+  // 블로그 본문 → 쓰레드 변환 (1소스 멀티유즈)
+  // ─────────────────────────────────────────────
+  const {
+    data: threadsContent,
+    isStreaming: isConvertingToThreads,
+    startStream: startThreadsConvert,
+    abortStream: abortThreadsConvert,
+    reset: resetThreadsConvert,
+  } = useStreaming({
+    onComplete: () => toast.success("쓰레드 변환 완료"),
+    onError: (msg: string) => toast.error(msg),
+  });
+
+  const handleConvertToThreads = () => {
+    if (!content || content.trim().length < 200) {
+      toast.error("본문이 너무 짧습니다 (최소 200자).");
+      return;
+    }
+    startThreadsConvert("/api/generate-threads", {
+      mode: "blog",
+      blogContent: content,
+    });
+  };
+
   const excludedSet = new Set(excludedSlotIds);
   const activeSlots = imageSlots.filter((s) => !excludedSet.has(s.id));
   const doneCount = activeSlots.filter((s) => generatedImages[s.id]).length;
@@ -1085,6 +1115,72 @@ export function StepGenerate({
                   />
                 ))}
               </div>
+            </CardContent>
+          </Card>
+        </div>
+      )}
+
+      {/* 다른 채널로 변환 — 1소스 멀티유즈 */}
+      {content && content.trim().length >= 200 && (
+        <div className="mt-6">
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <ArrowRightLeft className="h-5 w-5 text-orange-500" />
+                다른 채널로 변환
+              </CardTitle>
+              <p className="text-sm text-muted-foreground">
+                작성한 본문을 SNS용으로 변환합니다. 발행과는 별개로 결과만 복사해서 사용하세요.
+              </p>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="flex items-center gap-3 flex-wrap">
+                {!threadsContent && !isConvertingToThreads && (
+                  <Button
+                    onClick={handleConvertToThreads}
+                    className="gap-2 bg-orange-600 hover:bg-orange-700"
+                  >
+                    <MessageCircle className="h-4 w-4" />
+                    쓰레드로 변환
+                  </Button>
+                )}
+                {isConvertingToThreads && (
+                  <>
+                    <Button
+                      variant="destructive"
+                      size="sm"
+                      onClick={abortThreadsConvert}
+                    >
+                      중단
+                    </Button>
+                    <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                      3단 구조(본문 + 댓글1 + 댓글2)로 변환 중...
+                    </div>
+                  </>
+                )}
+                {threadsContent && !isConvertingToThreads && (
+                  <Button
+                    onClick={resetThreadsConvert}
+                    variant="outline"
+                    size="sm"
+                    className="gap-1.5"
+                  >
+                    <RefreshCw className="h-3.5 w-3.5" />
+                    다시 변환
+                  </Button>
+                )}
+              </div>
+
+              {(threadsContent || isConvertingToThreads) && (
+                <>
+                  <Separator />
+                  <ThreadsContentPreview
+                    content={threadsContent}
+                    isLoading={isConvertingToThreads}
+                  />
+                </>
+              )}
             </CardContent>
           </Card>
         </div>
