@@ -1,6 +1,7 @@
 import { generateStream } from "@/lib/gemini";
 import {
   buildThreadsFromAnalysisPrompt,
+  buildThreadsFromBlogPrompt,
   buildThreadsFromNewsPrompt,
 } from "@/lib/prompts/threads";
 import {
@@ -17,18 +18,20 @@ export async function POST(request: Request) {
 
   try {
     const body = await request.json();
-    const { mode, text, analysis, topic, requirements, apiKey } = body as {
-      mode?: string;
-      text?: string;
-      analysis?: string;
-      topic?: string;
-      requirements?: string;
-      apiKey?: string;
-    };
+    const { mode, text, analysis, topic, requirements, blogContent, apiKey } =
+      body as {
+        mode?: string;
+        text?: string;
+        analysis?: string;
+        topic?: string;
+        requirements?: string;
+        blogContent?: string;
+        apiKey?: string;
+      };
 
-    if (mode !== "article" && mode !== "analysis") {
+    if (mode !== "article" && mode !== "analysis" && mode !== "blog") {
       return Response.json(
-        { error: "mode가 잘못되었습니다 (article 또는 analysis)." },
+        { error: "mode가 잘못되었습니다 (article, analysis, blog 중 하나)." },
         { status: 400 }
       );
     }
@@ -50,6 +53,19 @@ export async function POST(request: Request) {
       prompt = buildThreadsFromAnalysisPrompt(
         analysis,
         topic,
+        requirements && typeof requirements === "string"
+          ? requirements
+          : undefined
+      );
+    } else if (mode === "blog") {
+      if (typeof blogContent !== "string" || blogContent.trim().length < 200) {
+        return Response.json(
+          { error: "블로그 본문이 너무 짧습니다 (최소 200자)." },
+          { status: 400 }
+        );
+      }
+      prompt = buildThreadsFromBlogPrompt(
+        blogContent,
         requirements && typeof requirements === "string"
           ? requirements
           : undefined
