@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain } from "electron";
+import { app, BrowserWindow, dialog, ipcMain, shell } from "electron";
 import crypto from "node:crypto";
 import path from "node:path";
 import log from "electron-log";
@@ -11,7 +11,7 @@ import { initJobObject, assignToJob, closeJobObject } from "./job-object";
 import { initUpdater, tryInstallNow } from "./updater";
 import { CredentialBroker } from "./credential-broker";
 import { redactTransform } from "./log-redactor";
-import { loadGeminiApiKey, registerSettingsIpc } from "./settings";
+import { getDeviceInfo, loadGeminiApiKey, registerSettingsIpc } from "./settings";
 
 // §G — userData/logs/main.log 로 회전 저장 + redaction.
 log.transports.file.resolvePathFn = () =>
@@ -31,6 +31,8 @@ let isQuitting = false;
 // §D — busy 상태. operation id 기반 Set 으로 idempotent. boolean 카운터 아님.
 const busyOps = new Set<string>();
 let installPending = false;
+const AUTH_PROTOCOL = "com.heartblood.appblog2";
+let pendingAuthDeepLink: string | null = null;
 
 function endBusy(opId: string): void {
   const wasBusy = busyOps.size > 0;
@@ -58,11 +60,51 @@ export function setInstallPending(v: boolean): void {
 const APP_TOKEN = crypto.randomBytes(32).toString("hex");
 const APP_SESSION_TOKEN = crypto.randomBytes(32).toString("hex");
 
+function isAuthDeepLink(value: string | undefined): value is string {
+  return typeof value === "string" && value.startsWith(`${AUTH_PROTOCOL}://auth/callback`);
+}
+
+function findAuthDeepLink(argv: string[]): string | null {
+  return argv.find((arg) => isAuthDeepLink(arg)) ?? null;
+}
+
+function deliverAuthDeepLink(url: string): void {
+  pendingAuthDeepLink = url;
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send("auth:deepLink", url);
+  }
+}
+
+function registerAuthProtocol(): void {
+  if (process.defaultApp && process.argv.length >= 2) {
+    app.setAsDefaultProtocolClient(AUTH_PROTOCOL, process.execPath, [
+      path.resolve(process.argv[1]),
+    ]);
+    return;
+  }
+  app.setAsDefaultProtocolClient(AUTH_PROTOCOL);
+}
+
+registerAuthProtocol();
+
+const startupAuthDeepLink = findAuthDeepLink(process.argv);
+if (startupAuthDeepLink) {
+  pendingAuthDeepLink = startupAuthDeepLink;
+}
+
+app.on("open-url", (event, url) => {
+  if (!isAuthDeepLink(url)) return;
+  event.preventDefault();
+  deliverAuthDeepLink(url);
+});
+
 const gotLock = app.requestSingleInstanceLock();
 if (!gotLock) {
   app.quit();
 } else {
-  app.on("second-instance", () => {
+  app.on("second-instance", (_event, argv) => {
+    const deepLink = findAuthDeepLink(argv);
+    if (deepLink) deliverAuthDeepLink(deepLink);
     if (mainWindow) {
       if (mainWindow.isMinimized()) mainWindow.restore();
       mainWindow.focus();
@@ -149,14 +191,27 @@ async function boot(): Promise<void> {
     },
   });
   applyWindowSecurity(mainWindow, allowedOrigin);
-  await mainWindow.loadURL(allowedOrigin);
-
-  mainWindow.on("closed", () => {
-    mainWindow = null;
-  });
 
   // §F 설정 IPC.
   registerSettingsIpc();
+
+  // Google OAuth callback + device identity IPC.
+  ipcMain.handle("auth:openExternal", async (_e, url: string) => {
+    try {
+      const parsed = new URL(url);
+      if (parsed.protocol !== "https:") return false;
+      await shell.openExternal(url);
+      return true;
+    } catch {
+      return false;
+    }
+  });
+  ipcMain.handle("auth:getDeviceInfo", () => getDeviceInfo());
+  ipcMain.handle("auth:getPendingDeepLink", () => {
+    const url = pendingAuthDeepLink;
+    pendingAuthDeepLink = null;
+    return url;
+  });
 
   // §D busy IPC.
   ipcMain.handle("app:startBusy", (_e, opId: string) => {
@@ -166,6 +221,12 @@ async function boot(): Promise<void> {
     if (typeof opId === "string") endBusy(opId);
   });
   ipcMain.handle("app:isBusy", () => busyOps.size > 0);
+
+  await mainWindow.loadURL(allowedOrigin);
+
+  mainWindow.on("closed", () => {
+    mainWindow = null;
+  });
 
   // 업데이트 모듈은 메인 윈도우가 살아있을 때 init.
   initUpdater(mainWindow);

@@ -4,7 +4,7 @@
  * - 검증기에서 잡힌 실패 사유를 받아 그 부분만 고치도록 LLM에 지시.
  * - 화자·톤·골격은 절대 바꾸지 말 것.
  */
-import type { BrandProfile, BrandTemplateId, BrandProposition } from "@/types/brand";
+import type { BrandProfile, BrandProposition, BrandTemplateId } from "@/types/brand";
 import { buildBrandContext } from "./brand-context";
 import { getTemplateReference, getTemplateLabel } from "./template-loader";
 import { buildToneRule } from "./tone-extractor";

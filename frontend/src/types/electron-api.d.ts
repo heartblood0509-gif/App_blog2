@@ -45,7 +45,22 @@ interface ElectronSettingsApi {
   }>;
 }
 
+interface ElectronAuthDeviceInfo {
+  device_id: string;
+  device_name: string;
+  platform: string;
+  app_version: string;
+}
+
+interface ElectronAuthApi {
+  openExternal: (url: string) => Promise<boolean>;
+  getDeviceInfo: () => Promise<ElectronAuthDeviceInfo>;
+  getPendingDeepLink: () => Promise<string | null>;
+  onDeepLink: (cb: (url: string) => void) => () => void;
+}
+
 interface ElectronAPI {
+  auth: ElectronAuthApi;
   updater: ElectronUpdaterApi;
   app: ElectronAppApi;
   settings: ElectronSettingsApi;

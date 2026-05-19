@@ -79,6 +79,14 @@
     "win": {
       "target": "nsis"
     },
+    "protocols": [
+      {
+        "name": "App Blog Publisher Auth",
+        "schemes": [
+          "com.heartblood.appblog2"
+        ]
+      }
+    ],
     "nsis": {
       "oneClick": false,
       "perMachine": false,

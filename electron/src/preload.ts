@@ -15,6 +15,22 @@ interface UpdaterStateEvent {
 }
 
 contextBridge.exposeInMainWorld("electronAPI", {
+  auth: {
+    openExternal: (url: string): Promise<boolean> => ipcRenderer.invoke("auth:openExternal", url),
+    getDeviceInfo: (): Promise<{
+      device_id: string;
+      device_name: string;
+      platform: string;
+      app_version: string;
+    }> => ipcRenderer.invoke("auth:getDeviceInfo"),
+    getPendingDeepLink: (): Promise<string | null> =>
+      ipcRenderer.invoke("auth:getPendingDeepLink"),
+    onDeepLink: (cb: (url: string) => void) => {
+      const handler = (_: IpcRendererEvent, url: string) => cb(url);
+      ipcRenderer.on("auth:deepLink", handler);
+      return () => ipcRenderer.removeListener("auth:deepLink", handler);
+    },
+  },
   updater: {
     check: () => ipcRenderer.invoke("updater:check"),
     download: () => ipcRenderer.invoke("updater:download"),

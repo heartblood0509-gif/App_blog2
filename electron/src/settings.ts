@@ -7,11 +7,15 @@
 //     저장 후 사용자에게 재시작 안내. 다음 부팅에 NextServerManager 가 env 로 주입.
 
 import { app, ipcMain, safeStorage } from "electron";
+import crypto from "node:crypto";
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 
 interface SettingsFile {
   gemini_api_key_encrypted?: string; // base64 DPAPI
+  device_id_encrypted?: string; // base64 DPAPI
+  device_id_plain?: string; // fallback only when safeStorage is unavailable
 }
 
 function settingsPath(): string {
@@ -52,6 +56,48 @@ export function loadGeminiApiKey(): string | undefined {
   } catch {
     return undefined;
   }
+}
+
+function encryptSetting(value: string): string | null {
+  if (!safeStorage.isEncryptionAvailable()) return null;
+  return safeStorage.encryptString(value).toString("base64");
+}
+
+function decryptSetting(value: string): string | null {
+  try {
+    if (!safeStorage.isEncryptionAvailable()) return null;
+    return safeStorage.decryptString(Buffer.from(value, "base64"));
+  } catch {
+    return null;
+  }
+}
+
+export function getOrCreateDeviceId(): string {
+  const data = readRaw();
+  if (data.device_id_encrypted) {
+    const decrypted = decryptSetting(data.device_id_encrypted);
+    if (decrypted) return decrypted;
+  }
+  if (data.device_id_plain) return data.device_id_plain;
+
+  const deviceId = crypto.randomUUID();
+  const encrypted = encryptSetting(deviceId);
+  if (encrypted) {
+    data.device_id_encrypted = encrypted;
+  } else {
+    data.device_id_plain = deviceId;
+  }
+  writeRawAtomic(data);
+  return deviceId;
+}
+
+export function getDeviceInfo() {
+  return {
+    device_id: getOrCreateDeviceId(),
+    device_name: os.hostname() || "Unknown device",
+    platform: `${process.platform} ${os.release()}`,
+    app_version: app.getVersion(),
+  };
 }
 
 export function registerSettingsIpc(): void {

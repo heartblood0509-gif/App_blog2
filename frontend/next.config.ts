@@ -13,7 +13,7 @@ const cspHeader = `
   style-src 'self' 'unsafe-inline';
   img-src 'self' blob: data:;
   font-src 'self' data:;
-  connect-src 'self' http://127.0.0.1:*;
+  connect-src 'self' http://127.0.0.1:* https://dhwysuflubrnmbapjrxs.supabase.co;
   object-src 'none';
   base-uri 'self';
   form-action 'self';

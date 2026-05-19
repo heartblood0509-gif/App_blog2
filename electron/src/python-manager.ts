@@ -48,7 +48,8 @@ export class PythonManager {
     }
 
     if (paths.isDev) {
-      this.child = spawnDetached("python", ["main.py"], {
+      const pythonCommand = process.platform === "win32" ? "python" : "python3";
+      this.child = spawnDetached(pythonCommand, ["main.py"], {
         cwd: paths.backendCwdDev,
         env,
         shell: true, // python.cmd / python.exe shim 모두 호환
