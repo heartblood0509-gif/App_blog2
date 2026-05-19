@@ -7,8 +7,15 @@ import { Button } from "@/components/ui/button";
 import { Building2, Plus, Pencil, Trash2, Check, Wand2 } from "lucide-react";
 import { toast } from "sonner";
 import type { BrandProfile } from "@/types/brand";
+import type { AeoProfile } from "@/types/aeo";
 import { BrandProfileForm } from "./brand-profile-form";
 import { BrandProfileAssistant } from "./brand-profile-assistant";
+import { AeoProfileAssistant } from "@/components/aeo/aeo-profile-assistant";
+import { ProfileBridgeDialog } from "@/components/profile-bridge-dialog";
+import {
+  copyBrandToAeoPrefill,
+  hasCounterpartProfile,
+} from "@/lib/profile-bridge";
 
 interface BrandProfileSectionProps {
   selectedProfileId: string | null;
@@ -21,6 +28,16 @@ export function BrandProfileSection({ selectedProfileId, onSelect }: BrandProfil
   const [formOpen, setFormOpen] = useState(false);
   const [editing, setEditing] = useState<BrandProfile | null>(null);
   const [assistantOpen, setAssistantOpen] = useState(false);
+
+  // ── 양방향 연동 상태 ──
+  /** 짝 프로필 안내 Dialog */
+  const [bridgeOpen, setBridgeOpen] = useState(false);
+  /** Dialog가 가리키는 source 브랜드 프로필 (방금 저장한 것) */
+  const [bridgeSource, setBridgeSource] = useState<BrandProfile | null>(null);
+  /** AEO 어시스턴트 (브랜드 → AEO 다리에서 열림 — 빈 칸만 단계별 인터뷰) */
+  const [aeoAssistantOpen, setAeoAssistantOpen] = useState(false);
+  /** AEO 어시스턴트에 전달할 prefill 데이터 */
+  const [aeoPrefill, setAeoPrefill] = useState<Partial<Omit<AeoProfile, "id">> | null>(null);
 
   const fetchProfiles = useCallback(async () => {
     setLoading(true);
@@ -41,18 +58,37 @@ export function BrandProfileSection({ selectedProfileId, onSelect }: BrandProfil
     fetchProfiles();
   }, [fetchProfiles]);
 
+  /**
+   * 짝 프로필(AEO) 안내 Dialog 트리거.
+   * 신규 브랜드 저장 직후에만 호출. AEO 측에 같은 이름이 이미 있으면 띄우지 않음.
+   */
+  const triggerBridgeIfNeeded = useCallback(async (savedBrand: BrandProfile) => {
+    try {
+      const res = await fetch("/api/aeo/profiles", { cache: "no-store" });
+      if (!res.ok) return;
+      const aeoList = (await res.json()) as AeoProfile[];
+      if (!Array.isArray(aeoList)) return;
+      if (hasCounterpartProfile(savedBrand.name, aeoList)) return;
+      setBridgeSource(savedBrand);
+      setBridgeOpen(true);
+    } catch {
+      // 안내 띄우지 못해도 본 흐름엔 영향 없음
+    }
+  }, []);
+
   const handleCreate = useCallback(() => {
     setEditing(null);
     setFormOpen(true);
   }, []);
 
-  // AI 도우미가 저장 성공 시 — 목록 갱신 + 새 프로필 자동 선택
+  // AI 도우미가 저장 성공 시 — 목록 갱신 + 새 프로필 자동 선택 + 짝 Dialog
   const handleAssistantSaved = useCallback(
     (saved: BrandProfile) => {
       fetchProfiles();
       if (saved?.id) onSelect(saved.id);
+      void triggerBridgeIfNeeded(saved);
     },
-    [fetchProfiles, onSelect]
+    [fetchProfiles, onSelect, triggerBridgeIfNeeded]
   );
 
   const handleEdit = useCallback((p: BrandProfile, e: React.MouseEvent) => {
@@ -64,7 +100,7 @@ export function BrandProfileSection({ selectedProfileId, onSelect }: BrandProfil
   const handleDelete = useCallback(
     async (p: BrandProfile, e: React.MouseEvent) => {
       e.stopPropagation();
-      if (!confirm(`"${p.label}" 프로필을 삭제할까요?`)) return;
+      if (!confirm(`"${p.name}" 프로필을 삭제할까요?`)) return;
       try {
         const res = await fetch(`/api/brand/profiles?id=${encodeURIComponent(p.id)}`, {
           method: "DELETE",
@@ -100,16 +136,41 @@ export function BrandProfileSection({ selectedProfileId, onSelect }: BrandProfil
           const err = await res.json().catch(() => ({}));
           throw new Error(err.error || `${isEdit ? "수정" : "등록"} 실패`);
         }
+        const saved = (await res.json().catch(() => null)) as BrandProfile | null;
         toast.success(`프로필이 ${isEdit ? "수정" : "등록"}되었습니다.`);
         await fetchProfiles();
+
+        // 신규 등록 직후에만 짝 AEO 안내. 수정은 트리거 안 함.
+        if (!isEdit && saved) {
+          void triggerBridgeIfNeeded(saved);
+        }
       } catch (err) {
         const msg = err instanceof Error ? err.message : "저장 실패";
         toast.error(msg);
         throw err;
       }
     },
-    [editing, fetchProfiles]
+    [editing, fetchProfiles, triggerBridgeIfNeeded]
   );
+
+  // ── 양방향 연동 핸들러 ──
+
+  const handleBridgeConfirm = useCallback(() => {
+    if (!bridgeSource) return;
+    setAeoPrefill(copyBrandToAeoPrefill(bridgeSource));
+    setBridgeOpen(false);
+    // 닫기 애니메이션 후 AEO 어시스턴트 열기 (Dialog 깜빡임 방지)
+    setTimeout(() => setAeoAssistantOpen(true), 80);
+  }, [bridgeSource]);
+
+  const handleBridgeClose = useCallback(() => {
+    setBridgeOpen(false);
+  }, []);
+
+  /** AEO 어시스턴트가 저장 성공 시 — 무한 양방향 트리거 방지 위해 자체 트리거는 호출 안 함 */
+  const handleAeoSavedFromBridge = useCallback((saved: AeoProfile) => {
+    toast.success(`AEO 프로필 "${saved.name}"이(가) 등록되었습니다.`);
+  }, []);
 
   return (
     <section>
@@ -161,7 +222,7 @@ export function BrandProfileSection({ selectedProfileId, onSelect }: BrandProfil
                   <div className="flex items-start justify-between gap-2">
                     <div className="flex items-center gap-2">
                       <Building2 className="h-5 w-5 text-primary" />
-                      <CardTitle className="text-base">{p.label || p.name}</CardTitle>
+                      <CardTitle className="text-base">{p.name}</CardTitle>
                     </div>
                     {selected && (
                       <motion.div
@@ -209,6 +270,26 @@ export function BrandProfileSection({ selectedProfileId, onSelect }: BrandProfil
         open={assistantOpen}
         onClose={() => setAssistantOpen(false)}
         onSaved={handleAssistantSaved}
+      />
+
+      {/* 짝 AEO 프로필 안내 Dialog */}
+      <ProfileBridgeDialog
+        open={bridgeOpen}
+        direction="brand-to-aeo"
+        sourceName={bridgeSource?.name ?? ""}
+        onConfirm={handleBridgeConfirm}
+        onClose={handleBridgeClose}
+      />
+
+      {/* 브랜드 → AEO 다리에서 띄우는 AEO 어시스턴트 — 빈 칸만 단계별 인터뷰 */}
+      <AeoProfileAssistant
+        open={aeoAssistantOpen}
+        prefill={aeoPrefill}
+        onClose={() => {
+          setAeoAssistantOpen(false);
+          setAeoPrefill(null);
+        }}
+        onSaved={handleAeoSavedFromBridge}
       />
     </section>
   );

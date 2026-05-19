@@ -10,20 +10,13 @@ import type { ImageSlot, UserPhoto, QualityResult, CharCountRange } from "./inde
 export interface BrandNarrator {
   name: string;
   role: string;
+  /**
+   * 글쓴이 경력·자격. 숫자·기간·횟수 위주 여러 줄 입력.
+   * 줄바꿈으로 항목 구분. LLM 프롬프트 빌더가 split해서 `· 항목` 리스트로 렌더링.
+   */
   authority: string;
-  character: string;
   /** 1인칭 화자 고정 플래그 */
   fixed: true;
-}
-
-/** 주변 인물로만 등장 — 임두환 대표 */
-export interface BrandSupportingPersona {
-  name: string;
-  role: string;
-  authority: string;
-  character: string;
-  /** "주변 인물로만" 등 등장 방식 메모 */
-  appearAs: string;
 }
 
 /** 브랜드 스토리 (소개글에서 가장 많이 활용) */
@@ -62,34 +55,30 @@ export interface BrandForbidden {
 
 export interface BrandProfile {
   id: string;
-  label: string;
 
   // 기본 정보
   name: string;
   category: string;
   oneLine: string;
+  /** 핵심 가치 — 선택 입력. 비면 프롬프트에서 자동 생략. */
   coreValues: string[];
 
-  // 인물
+  // 인물 — 1인칭 화자 1명. (이전 supportingPersona는 v2에서 제거됨)
   narrator: BrandNarrator;
-  supportingPersona: BrandSupportingPersona;
 
   // 스토리·에피소드
   story: BrandStory;
   episodes: BrandEpisode[];
 
-  // 권위·서비스
-  authorityAssets: string[];
+  // 서비스
   services: string[];
 
   // 타겟·차별점
   targets: BrandTargets;
   differentiators: string[];
 
-  // 빌런·비유·표현
+  // 빌런 — 정보성글 구조기반 모드의 핵심 입력. 3~5개 권장.
   villains: string[];
-  metaphors: string[];
-  signaturePhrases: string[];
 
   // 추가
   recommendedRoutes: string[];

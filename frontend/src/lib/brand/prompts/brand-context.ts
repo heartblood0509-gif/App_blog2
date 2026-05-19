@@ -9,6 +9,26 @@ import type { BrandProfile } from "@/types/brand";
 const list = (items?: string[]): string =>
   items && items.length > 0 ? items.map((s) => `- ${s}`).join("\n") : "";
 
+/**
+ * narrator.authority(여러 줄 string)를 프롬프트용으로 렌더링.
+ *
+ * - 줄바꿈 split 후 빈 줄 제거
+ * - 2줄 이상이면 `· 항목` 리스트 형태로 (LLM이 신뢰 수치 목록으로 인식)
+ * - 1줄이면 인라인
+ *
+ * v1에서 별도 섹션이었던 `[권위·신뢰 자산]`을 narrator.authority에 흡수하면서
+ * 단순 string 합치기로는 LLM 입력 구조가 약해지므로 항목별 렌더링으로 보존.
+ */
+const renderAuthority = (authority?: string): string => {
+  const lines = (authority || "")
+    .split("\n")
+    .map((s) => s.trim())
+    .filter(Boolean);
+  if (lines.length === 0) return "";
+  if (lines.length === 1) return ` ${lines[0]}`;
+  return "\n" + lines.map((s) => `  · ${s}`).join("\n");
+};
+
 export function buildBrandContext(profile: BrandProfile): string {
   const sections: string[] = [];
 
@@ -24,24 +44,13 @@ export function buildBrandContext(profile: BrandProfile): string {
     sections.push(`[핵심 가치]\n${list(profile.coreValues)}`);
   }
 
-  // 인물
+  // 인물 (v2: 1인칭 화자 1명. supportingPersona / character 제거됨)
   if (profile.narrator?.name) {
     sections.push(
       `[1인칭 화자 (글의 주인공)]
 - 이름: ${profile.narrator.name}
 - 직책: ${profile.narrator.role}
-- 권위/근거: ${profile.narrator.authority}
-- 캐릭터: ${profile.narrator.character}`
-    );
-  }
-  if (profile.supportingPersona?.name) {
-    sections.push(
-      `[주변 인물 (본문에 등장하지만 1인칭 X)]
-- 이름: ${profile.supportingPersona.name}
-- 직책: ${profile.supportingPersona.role}
-- 권위/근거: ${profile.supportingPersona.authority}
-- 캐릭터: ${profile.supportingPersona.character}
-- 등장 방식: ${profile.supportingPersona.appearAs}`
+- 권위/근거:${renderAuthority(profile.narrator.authority)}`
     );
   }
 
@@ -64,10 +73,7 @@ ${profile.episodes.map((e) => `- [${e.type}] ${e.content}`).join("\n")}`
     );
   }
 
-  // 권위 / 서비스
-  if (profile.authorityAssets?.length) {
-    sections.push(`[권위·신뢰 자산 (수치/근거로 활용)]\n${list(profile.authorityAssets)}`);
-  }
+  // 서비스 (v2: authorityAssets는 narrator.authority에 흡수됨)
   if (profile.services?.length) {
     sections.push(`[추가 서비스]\n${list(profile.services)}`);
   }
@@ -82,18 +88,12 @@ ${profile.episodes.map((e) => `- [${e.type}] ${e.content}`).join("\n")}`
     if (lines.length) sections.push(`[타겟 고객]\n${lines.join("\n")}`);
   }
 
-  // 차별점·빌런·비유·시그니처
+  // 차별점·빌런 (v2: metaphors, signaturePhrases 제거됨)
   if (profile.differentiators?.length) {
     sections.push(`[차별점]\n${list(profile.differentiators)}`);
   }
   if (profile.villains?.length) {
     sections.push(`[공통의 적 (자주 폭로하는 빌런)]\n${list(profile.villains)}`);
-  }
-  if (profile.metaphors?.length) {
-    sections.push(`[자주 쓰는 비유]\n${list(profile.metaphors)}`);
-  }
-  if (profile.signaturePhrases?.length) {
-    sections.push(`[시그니처 표현 — 본문에서 자연스럽게 활용 권장]\n${list(profile.signaturePhrases)}`);
   }
 
   // 추천 코스

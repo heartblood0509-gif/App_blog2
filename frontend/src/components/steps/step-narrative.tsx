@@ -117,8 +117,9 @@ const POST_CATEGORIES: Array<{
 }> = [
   { id: "review", name: "후기성 블로그", description: "실사용자 톤의 자연스러운 후기", icon: Star, enabled: true },
   { id: "brand", name: "브랜드 블로그", description: "브랜드 보이스의 공식 콘텐츠", icon: Building2, enabled: true },
-  { id: "aeo", name: "AEO 블로그", description: "AI 답변 엔진(ChatGPT/Claude/Perplexity) 인용을 노리는 글", icon: Search, enabled: true },
-  { id: "seoAeo", name: "SEO·AEO 통합형", description: "검색 노출과 AI 답변 인용을 함께 노리는 질문형 글", icon: HelpCircle, enabled: true },
+  // "aeo" 단독 카테고리는 SEO·AEO 통합형이 대체하므로 UI에서 숨김.
+  // 분기 코드(postCategory === "aeo")는 기존 데이터·하위호환 위해 유지.
+  { id: "seoAeo", name: "AEO 블로그", description: "검색 노출과 AI 답변 인용을 함께 노리는 질문형 글", icon: HelpCircle, enabled: true },
 ];
 
 const TONES: {

@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Dialog,
   DialogContent,
@@ -13,23 +13,81 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Sparkles, Loader2, CheckCircle2, AlertCircle, ArrowRight, Edit3 } from "lucide-react";
+import { Sparkles, Loader2, CheckCircle2, AlertCircle, ArrowRight, Edit3, MessagesSquare, FileText } from "lucide-react";
 import { toast } from "sonner";
 import type { BrandProfile } from "@/types/brand";
 import {
   BRAND_FOLLOWUP_QUESTIONS,
   type BrandProfileMissingField,
 } from "@/lib/brand/prompts/profile-assist";
+import {
+  StepInterview,
+  serializeInterviewAnswers,
+  getAnsweredFieldIds,
+  type InterviewAnswers,
+} from "@/components/profile-assistant/step-interview";
+import { BRAND_INTERVIEW_QUESTIONS } from "./brand-interview-questions";
 
 interface BrandProfileAssistantProps {
   open: boolean;
   onClose: () => void;
   /** 저장 성공 시 호출 — 부모가 목록 갱신 + 새 프로필 자동 선택 */
   onSaved: (newProfile: BrandProfile) => void;
+  /**
+   * AEO → 브랜드 다리에서 옮겨온 prefill 데이터.
+   * 있으면 mode-select 스킵 + 자동으로 인터뷰 모드 진입.
+   * 인터뷰에서는 prefill에 답이 있는 질문은 자동 스킵하고 빈 칸만 묻는다.
+   */
+  prefill?: Partial<Omit<BrandProfile, "id">> | null;
+}
+
+/** 브랜드 프로필 prefill → 인터뷰 답변 형태로 변환 */
+function prefillToInterviewAnswers(
+  prefill: Partial<Omit<BrandProfile, "id">>,
+): InterviewAnswers {
+  const out: InterviewAnswers = {};
+  if (prefill.name?.trim()) {
+    out.name = { answered: true, value: prefill.name };
+  }
+  if (prefill.category?.trim()) {
+    out.category = { answered: true, value: prefill.category };
+  }
+  if (prefill.oneLine?.trim()) {
+    out.oneLine = { answered: true, value: prefill.oneLine };
+  }
+  // two-fields (글쓴이 이름/직책)
+  if (prefill.narrator?.name?.trim() || prefill.narrator?.role?.trim()) {
+    out.narrator = {
+      answered: true,
+      value: { a: prefill.narrator?.name ?? "", b: prefill.narrator?.role ?? "" },
+    };
+  }
+  if (prefill.narrator?.authority?.trim()) {
+    out.narratorAuthority = {
+      answered: true,
+      value: prefill.narrator.authority
+        .split("\n")
+        .map((s) => s.trim())
+        .filter(Boolean),
+    };
+  }
+  if (prefill.story?.origin?.trim()) {
+    out.storyOrigin = { answered: true, value: prefill.story.origin };
+  }
+  if (prefill.targets?.primary?.trim()) {
+    out.targetPrimary = { answered: true, value: prefill.targets.primary };
+  }
+  if ((prefill.differentiators ?? []).length > 0) {
+    out.differentiators = { answered: true, value: prefill.differentiators! };
+  }
+  if ((prefill.villains ?? []).length > 0) {
+    out.villains = { answered: true, value: prefill.villains! };
+  }
+  return out;
 }
 
 const EXAMPLE_INPUT = `예시:
-저희는 우리끼리09라는 크루즈 여행 공동구매 플랫폼입니다. 대표는 윤희(마케팅 14년차, 크루즈 인솔 50회 이상)이고요. 일반 여행사들이 미끼 가격으로 유인하고 추가 옵션비를 폭탄으로 붙이는 게 너무 분노스러워서 직접 공동구매를 시작했어요. 전 일정 관광 포함 + 추가 비용 0원이 가장 큰 차별점이고요. 주 고객은 첫 크루즈를 꿈꾸는 40~60대 부부입니다.`;
+저희는 미르엔이라는 바디·헤어케어 브랜드를 8년째 운영하고 있어요. 민감성 피부 때문에 시중 제품들이 안 맞아서 직접 안전한 성분으로 만들기 시작했어요. 누적 판매 1만 개 이상, 자체 임상 6개월을 거쳤고 재구매율 35%예요. 민감성 피부 때문에 제품 선택에 어려움 겪는 분들이 주 고객입니다.`;
 
 /**
  * 도우미 응답 형태 — profile-assist API가 반환하는 JSON.
@@ -39,68 +97,165 @@ type AssistResponse = Omit<BrandProfile, "id"> & {
   missingFields?: BrandProfileMissingField[];
 };
 
-export function BrandProfileAssistant({ open, onClose, onSaved }: BrandProfileAssistantProps) {
-  type Stage = "input" | "review";
-  const [stage, setStage] = useState<Stage>("input");
+/** 인터뷰 question.id → AssistResponse 안의 어떤 필드를 사용자가 직접 답했는지 매핑 */
+function mapAnsweredInterviewIdsToFieldKeys(
+  answeredQuestionIds: ReadonlyArray<string>,
+): Set<string> {
+  const set = new Set<string>();
+  for (const qid of answeredQuestionIds) {
+    switch (qid) {
+      case "name":
+        set.add("name");
+        break;
+      case "category":
+        set.add("category");
+        break;
+      case "oneLine":
+        set.add("oneLine");
+        break;
+      case "narrator":
+        set.add("narrator.name");
+        set.add("narrator.role");
+        break;
+      case "narratorAuthority":
+        set.add("narrator.authority");
+        break;
+      case "storyOrigin":
+        set.add("story.origin");
+        break;
+      case "targetPrimary":
+        set.add("targets.primary");
+        break;
+      case "differentiators":
+        set.add("differentiators");
+        break;
+      case "villains":
+        set.add("villains");
+        break;
+    }
+  }
+  return set;
+}
+
+type Stage = "mode-select" | "interview" | "input" | "review";
+
+export function BrandProfileAssistant({ open, onClose, onSaved, prefill }: BrandProfileAssistantProps) {
+  const [stage, setStage] = useState<Stage>("mode-select");
+
+  // prefill 답변 + 인터뷰에서 빈 칸만 추림
+  const prefillAnswers = useMemo(
+    () => (prefill ? prefillToInterviewAnswers(prefill) : ({} as InterviewAnswers)),
+    [prefill]
+  );
+  const remainingQuestions = useMemo(
+    () => BRAND_INTERVIEW_QUESTIONS.filter((q) => !(q.id in prefillAnswers)),
+    [prefillAnswers]
+  );
   const [freeformInput, setFreeformInput] = useState("");
   const [loading, setLoading] = useState(false);
   const [draft, setDraft] = useState<AssistResponse | null>(null);
-  // 추가 질문 중인 필드 (배열의 첫 번째 항목부터 처리)
+  // 추가 질문 중인 필드 (자유 모드 한정. 인터뷰 모드는 비워둠)
   const [pendingMissing, setPendingMissing] = useState<BrandProfileMissingField[]>([]);
   const [followupAnswer, setFollowupAnswer] = useState("");
   const [saving, setSaving] = useState(false);
+  /**
+   * 사용자가 인터뷰에서 직접 답한 필드 키 모음.
+   * - null: 자유 모드 (AI 추정 배지 미표시)
+   * - Set: 인터뷰 모드 (set에 없는데 채워진 필드는 AI 추정으로 시각화)
+   */
+  const [userAnsweredFieldKeys, setUserAnsweredFieldKeys] = useState<Set<string> | null>(null);
 
   const resetAll = useCallback(() => {
-    setStage("input");
+    setStage("mode-select");
     setFreeformInput("");
     setLoading(false);
     setDraft(null);
     setPendingMissing([]);
     setFollowupAnswer("");
     setSaving(false);
+    setUserAnsweredFieldKeys(null);
   }, []);
+
+  // prefill 있으면 mode-select 스킵하고 자동으로 인터뷰 모드 진입
+  useEffect(() => {
+    if (open && prefill && stage === "mode-select") {
+      setStage("interview");
+    }
+  }, [open, prefill, stage]);
 
   const handleClose = useCallback(() => {
     resetAll();
     onClose();
   }, [resetAll, onClose]);
 
+  /** 자유텍스트(자유 모드 또는 인터뷰 직렬화) → LLM 호출 → review 단계 진입 */
+  const runAnalyze = useCallback(
+    async (text: string, answeredKeys: Set<string> | null) => {
+      setLoading(true);
+      try {
+        const res = await fetch("/api/brand/profile-assist", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ freeformInput: text }),
+        });
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({}));
+          throw new Error(err.error || "분석 실패");
+        }
+        const data = (await res.json()) as AssistResponse;
+        setDraft(data);
+        // 인터뷰 모드: missingFields 추가 질문 안 띄움 (이미 인터뷰로 다 끝남)
+        // 자유 모드: missingFields 그대로 사용
+        setPendingMissing(
+          answeredKeys === null && Array.isArray(data.missingFields) ? data.missingFields : []
+        );
+        setUserAnsweredFieldKeys(answeredKeys);
+        setStage("review");
+        toast.success(
+          answeredKeys
+            ? "AI가 빈 칸을 채워드렸어요. 노란 배경이 AI가 추정한 부분입니다."
+            : "자기소개를 브랜드 프로필로 정리했어요. 부족한 칸을 채워봅시다."
+        );
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : "분석 오류";
+        toast.error(msg);
+      } finally {
+        setLoading(false);
+      }
+    },
+    []
+  );
+
   const handleAnalyze = useCallback(async () => {
     if (freeformInput.trim().length < 10) {
       toast.error("브랜드 자기소개를 최소 10자 이상 입력해주세요.");
       return;
     }
-    setLoading(true);
-    try {
-      const res = await fetch("/api/brand/profile-assist", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ freeformInput }),
-      });
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({}));
-        throw new Error(err.error || "분석 실패");
-      }
-      const data = (await res.json()) as AssistResponse;
-      setDraft(data);
-      setPendingMissing(Array.isArray(data.missingFields) ? data.missingFields : []);
-      setStage("review");
-      toast.success("자기소개를 브랜드 프로필로 정리했어요. 부족한 칸을 채워봅시다.");
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : "분석 오류";
-      toast.error(msg);
-    } finally {
-      setLoading(false);
-    }
-  }, [freeformInput]);
+    await runAnalyze(freeformInput, null);
+  }, [freeformInput, runAnalyze]);
 
-  // 추가질문 답변 → 해당 필드에 채워넣기 (단순 텍스트 매핑)
+  const handleInterviewComplete = useCallback(
+    async (userAnswers: InterviewAnswers) => {
+      // prefill 답 + 사용자 답 합쳐 LLM에 전달
+      const allAnswers: InterviewAnswers = { ...prefillAnswers, ...userAnswers };
+      const text = serializeInterviewAnswers(BRAND_INTERVIEW_QUESTIONS, allAnswers);
+      const answered = getAnsweredFieldIds(BRAND_INTERVIEW_QUESTIONS, allAnswers);
+      const answeredFieldKeys = mapAnsweredInterviewIdsToFieldKeys(answered);
+      if (!text.trim()) {
+        toast.error("최소 1개 이상의 항목에 답해주세요.");
+        return;
+      }
+      await runAnalyze(text, answeredFieldKeys);
+    },
+    [prefillAnswers, runAnalyze]
+  );
+
+  // 추가질문 답변 → 해당 필드에 채워넣기 (자유 모드 한정)
   const currentMissing = pendingMissing[0] ?? null;
   const applyFollowupAnswer = useCallback(() => {
     if (!draft || !currentMissing) return;
     const answer = followupAnswer.trim();
     if (!answer) {
-      // 빈 답이면 그냥 스킵 (사용자가 모르거나 안 적기로 결정)
       setPendingMissing((prev) => prev.slice(1));
       setFollowupAnswer("");
       return;
@@ -109,7 +264,6 @@ export function BrandProfileAssistant({ open, onClose, onSaved }: BrandProfileAs
     switch (currentMissing) {
       case "name":
         next.name = answer;
-        if (!next.label) next.label = answer;
         break;
       case "category":
         next.category = answer;
@@ -144,7 +298,6 @@ export function BrandProfileAssistant({ open, onClose, onSaved }: BrandProfileAs
     setFollowupAnswer("");
   }, [draft, currentMissing, followupAnswer]);
 
-  // 미리보기 필드 직접 수정
   const updateDraft = useCallback(
     <K extends keyof AssistResponse>(key: K, value: AssistResponse[K]) => {
       setDraft((prev) => (prev ? { ...prev, [key]: value } : prev));
@@ -154,13 +307,12 @@ export function BrandProfileAssistant({ open, onClose, onSaved }: BrandProfileAs
 
   const handleSave = useCallback(async () => {
     if (!draft) return;
-    if (!draft.label?.trim() || !draft.name?.trim() || !draft.narrator?.name?.trim()) {
-      toast.error("브랜드명·라벨·화자 이름은 필수입니다.");
+    if (!draft.name?.trim() || !draft.narrator?.name?.trim()) {
+      toast.error("브랜드명·글쓴이 이름은 필수입니다.");
       return;
     }
     setSaving(true);
     try {
-      // missingFields는 저장 페이로드에서 제거
       const { missingFields: _missingFields, ...payload } = draft;
       void _missingFields;
       const res = await fetch("/api/brand/profiles", {
@@ -185,9 +337,8 @@ export function BrandProfileAssistant({ open, onClose, onSaved }: BrandProfileAs
     }
   }, [draft, onSaved, onClose, resetAll]);
 
-  // 미리보기에서 채워진 핵심 칸 / 비어있는 칸 카운트 (10개 핵심 기준)
   const stats = useMemo(() => {
-    if (!draft) return { filled: 0, total: 10 };
+    if (!draft) return { filled: 0, total: 9 };
     let filled = 0;
     if (draft.name?.trim()) filled++;
     if (draft.category?.trim()) filled++;
@@ -198,9 +349,18 @@ export function BrandProfileAssistant({ open, onClose, onSaved }: BrandProfileAs
     if (draft.targets?.primary?.trim()) filled++;
     if (draft.differentiators?.length) filled++;
     if (draft.villains?.length) filled++;
-    if (draft.authorityAssets?.length) filled++;
-    return { filled, total: 10 };
+    return { filled, total: 9 };
   }, [draft]);
+
+  /** 인터뷰 모드에서 사용자가 답하지 않은 필드인지 검사 */
+  const isAiSuggested = useCallback(
+    (fieldKey: string, hasValue: boolean): boolean => {
+      if (!userAnsweredFieldKeys) return false; // 자유 모드: 배지 없음
+      if (!hasValue) return false; // 빈 칸은 배지 없음
+      return !userAnsweredFieldKeys.has(fieldKey);
+    },
+    [userAnsweredFieldKeys]
+  );
 
   return (
     <Dialog open={open} onOpenChange={(v) => !v && handleClose()}>
@@ -211,12 +371,95 @@ export function BrandProfileAssistant({ open, onClose, onSaved }: BrandProfileAs
             AI 브랜드 프로필 도우미
           </DialogTitle>
           <DialogDescription>
-            {stage === "input"
-              ? "브랜드/회사를 자유롭게 소개해주세요. AI가 양식을 자동으로 정리해드립니다."
-              : `자동으로 ${stats.filled}/${stats.total}칸이 채워졌어요. 부족한 부분만 함께 채워봅시다.`}
+            {stage === "mode-select" && "어떻게 입력하시겠어요? 차근차근 답해도 좋고, 한 번에 적어도 됩니다."}
+            {stage === "input" && "브랜드/회사를 자유롭게 소개해주세요. AI가 양식을 자동으로 정리해드립니다."}
+            {stage === "interview" && "한 칸씩 차근차근 답해주세요. 막히면 [잘 모르겠음]을 눌러 다음 단계로 넘어갈 수 있어요."}
+            {stage === "review" && `자동으로 ${stats.filled}/${stats.total}칸이 채워졌어요. 부족한 부분만 함께 채워봅시다.`}
           </DialogDescription>
         </DialogHeader>
 
+        {/* 모드 선택 */}
+        {stage === "mode-select" && (
+          <div className="space-y-3">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <button
+                type="button"
+                onClick={() => setStage("interview")}
+                className="rounded-lg border-2 border-primary/40 bg-primary/5 hover:bg-primary/10 p-5 text-left transition-colors"
+              >
+                <div className="mb-2 flex items-center gap-2">
+                  <MessagesSquare className="h-5 w-5 text-primary" />
+                  <h3 className="text-base font-semibold">차근차근 답하기</h3>
+                </div>
+                <p className="text-xs text-muted-foreground leading-relaxed">
+                  9단계 인터뷰. 각 단계에 미르엔 예시가 있어서 처음이거나 막막할 때 좋아요.
+                </p>
+              </button>
+              <button
+                type="button"
+                onClick={() => setStage("input")}
+                className="rounded-lg border bg-card hover:bg-muted/40 p-5 text-left transition-colors"
+              >
+                <div className="mb-2 flex items-center gap-2">
+                  <FileText className="h-5 w-5 text-foreground" />
+                  <h3 className="text-base font-semibold">한 번에 적기</h3>
+                </div>
+                <p className="text-xs text-muted-foreground leading-relaxed">
+                  자유 텍스트로 브랜드를 한 번에 소개. 빠르게 끝낼 때 좋아요.
+                </p>
+              </button>
+            </div>
+            <DialogFooter>
+              <Button variant="outline" onClick={handleClose}>취소</Button>
+            </DialogFooter>
+          </div>
+        )}
+
+        {/* 단계별 인터뷰 — loading이면 분석 로딩만, 아니면 인터뷰 */}
+        {stage === "interview" && loading && (
+          <div className="flex flex-col items-center justify-center gap-3 py-12 text-sm text-muted-foreground">
+            <Loader2 className="h-6 w-6 animate-spin text-primary" />
+            <p>AI가 빈 칸을 자동으로 채우는 중…</p>
+            <p className="text-[11px]">잠시만 기다려주세요 (보통 5~10초)</p>
+          </div>
+        )}
+        {stage === "interview" && !loading && (
+          <>
+            {prefill && remainingQuestions.length < BRAND_INTERVIEW_QUESTIONS.length && (
+              <div className="rounded-lg bg-emerald-50 dark:bg-emerald-950/20 p-3 text-xs text-emerald-900 dark:text-emerald-200">
+                <CheckCircle2 className="mr-1 inline-block h-3 w-3" />
+                AEO 프로필에서 {BRAND_INTERVIEW_QUESTIONS.length - remainingQuestions.length}개 칸을 자동으로 채웠어요.
+                남은 <strong>{remainingQuestions.length}개</strong> 질문만 답해주세요.
+              </div>
+            )}
+            {remainingQuestions.length === 0 ? (
+              <div className="flex flex-col items-center gap-3 py-8">
+                <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+                <p className="text-sm text-muted-foreground">모든 칸이 채워졌어요. AI가 정리 중…</p>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => handleInterviewComplete({})}
+                  disabled={loading}
+                >
+                  지금 미리보기로 이동
+                </Button>
+              </div>
+            ) : (
+              <StepInterview
+                headerLabel="AI 브랜드 프로필 도우미"
+                questions={remainingQuestions}
+                onComplete={handleInterviewComplete}
+                onCancel={() => {
+                  if (prefill) onClose();
+                  else setStage("mode-select");
+                }}
+              />
+            )}
+          </>
+        )}
+
+        {/* 자유 텍스트 입력 */}
         {stage === "input" && (
           <div className="space-y-3">
             <Textarea
@@ -227,33 +470,30 @@ export function BrandProfileAssistant({ open, onClose, onSaved }: BrandProfileAs
               className="text-sm"
             />
             <p className="text-xs text-muted-foreground">
-              💡 회사 이름 · 분야 · 글 쓰는 사람 (대표/이사) · 시작 동기 · 차별점 · 주 고객 정도를 자유롭게 적어주세요.
+              💡 회사 이름 · 분야 · 글 쓰는 사람 · 시작 동기 · 차별점 · 주 고객 등을 자유롭게 적어주세요.
               자세할수록 좋아요.
             </p>
             <DialogFooter>
-              <Button variant="outline" onClick={handleClose} disabled={loading}>
-                취소
+              <Button variant="outline" onClick={() => setStage("mode-select")} disabled={loading}>
+                이전
               </Button>
               <Button
                 onClick={handleAnalyze}
                 disabled={loading || freeformInput.trim().length < 10}
                 className="gap-1"
               >
-                {loading ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                ) : (
-                  <Sparkles className="h-4 w-4" />
-                )}
+                {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
                 {loading ? "분석 중..." : "AI에게 분석시키기"}
               </Button>
             </DialogFooter>
           </div>
         )}
 
+        {/* 미리보기 (직접 수정 가능) */}
         {stage === "review" && draft && (
           <div className="flex flex-col gap-4 flex-1 min-h-0">
-            {/* 추가 질문 영역 */}
-            {currentMissing && (
+            {/* 추가 질문 영역 (자유 모드 한정) */}
+            {currentMissing && userAnsweredFieldKeys === null && (
               <div className="shrink-0 rounded-lg border-2 border-primary/40 bg-primary/5 p-4">
                 <div className="mb-2 flex items-center gap-2 text-sm font-semibold text-primary">
                   <AlertCircle className="h-4 w-4" />
@@ -287,14 +527,17 @@ export function BrandProfileAssistant({ open, onClose, onSaved }: BrandProfileAs
               </div>
             )}
 
+            {/* 안내 배너 */}
             {!currentMissing && (
               <div className="shrink-0 rounded-lg bg-emerald-50 dark:bg-emerald-950/20 p-3 text-sm text-emerald-900 dark:text-emerald-200">
                 <CheckCircle2 className="mr-1 inline-block h-4 w-4" />
-                모든 추가 질문이 끝났어요. 아래 미리보기에서 직접 수정도 가능합니다.
+                {userAnsweredFieldKeys
+                  ? "노란 배경 칸은 AI가 추정한 부분입니다. 확인하고 수정 가능합니다."
+                  : "모든 추가 질문이 끝났어요. 아래 미리보기에서 직접 수정도 가능합니다."}
               </div>
             )}
 
-            {/* 미리보기 (직접 수정 가능) — flex-1로 남는 공간 차지하고 내부 스크롤 */}
+            {/* 미리보기 — flex-1로 남는 공간 차지하고 내부 스크롤 */}
             <div className="flex-1 min-h-0 overflow-y-auto pr-3">
               <div className="space-y-3 text-sm">
                 <PreviewField
@@ -302,72 +545,104 @@ export function BrandProfileAssistant({ open, onClose, onSaved }: BrandProfileAs
                   value={draft.name}
                   onChange={(v) => updateDraft("name", v)}
                   required
+                  aiSuggested={isAiSuggested("name", !!draft.name?.trim())}
                 />
                 <PreviewField
                   label="[2] 분야·업종"
                   value={draft.category}
                   onChange={(v) => updateDraft("category", v)}
+                  aiSuggested={isAiSuggested("category", !!draft.category?.trim())}
                 />
                 <PreviewField
                   label="[3] 한 줄 소개"
                   value={draft.oneLine}
                   onChange={(v) => updateDraft("oneLine", v)}
                   multiline
+                  aiSuggested={isAiSuggested("oneLine", !!draft.oneLine?.trim())}
                 />
                 <PreviewField
-                  label="[4] 화자 이름"
+                  label="[4] 글쓴이 이름"
                   value={draft.narrator?.name ?? ""}
                   onChange={(v) =>
                     updateDraft("narrator", { ...draft.narrator, name: v, fixed: true })
                   }
                   required
+                  aiSuggested={isAiSuggested("narrator.name", !!draft.narrator?.name?.trim())}
                 />
                 <PreviewField
-                  label="[5] 화자 직책"
+                  label="[5] 글쓴이 직책"
                   value={draft.narrator?.role ?? ""}
                   onChange={(v) =>
                     updateDraft("narrator", { ...draft.narrator, role: v, fixed: true })
                   }
+                  aiSuggested={isAiSuggested("narrator.role", !!draft.narrator?.role?.trim())}
                 />
                 <PreviewField
-                  label="[6] 화자 권위·경력"
+                  label="[6] 글쓴이 경력·자격 (숫자·기간·횟수 위주, 여러 줄)"
                   value={draft.narrator?.authority ?? ""}
                   onChange={(v) =>
                     updateDraft("narrator", { ...draft.narrator, authority: v, fixed: true })
                   }
                   multiline
+                  aiSuggested={isAiSuggested("narrator.authority", !!draft.narrator?.authority?.trim())}
                 />
                 <PreviewField
                   label="[7] 왜 시작했나 (스토리)"
                   value={draft.story?.origin ?? ""}
                   onChange={(v) => updateDraft("story", { ...draft.story, origin: v })}
                   multiline
+                  aiSuggested={isAiSuggested("story.origin", !!draft.story?.origin?.trim())}
                 />
                 <PreviewField
-                  label="[8] 주 고객"
+                  label="[8] 사업하면서 겪은 가장 큰 어려움"
+                  value={draft.story?.crisis ?? ""}
+                  onChange={(v) => updateDraft("story", { ...draft.story, crisis: v })}
+                  multiline
+                  aiSuggested={isAiSuggested("story.crisis", !!draft.story?.crisis?.trim())}
+                />
+                <PreviewField
+                  label="[9] 그 어려움을 어떻게 이겨냈는지"
+                  value={draft.story?.revival ?? ""}
+                  onChange={(v) => updateDraft("story", { ...draft.story, revival: v })}
+                  multiline
+                  aiSuggested={isAiSuggested("story.revival", !!draft.story?.revival?.trim())}
+                />
+                <PreviewField
+                  label="[10] 지금의 방향을 잡게 만든 결정적 만남·깨달음"
+                  value={draft.story?.encounter ?? ""}
+                  onChange={(v) => updateDraft("story", { ...draft.story, encounter: v })}
+                  multiline
+                  aiSuggested={isAiSuggested("story.encounter", !!draft.story?.encounter?.trim())}
+                />
+                <PreviewField
+                  label="[11] 주 고객"
                   value={draft.targets?.primary ?? ""}
                   onChange={(v) =>
                     updateDraft("targets", { ...draft.targets, primary: v })
                   }
                   multiline
+                  aiSuggested={isAiSuggested("targets.primary", !!draft.targets?.primary?.trim())}
                 />
                 <PreviewListField
-                  label="[9] 차별점 (한 줄에 하나)"
+                  label="[12] 차별점 (한 줄에 하나)"
                   values={draft.differentiators ?? []}
                   onChange={(arr) => updateDraft("differentiators", arr)}
+                  aiSuggested={isAiSuggested("differentiators", (draft.differentiators ?? []).length > 0)}
                 />
                 <PreviewListField
-                  label="[10] 공통의 적 / 폭로 대상"
+                  label="[13] 자주 폭로하고 싶은 업계 관행 (3~5개 권장)"
                   values={draft.villains ?? []}
                   onChange={(arr) => updateDraft("villains", arr)}
+                  aiSuggested={isAiSuggested("villains", (draft.villains ?? []).length > 0)}
                 />
                 <PreviewListField
-                  label="[11] 권위·신뢰 자산"
-                  values={draft.authorityAssets ?? []}
-                  onChange={(arr) => updateDraft("authorityAssets", arr)}
+                  label="[14] 핵심 가치 (선택)"
+                  values={draft.coreValues ?? []}
+                  onChange={(arr) => updateDraft("coreValues", arr)}
+                  aiSuggested={isAiSuggested("coreValues", (draft.coreValues ?? []).length > 0)}
                 />
                 <PreviewField
-                  label="[12] 절대 쓰지 않는 단어 (쉼표로 구분)"
+                  label="[15] 절대 쓰지 않는 단어 (쉼표로 구분)"
                   value={(draft.forbidden?.forbiddenWords ?? []).join(", ")}
                   onChange={(v) =>
                     updateDraft("forbidden", {
@@ -380,11 +655,20 @@ export function BrandProfileAssistant({ open, onClose, onSaved }: BrandProfileAs
               </div>
             </div>
 
+            {/* 저장 중 오버레이 — 클릭 직후 즉시 시각 피드백 */}
+            {saving && (
+              <div className="absolute inset-0 z-10 flex items-center justify-center bg-background/70 backdrop-blur-sm rounded-lg">
+                <div className="flex flex-col items-center gap-2 text-sm font-medium">
+                  <Loader2 className="h-6 w-6 animate-spin text-primary" />
+                  <span>저장 중…</span>
+                </div>
+              </div>
+            )}
             <DialogFooter className="shrink-0 gap-2 sm:gap-2">
-              <Button variant="outline" onClick={() => setStage("input")} disabled={saving}>
+              <Button variant="outline" onClick={() => setStage("mode-select")} disabled={saving}>
                 다시 입력
               </Button>
-              <Button onClick={handleSave} disabled={saving} className="gap-1">
+              <Button onClick={handleSave} disabled={saving} size="default" className="gap-1 min-w-[120px]">
                 {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Edit3 className="h-4 w-4" />}
                 {saving ? "저장 중..." : "저장하기"}
               </Button>
@@ -405,14 +689,18 @@ function PreviewField({
   onChange,
   required,
   multiline,
+  aiSuggested,
 }: {
   label: string;
   value: string;
   onChange: (v: string) => void;
   required?: boolean;
   multiline?: boolean;
+  /** true면 옅은 노란 배경 + "AI 추정" 배지 표시 */
+  aiSuggested?: boolean;
 }) {
   const empty = !value?.trim();
+  const aiCls = aiSuggested ? "bg-amber-50 dark:bg-amber-950/20 border-amber-300" : "";
   return (
     <div className="space-y-1">
       <Label className="text-xs flex items-center gap-1">
@@ -423,19 +711,25 @@ function PreviewField({
         )}
         {label}
         {required && <span className="text-destructive">*</span>}
+        {aiSuggested && (
+          <span className="ml-1 inline-flex items-center gap-1 rounded bg-amber-100 dark:bg-amber-900/40 px-1.5 py-0.5 text-[10px] font-medium text-amber-900 dark:text-amber-100">
+            <Sparkles className="h-2.5 w-2.5" />
+            AI 추정
+          </span>
+        )}
       </Label>
       {multiline ? (
         <Textarea
           value={value}
           onChange={(e) => onChange(e.target.value)}
           rows={2}
-          className={empty ? "border-amber-300" : ""}
+          className={empty ? "border-amber-300" : aiCls}
         />
       ) : (
         <Input
           value={value}
           onChange={(e) => onChange(e.target.value)}
-          className={empty ? "border-amber-300" : ""}
+          className={empty ? "border-amber-300" : aiCls}
         />
       )}
     </div>
@@ -447,12 +741,15 @@ function PreviewListField({
   label,
   values,
   onChange,
+  aiSuggested,
 }: {
   label: string;
   values: string[];
   onChange: (v: string[]) => void;
+  aiSuggested?: boolean;
 }) {
   const empty = values.length === 0;
+  const aiCls = aiSuggested ? "bg-amber-50 dark:bg-amber-950/20 border-amber-300" : "";
   return (
     <div className="space-y-1">
       <Label className="text-xs flex items-center gap-1">
@@ -462,6 +759,12 @@ function PreviewListField({
           <CheckCircle2 className="h-3 w-3 text-emerald-500" />
         )}
         {label}
+        {aiSuggested && (
+          <span className="ml-1 inline-flex items-center gap-1 rounded bg-amber-100 dark:bg-amber-900/40 px-1.5 py-0.5 text-[10px] font-medium text-amber-900 dark:text-amber-100">
+            <Sparkles className="h-2.5 w-2.5" />
+            AI 추정
+          </span>
+        )}
       </Label>
       <Textarea
         value={values.join("\n")}
@@ -470,7 +773,7 @@ function PreviewListField({
         }
         rows={Math.min(Math.max(values.length, 2), 6)}
         placeholder="한 줄에 하나씩"
-        className={empty ? "border-amber-300" : ""}
+        className={empty ? "border-amber-300" : aiCls}
       />
     </div>
   );
