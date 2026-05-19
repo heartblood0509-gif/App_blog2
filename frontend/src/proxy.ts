@@ -16,6 +16,7 @@ import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 
 const SESSION_COOKIE = "app_session";
+const USER_SESSION_COOKIE = "app_user_session";
 
 interface BasicAuthConfig {
   username: string;
@@ -71,7 +72,71 @@ function getExpectedToken(): string | null {
   return "__missing-token-fail-closed__";
 }
 
-export function proxy(request: NextRequest): NextResponse {
+function isUserAuthDisabled(): boolean {
+  return (
+    process.env.APP_REQUIRE_USER_AUTH === "0" ||
+    process.env.ALLOW_INSECURE_DEV_AUTH === "1"
+  );
+}
+
+function userSessionSecret(): string | null {
+  return process.env.APP_USER_SESSION_SECRET || process.env.APP_SESSION_TOKEN || null;
+}
+
+function base64urlToArrayBuffer(value: string): ArrayBuffer {
+  const base64 = value.replace(/-/g, "+").replace(/_/g, "/");
+  const padded = base64.padEnd(Math.ceil(base64.length / 4) * 4, "=");
+  const binary = atob(padded);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i += 1) {
+    bytes[i] = binary.charCodeAt(i);
+  }
+  return bytes.buffer.slice(
+    bytes.byteOffset,
+    bytes.byteOffset + bytes.byteLength,
+  ) as ArrayBuffer;
+}
+
+function decodeBase64urlJson(value: string): unknown {
+  const buffer = base64urlToArrayBuffer(value);
+  const json = new TextDecoder().decode(new Uint8Array(buffer));
+  return JSON.parse(json);
+}
+
+async function isUserSessionValid(cookie: string | undefined): Promise<boolean> {
+  if (!cookie) return false;
+  const secret = userSessionSecret();
+  if (!secret) return false;
+
+  const [payload, signature] = cookie.split(".");
+  if (!payload || !signature) return false;
+
+  try {
+    const key = await crypto.subtle.importKey(
+      "raw",
+      new TextEncoder().encode(secret),
+      { name: "HMAC", hash: "SHA-256" },
+      false,
+      ["verify"],
+    );
+    const ok = await crypto.subtle.verify(
+      "HMAC",
+      key,
+      base64urlToArrayBuffer(signature),
+      new TextEncoder().encode(payload),
+    );
+    if (!ok) return false;
+
+    const decoded = decodeBase64urlJson(payload);
+    if (!decoded || typeof decoded !== "object") return false;
+    const exp = (decoded as { exp?: unknown }).exp;
+    return typeof exp === "number" && exp > Math.floor(Date.now() / 1000);
+  } catch {
+    return false;
+  }
+}
+
+export async function proxy(request: NextRequest): Promise<NextResponse> {
   const basicAuth = getBasicAuthConfig();
   if (isVercelRuntime() && basicAuth && !isBasicAuthValid(request, basicAuth)) {
     return basicAuthChallenge();
@@ -88,6 +153,14 @@ export function proxy(request: NextRequest): NextResponse {
         return new NextResponse("Unauthorized", { status: 401 });
       }
     }
+    const isAuthApi = request.nextUrl.pathname.startsWith("/api/auth/");
+    if (!isAuthApi && !isUserAuthDisabled()) {
+      const userCookie = request.cookies.get(USER_SESSION_COOKIE)?.value;
+      if (!(await isUserSessionValid(userCookie))) {
+        return new NextResponse("User authentication required", { status: 401 });
+      }
+    }
+
     // /api/* 통과 — 쿠키 재발급은 안 함 (이미 보유 중일 것)
     return NextResponse.next();
   }

@@ -37,5 +37,9 @@ export function getTemplateLabel(template: BrandTemplateId): string {
       return "가치입증글";
     case "detail":
       return "상세페이지글";
+    case "custom":
+      return "내 템플릿";
+    default:
+      return "브랜드 글";
   }
 }

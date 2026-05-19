@@ -86,6 +86,7 @@ import { StepThreadsGenerate } from "@/components/steps-threads/step-threads-gen
 import { TemplateFitModal } from "@/components/brand/template-fit-modal";
 import { SourceWarningModal } from "@/components/aeo/source-warning-modal";
 import { EmptyInputsWarningModal } from "@/components/empty-inputs-warning-modal";
+import { AuthGate } from "@/components/auth/AuthGate";
 
 // Step 2 (글 설정) 입력 칸 중 하나라도 채워졌는지 검사
 function hasAnyContextInput(state: WizardState): boolean {
@@ -148,6 +149,8 @@ const initialState: WizardState = {
   selectedAeoTemplate: null,
   aeoTargetQueries: [],
   aeoSources: [],
+  brandPropositions: null,
+  brandPropositionsCacheKey: null,
   selectedAnalysisRecordId: null,
   brandCustomReferenceMode: "branded",
   topic: "",
@@ -1899,7 +1902,8 @@ export default function Home() {
   };
 
   return (
-    <div className="min-h-screen bg-background text-foreground">
+    <AuthGate>
+      <div className="min-h-screen bg-background text-foreground">
       <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
         {/* Header */}
         <div className="mb-8 text-center">
@@ -2070,6 +2074,7 @@ export default function Home() {
         open={emptyInputsWarningOpen}
         onClose={() => setEmptyInputsWarningOpen(false)}
       />
-    </div>
+      </div>
+    </AuthGate>
   );
 }

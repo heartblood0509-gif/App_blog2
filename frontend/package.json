@@ -12,6 +12,7 @@
     "@base-ui/react": "^1.4.0",
     "@google/genai": "^1.50.0",
     "@mozilla/readability": "^0.6.0",
+    "@supabase/supabase-js": "^2.106.0",
     "@types/jsdom": "^28.0.1",
     "cheerio": "^1.2.0",
     "class-variance-authority": "^0.7.1",

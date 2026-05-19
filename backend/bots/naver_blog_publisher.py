@@ -11,6 +11,8 @@ Playwright를 사용하여 SmartEditor ONE에 글을 작성합니다.
 - 안전장치 (일일 발행 제한, 랜덤 타이핑)
 """
 
+from __future__ import annotations
+
 import asyncio
 import json
 import os
