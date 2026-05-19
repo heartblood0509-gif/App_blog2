@@ -178,8 +178,8 @@ export function StepSettings({ state, onChange }: StepSettingsProps) {
             </CardContent>
           </Card>
 
-          {/* Persona — 브랜드·AEO 모드에선 작성자 신원이 프로필에 있어서 노출 X */}
-          {state.postCategory !== "brand" && state.postCategory !== "aeo" && (
+          {/* Persona — 후기성(review) 전용. 브랜드·AEO는 프로필, SEO·AEO 통합형은 톤 고정이라 미사용 */}
+          {state.postCategory === "review" && (
             <Card>
               <CardHeader>
                 <CardTitle className="flex items-center gap-2 text-sm">
@@ -223,7 +223,11 @@ export function StepSettings({ state, onChange }: StepSettingsProps) {
             </CardHeader>
             <CardContent>
               <Textarea
-                placeholder="특별히 강조하고 싶은 내용이나 포함/제외할 내용을 작성하세요"
+                placeholder={
+                  state.postCategory === "seoAeo"
+                    ? "글의 목적(예: 신제품 인지도 ↑), 소개할 제품·서비스(예: 미르엔 영양제), 강조할 포인트 등을 자유롭게 적어주세요"
+                    : "특별히 강조하고 싶은 내용이나 포함/제외할 내용을 작성하세요"
+                }
                 value={state.requirements}
                 onChange={(e) => onChange({ requirements: e.target.value })}
                 className="min-h-[100px]"

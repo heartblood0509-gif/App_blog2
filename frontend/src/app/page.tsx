@@ -56,6 +56,7 @@ const MAX_BY_CATEGORY: Record<string, number> = {
   brand: 12,
   review: 12,
   aeo: 8,
+  seoAeo: 12, // SEO·AEO 통합형은 브랜드와 동일한 후처리 파이프라인을 사용하므로 캡도 12장으로 일치
 };
 function resolveMaxCount(postCategory: PostCategory | null): number {
   if (!postCategory) return 12;
@@ -64,8 +65,8 @@ function resolveMaxCount(postCategory: PostCategory | null): number {
 
 /**
  * 후처리 파이프라인 — postCategory 별로 다른 규칙 적용.
- * - brand: 브랜드 전용 5단계 (살균 → HOOK → 중복제거 → 열거 → 소제목 → 도입부 → 채움)
- * - review/aeo: 기존 4단계 (HOOK → 중복제거 → 도입부 → 소제목)
+ * - brand, seoAeo: 브랜드 8단계 (살균 → HOOK → 중복제거 → 열거 → 소제목 → 도입부 → 채움 → 캡)
+ * - review/aeo: 기존 4단계 (HOOK → 중복제거 → 도입부 → 소제목 → 캡)
  */
 function applyImagePostProcessing(
   raw: string,
@@ -76,7 +77,7 @@ function applyImagePostProcessing(
   // stripBrTags가 `<br>` 폭주를 개행으로 치환해 빈 줄이 거대 누적되는 사고 차단
   const cleaned = collapseBlankLines(stripBrTags(raw));
   const maxCount = resolveMaxCount(postCategory);
-  if (postCategory === "brand") {
+  if (postCategory === "brand" || postCategory === "seoAeo") {
     const sanitized = sanitizeBrandBodyText(cleaned);
     const hooked = ensureHookImage(sanitized, selectedTitle, mainKeyword);
     const deduped = dedupeSubtitleEchoes(hooked);
@@ -354,9 +355,20 @@ export default function Home() {
           if (!state.selectedAeoProfileId) return false;
           if (!state.selectedAeoTemplate) return false;
         }
+        if (state.postCategory === "seoAeo") {
+          // SEO·AEO 통합형 — AEO 프로필만 필수 (글 타입은 단일 흐름이라 미사용)
+          if (!state.selectedAeoProfileId) return false;
+        }
         return true;
       }
       case 2:
+        // SEO·AEO 통합형은 주제 또는 메인 키워드 중 1개는 필수 (LLM이 의도를 잡기 위한 최소 신호)
+        if (state.postCategory === "seoAeo") {
+          return (
+            state.topic.trim().length > 0 ||
+            state.mainKeyword.trim().length > 0
+          );
+        }
         return hasAnyContextInput(state);
       case 3:
         return state.selectedTitle.trim().length > 0;
@@ -441,8 +453,19 @@ export default function Home() {
           if (!state.selectedAeoProfileId) return "AEO 프로필을 선택해주세요";
           if (!state.selectedAeoTemplate) return "AEO 글 타입을 선택해주세요";
         }
+        if (state.postCategory === "seoAeo") {
+          if (!state.selectedAeoProfileId) return "AEO 프로필을 선택해주세요";
+        }
         return undefined;
       case 2:
+        if (state.postCategory === "seoAeo") {
+          if (
+            state.topic.trim().length === 0 &&
+            state.mainKeyword.trim().length === 0
+          ) {
+            return "주제 또는 메인 키워드 중 하나는 입력해주세요";
+          }
+        }
         return undefined;
       default:
         return undefined;
@@ -588,6 +611,40 @@ export default function Home() {
             analysisRecordId: isStructureBased
               ? state.selectedAnalysisRecordId || undefined
               : undefined,
+          }),
+        });
+        if (!res.ok) {
+          const err = await res.json();
+          throw new Error(err.error || "제목 생성에 실패했습니다.");
+        }
+        const data = await res.json();
+        if (!Array.isArray(data.suggestions)) {
+          throw new Error("응답 형식이 올바르지 않습니다. 다시 시도해주세요.");
+        }
+        updateState({ titleSuggestions: data.suggestions, isLoading: false });
+        return;
+      }
+
+      // SEO·AEO 통합형 분기
+      if (state.postCategory === "seoAeo") {
+        const effectiveMain = getEffectiveMainKeyword(state);
+        if (!effectiveMain) {
+          throw new Error("주제 또는 메인 키워드 중 하나는 입력해주세요.");
+        }
+        const profile = await fetchAeoProfile();
+        if (!profile) {
+          throw new Error("AEO 프로필을 불러오지 못했습니다.");
+        }
+        const res = await fetch("/api/seo-aeo/titles", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            profile,
+            topic: state.topic || undefined,
+            mainKeyword: effectiveMain,
+            subKeywords: state.subKeywords || undefined,
+            requirements: state.requirements || undefined,
+            count: 5,
           }),
         });
         if (!res.ok) {
@@ -857,6 +914,29 @@ export default function Home() {
               isStructureBasedVariant || isCustomLibrary
                 ? state.selectedAnalysisRecordId || undefined
                 : undefined,
+          }),
+        });
+      } else if (state.postCategory === "seoAeo") {
+        // SEO·AEO 통합형 — /api/seo-aeo/generate 로 호출
+        const effectiveMain = getEffectiveMainKeyword(state);
+        if (!effectiveMain) {
+          throw new Error("주제 또는 메인 키워드 중 하나는 입력해주세요.");
+        }
+        const profile = await fetchAeoProfile();
+        if (!profile) {
+          throw new Error("AEO 프로필을 불러오지 못했습니다.");
+        }
+        res = await fetch("/api/seo-aeo/generate", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            profile,
+            selectedTitle: state.selectedTitle,
+            topic: effectiveTopic || undefined,
+            mainKeyword: effectiveMain,
+            subKeywords: state.subKeywords || undefined,
+            requirements: state.requirements || undefined,
+            charCount: state.charCountRange,
           }),
         });
       } else if (state.postCategory === "aeo") {
@@ -1518,9 +1598,46 @@ export default function Home() {
 
   const handlePostCategoryChange = useCallback(
     (postCategory: PostCategory) => {
-      updateState({ postCategory });
+      // 카테고리 변경 시 다른 카테고리의 stale 입력/결과를 정리해 잘못된 상태 잔존을 막는다.
+      // 본문/제목/품질 결과도 모두 리셋해 새 카테고리 흐름이 깨끗하게 시작되도록 한다.
+      updateState({
+        postCategory,
+        titleSuggestions: [],
+        selectedTitle: "",
+        generatedContent: "",
+        qualityResult: null,
+        contentDirty: false,
+        generatedImages: {},
+        customPromptsBySlot: {},
+        // AEO 프로필 — aeo와 seoAeo가 공유 (브랜드형/개인형 신원을 두 모드에서 모두 사용)
+        selectedAeoProfileId:
+          (postCategory === "aeo" || postCategory === "seoAeo")
+            ? state.selectedAeoProfileId
+            : null,
+        // AEO 글 타입·자연어 질문·출처는 aeo 전용 자원
+        selectedAeoTemplate: postCategory === "aeo" ? state.selectedAeoTemplate : null,
+        aeoTargetQueries: postCategory === "aeo" ? state.aeoTargetQueries : [],
+        aeoSources: postCategory === "aeo" ? state.aeoSources : [],
+        // 브랜드 전용 — 카테고리 바뀌면 템플릿/변형 선택 초기화 (프로필 ID는 보존)
+        selectedBrandTemplate: postCategory === "brand" ? state.selectedBrandTemplate : null,
+        selectedBrandInfoVariant: postCategory === "brand" ? state.selectedBrandInfoVariant : null,
+        selectedBrandIntroVariant: postCategory === "brand" ? state.selectedBrandIntroVariant : null,
+        selectedBrandValueProofVariant: postCategory === "brand" ? state.selectedBrandValueProofVariant : null,
+        selectedBrandDetailVariant: postCategory === "brand" ? state.selectedBrandDetailVariant : null,
+      });
     },
-    [updateState]
+    [
+      updateState,
+      state.selectedAeoProfileId,
+      state.selectedAeoTemplate,
+      state.aeoTargetQueries,
+      state.aeoSources,
+      state.selectedBrandTemplate,
+      state.selectedBrandInfoVariant,
+      state.selectedBrandIntroVariant,
+      state.selectedBrandValueProofVariant,
+      state.selectedBrandDetailVariant,
+    ]
   );
 
   const handleBrandProfileChange = useCallback(
