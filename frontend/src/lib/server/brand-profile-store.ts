@@ -69,7 +69,6 @@ async function writeProfiles(profiles: BrandProfile[]): Promise<void> {
 
 function validatePayload(payload: BrandProfilePayload): string | null {
   if (!payload || typeof payload !== "object") return "브랜드 프로필 정보가 필요합니다.";
-  if (!payload.label?.trim()) return "라벨을 입력해주세요.";
   if (!payload.name?.trim()) return "브랜드명을 입력해주세요.";
   return null;
 }
@@ -94,8 +93,8 @@ export async function createBrandProfileInKv(
   }
 
   const profiles = await readProfiles();
-  if (profiles.some((profile) => profile.label === payload.label)) {
-    throw new Error(`이미 등록된 브랜드 라벨입니다: ${payload.label}`);
+  if (profiles.some((profile) => profile.name === payload.name)) {
+    throw new Error(`이미 등록된 브랜드명입니다: ${payload.name}`);
   }
 
   const profile: BrandProfile = {
@@ -122,10 +121,10 @@ export async function updateBrandProfileInKv(
   }
 
   const duplicate = profiles.some(
-    (profile) => profile.id !== profileId && profile.label === payload.label,
+    (profile) => profile.id !== profileId && profile.name === payload.name,
   );
   if (duplicate) {
-    throw new Error(`이미 등록된 브랜드 라벨입니다: ${payload.label}`);
+    throw new Error(`이미 등록된 브랜드명입니다: ${payload.name}`);
   }
 
   const updated: BrandProfile = { id: profileId, ...payload };

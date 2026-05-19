@@ -18,7 +18,12 @@ import type { AeoProfile } from "@/types/aeo";
 
 interface AeoProfileFormProps {
   open: boolean;
-  initial?: AeoProfile | null;
+  /**
+   * - `AeoProfile`: 수정 모드 (id 포함 완성 프로필)
+   * - `Partial<Omit<AeoProfile, "id">>`: 신규 모드 + 일부 칸 prefill (브랜드 측에서 옮겨온 공용 4칸)
+   * - `null` / undefined: 빈 양식
+   */
+  initial?: AeoProfile | Partial<Omit<AeoProfile, "id">> | null;
   onClose: () => void;
   onSave: (payload: Omit<AeoProfile, "id">) => Promise<void> | void;
 }
@@ -49,9 +54,10 @@ export function AeoProfileForm({ open, initial, onClose, onSave }: AeoProfileFor
   useEffect(() => {
     if (open) {
       if (initial) {
-        const { id: _ignored, ...rest } = initial;
+        // id가 있으면 수정 모드, 없으면 신규 + prefill 일부 칸
+        const { id: _ignored, ...rest } = initial as Partial<AeoProfile>;
         void _ignored;
-        setPayload(rest);
+        setPayload({ ...EMPTY_PAYLOAD(), ...rest });
       } else {
         setPayload(EMPTY_PAYLOAD());
       }
@@ -98,7 +104,7 @@ export function AeoProfileForm({ open, initial, onClose, onSave }: AeoProfileFor
                     id="aeo-label"
                     value={payload.label}
                     onChange={(e) => update("label", e.target.value)}
-                    placeholder="예: 여성 안전성 가이드 (약사맘)"
+                    placeholder="예: 성분 전문가 (바디·헤어케어)"
                   />
                 </div>
                 <div>
@@ -107,7 +113,7 @@ export function AeoProfileForm({ open, initial, onClose, onSave }: AeoProfileFor
                     id="aeo-name"
                     value={payload.name}
                     onChange={(e) => update("name", e.target.value)}
-                    placeholder="예: 약사맘"
+                    placeholder="예: 성분 전문가"
                   />
                 </div>
                 <div className="col-span-2">
@@ -116,7 +122,7 @@ export function AeoProfileForm({ open, initial, onClose, onSave }: AeoProfileFor
                     id="aeo-category"
                     value={payload.category}
                     onChange={(e) => update("category", e.target.value)}
-                    placeholder="예: 여성·임산부 헬스"
+                    placeholder="예: 바디·헤어케어"
                   />
                 </div>
               </div>
@@ -131,7 +137,7 @@ export function AeoProfileForm({ open, initial, onClose, onSave }: AeoProfileFor
               <Textarea
                 value={payload.oneLineIntro}
                 onChange={(e) => update("oneLineIntro", e.target.value)}
-                placeholder='예: "임산부·수유부에게 가장 안전한 성분을 골라주는 약사 출신 엄마"'
+                placeholder='예: "민감성 피부를 가진 분들을 위해 안전한 성분으로 바디·헤어케어 제품을 만드는 전문가"'
                 rows={2}
               />
             </section>
@@ -145,7 +151,7 @@ export function AeoProfileForm({ open, initial, onClose, onSave }: AeoProfileFor
                   id="aeo-experience"
                   value={payload.identity.experience}
                   onChange={(e) => update("identity", { ...payload.identity, experience: e.target.value })}
-                  placeholder="예: 약사 8년차, 두 아이 엄마 (임신·산후 직접 경험)"
+                  placeholder="예: 8년간 바디·헤어케어 제품 브랜딩 및 판매, 민감성 피부로 인한 성분 집착 경험"
                 />
               </div>
               <div>
@@ -154,7 +160,7 @@ export function AeoProfileForm({ open, initial, onClose, onSave }: AeoProfileFor
                   id="aeo-credentials"
                   value={arrayToLines(payload.identity.credentials)}
                   onChange={(e) => update("identity", { ...payload.identity, credentials: linesToArray(e.target.value) })}
-                  placeholder={"약학대학원 졸업\n산부인과 인근 약국 5년 근무\n임산부 영양 상담 200건 이상 진행"}
+                  placeholder={"바디·헤어케어 제품 브랜딩 및 판매 경력 8년\n누적 판매 1만 개 이상\n자체 임상 6개월 운영\n재구매율 35%"}
                   rows={4}
                 />
               </div>
@@ -166,7 +172,7 @@ export function AeoProfileForm({ open, initial, onClose, onSave }: AeoProfileFor
               <Textarea
                 value={payload.audience}
                 onChange={(e) => update("audience", e.target.value)}
-                placeholder="예: 임신 12주 이상 ~ 산후 12개월 + 수유 중인 분 + 36개월 이내 영유아 엄마"
+                placeholder="예: 민감성 피부로 인해 제품 선택에 어려움을 겪는 분들"
                 rows={2}
               />
             </section>
@@ -178,7 +184,7 @@ export function AeoProfileForm({ open, initial, onClose, onSave }: AeoProfileFor
               <Textarea
                 value={arrayToLines(payload.recommendationCriteria)}
                 onChange={(e) => update("recommendationCriteria", linesToArray(e.target.value))}
-                placeholder={"성분 안전성 (임산부·수유부 금기 성분 없는지)\n의학 근거 (논문·연구 결과)\n식약처 또는 FDA 등재 여부\n실사용자 후기 (산후맘 카페·구글 평점)\n가격·접근성"}
+                placeholder={"안전한 성분 (자극 유발 성분 제외 여부)\n민감성 피부도 안심하고 사용할 수 있는 제품\n자체 임상 결과\n식약처 등재 여부\n실사용자 후기"}
                 rows={6}
               />
             </section>
@@ -190,7 +196,7 @@ export function AeoProfileForm({ open, initial, onClose, onSave }: AeoProfileFor
               <Textarea
                 value={arrayToLines(payload.trustedSources)}
                 onChange={(e) => update("trustedSources", linesToArray(e.target.value))}
-                placeholder={"식약처 의약외품 고시\nCochrane Library\n한국 모유수유의학회"}
+                placeholder={"식약처 화장품 성분 안전성 정보\n대한피부과학회 가이드\nKCID 화장품 안전성 데이터베이스"}
                 rows={4}
               />
             </section>

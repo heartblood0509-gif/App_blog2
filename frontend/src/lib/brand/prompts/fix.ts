@@ -29,7 +29,7 @@ export function buildBrandFixPrompt(opts: BuildFixPromptOptions): string {
   sections.push(`당신은 한국어 브랜드 블로그 글의 품질을 다듬는 편집자입니다.
 아래 글에서 [수정 사유]에 명시된 문제만 정확히 고치세요.`);
 
-  sections.push(`[브랜드: ${profile.label} / 템플릿: ${getTemplateLabel(template)} / 메인 키워드: ${keyword}]`);
+  sections.push(`[브랜드: ${profile.name} / 템플릿: ${getTemplateLabel(template)} / 메인 키워드: ${keyword}]`);
 
   sections.push(buildBrandContext(profile));
 

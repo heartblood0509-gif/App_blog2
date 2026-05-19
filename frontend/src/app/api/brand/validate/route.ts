@@ -23,25 +23,14 @@ interface ValidateBody {
  * 검출되면 failReasons에 항목 추가.
  */
 function detectBrandExposure(text: string, profile: BrandProfile): string[] {
+  // v2: label, supportingPersona, signaturePhrases 제거됨.
+  //     남은 검사 대상은 회사명·1인칭 화자명만.
   const reasons: string[] = [];
   const checks: Array<{ word: string; label: string }> = [];
 
   if (profile.name) checks.push({ word: profile.name, label: "회사명" });
-  if (profile.label && profile.label !== profile.name) {
-    checks.push({ word: profile.label, label: "브랜드 라벨" });
-  }
   if (profile.narrator?.name) {
     checks.push({ word: profile.narrator.name, label: "1인칭 화자명" });
-  }
-  if (profile.supportingPersona?.name) {
-    checks.push({ word: profile.supportingPersona.name, label: "보조 인물명" });
-  }
-
-  // 시그니처 표현 — 4자 이상만 (짧은 일반어 오탐 방지)
-  for (const phrase of profile.signaturePhrases || []) {
-    if (phrase && phrase.length >= 4) {
-      checks.push({ word: phrase, label: "시그니처 표현" });
-    }
   }
 
   for (const { word, label } of checks) {

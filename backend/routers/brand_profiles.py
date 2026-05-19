@@ -10,7 +10,7 @@ import json
 from typing import Any, Optional
 
 from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from config import BRAND_PROFILES_FILE
 
@@ -49,28 +49,33 @@ def find_profile(profile_id: str) -> Optional[dict]:
 # ─────────────────────────────────────────────
 
 class BrandProfileUpsert(BaseModel):
-    """등록·수정 입력. id는 서버에서 부여하므로 입력에서 제외."""
-    label: str = Field(..., min_length=1)
+    """
+    등록·수정 입력. id는 서버에서 부여하므로 입력에서 제외.
+
+    v2 스키마 (양식 축소 후):
+    - 제거된 필드: label, supportingPersona, authorityAssets, metaphors, signaturePhrases
+    - narrator.character 제거됨
+    - authorityAssets 내용은 narrator.authority(string)에 줄바꿈으로 흡수됨
+    - extra='ignore': 구 JSON 데이터에 남은 폐기 키들은 로드 시 무시
+    """
+    model_config = ConfigDict(extra="ignore")
+
     name: str = Field(..., min_length=1)
     category: str = ""
     oneLine: str = ""
     coreValues: list[str] = []
 
     narrator: dict[str, Any] = {}
-    supportingPersona: dict[str, Any] = {}
 
     story: dict[str, Any] = {}
     episodes: list[dict[str, Any]] = []
 
-    authorityAssets: list[str] = []
     services: list[str] = []
 
     targets: dict[str, Any] = {}
     differentiators: list[str] = []
 
     villains: list[str] = []
-    metaphors: list[str] = []
-    signaturePhrases: list[str] = []
 
     recommendedRoutes: list[str] = []
     cta: dict[str, Any] = {}
@@ -106,8 +111,8 @@ async def create_profile(req: BrandProfileUpsert) -> dict:
     new_id = f"brand{idx}"
 
     for p in profiles:
-        if p.get("label") == req.label:
-            raise HTTPException(400, f"이미 등록된 브랜드 라벨입니다: {req.label}")
+        if p.get("name") == req.name:
+            raise HTTPException(400, f"이미 등록된 브랜드명입니다: {req.name}")
 
     new_profile = {"id": new_id, **req.model_dump()}
     profiles.append(new_profile)
