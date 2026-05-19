@@ -2,6 +2,7 @@ import { app } from "electron";
 import path from "path";
 
 const isDev = !app.isPackaged;
+const backendExecutableName = process.platform === "win32" ? "BlogPublisher.exe" : "BlogPublisher";
 
 export const paths = {
   isDev,
@@ -15,8 +16,8 @@ export const paths = {
     : path.join(process.resourcesPath, "splash.html"),
 
   backendExe: isDev
-    ? path.join(__dirname, "..", "..", "backend", "dist", "BlogPublisher", "BlogPublisher.exe")
-    : path.join(process.resourcesPath, "backend", "BlogPublisher.exe"),
+    ? path.join(__dirname, "..", "..", "backend", "dist", "BlogPublisher", backendExecutableName)
+    : path.join(process.resourcesPath, "backend", backendExecutableName),
 
   backendCwdDev: path.join(__dirname, "..", "..", "backend"),
 
