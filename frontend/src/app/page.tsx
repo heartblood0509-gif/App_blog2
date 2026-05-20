@@ -34,6 +34,17 @@ import { initialThreadsState } from "@/types";
 import { fetchUserProducts } from "@/lib/products";
 import { buildCustomProductInfo } from "@/lib/prompts/brand-context";
 import {
+  runImageBulk,
+  type SlotJob,
+  type SlotOutcome,
+} from "@/lib/image-bulk";
+import {
+  saveImage,
+  loadImagesByRound,
+  clearOldRounds,
+  listRoundIds,
+} from "@/lib/image-storage";
+import {
   parseImageMarkers,
   ensureSubtitleCoverage,
   ensureHookImage,
@@ -155,6 +166,10 @@ export default function Home() {
   const { state, setState, updateState, resetState } = useWizardState();
   const [userProducts, setUserProducts] = useState<UserProduct[]>([]);
 
+  // 이미지 일괄 생성 라운드 관리. ref로 두면 콜백에서 stale closure 없이 최신값 비교 가능.
+  const bulkAbortRef = useRef<AbortController | null>(null);
+  const bulkRoundIdRef = useRef<string | null>(null);
+
   // 첫 부팅: API 키가 아직 없으면 설정 페이지로 안내. 메인 진입 시 한 번만 확인한다.
   useEffect(() => {
     const api = window.electronAPI?.settings;
@@ -165,6 +180,40 @@ export default function Home() {
       }
     }).catch(() => {});
   }, [router]);
+
+  // 앱 마운트 시: 가장 최근 라운드 이미지를 IndexedDB에서 복원하고 오래된 라운드는 정리.
+  // generatedImages가 비어 있을 때만 복원 (사용자가 새 글 시작 중간이면 덮어쓰지 않음).
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const rounds = await listRoundIds();
+        if (!rounds[0]) return;
+        const restored = await loadImagesByRound(rounds[0]);
+        if (cancelled) return;
+        const keys = Object.keys(restored);
+        if (keys.length === 0) return;
+        setState((prev) => {
+          if (Object.keys(prev.generatedImages).length > 0) return prev;
+          const next = { ...prev.generatedImages };
+          for (const sid of keys) next[sid] = restored[sid].base64;
+          return { ...prev, generatedImages: next, currentRoundId: rounds[0] };
+        });
+      } catch {
+        // 복원 실패는 조용히 무시
+      } finally {
+        clearOldRounds(3).catch(() => {});
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // 마운트 1회만
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // 슬롯 버전 증가는 각 user-action 핸들러 내부에서 setState 머지 시 직접 처리.
+  // (라운드 도중 사용자가 슬롯을 만지면 옛 결과가 새 상태를 덮어쓰지 못하게 stale-write 가드)
 
   const refetchUserProducts = useCallback(async () => {
     const list = await fetchUserProducts();
@@ -1149,14 +1198,23 @@ export default function Home() {
             delete nextImages[slotId];
           }
         }
+        // 슬롯이 변경됐으므로 slotVersion 증가 → 진행 중인 라운드의 옛 결과가 덮어쓰지 못함
+        const nextVersion = {
+          ...prev.slotVersionMap,
+          [slotId]: (prev.slotVersionMap[slotId] ?? 0) + 1,
+        };
+        const nextFailures = { ...prev.slotFailures };
+        delete nextFailures[slotId];
         return {
           ...prev,
           userPhotosBySlot: nextPhotos,
           generatedImages: nextImages,
+          slotVersionMap: nextVersion,
+          slotFailures: nextFailures,
         };
       });
     },
-    []
+    [setState]
   );
 
   const handleUserInstructionChange = useCallback(
@@ -1190,10 +1248,17 @@ export default function Home() {
         } else {
           next[slotId] = prompt;
         }
-        return { ...prev, customPromptsBySlot: next };
+        return {
+          ...prev,
+          customPromptsBySlot: next,
+          slotVersionMap: {
+            ...prev.slotVersionMap,
+            [slotId]: (prev.slotVersionMap[slotId] ?? 0) + 1,
+          },
+        };
       });
     },
-    []
+    [setState]
   );
 
   const handleToggleExcluded = useCallback(
@@ -1202,10 +1267,17 @@ export default function Home() {
         const set = new Set(prev.excludedSlotIds);
         if (excluded) set.add(slotId);
         else set.delete(slotId);
-        return { ...prev, excludedSlotIds: Array.from(set) };
+        return {
+          ...prev,
+          excludedSlotIds: Array.from(set),
+          slotVersionMap: {
+            ...prev.slotVersionMap,
+            [slotId]: (prev.slotVersionMap[slotId] ?? 0) + 1,
+          },
+        };
       });
     },
-    []
+    [setState]
   );
 
   /** 단일 슬롯 실행: AI 생성(text-to-image) 또는 AI 변환(image-to-image) */
@@ -1311,7 +1383,16 @@ export default function Home() {
     [runSlotAction]
   );
 
-  /** 일괄 AI 생성: 사진도 없고 출력도 없는 빈 슬롯만 대상 */
+  /**
+   * 일괄 AI 생성 — 클라이언트 병렬 풀(image-bulk).
+   * 사진도 없고 출력도 없는 빈 슬롯만 대상.
+   *
+   * 변경 요지(이전 버전 대비):
+   *  - 서버 직렬 배치 → 클라 동시성 3 + 최소 시작 간격 6초 풀
+   *  - 슬롯 완료 즉시 화면 반영 + IndexedDB 저장
+   *  - 429 backoff, AIMD 적응형 스로틀, 슬롯별 timeout
+   *  - roundId/slotVersion 도장으로 stale write 방지
+   */
   const handleGenerateImages = useCallback(async () => {
     const excludedSet = new Set(state.excludedSlotIds);
     const targets = state.imageSlots.filter(
@@ -1326,78 +1407,135 @@ export default function Home() {
       return;
     }
 
-    setState((prev) => ({
-      ...prev,
-      isImageGenerating: true,
-      isGeneratingBySlot: {
-        ...prev.isGeneratingBySlot,
-        ...Object.fromEntries(targets.map((t) => [t.id, true])),
+    if (bulkAbortRef.current) {
+      toast.info("이미 일괄 생성이 진행 중입니다.");
+      return;
+    }
+
+    const roundId =
+      typeof crypto !== "undefined" && "randomUUID" in crypto
+        ? crypto.randomUUID()
+        : `r_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+    const controller = new AbortController();
+    bulkAbortRef.current = controller;
+    bulkRoundIdRef.current = roundId;
+
+    // 라운드 시작 시점의 slotVersion을 스냅샷 → 콜백에서 이 값과 현재 state 비교
+    const versionSnapshot: Record<string, number> = {};
+    for (const t of targets) {
+      versionSnapshot[t.id] = state.slotVersionMap[t.id] ?? 0;
+    }
+
+    const jobs: SlotJob[] = targets.map((s) => ({
+      slotPayload: {
+        id: s.id,
+        index: s.index,
+        description: s.description,
+        groupId: s.groupId,
+        mode: "ai" as const,
+        customPrompt: state.customPromptsBySlot[s.id],
       },
+      slotVersion: versionSnapshot[s.id],
     }));
 
-    try {
-      const body = {
-        content: state.generatedContent,
-        slots: targets.map((s) => ({
-          id: s.id,
-          index: s.index,
-          description: s.description,
-          groupId: s.groupId,
-          mode: "ai" as const,
-          customPrompt: state.customPromptsBySlot[s.id],
-        })),
+    // 라운드 시작 — 글로벌 플래그(버튼 잠금/[중지] 표시 전용)와 실패 칩 초기화,
+    // 시작된 슬롯의 진행 플래그는 onSlotStart에서 켠다 (모든 슬롯 동시 spinner 회피).
+    setState((prev) => {
+      const nextFailures = { ...prev.slotFailures };
+      for (const t of targets) delete nextFailures[t.id];
+      return {
+        ...prev,
+        isImageGenerating: true,
+        slotFailures: nextFailures,
+        currentRoundId: roundId,
       };
-      const res = await fetch("/api/images/generate", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-      });
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
-        throw new Error(err.error || "이미지 생성 실패");
-      }
-      const data = (await res.json()) as {
-        results: Array<{ id: string; status: string; base64?: string }>;
-      };
+    });
 
-      setState((prev) => {
-        const nextImages = { ...prev.generatedImages };
-        const nextGenerating = { ...prev.isGeneratingBySlot };
-        let doneCount = 0;
-        let failCount = 0;
-        for (const r of data.results) {
-          nextGenerating[r.id] = false;
-          if (r.status === "done" && r.base64) {
-            nextImages[r.id] = r.base64;
-            doneCount++;
-          } else if (r.status === "failed") {
-            failCount++;
-          }
-        }
-        if (doneCount > 0) toast.success(`이미지 ${doneCount}개 생성 완료`);
-        if (failCount > 0)
-          toast.warning(
-            `${failCount}개 생성 실패 — 해당 슬롯은 발행 시 빈 자리로 남습니다`
-          );
-        return {
-          ...prev,
-          generatedImages: nextImages,
-          isGeneratingBySlot: nextGenerating,
-          isImageGenerating: false,
-        };
+    let doneCount = 0;
+    let failCount = 0;
+    let abortedCount = 0;
+
+    try {
+      await runImageBulk(jobs, state.generatedContent, undefined, {
+        roundId,
+        signal: controller.signal,
+        onSlotStart: (slotId) => {
+          setState((prev) => ({
+            ...prev,
+            isGeneratingBySlot: {
+              ...prev.isGeneratingBySlot,
+              [slotId]: true,
+            },
+          }));
+        },
+        onSlotDone: (out: SlotOutcome) => {
+          // 1) 라운드 일치 확인
+          if (bulkRoundIdRef.current !== out.roundId) return;
+          // 2) slot 버전 일치 확인 (사용자가 라운드 중에 손댔으면 무시)
+          setState((prev) => {
+            const currentVersion = prev.slotVersionMap[out.id] ?? 0;
+            if (currentVersion !== out.slotVersion) {
+              // stale: spinner만 끄고 결과는 버림
+              const nextGen = { ...prev.isGeneratingBySlot };
+              nextGen[out.id] = false;
+              return { ...prev, isGeneratingBySlot: nextGen };
+            }
+            const nextGen = { ...prev.isGeneratingBySlot };
+            nextGen[out.id] = false;
+
+            if (out.status === "done") {
+              doneCount++;
+              // IndexedDB 저장 (실패해도 흐름 안 막음)
+              saveImage(out.roundId, out.id, out.base64, out.mimeType).catch(() => {});
+              const nextFailures = { ...prev.slotFailures };
+              delete nextFailures[out.id];
+              return {
+                ...prev,
+                generatedImages: { ...prev.generatedImages, [out.id]: out.base64 },
+                isGeneratingBySlot: nextGen,
+                slotFailures: nextFailures,
+              };
+            }
+            if (out.status === "failed") {
+              failCount++;
+              return {
+                ...prev,
+                isGeneratingBySlot: nextGen,
+                slotFailures: { ...prev.slotFailures, [out.id]: out.reasonCode },
+              };
+            }
+            // aborted
+            abortedCount++;
+            return { ...prev, isGeneratingBySlot: nextGen };
+          });
+        },
+        onThrottle: (info) => {
+          console.log("[image-bulk] throttle", JSON.stringify(info));
+        },
       });
     } catch (err) {
+      // runImageBulk는 거의 throw하지 않음(슬롯 단위 catch). 만약 throw되면 토스트.
       const msg = err instanceof Error ? err.message : "이미지 생성 실패";
       toast.error(msg);
-      setState((prev) => {
-        const nextGenerating = { ...prev.isGeneratingBySlot };
-        for (const t of targets) nextGenerating[t.id] = false;
-        return {
-          ...prev,
-          isGeneratingBySlot: nextGenerating,
-          isImageGenerating: false,
-        };
-      });
+    } finally {
+      bulkAbortRef.current = null;
+      // 라운드 마무리. slotFailures는 보존(사용자가 칩 보고 재시도 결정).
+      setState((prev) => ({
+        ...prev,
+        isImageGenerating: false,
+      }));
+
+      if (doneCount > 0) {
+        toast.success(`이미지 ${doneCount}개 생성 완료`);
+      }
+      if (failCount > 0) {
+        toast.warning(
+          `${failCount}개 실패 — 슬롯 카드에서 사유를 확인하고 재시도해 주세요`
+        );
+      }
+      if (abortedCount > 0 && doneCount === 0 && failCount === 0) {
+        toast.info("일괄 생성을 중지했습니다.");
+      }
     }
   }, [
     state.imageSlots,
@@ -1406,7 +1544,16 @@ export default function Home() {
     state.generatedImages,
     state.generatedContent,
     state.customPromptsBySlot,
+    state.slotVersionMap,
+    setState,
   ]);
+
+  /** 일괄 생성 중지 — 새 슬롯 시작 차단 + 가능한 in-flight fetch 끊기 */
+  const handleAbortImages = useCallback(() => {
+    const c = bulkAbortRef.current;
+    if (!c) return;
+    c.abort();
+  }, []);
 
   const handleNext = () => {
     if (state.currentStep >= STEPS.length - 1) return;
@@ -1843,10 +1990,12 @@ export default function Home() {
             isGeneratingBySlot={state.isGeneratingBySlot}
             isImageGenerating={state.isImageGenerating}
             customPromptsBySlot={state.customPromptsBySlot}
+            slotFailures={state.slotFailures}
             onUserPhotoChange={handleUserPhotoChange}
             onUserInstructionChange={handleUserInstructionChange}
             onToggleExcluded={handleToggleExcluded}
             onGenerateImages={handleGenerateImages}
+            onAbortImages={handleAbortImages}
             onGenerateSlotAI={handleGenerateSlotAI}
             onTransformSlot={handleTransformSlot}
             onCustomPromptChange={handleCustomPromptChange}
