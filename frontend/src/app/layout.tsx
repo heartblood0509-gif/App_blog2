@@ -3,7 +3,8 @@ import { Geist, Geist_Mono } from "next/font/google";
 import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { UpdaterModal } from "@/components/UpdaterModal";
-import { SettingsHost } from "@/components/SettingsHost";
+import { AuthSessionProvider } from "@/components/providers/AuthSessionProvider";
+import { WizardStateProvider } from "@/components/providers/WizardStateProvider";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -33,10 +34,13 @@ export default function RootLayout({
     >
       <body className="min-h-full flex flex-col bg-background text-foreground">
         <TooltipProvider>
-          {children}
+          <AuthSessionProvider>
+            <WizardStateProvider>
+              {children}
+            </WizardStateProvider>
+          </AuthSessionProvider>
         </TooltipProvider>
         <UpdaterModal />
-        <SettingsHost />
         <Toaster position="bottom-right" richColors />
       </body>
     </html>
