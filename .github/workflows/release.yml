@@ -231,8 +231,8 @@ jobs:
           아래 절차를 따르시면 정상 실행됩니다.
 
           1. 본인 Mac에 맞는 `.dmg` 파일 다운로드
-             - Apple Silicon (M1/M2/M3/M4): `App Blog Publisher-VERSION_PLACEHOLDER-mac-arm64.dmg`
-             - Intel Mac: `App Blog Publisher-VERSION_PLACEHOLDER-mac-x64.dmg`
+             - Apple Silicon (M1/M2/M3/M4): `App-Blog-Publisher-VERSION_PLACEHOLDER-mac-arm64.dmg`
+             - Intel Mac: `App-Blog-Publisher-VERSION_PLACEHOLDER-mac-x64.dmg`
           2. `.dmg`를 더블클릭 → 앱을 **응용 프로그램(Applications)** 폴더로 드래그
           3. **터미널** 앱을 열고 (Spotlight에서 "터미널" 검색) 아래 명령어를 그대로 붙여넣은 후 Enter:
              ```bash
@@ -245,18 +245,23 @@ jobs:
 
           ### 🪟 Windows 설치 안내
 
-          `App Blog Publisher-Setup-VERSION_PLACEHOLDER-x64.exe`를 다운로드 후 실행하세요.
+          `App-Blog-Publisher-Setup-VERSION_PLACEHOLDER-x64.exe`를 다운로드 후 실행하세요.
           SmartScreen 경고가 뜨면 **"추가 정보" → "실행"** 으로 진행하세요.
           EOF
           sed -i.bak "s/VERSION_PLACEHOLDER/${VERSION}/g" "$NOTES_FILE" && rm -f "${NOTES_FILE}.bak"
 
+          # --latest 를 명시해 GitHub 의 "Latest" 마킹이 새 release 로 이동하게 강제.
+          # 기본 동작은 보통 새 release 를 latest 로 잡지만, 동시 publish / draft 순서
+          # 변화 시 어긋날 수 있어 electron-updater 가 자동 업데이트 시 잘못된 yml 을
+          # 받게 됨.
           if gh release view "${TAG}" --repo "${REPO}" >/dev/null 2>&1; then
-            gh release edit "${TAG}" --repo "${REPO}" --notes-file "$NOTES_FILE"
+            gh release edit "${TAG}" --repo "${REPO}" --notes-file "$NOTES_FILE" --latest
           else
             gh release create "${TAG}" \
               --repo "${REPO}" \
               --title "${TAG}" \
-              --notes-file "$NOTES_FILE"
+              --notes-file "$NOTES_FILE" \
+              --latest
           fi
 
           while IFS= read -r file; do
