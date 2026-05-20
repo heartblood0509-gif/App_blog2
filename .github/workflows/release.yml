@@ -158,10 +158,10 @@ jobs:
       - name: Build Next frontend
         run: npm run build:next
 
-      - name: Package macOS
-        run: npx electron-builder --mac --${{ matrix.arch }} --publish never
+      - name: Build macOS .app (unpacked)
+        run: npx electron-builder --mac --${{ matrix.arch }} --dir --publish never
 
-      - name: Verify ad-hoc signature
+      - name: Apply clean ad-hoc signature
         shell: bash
         run: |
           APP_PATH=$(find release -maxdepth 3 -type d -name "App Blog Publisher.app" | head -1)
@@ -169,9 +169,23 @@ jobs:
             echo "App bundle not found in release/" >&2
             exit 1
           fi
-          echo "Verifying: $APP_PATH"
+          echo "Re-signing: $APP_PATH"
+          codesign --remove-signature "$APP_PATH" 2>/dev/null || true
+          codesign --force --deep --sign - --timestamp=none "$APP_PATH"
           codesign --verify --deep --strict --verbose=2 "$APP_PATH"
           codesign -dv --verbose=4 "$APP_PATH" 2>&1 | grep -E "Signature|Identifier|TeamIdentifier" || true
+
+      - name: Package macOS .dmg/.zip from signed .app
+        shell: bash
+        run: |
+          APP_PATH=$(find release -maxdepth 3 -type d -name "App Blog Publisher.app" | head -1)
+          npx electron-builder --mac --${{ matrix.arch }} --prepackaged "$APP_PATH" --publish never
+
+      - name: Verify final .app signature
+        shell: bash
+        run: |
+          APP_PATH=$(find release -maxdepth 3 -type d -name "App Blog Publisher.app" | head -1)
+          codesign --verify --deep --strict --verbose=2 "$APP_PATH"
 
       - name: Upload macOS release assets
         uses: actions/upload-artifact@v4
