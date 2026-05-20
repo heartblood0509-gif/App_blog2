@@ -48,6 +48,7 @@ import {
   pruneEmptyIntroHook,
   enforceImageMarkerCap,
   collapseBlankLines,
+  applySubtitleLineBreaks,
 } from "@/lib/image/marker-parser";
 
 // 카테고리별 이미지 총량 상한. 캡은 ensure 함수 누적 결과의 마지막 안전장치.
@@ -87,14 +88,15 @@ function applyImagePostProcessing(
     const filled = ensureBrandBodyFillerImages(introCovered);
     // 캡은 pruneEmptyIntroHook 이전에 — HOOK이 살아있는 상태에서 보호 가능하도록
     const capped = enforceImageMarkerCap(filled, maxCount);
-    return pruneEmptyIntroHook(capped);
+    // 소제목 콤마 뒤 자동 줄바꿈은 가장 마지막에 (이미지 마커 처리 완료된 안정 상태)
+    return applySubtitleLineBreaks(pruneEmptyIntroHook(capped));
   }
   const hooked = ensureHookImage(cleaned, selectedTitle, mainKeyword);
   const deduped = dedupeSubtitleEchoes(hooked);
   const introCovered = ensureIntroImage(deduped, mainKeyword);
   const subtitled = ensureSubtitleCoverage(introCovered);
   const capped = enforceImageMarkerCap(subtitled, maxCount);
-  return pruneEmptyIntroHook(capped);
+  return applySubtitleLineBreaks(pruneEmptyIntroHook(capped));
 }
 
 import { StepChannelSelect } from "@/components/steps/step-channel-select";
