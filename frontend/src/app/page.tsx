@@ -106,6 +106,7 @@ import { TemplateFitModal } from "@/components/brand/template-fit-modal";
 import { SourceWarningModal } from "@/components/aeo/source-warning-modal";
 import { EmptyInputsWarningModal } from "@/components/empty-inputs-warning-modal";
 import { AuthGate } from "@/components/auth/AuthGate";
+import { AdminEntryButton } from "@/components/auth/AdminEntryButton";
 
 // Step 2 (글 설정) 입력 칸 중 하나라도 채워졌는지 검사
 function hasAnyContextInput(state: WizardState): boolean {
@@ -1911,7 +1912,8 @@ export default function Home() {
 
   return (
     <AuthGate>
-      <div className="min-h-screen bg-background text-foreground">
+      <div className="relative min-h-screen bg-background text-foreground">
+      <AdminEntryButton />
       <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
         {/* Header */}
         <div className="mb-8 text-center">

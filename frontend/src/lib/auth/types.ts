@@ -1,5 +1,7 @@
 export type ProfileStatus = "pending" | "active" | "blocked" | "expired";
 
+export type ProfileRole = "user" | "admin";
+
 export type DeviceAuthStatus =
   | "authorized"
   | "device_limit"
@@ -36,6 +38,7 @@ export interface DeviceAuthResponse {
   message?: string;
   user_email?: string | null;
   profile_status?: ProfileStatus | null;
+  profile_role?: ProfileRole | null;
   current_device_id?: string;
   devices?: RegisteredDevice[];
   next_replacement_at?: string | null;

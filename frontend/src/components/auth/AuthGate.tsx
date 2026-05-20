@@ -12,6 +12,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { getSupabaseBrowserClient } from "@/lib/auth/supabase-browser";
+import { AuthContextProvider } from "@/lib/auth/auth-context";
 import type {
   AuthConfigResponse,
   DeviceAuthResponse,
@@ -345,7 +346,19 @@ export function AuthGate({ children }: AuthGateProps) {
     return "사용 권한 확인 필요";
   }, [gateState]);
 
-  if (gateState === "authorized") return <>{children}</>;
+  if (gateState === "authorized") {
+    return (
+      <AuthContextProvider
+        value={{
+          role: result?.profile_role ?? null,
+          email: session?.user.email ?? result?.user_email ?? null,
+          accessToken: session?.access_token ?? null,
+        }}
+      >
+        {children}
+      </AuthContextProvider>
+    );
+  }
 
   return (
     <main className="flex min-h-screen items-center justify-center bg-background px-4 py-8 text-foreground">

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createAppUserSession, setAppUserSessionCookie } from "@/lib/server/auth/app-user-session";
 import {
+  fetchProfileRole,
   getAuthorizedUserClient,
   normalizeDeviceAuthResponse,
   parseDeviceInfo,
@@ -41,6 +42,7 @@ export async function POST(request: Request) {
   }
 
   const payload = normalizeDeviceAuthResponse(data);
+  payload.profile_role = await fetchProfileRole(authorized.supabase);
   const response = NextResponse.json(payload, {
     status: payload.ok && payload.status === "authorized" ? 200 : 403,
   });
