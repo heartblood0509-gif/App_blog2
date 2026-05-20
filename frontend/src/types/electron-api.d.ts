@@ -60,6 +60,7 @@ interface ElectronAuthApi {
 }
 
 interface ElectronAPI {
+  platform: NodeJS.Platform;
   auth: ElectronAuthApi;
   updater: ElectronUpdaterApi;
   app: ElectronAppApi;
