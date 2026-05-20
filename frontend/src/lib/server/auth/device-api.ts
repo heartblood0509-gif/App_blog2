@@ -1,4 +1,5 @@
-import type { DeviceAuthResponse, DeviceInfo } from "@/lib/auth/types";
+import type { DeviceAuthResponse, DeviceInfo, ProfileRole } from "@/lib/auth/types";
+import type { SupabaseClient } from "@supabase/supabase-js";
 import {
   createUserSupabaseClient,
   readBearerToken,
@@ -51,4 +52,13 @@ export function normalizeDeviceAuthResponse(data: unknown): DeviceAuthResponse {
     status: "error",
     message: "invalid-rpc-response",
   };
+}
+
+export async function fetchProfileRole(
+  supabase: SupabaseClient,
+): Promise<ProfileRole | null> {
+  const { data, error } = await supabase.rpc("get_my_role");
+  if (error || !data || typeof data !== "object") return null;
+  const role = (data as { role?: unknown }).role;
+  return role === "admin" || role === "user" ? role : null;
 }

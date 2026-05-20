@@ -34,6 +34,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { getSupabaseBrowserClient } from "@/lib/auth/supabase-browser";
+import { AuthContextProvider } from "@/lib/auth/auth-context";
 import type {
   AuthConfigResponse,
   DeviceAuthResponse,
@@ -414,7 +415,17 @@ export function AuthSessionProvider({ children }: { children: ReactNode }) {
 
   if (gateState === "authorized") {
     return (
-      <AuthSessionContext.Provider value={value}>{children}</AuthSessionContext.Provider>
+      <AuthSessionContext.Provider value={value}>
+        <AuthContextProvider
+          value={{
+            role: result?.profile_role ?? null,
+            email: session?.user.email ?? result?.user_email ?? null,
+            accessToken: session?.access_token ?? null,
+          }}
+        >
+          {children}
+        </AuthContextProvider>
+      </AuthSessionContext.Provider>
     );
   }
 

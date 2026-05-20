@@ -14,6 +14,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { AdminEntryButton } from "@/components/providers/AdminEntryButton";
 
 interface AppHeaderProps {
   onTitleClick?: () => void;
@@ -42,6 +43,7 @@ export function AppHeader({ onTitleClick, subtitle }: AppHeaderProps) {
       )}
 
       <div className="absolute right-0 top-0 flex items-center gap-1">
+        <AdminEntryButton />
         <Tooltip>
           <TooltipTrigger
             render={

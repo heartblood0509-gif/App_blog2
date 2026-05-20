@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import {
+  fetchProfileRole,
   getAuthorizedUserClient,
   normalizeDeviceAuthResponse,
 } from "@/lib/server/auth/device-api";
@@ -26,5 +27,7 @@ export async function GET(request: Request) {
     );
   }
 
-  return NextResponse.json(normalizeDeviceAuthResponse(data));
+  const payload = normalizeDeviceAuthResponse(data);
+  payload.profile_role = await fetchProfileRole(authorized.supabase);
+  return NextResponse.json(payload);
 }
