@@ -15,6 +15,14 @@ export const paths = {
     ? path.join(__dirname, "..", "splash.html")
     : path.join(process.resourcesPath, "splash.html"),
 
+  updaterProgressHtml: isDev
+    ? path.join(__dirname, "..", "updater-progress.html")
+    : path.join(process.resourcesPath, "updater-progress.html"),
+
+  updaterProgressPreload: isDev
+    ? path.join(__dirname, "..", "updater-progress-preload.js")
+    : path.join(process.resourcesPath, "updater-progress-preload.js"),
+
   backendExe: isDev
     ? path.join(__dirname, "..", "..", "backend", "dist", "BlogPublisher", backendExecutableName)
     : path.join(process.resourcesPath, "backend", backendExecutableName),

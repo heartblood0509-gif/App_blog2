@@ -15,6 +15,7 @@ interface UpdaterStateEvent {
 }
 
 contextBridge.exposeInMainWorld("electronAPI", {
+  platform: process.platform,
   auth: {
     openExternal: (url: string): Promise<boolean> => ipcRenderer.invoke("auth:openExternal", url),
     getDeviceInfo: (): Promise<{
