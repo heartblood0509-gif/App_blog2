@@ -533,6 +533,37 @@ class NaverBlogPublisher:
         except Exception:
             return False
 
+    async def _is_cursor_in_body_paragraph(self, frame: Frame) -> bool:
+        """현재 커서/포커스가 본문 text 컴포넌트의 paragraph 안인지 긍정 검증.
+
+        SmartEditor DOM 구조:
+        - 본문: .se-component.se-text > .se-text-paragraph (입력 가능 위치)
+        - 인용구: .se-component.se-quotation (제외)
+        - 제목: .se-documentTitle (제외)
+
+        ★ R2 사고 대응 (v2): "인용구 밖" 부정 검증으로는 허공/툴바/이미지 컴포넌트에
+        커서가 있는 경우를 못 잡는다. 본문 paragraph 안임을 명시적으로 검증해야 한다.
+        """
+        try:
+            return await frame.evaluate("""
+                () => {
+                    const sel = window.getSelection();
+                    if (!sel || !sel.rangeCount) return false;
+                    let node = sel.anchorNode;
+                    if (node && node.nodeType === 3) node = node.parentElement;
+                    if (!node) return false;
+                    // 인용구, 제목 안이면 false
+                    if (node.closest('.se-component.se-quotation')) return false;
+                    if (node.closest('.se-documentTitle')) return false;
+                    // 본문 text 컴포넌트의 paragraph 안이어야 true
+                    const textComp = node.closest('.se-component.se-text');
+                    if (!textComp) return false;
+                    return !!node.closest('.se-text-paragraph');
+                }
+            """)
+        except Exception:
+            return False
+
     async def _get_last_text_component_bottom(self, frame: Frame) -> dict | None:
         """에디터 내 마지막 .se-component.se-text의 '하단 중앙 viewport 좌표'를 돌려준다.
 
@@ -574,8 +605,10 @@ class NaverBlogPublisher:
     async def _js_place_cursor_after_quotation(self, frame: Frame) -> bool:
         """JS Selection API로 마지막 인용구 바로 뒤 텍스트 영역에 커서 배치.
 
-        마우스 클릭에 의존하지 않고 DOM에서 직접 커서를 이동시킨다.
-        인용구 뒤에 텍스트 컴포넌트가 없으면, 인용구 앞의 마지막 텍스트 컴포넌트를 사용한다.
+        ★ v3 (2026-05-21): "인용구 앞 텍스트로 후퇴" 2순위 폴백 제거.
+        그 폴백이 사고 원인이었음 — 박스 다음 본문이 없을 때 위쪽 본문으로 커서를 점프시켜
+        사용자가 본 "본문이 인용구 위쪽에 작성됨" 사고를 직접 유발.
+        뒤에 텍스트 없으면 'no_text_after_quote' 반환 → 호출자가 다음 폴백 단계로 진행.
         """
         try:
             result = await frame.evaluate("""
@@ -584,21 +617,14 @@ class NaverBlogPublisher:
                     if (quotations.length === 0) return 'no_quotation';
                     const lastQ = quotations[quotations.length - 1];
 
-                    // 1순위: 인용구 뒤의 첫 .se-component.se-text 찾기
+                    // 인용구 뒤의 첫 .se-component.se-text 찾기
                     let target = lastQ.nextElementSibling;
                     while (target && !target.classList.contains('se-text')) {
                         target = target.nextElementSibling;
                     }
 
-                    // 2순위: 인용구 앞의 마지막 .se-component.se-text 찾기
-                    if (!target) {
-                        target = lastQ.previousElementSibling;
-                        while (target && !target.classList.contains('se-text')) {
-                            target = target.previousElementSibling;
-                        }
-                    }
-
-                    if (!target) return 'no_text_component';
+                    // ★ 2순위 폴백 제거: 뒤에 텍스트 없으면 실패 반환 (앞으로 후퇴 X)
+                    if (!target) return 'no_text_after_quote';
 
                     // 텍스트 영역의 paragraph 찾기
                     const para = target.querySelector('.se-text-paragraph');
@@ -697,6 +723,103 @@ class NaverBlogPublisher:
             still_in = await self._is_cursor_in_quote(frame)
             if still_in:
                 print(f"    ⚠⚠ 가드 최종 실패: 모든 exit 시도 후에도 인용구 내부 ({context})")
+
+    async def _ensure_body_text_cursor(
+        self, frame: Frame, context: str = "", new_quote_handle=None
+    ) -> bool:
+        """다음 블록 입력 전, 커서가 본문 paragraph 안에 있음을 강제 보장.
+
+        ★ R2 사고 대응 (v2): "인용구 밖" 부정 검증이 아니라 "본문 paragraph 안" 긍정 검증.
+        ★ v3 보강: new_quote_handle 인자 있으면 "방금 만든 인용구 *다음* paragraph 인가"
+           까지 검증. 위쪽 본문으로 커서 점프하는 사고를 잡는다.
+
+        Args:
+            new_quote_handle: 방금 만든 인용구 element handle (선택).
+                              주어지면 그 인용구 다음 본문 paragraph만 정상으로 인정.
+
+        Returns:
+            True: 본문 paragraph 안에 커서 안착 (정상)
+            False: 모든 폴백 실패 (호출자가 발행 중단 결정)
+
+        3단계 폴백:
+        1) JS Selection — 인용구 뒤 .se-text 끝에 커서 배치
+        2) 실제 마우스 클릭
+        3) 키보드 ArrowDown + End — 최종 폴백
+        """
+        # 0단계: 이미 본문 paragraph 안이면 + (new_quote_handle 있으면) 방금 만든 인용구 뒤인지 확인
+        if await self._is_cursor_in_body_paragraph(frame):
+            if new_quote_handle is None or await self._is_cursor_after_quote_handle(frame, new_quote_handle):
+                return True
+            print(f"    ⚠ 본문가드: 본문 paragraph지만 *방금 만든 인용구 다음*이 아님 ({context}) → 복구")
+        else:
+            print(f"    🛡 본문가드: 본문 위치 아님 감지 ({context}) → 복구 시도")
+
+        # 1단계: JS Selection으로 인용구 뒤 .se-text 끝에 커서 배치
+        if await self._js_place_cursor_after_quotation(frame):
+            await asyncio.sleep(0.3)
+            if await self._is_cursor_in_body_paragraph(frame):
+                if new_quote_handle is None or await self._is_cursor_after_quote_handle(frame, new_quote_handle):
+                    print(f"    ✓ 본문가드: JS Selection 성공")
+                    return True
+                print(f"    ⚠ 본문가드: JS Selection은 됐지만 방금 인용구 다음 아님 → 마우스 클릭")
+            else:
+                print(f"    ⚠ 본문가드: JS Selection 후에도 본문 아님 → 마우스 클릭 시도")
+
+        # 2단계: 실제 마우스 클릭
+        coord = await self._get_last_text_component_bottom(frame)
+        if coord:
+            await self._click_at_frame_coord(frame, coord["x"], coord["y"])
+            await asyncio.sleep(0.4)
+            if await self._is_cursor_in_body_paragraph(frame):
+                if new_quote_handle is None or await self._is_cursor_after_quote_handle(frame, new_quote_handle):
+                    print(f"    ✓ 본문가드: 마우스 클릭 성공")
+                    return True
+                print(f"    ⚠ 본문가드: 마우스 클릭은 됐지만 방금 인용구 다음 아님 → 키보드 폴백")
+            else:
+                print(f"    ⚠ 본문가드: 마우스 클릭 후에도 본문 아님 → 키보드 폴백")
+
+        # 3단계: 키보드 폴백
+        for _ in range(5):
+            await self.page.keyboard.press("ArrowDown")
+            await asyncio.sleep(0.05)
+        await self.page.keyboard.press("End")
+        await asyncio.sleep(0.2)
+        if await self._is_cursor_in_body_paragraph(frame):
+            if new_quote_handle is None or await self._is_cursor_after_quote_handle(frame, new_quote_handle):
+                print(f"    ✓ 본문가드: 키보드 폴백 성공")
+                return True
+            print(f"    ⚠ 본문가드: 키보드 폴백도 방금 인용구 다음 못 잡음")
+
+        print(f"    ⚠⚠ 본문가드 최종 실패 ({context}) — 본문 위치 못 잡음")
+        return False
+
+    async def _is_cursor_after_quote_handle(self, frame: Frame, quote_handle) -> bool:
+        """현재 커서가 주어진 인용구 element의 *다음* 본문 .se-text 컴포넌트 안인지 검증.
+
+        v3 신규 (2026-05-21): "어떤 본문 paragraph든 OK"가 아니라 "방금 만든 인용구
+        바로 다음 본문"인지를 명시적으로 검증한다. 위쪽 본문 점프 사고를 잡기 위함.
+        """
+        try:
+            return await frame.evaluate("""
+                (q) => {
+                    if (!q) return false;
+                    const sel = window.getSelection();
+                    if (!sel || !sel.rangeCount) return false;
+                    let node = sel.anchorNode;
+                    if (node && node.nodeType === 3) node = node.parentElement;
+                    if (!node) return false;
+                    const textComp = node.closest('.se-component.se-text');
+                    if (!textComp) return false;
+                    // q의 다음 형제 .se-text 컴포넌트가 textComp 이어야 함
+                    let sib = q.nextElementSibling;
+                    while (sib && !sib.classList.contains('se-text')) {
+                        sib = sib.nextElementSibling;
+                    }
+                    return sib === textComp;
+                }
+            """, quote_handle)
+        except Exception:
+            return False
 
     # ===== 서식 초기화 (취소선·볼드 등 잔류 방지) =====
     async def _reset_editor_format(self, frame: Frame):
@@ -1869,6 +1992,20 @@ class NaverBlogPublisher:
         except Exception:
             return False
 
+    @staticmethod
+    def _js_str_escape(s: str) -> str:
+        """JS 작은따옴표 문자열 리터럴 안에 안전하게 박을 수 있도록 escape.
+
+        백슬래시 → \\\\, 작은따옴표 → \\', 줄바꿈/CR → \\n / \\r.
+        [[BR]] sentinel 도입 이후 소제목 텍스트에 진짜 \\n 이 들어올 수 있으므로
+        JS SyntaxError 방지를 위해 줄바꿈 escape 필수.
+        """
+        return (s
+            .replace("\\", "\\\\")
+            .replace("'", "\\'")
+            .replace("\n", "\\n")
+            .replace("\r", "\\r"))
+
     async def _exit_quotation(self, frame: Frame):
         """인용구 밖으로 나가기 — 인용구 바로 아래에 커서 배치.
 
@@ -2028,7 +2165,7 @@ class NaverBlogPublisher:
             return False
 
         # ─── 4단계: JS DOM 직접 주입 ───
-        escaped = text.replace("\\", "\\\\").replace("'", "\\'")
+        escaped = self._js_str_escape(text)
         inject = await frame.evaluate(f"""
             () => {{
                 const quotes = document.querySelectorAll('.se-component.se-quotation');
@@ -2120,20 +2257,27 @@ class NaverBlogPublisher:
     async def _try_quotation_widget(
         self, frame: Frame, text: str, quote_style: str = "line"
     ) -> bool:
-        """인용구 위젯 1회 시도 (단순/안전 버전).
+        """인용구 위젯 시도 — v3: 키보드 typing + 새 element 추적 + 박스 다음 paragraph 생성.
+
+        ★ v3 (2026-05-21) 전면 재작성:
+        - JS textContent 주입 완전 제거 (React state 어긋남 ghost success 차단)
+        - 새 인용구 element 핸들 추적 ("마지막 인용구" race 회피)
+        - 박스 안 paragraph 명시적 마우스 클릭 (자동 포커스 가정 X)
+        - 커서 진입 검증 후 keyboard typing (정직한 정문 입구)
+        - 사후 텍스트 검증 (실제로 들어갔는지)
+        - 박스 다음 paragraph 명시적 생성 (위쪽 본문 점프 사고 차단)
 
         Returns:
-            True: 인용구 박스에 텍스트 정상 입력됨
+            True: 인용구 박스에 텍스트 정상 입력 + 박스 다음 paragraph 준비됨
             False: 어떤 단계에서 실패 — 호출부에서 굵은 글씨 폴백 필요
 
         안전 보장:
         - 위험 키 (Backspace/Meta+A/Delete) 절대 사용 안 함 → 페이지 안 깨뜨림
-        - frame.evaluate 호출 최소 (count, polling, inject, verify)
-        - 검증은 read-only DOM 쿼리만
-        - 실패 후에도 페이지 살아있어 굵은 글씨 폴백 가능
+        - JS 주입 0회 (State 어긋남 사고 원천 차단)
+        - 모든 검증은 새 인용구 element 핸들 기준 (race 없음)
         """
-        # 1. 클릭 전 인용구 개수 (race 방지)
-        before = await frame.evaluate(
+        # 1. 클릭 전 인용구 개수 기록 (방금 만든 element 식별용)
+        before_count = await frame.evaluate(
             "() => document.querySelectorAll('.se-component.se-quotation').length"
         )
 
@@ -2148,124 +2292,185 @@ class NaverBlogPublisher:
             print(f"      [try_quote] 버튼 클릭 실패: {str(e)[:60]}")
             return False
 
-        # 3. 새 인용구 추가 폴링 (최대 3초, 0.3초 간격)
-        added = False
+        # 3. 새 인용구 추가 폴링 + element 핸들 확보 (최대 3초)
+        new_quote_handle = None
         for _ in range(10):
             await asyncio.sleep(0.3)
             cur = await frame.evaluate(
                 "() => document.querySelectorAll('.se-component.se-quotation').length"
             )
-            if cur == before + 1:
-                added = True
+            if cur == before_count + 1:
+                # 방금 추가된 인용구 element 핸들 확보 (마지막 인용구 = 새 인용구 보장)
+                new_quote_handle = await frame.evaluate_handle(
+                    f"() => document.querySelectorAll('.se-component.se-quotation')[{before_count}]"
+                )
                 break
-        if not added:
+        if not new_quote_handle:
             print(f"      [try_quote] 새 인용구 DOM 추가 안 됨 (race)")
             return False
 
-        # 4. JS 텍스트 주입 (App_blog_auto3 검증 패턴)
-        escaped = text.replace("\\", "\\\\").replace("'", "\\'")
-        inject_ok = await frame.evaluate(f"""
-            () => {{
-                const quotes = document.querySelectorAll('.se-component.se-quotation');
-                const q = quotes[quotes.length - 1];
-                if (!q) return false;
-                const span = q.querySelector('.se-quote .se-text-paragraph span.__se-node');
-                if (!span) return false;
-                span.textContent = '{escaped}';
-                const ph = q.querySelector('.se-quote .se-placeholder');
-                if (ph) ph.remove();
-                const mod = q.querySelector('.se-quote');
-                if (mod) mod.classList.remove('se-is-empty');
-                const para = q.querySelector('.se-quote .se-text-paragraph');
-                if (para) para.dispatchEvent(new InputEvent('input', {{
-                    bubbles:true, inputType:'insertText', data:'{escaped}'
-                }}));
-                return true;
-            }}
-        """)
-        if not inject_ok:
-            print(f"      [try_quote] JS 주입 실패")
+        # 4. 새 인용구 안 paragraph 좌표 추출 + 실제 마우스 클릭으로 포커스 잡기
+        coord = await frame.evaluate(
+            """
+            (q) => {
+                const para = q && q.querySelector('.se-quote .se-text-paragraph');
+                if (!para) return null;
+                const r = para.getBoundingClientRect();
+                if (r.width === 0 || r.height === 0) return null;
+                return { x: r.left + r.width * 0.5, y: r.top + r.height * 0.5 };
+            }
+            """,
+            new_quote_handle,
+        )
+        if not coord:
+            print(f"      [try_quote] 새 인용구 안 paragraph 좌표 추출 실패")
+            return False
+        await self._click_at_frame_coord(frame, coord["x"], coord["y"])
+        await asyncio.sleep(0.4)
+
+        # 5. 커서가 새 인용구 안에 진입했는지 검증
+        in_new_quote = await frame.evaluate(
+            """
+            (q) => {
+                const sel = window.getSelection();
+                if (!sel || !sel.rangeCount) return false;
+                let node = sel.anchorNode;
+                if (node && node.nodeType === 3) node = node.parentElement;
+                return !!(node && q && q.contains(node));
+            }
+            """,
+            new_quote_handle,
+        )
+        if not in_new_quote:
+            print(f"      [try_quote] 새 인용구 안에 커서 진입 실패")
             return False
 
-        # 5. React 동기화 대기 (위험 키 없이 그냥 1.5초 대기)
-        await asyncio.sleep(1.5)
+        # 6. 키보드 typing — [[BR]] 자리는 Shift+Enter (인용구 안 줄바꿈)
+        # text는 _insert_heading 진입 시 [[BR]] → \n 치환됨
+        parts = text.split("\n")
+        for idx, part in enumerate(parts):
+            if idx > 0:
+                await self.page.keyboard.press("Shift+Enter")
+                await asyncio.sleep(0.1)
+            await self.page.keyboard.type(part, delay=random.randint(40, 120))
+        await asyncio.sleep(0.5)
 
-        # 6. 검증 (read-only)
-        has_text = await frame.evaluate("""
-            () => {
-                const quotes = document.querySelectorAll('.se-component.se-quotation');
-                const q = quotes[quotes.length - 1];
+        # 7. 사후 텍스트 검증 — 키보드 입력이 실제로 새 인용구에 들어갔는지
+        has_text = await frame.evaluate(
+            """
+            (q) => {
                 if (!q) return false;
                 const para = q.querySelector('.se-quote .se-text-paragraph');
-                const t = para ? (para.textContent || '').trim() : '';
-                return t.length > 0;
+                return !!(para && (para.textContent || '').trim());
             }
-        """)
+            """,
+            new_quote_handle,
+        )
         if not has_text:
-            print(f"      [try_quote] 검증 실패 — 인용구 비어있음")
+            print(f"      [try_quote] 키보드 typing 후 텍스트 검증 실패")
             return False
 
-        # 7. exit + 스타일 변경
+        # 8. 스타일 변경 (className만 변경, React state 영향 X)
         try:
-            await self._exit_quotation(frame)
-            await asyncio.sleep(0.3)
             await self._change_quotation_style(frame, quote_style)
-            # React reconcile 충분히 기다림 (기존 0.3 → 2.5초, 2차 패치에서 1.5 → 2.5 증가)
-            # JS textContent 주입은 DOM만 변경하고 React state는 안 건드리므로,
-            # 스타일 변경 후 SmartEditor의 다음 reconcile에서 자기 state(빈 상태)대로
-            # 다시 그리면서 placeholder가 복귀하는 사고를 잡기 위함.
-            await asyncio.sleep(2.5)
+            await asyncio.sleep(1.2)
         except Exception as e:
-            print(f"      [try_quote] exit/style 실패: {str(e)[:60]}")
-            return False
+            print(f"      [try_quote] 스타일 변경 실패: {str(e)[:60]} (텍스트는 살아있음)")
+            # 스타일 실패해도 텍스트는 키보드로 들어갔으니 계속 진행
 
-        # 8. 사후 재검증 — 스타일 변경 후 텍스트 소멸 케이스 잡기
-        verify_js = """
-            () => {
-                const quotes = document.querySelectorAll('.se-component.se-quotation');
-                const q = quotes[quotes.length - 1];
+        # 9. 최종 텍스트 검증 (스타일 변경 후 텍스트 살아있는지)
+        final_text = await frame.evaluate(
+            """
+            (q) => {
                 if (!q) return false;
                 const para = q.querySelector('.se-quote .se-text-paragraph');
-                const t = para ? (para.textContent || '').trim() : '';
-                return t.length > 0;
+                return !!(para && (para.textContent || '').trim());
             }
-        """
-        still_has_text = await frame.evaluate(verify_js)
-        if not still_has_text:
-            # 9. 재주입 1회 시도 (기존 4번 주입 패턴 그대로)
-            print(f"      [try_quote] 사후 검증 실패 — 재주입 시도")
-            reinject_ok = await frame.evaluate(f"""
-                () => {{
-                    const quotes = document.querySelectorAll('.se-component.se-quotation');
-                    const q = quotes[quotes.length - 1];
+            """,
+            new_quote_handle,
+        )
+        if not final_text:
+            print(f"      [try_quote] 스타일 변경 후 텍스트 소실")
+            return False
+
+        # 10. ★ B-1-bis: 박스 다음 paragraph 명시적 생성 (3단계 폴백)
+        # 박스 안에 두 줄 텍스트 있을 수 있으므로 ArrowDown 한 번으론 부족. 반복 + 검증.
+        await self.page.keyboard.press("End")  # 우선 마지막 위치
+        await asyncio.sleep(0.2)
+
+        # 10-A. ArrowDown 반복 — 박스 밖 paragraph 도달까지 (최대 6회)
+        exited = False
+        for attempt in range(6):
+            await self.page.keyboard.press("ArrowDown")
+            await asyncio.sleep(0.2)
+            if await self._is_cursor_after_quote_handle(frame, new_quote_handle):
+                exited = True
+                break
+
+        # 10-B. ArrowDown으로 안 나가면 JS Selection으로 박스 다음 element에 강제 커서 이동
+        if not exited:
+            placed = await frame.evaluate(
+                """
+                (q) => {
                     if (!q) return false;
-                    const span = q.querySelector('.se-quote .se-text-paragraph span.__se-node');
-                    if (!span) return false;
-                    span.textContent = '{escaped}';
-                    const ph = q.querySelector('.se-quote .se-placeholder');
-                    if (ph) ph.remove();
-                    const mod = q.querySelector('.se-quote');
-                    if (mod) mod.classList.remove('se-is-empty');
-                    const para = q.querySelector('.se-quote .se-text-paragraph');
-                    if (para) para.dispatchEvent(new InputEvent('input', {{
-                        bubbles:true, inputType:'insertText', data:'{escaped}'
-                    }}));
+                    // 박스 다음 .se-text 찾기 (없으면 false 반환 — Enter로 생성 시도)
+                    let sib = q.nextElementSibling;
+                    while (sib && !sib.classList.contains('se-text')) {
+                        sib = sib.nextElementSibling;
+                    }
+                    if (!sib) return false;
+                    const para = sib.querySelector('.se-text-paragraph');
+                    if (!para) return false;
+                    const range = document.createRange();
+                    range.selectNodeContents(para);
+                    range.collapse(false);
+                    const sel = window.getSelection();
+                    sel.removeAllRanges();
+                    sel.addRange(range);
+                    // 클릭 이벤트 발사로 SmartEditor 동기화
+                    para.dispatchEvent(new MouseEvent('mousedown', {bubbles: true}));
+                    para.dispatchEvent(new MouseEvent('mouseup', {bubbles: true}));
+                    para.dispatchEvent(new MouseEvent('click', {bubbles: true}));
                     return true;
-                }}
-            """)
-            if not reinject_ok:
-                print(f"      [try_quote] 재주입 selector 미스 → 폴백")
-                return False
-            await asyncio.sleep(1.5)
+                }
+                """,
+                new_quote_handle,
+            )
+            if placed:
+                await asyncio.sleep(0.3)
+                # 실제 클릭으로 SmartEditor가 인정하도록 보강
+                coord_next = await frame.evaluate(
+                    """
+                    (q) => {
+                        let sib = q.nextElementSibling;
+                        while (sib && !sib.classList.contains('se-text')) {
+                            sib = sib.nextElementSibling;
+                        }
+                        if (!sib) return null;
+                        const para = sib.querySelector('.se-text-paragraph');
+                        if (!para) return null;
+                        const r = para.getBoundingClientRect();
+                        if (r.width === 0 || r.height === 0) return null;
+                        return { x: r.left + r.width * 0.5, y: r.top + r.height * 0.5 };
+                    }
+                    """,
+                    new_quote_handle,
+                )
+                if coord_next:
+                    await self._click_at_frame_coord(frame, coord_next["x"], coord_next["y"])
+                    await asyncio.sleep(0.3)
+                if await self._is_cursor_after_quote_handle(frame, new_quote_handle):
+                    exited = True
+                    print(f"      [try_quote] 박스 다음 paragraph로 JS+클릭 이동 성공")
 
-            # 10. 최종 검증
-            final_has_text = await frame.evaluate(verify_js)
-            if not final_has_text:
-                print(f"      [try_quote] 재주입 후도 빈 채 → 폴백")
-                return False
-            print(f"      [try_quote] 재주입 성공")
+        # 10-C. 그래도 안 되면 박스 안에서 Enter (박스 다음 paragraph 자동 생성 기대)
+        if not exited:
+            print(f"      [try_quote] 박스 밖 paragraph 없음 → Enter로 생성 시도")
+            await self.page.keyboard.press("Enter")
+            await asyncio.sleep(0.4)
+            # 재확인은 _insert_heading 끝의 가드에 위임 (raise로 사고 인지 가능)
 
-        # 11. health check (페이지 살아있는지 최종 확인)
+        # 12. health check
         if not await self._is_editor_alive(frame):
             print(f"      [try_quote] health check 실패 — 페이지 깨짐 감지")
             return False
@@ -2297,13 +2502,28 @@ class NaverBlogPublisher:
         if success:
             print(f"    ✓ 소제목 #{self._heading_count + 1}(인용구/{quote_style}): {text[:30]}...")
             self._heading_count += 1
+            # ★ R2 가드 (v3): "방금 만든 인용구" 핸들 잡아서 그 다음 paragraph인지 검증
+            #   복귀 실패 시 raise — ghost loss(봇은 성공이라 표시되지만 화면엔 사고) 차단
+            new_quote_handle = await frame.evaluate_handle(
+                "() => { const qs = document.querySelectorAll('.se-component.se-quotation');"
+                " return qs[qs.length - 1] || null; }"
+            )
+            if not await self._ensure_body_text_cursor(
+                frame, context=f"after_heading:{text[:15]}", new_quote_handle=new_quote_handle
+            ):
+                await self._save_error_screenshot("after_heading_cursor_lost")
+                raise RuntimeError(
+                    f"인용구 박스 만든 직후 본문 위치 복귀 실패 (소제목: {text[:30]}). "
+                    f"커서가 위쪽 본문으로 점프하는 사고 방지 — 발행 중단. "
+                    f"Chrome 창에서 상태 확인 후 다시 시도하세요."
+                )
             return
 
         # ─── 실패 시 그 소제목만 굵은 글씨 폴백 (다음 소제목은 다시 시도) ───
         print(f"    ⚠ 소제목 #{self._heading_count + 1} 인용구 실패 → 굵은 글씨 폴백: {text[:30]}")
         await self.page.keyboard.press("Meta+b")
         await asyncio.sleep(0.1)
-        await self._human_type(text, min_delay=5, max_delay=12)
+        await self._human_type(text)
         await asyncio.sleep(0.2)
         await self.page.keyboard.press("Meta+b")
         await asyncio.sleep(0.1)
@@ -2324,7 +2544,7 @@ class NaverBlogPublisher:
         # 굵은 글씨로 강조
         await self.page.keyboard.press("Meta+b")
         await asyncio.sleep(0.1)
-        await self._human_type(text, min_delay=5, max_delay=12)
+        await self._human_type(text)
         await asyncio.sleep(0.2)
         await self.page.keyboard.press("Meta+b")
         await asyncio.sleep(0.1)
@@ -2338,16 +2558,12 @@ class NaverBlogPublisher:
     async def _verify_all_quotations_after_body(
         self, frame: Frame, headings: list[str]
     ) -> None:
-        """본문 작성 완료 직후 모든 인용구를 일괄 검증 + 빈 거 재주입.
+        """본문 작성 완료 직후 모든 인용구를 일괄 검증 — read-only 사고 신호 출력.
 
-        1차 패치(`_try_quotation_widget` 사후 검증)는 스타일 변경 직후의 reconcile만
-        잡는다. 실제 React reconcile은 후속 컴포넌트 작업·viewport 변동으로 더 늦게
-        트리거되어, 1차 검증 통과 후 사라지는 케이스가 있다. 글 작성이 모두 끝나
-        모든 reconcile이 안정화된 시점에 일괄 검증해야 마지막 사라짐을 잡을 수 있다.
-
-        매칭: headings는 마크다운에서 추출한 소제목 순서. _insert_heading이 순서대로
-        호출되므로 페이지 인용구 순서와 일치한다고 가정. 개수 불일치(굵은 글씨 폴백
-        발생 등) 시 일괄 검증을 안전하게 스킵.
+        ★ v3 (2026-05-21) 변경: JS textContent 재주입 로직 완전 제거.
+        재주입은 ghost success(봇은 정상이라 표시되지만 React reconcile에 다시 사라짐)를
+        만들어내므로 위험. _try_quotation_widget이 키보드 typing으로 정확히 입력하므로
+        빈 인용구가 발견되면 그건 진짜 사고 신호 → 발견만 하고 사용자에게 알린다.
         """
         if not headings:
             return
@@ -2373,71 +2589,20 @@ class NaverBlogPublisher:
             )
             return
 
-        # 4) 빈 인용구 → 매칭된 headings 텍스트로 재주입
-        empty_indices: list[int] = []
-        recovered_indices: list[int] = []
-        for state, heading_text in zip(states, headings):
-            if state["text"]:
-                continue
-            empty_indices.append(state["index"])
-            escaped = heading_text.replace("\\", "\\\\").replace("'", "\\'")
-            ok = await frame.evaluate(f"""
-                () => {{
-                    const quotes = document.querySelectorAll('.se-component.se-quotation');
-                    const q = quotes[{state['index']}];
-                    if (!q) return false;
-                    const span = q.querySelector('.se-quote .se-text-paragraph span.__se-node');
-                    if (!span) return false;
-                    span.textContent = '{escaped}';
-                    const ph = q.querySelector('.se-quote .se-placeholder');
-                    if (ph) ph.remove();
-                    const mod = q.querySelector('.se-quote');
-                    if (mod) mod.classList.remove('se-is-empty');
-                    const para = q.querySelector('.se-quote .se-text-paragraph');
-                    if (para) para.dispatchEvent(new InputEvent('input', {{
-                        bubbles:true, inputType:'insertText', data:'{escaped}'
-                    }}));
-                    return true;
-                }}
-            """)
-            if ok:
-                recovered_indices.append(state["index"])
-                print(
-                    f"    [bulk-verify] 인용구 #{state['index']+1} 비어있음 → 재주입: {heading_text[:30]}"
-                )
-            else:
-                print(
-                    f"    [bulk-verify] 인용구 #{state['index']+1} 재주입 selector 미스"
-                )
-
-        if not empty_indices:
+        # 4) 빈 인용구 발견 시: 재주입 X → 사고 신호로 출력 (사용자 검토 모드)
+        empty_entries = [
+            (s["index"], h) for s, h in zip(states, headings) if not s["text"]
+        ]
+        if not empty_entries:
             print(f"  ✓ 인용구 일괄 검증: 모두 정상 ({len(states)}개)")
             return
 
         print(
-            f"  ⚠ 인용구 일괄 검증: {len(empty_indices)}개 빈 채 발견 → "
-            f"{len(recovered_indices)}개 복구 시도"
+            f"  ⚠⚠ 인용구 일괄 검증: {len(empty_entries)}개 빈 채 발견 — ghost success 차단 "
+            f"(자동 재주입 안 함, 수동 발행 모드에서 사용자가 Chrome에서 확인)"
         )
-
-        # 5) 재주입 안정화 대기 → 최종 검증
-        await asyncio.sleep(1.5)
-        final = await frame.evaluate("""
-            () => {
-                const quotes = document.querySelectorAll('.se-component.se-quotation');
-                return Array.from(quotes).map((q, i) => {
-                    const para = q.querySelector('.se-quote .se-text-paragraph');
-                    return { index: i, text: para ? (para.textContent || '').trim() : '' };
-                });
-            }
-        """)
-        still_empty = [s["index"] for s in final if not s["text"]]
-        if still_empty:
-            print(
-                f"  ⚠ 최종 검증: 여전히 빈 인용구 {len(still_empty)}개 (#{[i+1 for i in still_empty]}) "
-                "— 발행 전 수동 확인 필요"
-            )
-        else:
-            print(f"  ✓ 최종 검증: 모든 인용구 복구 완료")
+        for idx, heading_text in empty_entries:
+            print(f"    [bulk-verify] 빈 인용구 #{idx+1}: {heading_text[:40]}")
 
     async def _insert_image(self, frame: Frame, image_path: Path):
         """이미지 삽입 + 전후 여백 (App_blog_auto3 방식)"""
@@ -2605,6 +2770,23 @@ class NaverBlogPublisher:
         total = len(blocks)
 
         for i, block in enumerate(blocks):
+            # ★ R2 가드 (v2): 블록 입력 전 본문 paragraph 위치 보장
+            # PARAGRAPH/QUOTE/HEADING/IMAGE 모두 본문 paragraph 안에서 시작해야 정상 동작.
+            # 실패 시 발행 중단 — ghost success(봇은 성공이라 믿지만 화면엔 사고) 차단.
+            if block.type in (BlockType.PARAGRAPH, BlockType.QUOTE, BlockType.HEADING):
+                ok = await self._ensure_body_text_cursor(
+                    frame, context=f"{block.type.value}-블록{i}"
+                )
+                if not ok:
+                    await self._save_error_screenshot(f"cursor_lost_block_{i}")
+                    raise RuntimeError(
+                        f"본문 입력 위치를 잡지 못함 (블록 {i}/{total}, type={block.type.value}). "
+                        f"커서 사고 — 발행 중단. Chrome 창에서 상태 확인하세요."
+                    )
+            elif block.type == BlockType.IMAGE:
+                # 이미지는 시도하되 실패해도 진행 (이미지 슬롯 부족 등 다른 이유 가능)
+                await self._ensure_body_text_cursor(frame, context=f"image-블록{i}")
+
             if block.type == BlockType.PARAGRAPH:
                 # AI가 가끔 60자+ 만연체를 만드는 경우 _split_for_readability로
                 # 마침표/구어체 종결/쉼표(20자+) 기준 자동 분할. 짧은 문장은 변경 없이 통과.
@@ -2617,7 +2799,7 @@ class NaverBlogPublisher:
                     else:
                         lines.append(raw)
                 for line in lines:
-                    await self._human_type(line, min_delay=3, max_delay=8)
+                    await self._human_type(line)
                     await self.page.keyboard.press("Enter")
                     await asyncio.sleep(0.1)
                 # 문단 사이 여백 1줄 (다음 PARAGRAPH/HEADING 와 시각 분리)
