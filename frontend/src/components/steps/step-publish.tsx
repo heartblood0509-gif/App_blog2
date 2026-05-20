@@ -21,7 +21,7 @@ import { toast } from "sonner";
 import { BlogContentRenderer } from "@/components/blog-content-renderer";
 import type { BlogAccount, ImageSlot } from "@/types";
 import { pruneExcludedMarkers } from "@/lib/image/marker-parser";
-import { useBusy } from "@/lib/busy";
+import { useBusy, usePublishing } from "@/lib/busy";
 
 interface StepPublishProps {
   content: string;
@@ -53,6 +53,10 @@ export function StepPublish({
   // 자동 발행 중 + 수동 발행 Chrome 창 살아있는 동안 둘 다 busy.
   useBusy("publish:auto", isPublishing);
   useBusy(`publish:manual:${manualSessionId ?? "none"}`, manualSessionId !== null);
+
+  // §H 발행 진행 상태 — 종료 모달 가드용 (busy 와 별도 Set). 같은 opId 공유.
+  usePublishing("publish:auto", isPublishing);
+  usePublishing(`publish:manual:${manualSessionId ?? "none"}`, manualSessionId !== null);
 
   // 수동 발행 시 5초 폴링으로 Chrome 닫힘 감지 → manualSessionId 해제 (busy 자동 풀림).
   useEffect(() => {

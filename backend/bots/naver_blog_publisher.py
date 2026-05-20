@@ -146,7 +146,32 @@ PUBLISH_COUNTER_FILE = Path(__file__).parent.parent / ".publish_counter.json"
 
 # GC 방지를 위한 브라우저 참조 보관 (auto_publish=False 시 Chrome 열어두기)
 # Python GC가 Playwright 인스턴스를 정리하면 Chrome도 함께 종료되므로 모듈 레벨에 참조 유지
+#
+# §B-3 등록 시점: 브라우저를 *만드는 순간* 등록한다 (이전엔 publish_post 의 finally 에서
+# 등록했지만, 발행 도중 백엔드가 종료되면 현재 브라우저가 리스트에 없어 일괄 close 가 불가).
+# 등록 시 (pw, browser) 튜플을 append 하고, browser.on("close") 콜백으로 list 정리.
 _detached_contexts: list = []
+
+
+async def teardown_all_detached_contexts(timeout_sec: float = 5.0) -> None:
+    """
+    §B-4 FastAPI shutdown 훅에서 호출. 살아있는 모든 브라우저/Playwright 인스턴스 정리.
+
+    - 활성 발행이 있으면 그것이 완료될 시간을 주지는 *않는다*. 이미 종료 신호가 온 시점.
+    - 각 browser.close() 에 최대 timeout_sec 부여. 초과 시 다음으로 진행.
+    - 실패해도 예외 전파 X (Electron 측 SIGKILL 폴백이 마무리).
+    """
+    snapshot = list(_detached_contexts)
+    _detached_contexts.clear()
+    for pw, browser in snapshot:
+        try:
+            await asyncio.wait_for(browser.close(), timeout=timeout_sec)
+        except Exception:
+            pass
+        try:
+            await asyncio.wait_for(pw.stop(), timeout=timeout_sec)
+        except Exception:
+            pass
 
 
 def _load_counter() -> dict:
@@ -257,6 +282,20 @@ class NaverBlogPublisher:
             timezone_id="Asia/Seoul",
             ignore_default_args=["--enable-automation"],
         )
+
+        # §B-3 즉시 등록. 발행 도중 백엔드가 종료되어도 teardown 훅이 잡을 수 있음.
+        entry = (self._pw, self.browser)
+        _detached_contexts.append(entry)
+
+        def _on_close(*_args):
+            try:
+                _detached_contexts.remove(entry)
+            except ValueError:
+                pass
+        try:
+            self.browser.on("close", _on_close)
+        except Exception:
+            pass
 
         if self.browser.pages:
             self.page = self.browser.pages[0]
@@ -2825,10 +2864,10 @@ class NaverBlogPublisher:
         finally:
             if self.browser:
                 if auto_publish:
+                    # browser.close() → _launch_browser 에서 단 on("close") 가 _detached_contexts 정리.
                     await self.browser.close()
                 else:
-                    # Chrome 열어둠 — GC 방지 위해 모듈 리스트에 (pw, browser) 참조 유지
-                    _detached_contexts.append((self._pw, self.browser))
+                    # Chrome 열어둠 — 등록은 _launch_browser 에서 이미 완료.
                     print(f"  (열린 Chrome {len(_detached_contexts)}개 유지 중)")
                     # §D — 수동 발행 중 BrowserContext 가 닫히면 외부 콜백 통지.
                     # 사용자가 X 로 Chrome 을 닫거나 직접 발행 후 자동 종료될 때 트리거.
