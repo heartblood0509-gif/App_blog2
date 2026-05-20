@@ -1,9 +1,12 @@
 "use client";
 
-import { useState, useCallback, useEffect, useMemo, useRef } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import { AnimatePresence, motion } from "framer-motion";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
+import { AppHeader } from "@/components/AppHeader";
+import { useWizardState } from "@/components/providers/WizardStateProvider";
 import {
   ChevronLeft,
   ChevronRight,
@@ -105,8 +108,6 @@ import { StepThreadsGenerate } from "@/components/steps-threads/step-threads-gen
 import { TemplateFitModal } from "@/components/brand/template-fit-modal";
 import { SourceWarningModal } from "@/components/aeo/source-warning-modal";
 import { EmptyInputsWarningModal } from "@/components/empty-inputs-warning-modal";
-import { AuthGate } from "@/components/auth/AuthGate";
-import { AdminEntryButton } from "@/components/auth/AdminEntryButton";
 
 // Step 2 (글 설정) 입력 칸 중 하나라도 채워졌는지 검사
 function hasAnyContextInput(state: WizardState): boolean {
@@ -149,61 +150,21 @@ const THREADS_STEPS = [
   { label: "쓰레드 생성", icon: FileText },
 ];
 
-const initialState: WizardState = {
-  selectedProducts: [],
-  channel: null,
-  postCategory: null,
-  narrativeSource: null,
-  narrativeType: null,
-  toneType: null,
-  toneExample: "",
-  referenceUrl: "",
-  selectedCustomReferenceId: null,
-  selectedBrandProfileId: null,
-  selectedBrandTemplate: null,
-  selectedBrandInfoVariant: null,
-  selectedBrandIntroVariant: null,
-  selectedBrandValueProofVariant: null,
-  selectedBrandDetailVariant: null,
-  selectedAeoProfileId: null,
-  selectedAeoTemplate: null,
-  aeoTargetQueries: [],
-  aeoSources: [],
-  brandPropositions: null,
-  brandPropositionsCacheKey: null,
-  selectedAnalysisRecordId: null,
-  brandCustomReferenceMode: "branded",
-  topic: "",
-  mainKeyword: "",
-  subKeywords: "",
-  persona: "",
-  requirements: "",
-  charCountRange: { min: 0, max: 0, label: "레퍼런스 맞춤" },
-  titleSuggestions: [],
-  selectedTitle: "",
-  generatedContent: "",
-  qualityResult: null,
-  contentDirty: false,
-  imageSlots: [],
-  userPhotosBySlot: {},
-  excludedSlotIds: [],
-  generatedImages: {},
-  isGeneratingBySlot: {},
-  isImageGenerating: false,
-  customPromptsBySlot: {},
-  currentStep: 0,
-  maxVisitedStep: 0,
-  referenceAnalysis: "",
-  referenceExcerpts: [],
-  referenceText: "",
-  referenceTitleFormula: null,
-  isLoading: false,
-  threads: initialThreadsState,
-};
-
 export default function Home() {
-  const [state, setState] = useState<WizardState>(initialState);
+  const router = useRouter();
+  const { state, setState, updateState, resetState } = useWizardState();
   const [userProducts, setUserProducts] = useState<UserProduct[]>([]);
+
+  // 첫 부팅: API 키가 아직 없으면 설정 페이지로 안내. 메인 진입 시 한 번만 확인한다.
+  useEffect(() => {
+    const api = window.electronAPI?.settings;
+    if (!api) return;
+    api.getMasked().then((r) => {
+      if (!r.hasKey) {
+        router.replace("/settings/api-key");
+      }
+    }).catch(() => {});
+  }, [router]);
 
   const refetchUserProducts = useCallback(async () => {
     const list = await fetchUserProducts();
@@ -243,10 +204,6 @@ export default function Home() {
 
   // Step 2 (글 설정) — 모든 입력 칸이 비었을 때 [다음] 누르면 안내 모달
   const [emptyInputsWarningOpen, setEmptyInputsWarningOpen] = useState(false);
-
-  const updateState = useCallback((partial: Partial<WizardState>) => {
-    setState((prev) => ({ ...prev, ...partial }));
-  }, []);
 
   // 페이지 밖(슬롯 이외의 영역)에 파일을 드롭했을 때 브라우저가 파일을 열어 위저드 진행이 날아가지 않도록 방어
   useEffect(() => {
@@ -1911,22 +1868,12 @@ export default function Home() {
   };
 
   return (
-    <AuthGate>
-      <div className="relative min-h-screen bg-background text-foreground">
-      <AdminEntryButton />
+    <div className="min-h-screen bg-background text-foreground">
       <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
-        {/* Header */}
-        <div className="mb-8 text-center">
-          <button
-            onClick={() => setState(initialState)}
-            className="text-2xl font-bold tracking-tight sm:text-3xl hover:text-primary transition-colors"
-          >
-            콘텐츠 생성기
-          </button>
-          <p className="mt-2 text-sm text-muted-foreground">
-            채널과 카테고리를 골라 콘텐츠를 단계별로 생성합니다
-          </p>
-        </div>
+        <AppHeader
+          onTitleClick={resetState}
+          subtitle="채널과 카테고리를 골라 콘텐츠를 단계별로 생성합니다"
+        />
 
         {/* Stepper */}
         <nav className="mb-10">
@@ -2084,7 +2031,6 @@ export default function Home() {
         open={emptyInputsWarningOpen}
         onClose={() => setEmptyInputsWarningOpen(false)}
       />
-      </div>
-    </AuthGate>
+    </div>
   );
 }

@@ -1,10 +1,11 @@
 "use client";
 
+// AuthSessionProvider는 root layout에서 이미 적용 중. 여기선 role 가드만.
+
 import { useRouter } from "next/navigation";
 import { useEffect, type ReactNode } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { AuthGate } from "@/components/auth/AuthGate";
 import { useAuthContext } from "@/lib/auth/auth-context";
 
 function AdminGuard({ children }: { children: ReactNode }) {
@@ -38,9 +39,5 @@ function AdminGuard({ children }: { children: ReactNode }) {
 }
 
 export default function AdminLayout({ children }: { children: ReactNode }) {
-  return (
-    <AuthGate>
-      <AdminGuard>{children}</AdminGuard>
-    </AuthGate>
-  );
+  return <AdminGuard>{children}</AdminGuard>;
 }

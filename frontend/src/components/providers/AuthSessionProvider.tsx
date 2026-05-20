@@ -1,8 +1,30 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+// 기존 AuthGate의 모든 로직을 Provider로 흡수.
+// - gateState !== "authorized"일 때는 자체 게이트 UI를 렌더하고 children은 숨김.
+// - authorized 상태에서는 children을 그대로 렌더.
+// - useAuthSession() 훅으로 session/supabase/deviceInfo/devices/refreshDevices를 노출.
+//   /settings/devices 페이지가 이 훅을 사용해 등록 기기 목록을 그린다.
+
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useState,
+  type ReactNode,
+} from "react";
 import type { Session, SupabaseClient } from "@supabase/supabase-js";
-import { AlertTriangle, CheckCircle2, LogIn, LogOut, Monitor, RefreshCcw, ShieldCheck } from "lucide-react";
+import {
+  AlertTriangle,
+  CheckCircle2,
+  LogIn,
+  LogOut,
+  Monitor,
+  RefreshCcw,
+  ShieldCheck,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -32,9 +54,16 @@ type GateState =
   | "device-limit"
   | "error";
 
-interface AuthGateProps {
-  children: ReactNode;
+interface AuthSessionContextValue {
+  session: Session | null;
+  supabase: SupabaseClient | null;
+  deviceInfo: DeviceInfo | null;
+  devices: RegisteredDevice[];
+  refreshDevices: () => Promise<void>;
+  gateState: GateState;
 }
+
+const AuthSessionContext = createContext<AuthSessionContextValue | null>(null);
 
 function formatDate(value: string | null | undefined): string {
   if (!value) return "-";
@@ -73,7 +102,7 @@ async function clearLocalAppSession(): Promise<void> {
   await fetch("/api/auth/logout", { method: "POST" }).catch(() => {});
 }
 
-export function AuthGate({ children }: AuthGateProps) {
+export function AuthSessionProvider({ children }: { children: ReactNode }) {
   const [config, setConfig] = useState<AuthConfigResponse | null>(null);
   const [client, setClient] = useState<SupabaseClient | null>(null);
   const [session, setSession] = useState<Session | null>(null);
@@ -338,6 +367,32 @@ export function AuthGate({ children }: AuthGateProps) {
     }
   }, [canReplace, deviceInfo, selectedDeviceId, session]);
 
+  const refreshDevices = useCallback(async () => {
+    if (!session) return;
+    const res = await fetch("/api/auth/device/list", {
+      headers: {
+        Authorization: `Bearer ${session.access_token}`,
+      },
+    });
+    if (!res.ok) {
+      throw new Error(`기기 목록 요청 실패 (HTTP ${res.status})`);
+    }
+    const payload = (await res.json()) as DeviceAuthResponse;
+    if (!payload.ok) {
+      throw new Error(payload.message ?? "기기 목록을 불러오지 못했습니다.");
+    }
+    setResult((prev) => ({
+      ok: payload.ok,
+      status: payload.status,
+      message: payload.message ?? prev?.message,
+      user_email: payload.user_email ?? prev?.user_email ?? null,
+      profile_status: payload.profile_status ?? prev?.profile_status ?? null,
+      current_device_id: payload.current_device_id ?? prev?.current_device_id,
+      devices: payload.devices ?? prev?.devices ?? [],
+      next_replacement_at: payload.next_replacement_at ?? prev?.next_replacement_at ?? null,
+    }));
+  }, [session]);
+
   const statusTitle = useMemo(() => {
     if (gateState === "pending") return "구매 승인 대기 중";
     if (gateState === "blocked") return "계정 사용이 차단되었습니다";
@@ -346,111 +401,135 @@ export function AuthGate({ children }: AuthGateProps) {
     return "사용 권한 확인 필요";
   }, [gateState]);
 
+  const value = useMemo<AuthSessionContextValue>(
+    () => ({
+      session,
+      supabase: client,
+      deviceInfo,
+      devices: result?.devices ?? [],
+      refreshDevices,
+      gateState,
+    }),
+    [session, client, deviceInfo, result, refreshDevices, gateState],
+  );
+
   if (gateState === "authorized") {
     return (
-      <AuthContextProvider
-        value={{
-          role: result?.profile_role ?? null,
-          email: session?.user.email ?? result?.user_email ?? null,
-          accessToken: session?.access_token ?? null,
-        }}
-      >
-        {children}
-      </AuthContextProvider>
+      <AuthSessionContext.Provider value={value}>
+        <AuthContextProvider
+          value={{
+            role: result?.profile_role ?? null,
+            email: session?.user.email ?? result?.user_email ?? null,
+            accessToken: session?.access_token ?? null,
+          }}
+        >
+          {children}
+        </AuthContextProvider>
+      </AuthSessionContext.Provider>
     );
   }
 
   return (
-    <main className="flex min-h-screen items-center justify-center bg-background px-4 py-8 text-foreground">
-      <Card className="w-full max-w-xl rounded-lg">
-        <CardHeader>
-          <div className="mb-2 flex h-10 w-10 items-center justify-center rounded-lg bg-muted">
-            {gateState === "signed-out" ? (
-              <ShieldCheck className="h-5 w-5" />
-            ) : gateState === "device-limit" ? (
-              <Monitor className="h-5 w-5" />
-            ) : gateState === "pending" ? (
-              <CheckCircle2 className="h-5 w-5" />
-            ) : (
-              <AlertTriangle className="h-5 w-5" />
-            )}
-          </div>
-          <CardTitle>
-            {gateState === "signed-out"
-              ? "Google 계정으로 로그인"
-              : gateState === "config-missing"
-                ? "Supabase 설정 필요"
-                : gateState === "loading" || gateState === "checking"
-                  ? "로그인 상태 확인 중"
-                  : statusTitle}
-          </CardTitle>
-          <CardDescription>
-            {gateState === "signed-out"
-              ? "결제 이메일과 같은 Google 계정으로 로그인해야 합니다."
-              : gateState === "config-missing"
-                ? "Supabase 공개 설정을 확인한 뒤 앱을 다시 시작하세요."
-                : gateState === "loading" || gateState === "checking"
-                  ? "계정과 등록 기기 정보를 확인하고 있습니다."
-                  : result?.message ?? "관리자에게 구매 이메일을 알려 주세요."}
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          {message && (
-            <div className="rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
-              {message}
+    <AuthSessionContext.Provider value={value}>
+      <main className="flex min-h-screen items-center justify-center bg-background px-4 py-8 text-foreground">
+        <Card className="w-full max-w-xl rounded-lg">
+          <CardHeader>
+            <div className="mb-2 flex h-10 w-10 items-center justify-center rounded-lg bg-muted">
+              {gateState === "signed-out" ? (
+                <ShieldCheck className="h-5 w-5" />
+              ) : gateState === "device-limit" ? (
+                <Monitor className="h-5 w-5" />
+              ) : gateState === "pending" ? (
+                <CheckCircle2 className="h-5 w-5" />
+              ) : (
+                <AlertTriangle className="h-5 w-5" />
+              )}
             </div>
-          )}
-
-          {session?.user.email && gateState !== "signed-out" && (
-            <div className="rounded-lg border bg-muted/30 px-3 py-2 text-sm">
-              로그인 계정: <span className="font-medium">{session.user.email}</span>
-            </div>
-          )}
-
-          {gateState === "device-limit" && (
-            <DeviceLimitPanel
-              devices={result?.devices ?? []}
-              selectedDeviceId={selectedDeviceId}
-              onSelect={setSelectedDeviceId}
-              canReplace={canReplace}
-              nextReplacementAt={result?.next_replacement_at ?? null}
-            />
-          )}
-
-          <div className="flex flex-wrap gap-2">
-            {gateState === "signed-out" && (
-              <Button onClick={login} className="gap-2">
-                <LogIn className="h-4 w-4" />
-                Google 로그인
-              </Button>
+            <CardTitle>
+              {gateState === "signed-out"
+                ? "Google 계정으로 로그인"
+                : gateState === "config-missing"
+                  ? "Supabase 설정 필요"
+                  : gateState === "loading" || gateState === "checking"
+                    ? "로그인 상태 확인 중"
+                    : statusTitle}
+            </CardTitle>
+            <CardDescription>
+              {gateState === "signed-out"
+                ? "결제 이메일과 같은 Google 계정으로 로그인해야 합니다."
+                : gateState === "config-missing"
+                  ? "Supabase 공개 설정을 확인한 뒤 앱을 다시 시작하세요."
+                  : gateState === "loading" || gateState === "checking"
+                    ? "계정과 등록 기기 정보를 확인하고 있습니다."
+                    : result?.message ?? "관리자에게 구매 이메일을 알려 주세요."}
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {message && (
+              <div className="rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+                {message}
+              </div>
             )}
+
+            {session?.user.email && gateState !== "signed-out" && (
+              <div className="rounded-lg border bg-muted/30 px-3 py-2 text-sm">
+                로그인 계정: <span className="font-medium">{session.user.email}</span>
+              </div>
+            )}
+
             {gateState === "device-limit" && (
-              <Button
-                onClick={replaceDevice}
-                disabled={!selectedDeviceId || !canReplace || isReplacing}
-                className="gap-2"
-              >
-                <RefreshCcw className="h-4 w-4" />
-                선택한 기기 교체
-              </Button>
+              <DeviceLimitPanel
+                devices={result?.devices ?? []}
+                selectedDeviceId={selectedDeviceId}
+                onSelect={setSelectedDeviceId}
+                canReplace={canReplace}
+                nextReplacementAt={result?.next_replacement_at ?? null}
+              />
             )}
-            {(gateState === "error" || gateState === "config-missing") && (
-              <Button onClick={retry} variant="outline" className="gap-2">
-                <RefreshCcw className="h-4 w-4" />
-                다시 확인
-              </Button>
-            )}
-            {session && gateState !== "checking" && (
-              <Button onClick={logout} variant="outline" className="gap-2">
-                <LogOut className="h-4 w-4" />
-                로그아웃
-              </Button>
-            )}
-          </div>
-        </CardContent>
-      </Card>
-    </main>
+
+            <div className="flex flex-wrap gap-2">
+              {gateState === "signed-out" && (
+                <Button onClick={login} className="gap-2">
+                  <LogIn className="h-4 w-4" />
+                  Google 로그인
+                </Button>
+              )}
+              {gateState === "device-limit" && (
+                <Button
+                  onClick={replaceDevice}
+                  disabled={!selectedDeviceId || !canReplace || isReplacing}
+                  className="gap-2"
+                >
+                  <RefreshCcw className="h-4 w-4" />
+                  선택한 기기 교체
+                </Button>
+              )}
+              {(gateState === "error" || gateState === "config-missing") && (
+                <Button onClick={retry} variant="outline" className="gap-2">
+                  <RefreshCcw className="h-4 w-4" />
+                  다시 확인
+                </Button>
+              )}
+              {session && gateState !== "checking" && (
+                <Button onClick={logout} variant="outline" className="gap-2">
+                  <LogOut className="h-4 w-4" />
+                  로그아웃
+                </Button>
+              )}
+            </div>
+          </CardContent>
+        </Card>
+      </main>
+    </AuthSessionContext.Provider>
   );
+}
+
+export function useAuthSession(): AuthSessionContextValue {
+  const ctx = useContext(AuthSessionContext);
+  if (!ctx) {
+    throw new Error("useAuthSession must be used within AuthSessionProvider");
+  }
+  return ctx;
 }
 
 function DeviceLimitPanel({
