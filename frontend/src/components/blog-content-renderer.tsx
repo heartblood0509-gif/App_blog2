@@ -121,13 +121,14 @@ export function BlogContentRenderer({
         // ## 소제목 → 인용구 스타일 (##, ##{style} 모두 지원)
         const headingMatch = line.match(/^(#{2,3})(\{[^}]+\})?\s+(.+)$/);
         if (headingMatch) {
-          const headingContent = headingMatch[3];
+          // [[BR]] sentinel → 실제 \n 으로 치환 (whitespace-pre-wrap 이 시각 줄바꿈)
+          const headingContent = headingMatch[3].replace(/\[\[BR\]\]/g, "\n");
           return (
             <div
               key={i}
               className="my-6 border-l-4 border-primary/60 bg-primary/5 px-4 py-3"
             >
-              <p className="text-lg font-semibold leading-relaxed">
+              <p className="text-lg font-semibold leading-relaxed whitespace-pre-wrap">
                 {renderInlineStyles(headingContent)}
               </p>
             </div>
@@ -136,13 +137,13 @@ export function BlogContentRenderer({
 
         // > 인용구 → 하위 호환 (기존 글)
         if (line.startsWith("> ")) {
-          const content = line.replace(/^>\s*/, "");
+          const content = line.replace(/^>\s*/, "").replace(/\[\[BR\]\]/g, "\n");
           return (
             <div
               key={i}
               className="my-6 border-l-4 border-primary/60 bg-primary/5 px-4 py-3"
             >
-              <p className="text-lg font-semibold leading-relaxed">
+              <p className="text-lg font-semibold leading-relaxed whitespace-pre-wrap">
                 {renderInlineStyles(content)}
               </p>
             </div>

@@ -196,6 +196,53 @@ export function collapseBlankLines(content: string): string {
 }
 
 /**
+ * 소제목 콤마 뒤 자동 줄바꿈.
+ *
+ * AI가 만든 소제목이 콤마 포함 긴 문장일 때
+ * (예: "더 이상 속지 마세요, 당신의 현명한 선택을 응원합니다."),
+ * 미리보기와 네이버 인용구 양쪽 모두 한 줄로 길게 표시되어 가독성이 떨어진다.
+ * 콤마 뒤에 \n을 삽입해 두 줄로 표시되게 한다.
+ *
+ * 발행봇은 인용구 위젯의 span.textContent 에 텍스트를 통째 주입하는데
+ * (backend/bots/naver_blog_publisher.py _try_quotation_widget),
+ * 네이버 SmartEditor 인용구 span 의 CSS 가 \n 을 시각적 줄바꿈으로 렌더한다
+ * (1회용 검증 스크립트 backend/verify_quote_linebreak.py 로 실증 완료).
+ * 미리보기 측은 BlogContentRenderer 의 소제목 <p> 에 whitespace-pre-wrap
+ * 클래스가 붙어 있어 동일하게 표시된다.
+ *
+ * 조건 (글 퀄리티 보호 — 짧은 소제목·콤마 없는 소제목은 무변경):
+ *  1. 소제목 본문 길이 ≥ 25자
+ *  2. 콤마(,) 포함
+ *  3. 첫 콤마 뒤 텍스트 길이(trim) ≥ 5자
+ *
+ * 본문 일반 텍스트는 손대지 않는다 (정규식이 `^##` 라인만 매칭).
+ * `##{postit}`, `##{underline}` 같은 스타일 마커도 보존된다.
+ */
+export function applySubtitleLineBreaks(content: string): string {
+  if (!content) return content;
+  return content.replace(
+    /^(#{2,3})(\{[^}]+\})?(\s+)(.+)$/gm,
+    (full, hashes, styleMarker, space, body) => {
+      const text = body as string;
+      if (text.length < 25) return full;
+      const commaIdx = text.indexOf(",");
+      if (commaIdx === -1) return full;
+      // ★ idempotency 보장 — page.tsx 의 useEffect 가 후처리 결과를 다시
+      // state 에 넣고 useEffect 가 재실행되는 패턴이라 함수가 두 번 호출돼도
+      // 같은 결과여야 한다. 콤마 바로 뒤가 이미 [[BR]] 이면 처리 완료 → skip.
+      const rest = text.slice(commaIdx + 1);
+      if (rest.startsWith("[[BR]]")) return full;
+      const after = rest.trimStart();
+      if (after.length < 5) return full;
+      const before = text.slice(0, commaIdx + 1);
+      // \n 대신 [[BR]] sentinel 사용 — content.split("\n") 에 안 잘려서
+      // 소제목 라인이 한 줄로 유지됨. 미리보기/발행봇 진입점에서 \n 으로 치환.
+      return `${hashes}${styleMarker ?? ""}${space}${before}[[BR]]${after}`;
+    },
+  );
+}
+
+/**
  * @deprecated extractHookAndBody로 교체됨. 하위 호환을 위해 유지.
  * 내부적으로 extractHookAndBody를 호출.
  */

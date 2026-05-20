@@ -2321,6 +2321,12 @@ class NaverBlogPublisher:
           - `_try_quotation_widget` 자체가 위험 키 미사용 + health check 내장으로
             매 시도가 페이지 안전을 자체 보장
         """
+        # [[BR]] sentinel → \n (콤마 긴 소제목 줄바꿈용, marker-parser.ts 의
+        # applySubtitleLineBreaks 와 한 쌍). \n 은 인용구 위젯의 textContent 에
+        # 들어가면 네이버 SmartEditor span CSS 가 시각적 줄바꿈으로 렌더한다
+        # (verify_quote_linebreak.py 로 검증 완료).
+        text = text.replace("[[BR]]", "\n")
+
         # 소제목 전 여백
         await self._insert_empty_line()
         await self._insert_empty_line()
