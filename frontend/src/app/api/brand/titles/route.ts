@@ -6,6 +6,7 @@
  */
 import { generateText } from "@/lib/gemini";
 import { CONFIG } from "@/lib/config";
+import { backendFetch } from "@/lib/backend-fetch";
 import { buildBrandTitlePrompt } from "@/lib/brand/prompts/title";
 import type {
   BrandProfile,
@@ -51,8 +52,8 @@ export async function POST(request: Request) {
         analysisRecord = body.analysisRecord;
       } else if (body.analysisRecordId) {
         try {
-          const recordRes = await fetch(
-            `${CONFIG.BACKEND_URL}/analysis-records/${encodeURIComponent(body.analysisRecordId)}`,
+          const recordRes = await backendFetch(
+            `/analysis-records/${encodeURIComponent(body.analysisRecordId)}`,
             { cache: "no-store" }
           );
           if (recordRes.ok) {

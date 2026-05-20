@@ -7,6 +7,7 @@
 import { buildBrandGenerationPrompt } from "@/lib/brand/prompts/generation";
 import { generateStream } from "@/lib/gemini";
 import { CONFIG } from "@/lib/config";
+import { backendFetch } from "@/lib/backend-fetch";
 import type {
   BrandProfile,
   BrandTemplateId,
@@ -82,8 +83,8 @@ export async function POST(request: Request) {
         );
       }
       try {
-        const recordRes = await fetch(
-          `${CONFIG.BACKEND_URL}/analysis-records/${encodeURIComponent(analysisRecordId)}`,
+        const recordRes = await backendFetch(
+          `/analysis-records/${encodeURIComponent(analysisRecordId)}`,
           { cache: "no-store" }
         );
         if (!recordRes.ok) {
