@@ -44,6 +44,9 @@ Electron main 과 자식 매니저들. 본 폴더의 핵심은 다음 모듈들 
 
 - 모든 보안 토큰은 부팅마다 새로 생성 (crypto.randomBytes(32)).
 - packaged 빌드의 main.ts 컴파일 결과(`dist/main.js`)에 `ALLOW_INSECURE_DEV_*` 문자열이 들어있지 않아야 함 — `npm run verify:no-dev-flags` 가 검증.
-- Job Object KILL_ON_JOB_CLOSE 로 main 종료 시 자식 트리 일괄 KILL.
+- **자식 프로세스 종료** (좀비 0개 보장):
+  - Windows: Job Object KILL_ON_JOB_CLOSE + `taskkill /T /F` 이중 방어. `scripts/verify-orphans.ps1` 회귀 검증.
+  - macOS: `detached:true` + PGID 그룹 SIGTERM → 3s 후 SIGKILL 폴백. 부팅 시 startup orphan sweeper (이전 세션 잔존 정리). `scripts/verify-orphans.sh` 회귀 검증.
+  - **dev 모드 (`npm run dev`) 는 회귀 검증 대상 X**: `shell: true` 로 python/next 를 띄우는 구조라 자식 그룹 결합 보장이 약함 (개발자 머신 책임). 회귀 스크립트는 packaged 빌드만 검증.
 - safeStorage(DPAPI) 로 네이버 PW 와 Gemini key 잠금.
-- electron-log + Python logging 모두 redact filter 적용.
+- electron-log + Python logging 모두 redact filter 적용. packaged 자식 stdio 는 `userData/logs/{py,next}.stdout.log` / `.stderr.log` 로 직접 리다이렉트 (Electron 파이프 미경유 → 종료 hang 방지).

@@ -1,6 +1,6 @@
 import path from "path";
 import { paths } from "./paths";
-import { spawnDetached, killTreeWindows, SpawnedChild } from "./child-utils";
+import { spawnDetached, killTree, SpawnedChild } from "./child-utils";
 import { waitForUrl } from "./net-utils";
 
 export interface PythonManagerOptions {
@@ -71,6 +71,6 @@ export class PythonManager {
     if (!this.child) return;
     const pid = this.child.pid;
     this.child = null;
-    await killTreeWindows(pid);
+    await killTree(pid);
   }
 }

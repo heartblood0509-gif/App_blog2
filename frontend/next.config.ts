@@ -1,4 +1,5 @@
 import type { NextConfig } from "next";
+import path from "node:path";
 
 // §E CSP — production (Electron packaged) 에서만 강제. dev 모드는 우회(§H 리스크 #7).
 // Next 16 공식 가이드 "Without Nonces" 패턴(node_modules/next/dist/docs/01-app/02-guides/content-security-policy.md).
@@ -22,6 +23,10 @@ const cspHeader = `
 
 const nextConfig: NextConfig = {
   output: "standalone",
+  // standalone tracing root 를 monorepo 루트(이 파일의 상위)로 고정.
+  // 미설정 시 Next 가 lockfile 을 자동 탐색하다가 git 워크트리(.claude/worktrees/...)
+  // 같은 비표준 위치에서 잘못된 상위 루트를 잡아 server.js 경로가 어그러진다.
+  outputFileTracingRoot: path.join(__dirname, ".."),
   async headers() {
     if (isDev) return [];
     return [

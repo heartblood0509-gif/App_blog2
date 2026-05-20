@@ -54,6 +54,12 @@ contextBridge.exposeInMainWorld("electronAPI", {
     isBusy: (): Promise<boolean> => ipcRenderer.invoke("app:isBusy"),
     relaunch: () => ipcRenderer.invoke("app:relaunch"),
   },
+  // §H publish 진행 추적. 종료 모달 가드용. busy 와 별도 (자동 발행 / 수동 발행 둘 다 포함).
+  publish: {
+    start: (opId: string) => ipcRenderer.invoke("publish:start", opId),
+    end: (opId: string) => ipcRenderer.invoke("publish:end", opId),
+    isActive: (): Promise<boolean> => ipcRenderer.invoke("publish:isActive"),
+  },
   // §F 설정. 평문 key 는 renderer 로 흐르지 않음 (마스킹만).
   settings: {
     getMasked: (): Promise<{ hasKey: boolean; masked: string | null; encryption_available: boolean }> =>

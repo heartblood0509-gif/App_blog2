@@ -162,6 +162,23 @@ async def _on_startup() -> None:
         logging.getLogger(__name__).exception("startup migration failed")
 
 
+@app.on_event("shutdown")
+async def _on_shutdown() -> None:
+    """
+    §B-4 백엔드 종료 시 Playwright 브라우저 일괄 정리.
+
+    Electron 메인이 SIGTERM 을 보내면 uvicorn 이 shutdown 이벤트 → 이 훅 실행 →
+    살아있는 Chromium 인스턴스 / Playwright 서버 close. 무한 hang 방지를 위해 각
+    close 에 5초 타임아웃 (Electron 측 killTree 의 SIGKILL 폴백이 마지막 안전망).
+    """
+    try:
+        from bots.naver_blog_publisher import teardown_all_detached_contexts
+        await teardown_all_detached_contexts(timeout_sec=5.0)
+    except Exception:
+        import logging
+        logging.getLogger(__name__).exception("shutdown teardown failed")
+
+
 # 첫 기동 시 builtin 분석 레코드 시드 (이미 있으면 덮어쓰지 않음).
 # 모듈 import 시점에 즉시 실행 — origin/main 의 호출 위치와 동일하게 유지.
 ensure_builtin_seeds()
