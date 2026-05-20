@@ -1,6 +1,6 @@
 {
   "name": "app-blog2-desktop",
-  "version": "0.1.0",
+  "version": "0.1.3",
   "private": true,
   "description": "App Blog Publisher — Electron desktop wrapper for App_blog2",
   "main": "electron/dist/main.js",
@@ -8,9 +8,13 @@
     "dev": "cross-env NODE_ENV=development tsc -p electron && cross-env NODE_ENV=development electron electron/dist/main.js",
     "build:electron": "tsc -p electron",
     "build:next": "npm --prefix frontend run build",
-    "build:backend": "cmd /c backend\\build-windows.bat",
-    "dist": "npm run build:electron && npm run build:next && electron-builder",
-    "publish": "npm run build:electron && npm run build:next && electron-builder --publish always",
+    "build:backend": "node scripts/build-backend.js",
+    "build:backend:win": "cmd /c backend\\build-windows.bat",
+    "build:backend:mac": "bash backend/build-macos.sh",
+    "dist": "npm run build:backend && npm run build:electron && npm run build:next && electron-builder",
+    "dist:win": "npm run build:backend:win && npm run build:electron && npm run build:next && electron-builder --win",
+    "dist:mac": "npm run build:backend:mac && npm run build:electron && npm run build:next && electron-builder --mac",
+    "publish": "npm run build:backend && npm run build:electron && npm run build:next && electron-builder --publish always",
     "verify:orphans": "powershell -ExecutionPolicy Bypass -File scripts/verify-orphans.ps1",
     "verify:update": "powershell -ExecutionPolicy Bypass -File scripts/verify-update.ps1",
     "smoke:packaged": "powershell -ExecutionPolicy Bypass -File scripts/smoke-packaged.ps1",
@@ -77,7 +81,18 @@
       }
     ],
     "win": {
-      "target": "nsis"
+      "target": "nsis",
+      "artifactName": "${productName}-Setup-${version}-${arch}.${ext}",
+      "verifyUpdateCodeSignature": false
+    },
+    "mac": {
+      "target": [
+        "dmg",
+        "zip"
+      ],
+      "artifactName": "${productName}-${version}-mac-${arch}.${ext}",
+      "identity": null,
+      "gatekeeperAssess": false
     },
     "protocols": [
       {

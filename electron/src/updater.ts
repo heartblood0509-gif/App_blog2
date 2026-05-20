@@ -24,11 +24,38 @@ type UpdaterStatus =
   | "error"
   | "blocked-busy";
 
+interface GithubRelease {
+  tag_name?: string;
+  name?: string;
+  body?: string;
+}
+
 let splash: BrowserWindow | null = null;
 let registered = false;
 let pendingMain: BrowserWindow | null = null;
 
 const RELEASES_URL = "https://github.com/heartblood0509-gif/App_blog2/releases/latest";
+const LATEST_RELEASE_API =
+  "https://api.github.com/repos/heartblood0509-gif/App_blog2/releases/latest";
+
+function versionParts(value: string): number[] {
+  return value.replace(/^v/i, "").split(/[.-]/).slice(0, 3).map((part) => {
+    const n = Number(part);
+    return Number.isFinite(n) ? n : 0;
+  });
+}
+
+function isNewerVersion(candidate: string, current: string): boolean {
+  const next = versionParts(candidate);
+  const now = versionParts(current);
+  for (let i = 0; i < 3; i += 1) {
+    const a = next[i] ?? 0;
+    const b = now[i] ?? 0;
+    if (a > b) return true;
+    if (a < b) return false;
+  }
+  return false;
+}
 
 function showSplash(): void {
   if (splash && !splash.isDestroyed()) return;
@@ -82,21 +109,69 @@ export function initUpdater(main: BrowserWindow): void {
     return;
   }
 
-  if (process.platform === "darwin") {
-    autoUpdater.on("update-available", () => {
-      shell.openExternal(RELEASES_URL).catch(() => { /* ignore */ });
-    });
-    autoUpdater.checkForUpdates().catch(() => { /* ignore */ });
-    return;
-  }
-
-  autoUpdater.autoDownload = false;
-  autoUpdater.autoInstallOnAppQuit = false;
-
   const send = (s: UpdaterStatus, p?: unknown): void => {
     if (main.isDestroyed()) return;
     main.webContents.send("updater:state", { s, p });
   };
+
+  autoUpdater.autoDownload = false;
+  autoUpdater.autoInstallOnAppQuit = false;
+
+  if (process.platform === "darwin") {
+    const checkMacRelease = async (silent: boolean) => {
+      if (!silent) send("checking");
+      try {
+        const response = await fetch(LATEST_RELEASE_API, {
+          headers: {
+            Accept: "application/vnd.github+json",
+            "User-Agent": "App-Blog-Publisher",
+          },
+        });
+        if (response.status === 404) {
+          if (!silent) send("none");
+          return null;
+        }
+        if (!response.ok) {
+          throw new Error(`GitHub release check failed: ${response.status}`);
+        }
+        const release = (await response.json()) as GithubRelease;
+        const latestVersion = release.tag_name?.replace(/^v/i, "");
+        if (latestVersion && isNewerVersion(latestVersion, app.getVersion())) {
+          const info = {
+            version: latestVersion,
+            releaseName: release.name ?? release.tag_name,
+            releaseNotes: release.body,
+          };
+          send("available", info);
+          return info;
+        }
+        if (!silent) send("none");
+        return null;
+      } catch (e) {
+        const message = (e as Error).message;
+        log.warn(`[updater] macOS release check failed: ${message}`);
+        if (!silent) send("error", message);
+        return null;
+      }
+    };
+
+    ipcMain.handle("updater:check", async () => {
+      return checkMacRelease(false);
+    });
+    ipcMain.handle("updater:download", async () => {
+      await shell.openExternal(RELEASES_URL);
+      return true;
+    });
+    ipcMain.handle("updater:install", async () => {
+      await shell.openExternal(RELEASES_URL);
+      return true;
+    });
+
+    setTimeout(() => {
+      checkMacRelease(true).catch(() => { /* handled inside */ });
+    }, 4000);
+    return;
+  }
 
   autoUpdater.on("checking-for-update", () => send("checking"));
   autoUpdater.on("update-available", (info) => send("available", info));
