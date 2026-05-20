@@ -313,10 +313,16 @@ export interface WizardState {
   generatedImages: Record<string, string>;
   /** slotId → 해당 슬롯만 개별 생성/변환 중인지 */
   isGeneratingBySlot: Record<string, boolean>;
-  /** 일괄 생성 중 여부 */
+  /** 일괄 생성 중 여부 — [전체 생성] 버튼 잠금/[중지] 버튼 표시 전용. 슬롯 스피너 조건으로는 쓰지 말 것 */
   isImageGenerating: boolean;
   /** slotId → 사용자가 수정한 커스텀 이미지 프롬프트 (AI 생성 모드 전용). 없으면 기본 빌더 사용 */
   customPromptsBySlot: Record<string, string>;
+  /** slotId → 마지막 실패 사유 코드. 슬롯 카드에 칩으로 표시. 성공 시 삭제 */
+  slotFailures: Record<string, string>;
+  /** slotId → 사용자가 슬롯을 만질 때마다 증가하는 버전. 라운드 결과 머지 시 stale write 방지 */
+  slotVersionMap: Record<string, number>;
+  /** 현재 진행 중인 일괄 생성 라운드의 UUID. 없으면 진행 중인 라운드 없음 */
+  currentRoundId: string | null;
 
   // 현재 단계
   currentStep: number;

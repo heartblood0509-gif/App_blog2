@@ -16,12 +16,18 @@ import {
   Plus,
   User,
   X,
+  MessageCircle,
+  RefreshCw,
 } from "lucide-react";
 import { toast } from "sonner";
 import { BlogContentRenderer } from "@/components/blog-content-renderer";
+import { ThreadsContentPreview } from "@/components/steps-threads/threads-content-preview";
+import { YoutubeScriptResult } from "@/components/steps-youtube/youtube-script-result";
 import type { BlogAccount, ImageSlot } from "@/types";
+import type { MediaMatch } from "@/lib/youtube-script/apply-matches";
 import { pruneExcludedMarkers } from "@/lib/image/marker-parser";
-import { useBusy } from "@/lib/busy";
+import { useBusy, usePublishing } from "@/lib/busy";
+import { useStreaming } from "@/hooks/use-streaming";
 
 interface StepPublishProps {
   content: string;
@@ -53,6 +59,87 @@ export function StepPublish({
   // 자동 발행 중 + 수동 발행 Chrome 창 살아있는 동안 둘 다 busy.
   useBusy("publish:auto", isPublishing);
   useBusy(`publish:manual:${manualSessionId ?? "none"}`, manualSessionId !== null);
+
+  // §H 발행 진행 상태 — 종료 모달 가드용 (busy 와 별도 Set). 같은 opId 공유.
+  usePublishing("publish:auto", isPublishing);
+  usePublishing(`publish:manual:${manualSessionId ?? "none"}`, manualSessionId !== null);
+
+  // ─────────────────────────────────────────────
+  // 블로그 본문 → 쓰레드 변환 (1소스 멀티유즈)
+  // step-generate에서 발행 단계로 이전 — "텍스트 복사·마크다운 다운로드"와
+  // 같은 "내보내기" 카테고리이므로 발행 단계에서 함께 관리.
+  // ─────────────────────────────────────────────
+  const {
+    data: threadsContent,
+    isStreaming: isConvertingToThreads,
+    startStream: startThreadsConvert,
+    abortStream: abortThreadsConvert,
+    reset: resetThreadsConvert,
+  } = useStreaming({
+    onComplete: () => toast.success("쓰레드 변환 완료"),
+    onError: (msg: string) => toast.error(msg),
+  });
+
+  const handleConvertToThreads = () => {
+    if (!content || content.trim().length < 200) {
+      toast.error("본문이 너무 짧습니다 (최소 200자).");
+      return;
+    }
+    startThreadsConvert("/api/generate-threads", {
+      mode: "blog",
+      blogContent: content,
+    });
+  };
+
+  // ─────────────────────────────────────────────
+  // 블로그 본문 → 유튜브 스크립트 변환 (D안: AI 찾기 + 코드 바꾸기)
+  // AI는 매체 표현 매칭 리스트(JSON)만 반환, 코드(applyMatches)가 본문에 일괄 치환.
+  // 본문 100% 보존을 구조적으로 보장한다.
+  // ─────────────────────────────────────────────
+  const [youtubeMatches, setYoutubeMatches] = useState<MediaMatch[]>([]);
+  const [youtubeExcludedKeys, setYoutubeExcludedKeys] = useState<Set<string>>(new Set());
+  const [isConvertingToYoutube, setIsConvertingToYoutube] = useState(false);
+
+  const handleConvertToYoutube = async () => {
+    if (!content || content.trim().length < 200) {
+      toast.error("본문이 너무 짧습니다 (최소 200자).");
+      return;
+    }
+    setIsConvertingToYoutube(true);
+    try {
+      const res = await fetch("/api/convert-youtube", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ blogContent: content }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({ error: "변환 실패" }));
+        throw new Error(data.error || "변환 실패");
+      }
+      const data = await res.json();
+      setYoutubeMatches(Array.isArray(data.matches) ? data.matches : []);
+      setYoutubeExcludedKeys(new Set());
+      toast.success("유튜브 변환 완료");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "변환 실패");
+    } finally {
+      setIsConvertingToYoutube(false);
+    }
+  };
+
+  const handleToggleYoutubeMatch = (key: string) => {
+    setYoutubeExcludedKeys((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  };
+
+  const handleResetYoutube = () => {
+    setYoutubeMatches([]);
+    setYoutubeExcludedKeys(new Set());
+  };
 
   // 수동 발행 시 5초 폴링으로 Chrome 닫힘 감지 → manualSessionId 해제 (busy 자동 풀림).
   useEffect(() => {
@@ -455,54 +542,175 @@ export function StepPublish({
         </span>
       </div>
 
-      {/* 발행 버튼 */}
-      <div className="flex flex-wrap gap-3">
-        <Button
-          size="lg"
-          disabled={!content || isPublishing || !selectedAccountId}
-          className="gap-2"
-          onClick={handlePublish}
-        >
-          {isPublishing ? (
-            <Loader2 className="h-4 w-4 animate-spin" />
-          ) : (
-            <ExternalLink className="h-4 w-4" />
-          )}
-          {isPublishing
-            ? autoPublish
-              ? "발행 중..."
-              : "글 작성 중..."
-            : selectedAccount
-              ? autoPublish
-                ? `"${selectedAccount.label}"에 자동 발행`
-                : `"${selectedAccount.label}"에 글 작성 (수동 발행)`
-              : "계정을 선택하세요"}
-        </Button>
+      {/* 액션 영역 — 두 그룹 박스 분리:
+          (A) 블로그 그대로 내보내기 = 발행 / 복사 / 마크다운 (메인 카테고리, 실선 박스)
+          (B) 다른 채널로 변환      = 쓰레드 / 유튜브 (보조 카테고리, 점선 박스 + 옅은 배경)
+          박스로 묶어 두 그룹의 본질(같은 글 그대로 vs 형식 변환) 차이를 시각적으로 분리. */}
+      <div className="space-y-4">
+        {/* 그룹 A: 블로그 발행 + 같은 본문 내보내기 */}
+        <div className="rounded-lg border bg-card p-4 space-y-3">
+          <h3 className="text-sm font-medium text-foreground">
+            📤 이 글 그대로 내보내기
+          </h3>
+          <div className="flex flex-wrap gap-3">
+            <Button
+              size="lg"
+              disabled={!content || isPublishing || !selectedAccountId}
+              className="gap-2"
+              onClick={handlePublish}
+            >
+              {isPublishing ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <ExternalLink className="h-4 w-4" />
+              )}
+              {isPublishing
+                ? autoPublish
+                  ? "발행 중..."
+                  : "글 작성 중..."
+                : selectedAccount
+                  ? autoPublish
+                    ? `"${selectedAccount.label}"에 자동 발행`
+                    : `"${selectedAccount.label}"에 글 작성 (수동 발행)`
+                  : "계정을 선택하세요"}
+            </Button>
 
-        <Button
-          variant="outline"
-          size="lg"
-          onClick={handleCopy}
-          disabled={!content}
-          className="gap-2"
-        >
-          <Copy className="h-4 w-4" />
-          텍스트 복사
-        </Button>
+            <Button
+              variant="outline"
+              size="lg"
+              onClick={handleCopy}
+              disabled={!content}
+              className="gap-2"
+            >
+              <Copy className="h-4 w-4" />
+              텍스트 복사
+            </Button>
 
-        <Button
-          variant="outline"
-          size="lg"
-          onClick={handleDownloadMarkdown}
-          disabled={!content}
-          className="gap-2"
-        >
-          <Download className="h-4 w-4" />
-          마크다운 다운로드
-        </Button>
+            <Button
+              variant="outline"
+              size="lg"
+              onClick={handleDownloadMarkdown}
+              disabled={!content}
+              className="gap-2"
+            >
+              <Download className="h-4 w-4" />
+              마크다운 다운로드
+            </Button>
+          </div>
+        </div>
+
+        {/* 그룹 B: 다른 채널 변환 (보조, 선택 액션) */}
+        <div className="rounded-lg border border-dashed bg-muted/20 p-4 space-y-3">
+          <h3 className="text-sm font-medium text-foreground">
+            🔁 다른 채널로 변환{" "}
+            <span className="font-normal text-muted-foreground">(선택)</span>
+          </h3>
+          <div className="flex flex-wrap gap-3">
+            {/* 쓰레드 변환 (오렌지 톤) */}
+            {!threadsContent && !isConvertingToThreads && (
+              <Button
+                variant="outline"
+                size="lg"
+                onClick={handleConvertToThreads}
+                disabled={!content || content.trim().length < 200}
+                className="gap-2 border-orange-500/40 hover:border-orange-500/70 hover:bg-orange-50 dark:hover:bg-orange-950/20"
+              >
+                <span className="text-base leading-none" aria-hidden="true">💬</span>
+                쓰레드 변환
+              </Button>
+            )}
+            {isConvertingToThreads && (
+              <>
+                <Button
+                  variant="destructive"
+                  size="lg"
+                  onClick={abortThreadsConvert}
+                  className="gap-2"
+                >
+                  중단
+                </Button>
+                <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  3단 구조(본문 + 댓글1 + 댓글2)로 변환 중...
+                </div>
+              </>
+            )}
+            {threadsContent && !isConvertingToThreads && (
+              <Button
+                variant="outline"
+                size="lg"
+                onClick={resetThreadsConvert}
+                className="gap-2 border-orange-500/40 hover:border-orange-500/70 hover:bg-orange-50 dark:hover:bg-orange-950/20"
+              >
+                <RefreshCw className="h-4 w-4 text-orange-500" />
+                쓰레드 다시 변환
+              </Button>
+            )}
+
+            {/* 유튜브 변환 (로즈 톤) */}
+            {youtubeMatches.length === 0 && !isConvertingToYoutube && (
+              <Button
+                variant="outline"
+                size="lg"
+                onClick={handleConvertToYoutube}
+                disabled={!content || content.trim().length < 200}
+                className="gap-2 border-rose-500/40 hover:border-rose-500/70 hover:bg-rose-50 dark:hover:bg-rose-950/20"
+              >
+                <span className="text-base leading-none" aria-hidden="true">🎬</span>
+                유튜브 변환
+              </Button>
+            )}
+            {isConvertingToYoutube && (
+              <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                <Loader2 className="h-4 w-4 animate-spin" />
+                유튜브 변환 중...
+              </div>
+            )}
+            {youtubeMatches.length > 0 && !isConvertingToYoutube && (
+              <Button
+                variant="outline"
+                size="lg"
+                onClick={handleResetYoutube}
+                className="gap-2 border-rose-500/40 hover:border-rose-500/70 hover:bg-rose-50 dark:hover:bg-rose-950/20"
+              >
+                <RefreshCw className="h-4 w-4 text-rose-500" />
+                유튜브 다시 변환
+              </Button>
+            )}
+          </div>
+        </div>
       </div>
 
       <Separator />
+
+      {/* 쓰레드 변환 결과 — 변환 결과 또는 진행 중일 때만 표시 */}
+      {(threadsContent || isConvertingToThreads) && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-sm">
+              <MessageCircle className="h-4 w-4 text-orange-500" />
+              쓰레드 변환 결과
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <ThreadsContentPreview
+              content={threadsContent}
+              isLoading={isConvertingToThreads}
+            />
+          </CardContent>
+        </Card>
+      )}
+
+      {/* 유튜브 스크립트 변환 결과 — 변환 결과 또는 진행 중일 때만 표시 */}
+      {(youtubeMatches.length > 0 || isConvertingToYoutube) && (
+        <YoutubeScriptResult
+          originalContent={content}
+          matches={youtubeMatches}
+          excludedKeys={youtubeExcludedKeys}
+          onToggleMatch={handleToggleYoutubeMatch}
+          isLoading={isConvertingToYoutube}
+        />
+      )}
 
       {/* Content Preview */}
       <Card>

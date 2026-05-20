@@ -1,4 +1,5 @@
-import { app, BrowserWindow, dialog, ipcMain, shell } from "electron";
+import { app, BrowserWindow, dialog, ipcMain, powerMonitor, shell } from "electron";
+import { spawnSync } from "node:child_process";
 import crypto from "node:crypto";
 import path from "node:path";
 import log from "electron-log";
@@ -27,12 +28,38 @@ let python: PythonManager | null = null;
 let nextSrv: NextServerManager | null = null;
 let broker: CredentialBroker | null = null;
 let isQuitting = false;
+// before-quit 모달에서 "종료" 선택 시 true. 재진입 시 모달 우회.
+let forceQuit = false;
 
 // §D — busy 상태. operation id 기반 Set 으로 idempotent. boolean 카운터 아님.
 const busyOps = new Set<string>();
+// §H — 발행 진행 상태. busyOps 와 별도. 종료 모달 가드용.
+const publishingOps = new Set<string>();
 let installPending = false;
 const AUTH_PROTOCOL = "com.heartblood.appblog2";
 let pendingAuthDeepLink: string | null = null;
+
+// §I — 각 stop() 5초, 전체 셧다운 10초 한도. 하나라도 hang 되면 강제 KILL 폴백.
+const STOP_TIMEOUT_MS = 5_000;
+const SHUTDOWN_TIMEOUT_MS = 10_000;
+
+function withTimeout<T>(p: Promise<T> | undefined, ms: number, label: string): Promise<T | "timeout"> {
+  if (!p) return Promise.resolve("timeout" as const);
+  return new Promise<T | "timeout">((resolve) => {
+    const timer = setTimeout(() => {
+      console.warn(`[shutdown] ${label} stop() timeout after ${ms}ms`);
+      resolve("timeout");
+    }, ms);
+    p.then(
+      (v) => { clearTimeout(timer); resolve(v); },
+      (e) => {
+        clearTimeout(timer);
+        console.warn(`[shutdown] ${label} stop() error:`, e);
+        resolve("timeout");
+      },
+    );
+  });
+}
 
 function endBusy(opId: string): void {
   const wasBusy = busyOps.size > 0;
@@ -131,19 +158,104 @@ if (!gotLock) {
 
   app.on("before-quit", async (event) => {
     if (isQuitting) return;
+
+    // §H 발행 진행 중이면 사용자 확인. forceQuit 가 true 면 모달 우회.
+    if (publishingOps.size > 0 && !forceQuit) {
+      event.preventDefault();
+      const dialogOpts = {
+        type: "warning" as const,
+        buttons: ["계속 작업", "종료"],
+        defaultId: 0,
+        cancelId: 0,
+        message: "발행 작업이 진행 중입니다.",
+        detail: "지금 종료하면 작성 중인 글이 손실될 수 있습니다.",
+      };
+      const choice = mainWindow
+        ? dialog.showMessageBoxSync(mainWindow, dialogOpts)
+        : dialog.showMessageBoxSync(dialogOpts);
+      if (choice === 1) {
+        forceQuit = true;
+        app.quit(); // 재진입 → 모달 우회 → 정리 경로
+      }
+      return;
+    }
+
     isQuitting = true;
     event.preventDefault();
+
+    // §I 데드라인. 각 stop 5s + 전체 10s. hang 시 강제 진행.
+    const overall = Promise.allSettled([
+      withTimeout(nextSrv?.stop(), STOP_TIMEOUT_MS, "next"),
+      withTimeout(python?.stop(), STOP_TIMEOUT_MS, "python"),
+      withTimeout(broker?.stop(), STOP_TIMEOUT_MS, "broker"),
+    ]);
+    const timer = new Promise<"shutdown-timeout">((resolve) =>
+      setTimeout(() => resolve("shutdown-timeout"), SHUTDOWN_TIMEOUT_MS),
+    );
     try {
-      await Promise.allSettled([nextSrv?.stop(), python?.stop(), broker?.stop()]);
+      const result = await Promise.race([overall, timer]);
+      if (result === "shutdown-timeout") {
+        console.warn(`[shutdown] overall ${SHUTDOWN_TIMEOUT_MS}ms timeout — proceeding to exit`);
+      }
     } finally {
-      // Job Object 핸들 닫기 — 좀비 안전망 트리거.
+      // Job Object 핸들 닫기 — Windows 자식 트리 KILL 안전망 트리거.
       closeJobObject();
       app.exit(0);
     }
   });
+
+  // §D 시스템 종료/재시작 — before-quit 우회 시나리오 안전망.
+  powerMonitor.on("shutdown", () => {
+    console.log("[shutdown] powerMonitor.shutdown — forwarding to app.quit()");
+    forceQuit = true;
+    app.quit();
+  });
+}
+
+// §D macOS startup orphan sweeper.
+// 이전 세션이 크래시·SIGKILL·Force Quit·시스템 셧다운 등으로 자식 트리를 정리 못 하고
+// 종료된 경우, 이번 부팅 시 잔존 프로세스를 한 번에 청소. Windows 는 Job Object 가 처리.
+//
+// 식별 마커:
+//   - ${userData}/chrome-profiles  (Chromium 인자에 등장)
+//   - paths.backendExe              (PyInstaller 백엔드 절대 경로)
+// → 일반 Chrome 이나 다른 사용자의 Chromium 은 user-data-dir 이 다르므로 절대 안 잡힘.
+function sweepOrphans(): void {
+  if (process.platform !== "darwin") return;
+  const markers = [
+    path.join(paths.userData, "chrome-profiles"),
+    paths.backendExe,
+  ].filter(Boolean);
+  if (markers.length === 0) return;
+  try {
+    const ps = spawnSync("ps", ["-axo", "pid=,command="], { encoding: "utf8" });
+    if (ps.status !== 0 || !ps.stdout) return;
+    const lines = ps.stdout.split("\n");
+    let killed = 0;
+    for (const raw of lines) {
+      const line = raw.trim();
+      if (!line) continue;
+      if (!markers.some((m) => line.includes(m))) continue;
+      const pidStr = line.split(/\s+/)[0];
+      const pid = parseInt(pidStr, 10);
+      if (!pid || !Number.isFinite(pid) || pid === process.pid) continue;
+      try {
+        process.kill(pid, "SIGKILL");
+        killed += 1;
+      } catch {
+        /* already gone */
+      }
+    }
+    if (killed > 0) console.log(`[sweep] startup orphan sweeper: killed=${killed}`);
+  } catch (e) {
+    console.warn(`[sweep] failed: ${(e as Error).message}`);
+  }
 }
 
 async function boot(): Promise<void> {
+  // §D 이전 세션 잔존 프로세스 정리 — Job Object 초기화/자식 spawn 이전에 수행.
+  sweepOrphans();
+
   // 좀비 안전망. Job Object 초기화는 자식 spawn 이전에 끝나야 함.
   initJobObject();
 
@@ -229,6 +341,16 @@ async function boot(): Promise<void> {
     if (typeof opId === "string") endBusy(opId);
   });
   ipcMain.handle("app:isBusy", () => busyOps.size > 0);
+
+  // §H publish 진행 상태 IPC — before-quit 모달 가드용. busyOps 와 별도.
+  // 발행 라우트 진입 시 publish:start, 완료/실패/취소 시 publish:end.
+  ipcMain.handle("publish:start", (_e, opId: string) => {
+    if (typeof opId === "string" && opId.length > 0) publishingOps.add(opId);
+  });
+  ipcMain.handle("publish:end", (_e, opId: string) => {
+    if (typeof opId === "string") publishingOps.delete(opId);
+  });
+  ipcMain.handle("publish:isActive", () => publishingOps.size > 0);
 
   await mainWindow.loadURL(allowedOrigin);
 

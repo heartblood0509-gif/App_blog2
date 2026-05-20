@@ -33,6 +33,12 @@ interface ElectronAppApi {
   relaunch: () => Promise<void>;
 }
 
+interface ElectronPublishApi {
+  start: (opId: string) => Promise<void>;
+  end: (opId: string) => Promise<void>;
+  isActive: () => Promise<boolean>;
+}
+
 interface ElectronSettingsApi {
   getMasked: () => Promise<{
     hasKey: boolean;
@@ -60,9 +66,11 @@ interface ElectronAuthApi {
 }
 
 interface ElectronAPI {
+  platform: NodeJS.Platform;
   auth: ElectronAuthApi;
   updater: ElectronUpdaterApi;
   app: ElectronAppApi;
+  publish: ElectronPublishApi;
   settings: ElectronSettingsApi;
 }
 

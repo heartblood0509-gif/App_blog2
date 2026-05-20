@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
-import { UpdaterModal } from "@/components/UpdaterModal";
+import { UpdaterToast } from "@/components/UpdaterToast";
 import { AuthSessionProvider } from "@/components/providers/AuthSessionProvider";
 import { WizardStateProvider } from "@/components/providers/WizardStateProvider";
 import "./globals.css";
@@ -40,7 +40,7 @@ export default function RootLayout({
             </WizardStateProvider>
           </AuthSessionProvider>
         </TooltipProvider>
-        <UpdaterModal />
+        <UpdaterToast />
         <Toaster position="bottom-right" richColors />
       </body>
     </html>

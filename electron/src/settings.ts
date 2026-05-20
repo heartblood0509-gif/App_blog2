@@ -125,7 +125,9 @@ export function registerSettingsIpc(): void {
   });
 
   ipcMain.handle("app:relaunch", () => {
+    // app.quit() 으로 before-quit 경로 통과 → 자식(python/next/broker) 정상 정리.
+    // app.exit(0) 직접 호출은 자식 트리 누수 위험이라 사용하지 않음.
     app.relaunch();
-    app.exit(0);
+    app.quit();
   });
 }

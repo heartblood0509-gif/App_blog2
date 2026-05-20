@@ -9,8 +9,17 @@ import type { InterviewQuestion } from "@/components/profile-assistant/step-inte
 export const AEO_INTERVIEW_QUESTIONS: InterviewQuestion[] = [
   {
     id: "name",
-    label: "프로필 이름이 어떻게 되나요?",
-    example: "성분 전문가",
+    label: "이 글을 쓰는 \"사람\"을 짧게 뭐라고 부를까요?",
+    example: `약사맘
+
+다른 예: 성분 전문가, 헤어케어 박사, 30년 차 산후조리 선생님
+
+💬 회사 이름이 아니라, 글쓴이의 정체성을 담은 짧은 호칭이에요.
+   AI는 이 사람의 입장에서 "저도 임산부였을 때…" 처럼
+   1인칭으로 글을 써요.
+
+   ❌ 미르엔        (회사명만)
+   ⭕ 약사맘 / 성분 전문가 / 미르엔 성분 연구소장`,
     kind: "text",
     required: true,
   },
