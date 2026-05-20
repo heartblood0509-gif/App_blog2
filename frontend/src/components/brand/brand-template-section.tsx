@@ -547,8 +547,12 @@ export function BrandTemplateSection({
             </div>
 
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 md:grid-cols-3">
-              {/* 내장 카드들 — selectedTemplate scope의 builtin records 자동 렌더링 */}
-              {builtinRecords.map((r) => {
+              {/* 내장 카드들 — selectedTemplate scope의 builtin records 자동 렌더링.
+                  'builtin-info-5-trap'(함정 폭로형)은 'builtin-info-whistleblower'(업계 내부고발형)와
+                  단계·톤·정책이 사실상 동일해서 UI에서만 숨김. 데이터·dispatch 코드는 보존(부활용). */}
+              {builtinRecords
+                .filter((r) => r.id !== "builtin-info-5-trap")
+                .map((r) => {
                 const structureBasedSelected =
                   selectedTemplate === "intro"
                     ? selectedIntroVariant === "intro-structure-based"

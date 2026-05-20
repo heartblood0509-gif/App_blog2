@@ -355,7 +355,7 @@ export function AeoProfileAssistant({ open, onClose, onSaved, prefill }: AeoProf
         <DialogHeader className="shrink-0">
           <DialogTitle className="flex items-center gap-2">
             <Sparkles className="h-5 w-5 text-primary" />
-            AI 프로필 등록 도우미
+            AI AEO 프로필 도우미
           </DialogTitle>
           <DialogDescription>
             {stage === "mode-select" && "어떻게 입력하시겠어요? 차근차근 답해도 좋고, 한 번에 적어도 됩니다."}
@@ -436,7 +436,7 @@ export function AeoProfileAssistant({ open, onClose, onSaved, prefill }: AeoProf
               </div>
             ) : (
               <StepInterview
-                headerLabel="AI 프로필 등록 도우미"
+                headerLabel="AI AEO 프로필 도우미"
                 questions={remainingQuestions}
                 onComplete={handleInterviewComplete}
                 onCancel={() => {

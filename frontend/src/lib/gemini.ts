@@ -32,17 +32,31 @@ export async function* generateStream(
 }
 
 /**
+ * Gemini 일괄 텍스트 생성용 선택적 설정.
+ * 결정론적 출력이 필요한 변환·치환 작업에서 temperature=0 / topP / topK / responseMimeType 같은
+ * 옵션을 전달하기 위해 추가 (기본 호출은 인자 생략으로 SDK 기본값 그대로 사용).
+ */
+export interface GenerateTextConfig {
+  temperature?: number;
+  topP?: number;
+  topK?: number;
+  responseMimeType?: string;
+}
+
+/**
  * Gemini로 텍스트 생성 (일괄)
  */
 export async function generateText(
   prompt: string,
   model: string = "gemini-2.5-flash",
-  apiKey?: string
+  apiKey?: string,
+  generationConfig?: GenerateTextConfig
 ): Promise<string> {
   const ai = getGenAI(apiKey);
   const response = await ai.models.generateContent({
     model,
     contents: prompt,
+    ...(generationConfig ? { config: generationConfig } : {}),
   });
   return response.text || "";
 }
