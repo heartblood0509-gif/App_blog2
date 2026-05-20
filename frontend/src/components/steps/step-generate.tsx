@@ -64,10 +64,14 @@ interface StepGenerateProps {
   isGeneratingBySlot: Record<string, boolean>;
   isImageGenerating: boolean;
   customPromptsBySlot: Record<string, string>;
+  /** slotId → 마지막 실패 사유 코드 (image-bulk의 ReasonCode). 슬롯 카드에 칩으로 표시. */
+  slotFailures: Record<string, string>;
   onUserPhotoChange: (slotId: string, photo: UserPhoto | null) => void;
   onUserInstructionChange: (slotId: string, instruction: string) => void;
   onToggleExcluded: (slotId: string, excluded: boolean) => void;
   onGenerateImages: () => void;
+  /** 일괄 생성 중지 (라운드 abort) */
+  onAbortImages: () => void;
   onGenerateSlotAI: (slotId: string) => void;
   onTransformSlot: (slotId: string) => void;
   /** prompt === null 이면 해당 슬롯 커스텀 프롬프트 삭제(기본값 복원) */
@@ -120,6 +124,38 @@ async function fileToBase64(file: File): Promise<{ base64: string; mimeType: str
   });
 }
 
+// 일괄 생성 실패 사유 코드 → 사용자에게 보일 짧은 라벨
+function failureLabel(code: string): string {
+  switch (code) {
+    case "safety":
+      return "SAFETY 차단";
+    case "quota":
+      return "쿼터 초과";
+    case "unavailable":
+      return "Gemini 일시 장애";
+    case "internal":
+      return "Gemini 내부 오류";
+    case "deadline":
+      return "응답 너무 큼";
+    case "timeout":
+      return "시간 초과";
+    case "network":
+      return "네트워크 오류";
+    case "empty":
+      return "응답 없음";
+    case "permission":
+      return "API 키 권한/결제";
+    case "not_found":
+      return "모델 오류";
+    case "precondition":
+      return "지역/요금제 불충족";
+    case "auth":
+      return "API 키 오류";
+    default:
+      return "알 수 없는 오류";
+  }
+}
+
 function SlotCard({
   slot,
   partner,
@@ -127,6 +163,7 @@ function SlotCard({
   excluded,
   generatedBase64,
   isGenerating,
+  failureReason,
   content,
   customPrompt,
   onUserPhotoChange,
@@ -142,6 +179,7 @@ function SlotCard({
   excluded: boolean;
   generatedBase64?: string;
   isGenerating: boolean;
+  failureReason?: string;
   content: string;
   customPrompt: string | undefined;
   onUserPhotoChange: (photo: UserPhoto | null) => void;
@@ -215,6 +253,15 @@ function SlotCard({
           <p className="text-xs text-muted-foreground line-clamp-2">
             {slot.description}
           </p>
+          {failureReason && !generatedBase64 && !isGenerating && (
+            <span
+              className="mt-1 inline-flex items-center gap-1 self-start rounded px-2 py-0.5 text-[10px] font-medium bg-red-50 text-red-700 border border-red-200"
+              title={`최근 일괄 생성에서 실패: ${failureReason}`}
+            >
+              <AlertTriangle className="h-3 w-3" />
+              {failureLabel(failureReason)}
+            </span>
+          )}
         </div>
         {partner && (
           <Button
@@ -519,10 +566,12 @@ export function StepGenerate({
   isGeneratingBySlot,
   isImageGenerating,
   customPromptsBySlot,
+  slotFailures,
   onUserPhotoChange,
   onUserInstructionChange,
   onToggleExcluded,
   onGenerateImages,
+  onAbortImages,
   onGenerateSlotAI,
   onTransformSlot,
   onCustomPromptChange,
@@ -975,24 +1024,38 @@ export function StepGenerate({
                     {doneCount} / {activeSlots.length} 생성됨
                   </Badge>
                 </CardTitle>
-                <Button
-                  size="sm"
-                  onClick={onGenerateImages}
-                  disabled={isImageGenerating || emptyCount === 0}
-                  className="gap-2"
-                  title="아직 아무것도 없는 슬롯만 AI로 일괄 생성합니다 (사진 업로드된 슬롯은 제외)"
-                >
-                  {isImageGenerating ? (
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                  ) : (
-                    <Sparkles className="h-4 w-4" />
+                <div className="flex items-center gap-2">
+                  <Button
+                    size="sm"
+                    onClick={onGenerateImages}
+                    disabled={isImageGenerating || emptyCount === 0}
+                    className="gap-2"
+                    title="아직 아무것도 없는 슬롯만 AI로 일괄 생성합니다 (사진 업로드된 슬롯은 제외)"
+                  >
+                    {isImageGenerating ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <Sparkles className="h-4 w-4" />
+                    )}
+                    {isImageGenerating
+                      ? "이미지 생성 중..."
+                      : emptyCount === 0
+                        ? "모두 채워짐"
+                        : `빈 슬롯 ${emptyCount}개 AI 일괄 생성`}
+                  </Button>
+                  {isImageGenerating && (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={onAbortImages}
+                      className="gap-2"
+                      title="새 슬롯 시작 차단 + 진행 중 요청 중단 시도"
+                    >
+                      <X className="h-4 w-4" />
+                      중지
+                    </Button>
                   )}
-                  {isImageGenerating
-                    ? "이미지 생성 중..."
-                    : emptyCount === 0
-                      ? "모두 채워짐"
-                      : `빈 슬롯 ${emptyCount}개 AI 일괄 생성`}
-                </Button>
+                </div>
               </div>
             </CardHeader>
             <CardContent>
@@ -1005,9 +1068,8 @@ export function StepGenerate({
                     userPhoto={userPhotosBySlot[slot.id]}
                     excluded={excludedSet.has(slot.id)}
                     generatedBase64={generatedImages[slot.id]}
-                    isGenerating={
-                      !!isGeneratingBySlot[slot.id] || isImageGenerating
-                    }
+                    isGenerating={!!isGeneratingBySlot[slot.id]}
+                    failureReason={slotFailures[slot.id]}
                     content={content}
                     customPrompt={customPromptsBySlot[slot.id]}
                     onUserPhotoChange={(p) => onUserPhotoChange(slot.id, p)}

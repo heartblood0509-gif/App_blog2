@@ -10,7 +10,7 @@ import {
 } from "@/lib/prompts/image";
 import { CONFIG } from "@/lib/config";
 
-export const maxDuration = 300;
+export const maxDuration = 95;
 
 interface SlotRequest {
   id: string;
@@ -30,12 +30,46 @@ interface SlotRequest {
   excluded?: boolean;
 }
 
-interface SlotResult {
+type ReasonCode =
+  | "safety"
+  | "empty"
+  | "quota"
+  | "unavailable"
+  | "internal"
+  | "deadline"
+  | "permission"
+  | "not_found"
+  | "precondition"
+  | "auth"
+  | "bad_request"
+  | "unknown";
+
+interface SlotResultDone {
   id: string;
-  status: "done" | "failed" | "skipped";
-  base64?: string;
-  mimeType?: string;
+  status: "done";
+  base64: string;
+  mimeType: string;
+}
+
+interface SlotResultFailed {
+  id: string;
+  status: "failed";
+  reasonCode: ReasonCode;
   error?: string;
+  retryable: boolean;
+  retryAfterMs?: number;
+}
+
+interface SlotResultSkipped {
+  id: string;
+  status: "skipped";
+}
+
+type SlotResult = SlotResultDone | SlotResultFailed | SlotResultSkipped;
+
+function logSlot(event: string, data: Record<string, unknown>) {
+  // 구조화된 한 줄 로그. grep 친화적.
+  console.log(`[images/generate] ${event}`, JSON.stringify(data));
 }
 
 async function generateOneSlot(
@@ -67,18 +101,138 @@ async function generateOneSlot(
   return await generateImage(prompt, CONFIG.IMAGE_MODEL, apiKey);
 }
 
+interface ParsedGeminiError {
+  status: number;
+  reasonCode: ReasonCode;
+  retryable: boolean;
+  retryAfterMs?: number;
+  message: string;
+}
+
+// Google GenAI SDK 에러는 보통 message 안에 JSON이 들어있거나
+// "[<status>] ... <reason>" 형태로 옴. 방어적으로 파싱.
+function parseGeminiError(err: unknown): ParsedGeminiError {
+  const message = err instanceof Error ? err.message : String(err);
+
+  // 1) HTTP status code 추출 (여러 패턴)
+  let httpStatus = 0;
+  const errObj = err as { status?: unknown; code?: unknown } | null;
+  if (errObj && typeof errObj === "object") {
+    if (typeof errObj.status === "number") httpStatus = errObj.status;
+    else if (typeof errObj.code === "number") httpStatus = errObj.code;
+  }
+  if (!httpStatus) {
+    const m = message.match(/\b(429|503|500|504|403|404|400|401)\b/);
+    if (m) httpStatus = parseInt(m[1], 10);
+  }
+
+  // 2) GenAI 에러 message가 JSON일 수 있음
+  let statusText = "";
+  let retryAfterMs: number | undefined;
+  try {
+    const jsonStart = message.indexOf("{");
+    if (jsonStart >= 0) {
+      const parsed = JSON.parse(message.slice(jsonStart));
+      const errBlock = (parsed?.error ?? parsed) as Record<string, unknown>;
+      if (typeof errBlock?.code === "number" && !httpStatus) {
+        httpStatus = errBlock.code as number;
+      }
+      if (typeof errBlock?.status === "string") {
+        statusText = errBlock.status as string;
+      }
+      const details = (errBlock?.details ?? []) as Array<Record<string, unknown>>;
+      for (const d of details) {
+        const t = (d?.["@type"] as string) || "";
+        if (t.includes("RetryInfo") && typeof d?.retryDelay === "string") {
+          const m = (d.retryDelay as string).match(/^([\d.]+)s$/);
+          if (m) retryAfterMs = Math.ceil(parseFloat(m[1]) * 1000);
+        }
+      }
+    }
+  } catch {
+    // ignore
+  }
+
+  // 3) "retry in Xs" 텍스트 보조 파싱
+  if (retryAfterMs == null) {
+    const m = message.match(/retry\s+(?:in|after)\s+(\d+)\s*s/i);
+    if (m) retryAfterMs = parseInt(m[1], 10) * 1000;
+  }
+
+  // 4) 분류
+  const upper = `${statusText} ${message}`.toUpperCase();
+  let reasonCode: ReasonCode = "unknown";
+  let status = httpStatus || 500;
+  let retryable = false;
+
+  if (httpStatus === 429 || /RESOURCE_EXHAUSTED|QUOTA/.test(upper)) {
+    reasonCode = "quota";
+    status = 429;
+    retryable = true;
+  } else if (httpStatus === 503 || /UNAVAILABLE/.test(upper)) {
+    reasonCode = "unavailable";
+    status = 503;
+    retryable = true;
+  } else if (httpStatus === 504 || /DEADLINE_EXCEEDED/.test(upper)) {
+    reasonCode = "deadline";
+    status = 504;
+    retryable = false; // payload 과다 가능성, 같은 입력 재시도 위험
+  } else if (httpStatus === 500 || /INTERNAL/.test(upper)) {
+    reasonCode = "internal";
+    status = 500;
+    retryable = true;
+  } else if (httpStatus === 403 || /PERMISSION_DENIED/.test(upper)) {
+    reasonCode = "permission";
+    status = 403;
+    retryable = false;
+  } else if (httpStatus === 404 || /NOT_FOUND/.test(upper)) {
+    reasonCode = "not_found";
+    status = 404;
+    retryable = false;
+  } else if (httpStatus === 401 || /UNAUTHENTICATED|API.?KEY/.test(upper)) {
+    reasonCode = "auth";
+    status = 401;
+    retryable = false;
+  } else if (httpStatus === 400 && /FAILED_PRECONDITION/.test(upper)) {
+    reasonCode = "precondition";
+    status = 400;
+    retryable = false;
+  } else if (httpStatus === 400 || /INVALID_ARGUMENT/.test(upper)) {
+    reasonCode = "bad_request";
+    status = 400;
+    retryable = false;
+  }
+
+  return { status, reasonCode, retryable, retryAfterMs, message };
+}
+
+function buildHeaders(parsed: ParsedGeminiError): HeadersInit {
+  const h: Record<string, string> = {};
+  if (parsed.retryAfterMs != null) {
+    h["Retry-After"] = String(Math.ceil(parsed.retryAfterMs / 1000));
+  }
+  return h;
+}
+
 export async function POST(request: Request) {
+  const requestStart = Date.now();
+  let roundId: string | null = null;
+  let slotId: string | null = null;
+
   try {
     const body = await request.json();
     const {
       content,
       slots,
       apiKey,
+      roundId: bodyRoundId,
     } = body as {
       content: string;
       slots: SlotRequest[];
       apiKey?: string;
+      roundId?: string;
     };
+    roundId = bodyRoundId ?? null;
 
     if (!content || !Array.isArray(slots)) {
       return Response.json(
@@ -86,69 +240,143 @@ export async function POST(request: Request) {
         { status: 400 }
       );
     }
+    if (slots.length !== 1) {
+      return Response.json(
+        {
+          error: "slots는 정확히 1개여야 합니다. 일괄 생성은 클라이언트가 슬롯별로 호출하세요.",
+        },
+        { status: 400 }
+      );
+    }
 
-    const results: SlotResult[] = [];
+    const slot = slots[0];
+    slotId = slot.id;
 
-    for (let i = 0; i < slots.length; i++) {
-      const slot = slots[i];
-      if (slot.excluded) {
-        results.push({ id: slot.id, status: "skipped" });
-        continue;
-      }
+    if (slot.excluded) {
+      logSlot("slot_skipped", { roundId, slotId });
+      return Response.json({
+        results: [{ id: slot.id, status: "skipped" }] satisfies SlotResult[],
+      });
+    }
+
+    const slotStart = Date.now();
+    const model = slot.useProModel ? CONFIG.IMAGE_MODEL_PRO : CONFIG.IMAGE_MODEL;
+    logSlot("slot_start", {
+      roundId,
+      slotId,
+      index: slot.index,
+      mode: slot.mode,
+      model,
+      useProModel: !!slot.useProModel,
+      hasCustomPrompt:
+        slot.mode === "ai" &&
+        !!slot.customPrompt &&
+        slot.customPrompt.trim().length > 0,
+    });
+
+    let img: GeneratedImageResult | null = null;
+    try {
+      img = await generateOneSlot(slot, content, apiKey);
+    } catch (err) {
+      const parsed = parseGeminiError(err);
+      const durationMs = Date.now() - slotStart;
+      logSlot("slot_failed", {
+        roundId,
+        slotId,
+        durationMs,
+        reason: "throw",
+        httpStatus: parsed.status,
+        reasonCode: parsed.reasonCode,
+        retryAfterMs: parsed.retryAfterMs,
+        error: parsed.message.slice(0, 500),
+      });
+      const failed: SlotResultFailed = {
+        id: slot.id,
+        status: "failed",
+        reasonCode: parsed.reasonCode,
+        retryable: parsed.retryable,
+        retryAfterMs: parsed.retryAfterMs,
+        error: parsed.message.slice(0, 500),
+      };
+      return Response.json(
+        { results: [failed], reasonCode: parsed.reasonCode, retryAfterMs: parsed.retryAfterMs },
+        { status: parsed.status, headers: buildHeaders(parsed) }
+      );
+    }
+
+    // SAFETY 또는 빈 응답 → 중립화 프롬프트 1회 재시도 (서버에서 처리, clean separation)
+    const hasCustomPrompt =
+      slot.mode === "ai" &&
+      !!slot.customPrompt &&
+      slot.customPrompt.trim().length > 0;
+    let neutralized = false;
+    if (!img && !hasCustomPrompt && CONFIG.IMAGE_MAX_RETRIES > 0) {
+      logSlot("slot_neutralize_retry", { roundId, slotId });
       try {
-        let img = await generateOneSlot(slot, content, apiKey);
-
-        // 중립화 프롬프트로 1회 재시도.
-        // 단, 사용자가 직접 수정한 customPrompt는 사용자 의도를 우선하여 중립화 재시도를 생략.
-        const hasCustomPrompt =
-          slot.mode === "ai" &&
-          !!slot.customPrompt &&
-          slot.customPrompt.trim().length > 0;
-        if (!img && !hasCustomPrompt && CONFIG.IMAGE_MAX_RETRIES > 0) {
-          try {
-            const neutralPrompt = buildNeutralizedPrompt(slot.description);
-            img = await generateImage(neutralPrompt, CONFIG.IMAGE_MODEL, apiKey);
-          } catch {
-            // 재시도 중 throw는 무시하고 원본 실패로 처리
-          }
-        }
-
-        if (img) {
-          results.push({
-            id: slot.id,
-            status: "done",
-            base64: img.base64,
-            mimeType: img.mimeType,
-          });
-        } else {
-          results.push({
-            id: slot.id,
-            status: "failed",
-            error: "이미지 생성 실패 (응답 없음 또는 SAFETY 필터)",
-          });
-        }
-      } catch (err) {
-        results.push({
-          id: slot.id,
-          status: "failed",
-          error: err instanceof Error ? err.message : "알 수 없는 오류",
+        const neutralPrompt = buildNeutralizedPrompt(slot.description);
+        img = await generateImage(neutralPrompt, CONFIG.IMAGE_MODEL, apiKey);
+        neutralized = true;
+      } catch (e) {
+        // 중립화 재시도 중 throw는 원본 실패로 (HTTP 200, SAFETY로 분류 — 재시도 의미 없음)
+        logSlot("slot_neutralize_throw", {
+          roundId,
+          slotId,
+          error: e instanceof Error ? e.message : String(e),
         });
-      }
-
-      // 레이트리밋 대응 대기 (마지막 슬롯 뒤에는 생략)
-      if (i < slots.length - 1) {
-        await new Promise((r) =>
-          setTimeout(r, CONFIG.IMAGE_GENERATION_DELAY_MS)
-        );
       }
     }
 
-    return Response.json({ results });
+    const durationMs = Date.now() - slotStart;
+
+    if (img) {
+      logSlot("slot_done", {
+        roundId,
+        slotId,
+        durationMs,
+        neutralized,
+        base64Bytes: img.base64.length,
+        totalRequestMs: Date.now() - requestStart,
+      });
+      const done: SlotResultDone = {
+        id: slot.id,
+        status: "done",
+        base64: img.base64,
+        mimeType: img.mimeType,
+      };
+      return Response.json({ results: [done] satisfies SlotResult[] });
+    }
+
+    // 여기 도달했다는 건 SAFETY 차단 (gemini.ts가 null 반환) 또는 SAFETY 외 empty.
+    // 둘 다 같은 입력으로 재시도해도 의미 없음 → HTTP 200, reasonCode로 구분.
+    const reasonCode: ReasonCode = "safety"; // 보수적으로 safety로 분류 (대부분 케이스)
+    logSlot("slot_failed", {
+      roundId,
+      slotId,
+      durationMs,
+      reason: "null_response",
+      reasonCode,
+      neutralized,
+      totalRequestMs: Date.now() - requestStart,
+    });
+    const failed: SlotResultFailed = {
+      id: slot.id,
+      status: "failed",
+      reasonCode,
+      retryable: false,
+      error: "이미지 생성 실패 (응답 없음 또는 SAFETY 필터)",
+    };
+    return Response.json({ results: [failed] satisfies SlotResult[] });
   } catch (error) {
     const message =
       error instanceof Error
         ? error.message
         : "이미지 생성 중 오류가 발생했습니다.";
+    logSlot("request_error", {
+      roundId,
+      slotId,
+      error: message,
+      durationMs: Date.now() - requestStart,
+    });
     return Response.json({ error: message }, { status: 500 });
   }
 }
