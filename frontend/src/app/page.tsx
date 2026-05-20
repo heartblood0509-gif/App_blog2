@@ -1641,7 +1641,12 @@ export default function Home() {
     if (state.currentStep >= STEPS.length - 1) return;
 
     // Step 2 (글 설정) — 모든 칸이 비어있으면 안내 모달을 띄우고 진행 차단
-    if (state.currentStep === 2 && !hasAnyContextInput(state)) {
+    // 쓰레드 모드는 검사 대상 필드(블로그 전용)를 안 쓰므로 건너뜀
+    if (
+      state.currentStep === 2 &&
+      state.channel !== "thread" &&
+      !hasAnyContextInput(state)
+    ) {
       setEmptyInputsWarningOpen(true);
       return;
     }
