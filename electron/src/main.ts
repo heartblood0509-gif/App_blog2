@@ -121,6 +121,14 @@ if (!gotLock) {
     if (process.platform !== "darwin") app.quit();
   });
 
+  app.on("activate", () => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      if (!mainWindow.isVisible()) mainWindow.show();
+      if (mainWindow.isMinimized()) mainWindow.restore();
+      mainWindow.focus();
+    }
+  });
+
   app.on("before-quit", async (event) => {
     if (isQuitting) return;
     isQuitting = true;
@@ -223,6 +231,13 @@ async function boot(): Promise<void> {
   ipcMain.handle("app:isBusy", () => busyOps.size > 0);
 
   await mainWindow.loadURL(allowedOrigin);
+
+  mainWindow.on("close", (event) => {
+    if (process.platform === "darwin" && !isQuitting) {
+      event.preventDefault();
+      mainWindow?.hide();
+    }
+  });
 
   mainWindow.on("closed", () => {
     mainWindow = null;
