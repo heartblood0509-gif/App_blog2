@@ -603,6 +603,41 @@ class NaverBlogPublisher:
         except Exception:
             return False
 
+    async def _is_cursor_at_append_target(self, frame: Frame) -> bool:
+        """현재 cursor가 editor body의 'append 위치' — 즉 다음 컴포넌트가 자연스럽게
+        추가될 마지막 본문 paragraph 안인지 강한 검증.
+
+        ★ v4 (2026-05-21): "본문 paragraph 안이기만 하면 OK"라는 헐거운 검증이
+        이미지 위 paragraph에 cursor가 있을 때도 통과시켜 다음 본문이 이미지 위에
+        입력되는 사고를 통과시켰음. component index까지 확인해 'editor 마지막 1~2개
+        component 안' 만 정상으로 인정.
+        """
+        try:
+            return await frame.evaluate("""
+                () => {
+                    const root = document.querySelector('.se-content');
+                    if (!root) return false;
+                    const sel = window.getSelection();
+                    if (!sel || !sel.rangeCount) return false;
+                    let node = sel.anchorNode;
+                    if (node && node.nodeType === 3) node = node.parentElement;
+                    if (!node) return false;
+                    if (!root.contains(node)) return false;
+                    const textComp = node.closest('.se-component.se-text');
+                    if (!textComp) return false;
+                    if (!node.closest('.se-text-paragraph')) return false;
+                    // editor scope 안 모든 .se-component 중 cursor 위치 텍스트 컴포넌트의 index
+                    const comps = root.querySelectorAll('.se-component');
+                    const idx = Array.from(comps).indexOf(textComp);
+                    if (idx < 0) return false;
+                    // append 위치 = 마지막 component, 또는 마지막 직전 (SmartEditor가 끝에
+                    // trailing 빈 paragraph를 둘 수도 있으므로 1 step 여유)
+                    return idx >= comps.length - 2;
+                }
+            """)
+        except Exception:
+            return False
+
     async def _get_last_text_component_bottom(self, frame: Frame) -> dict | None:
         """에디터 내 마지막 .se-component.se-text의 '하단 중앙 viewport 좌표'를 돌려준다.
 
@@ -785,13 +820,24 @@ class NaverBlogPublisher:
         2) 실제 마우스 클릭
         3) 키보드 ArrowDown + End — 최종 폴백
         """
-        # 0단계: 이미 본문 paragraph 안이면 + (new_quote_handle 있으면) 방금 만든 인용구 뒤인지 확인
-        if await self._is_cursor_in_body_paragraph(frame):
-            if new_quote_handle is None or await self._is_cursor_after_quote_handle(frame, new_quote_handle):
+        # 0단계: cursor가 정상 위치에 있는지 검증
+        # ★ v4 (2026-05-21): new_quote_handle 없는 일반 케이스에 append target identity
+        # 검증 추가. 기존엔 "본문 paragraph 안"이기만 하면 통과시켰는데 이미지 위
+        # paragraph도 그 조건을 만족해서 사고를 통과시켰음.
+        if new_quote_handle is not None:
+            # heading 직후 — 방금 만든 그 quote 다음만 정답
+            if await self._is_cursor_in_body_paragraph(frame) and \
+               await self._is_cursor_after_quote_handle(frame, new_quote_handle):
                 return True
-            print(f"    ⚠ 본문가드: 본문 paragraph지만 *방금 만든 인용구 다음*이 아님 ({context}) → 복구")
+            if await self._is_cursor_in_body_paragraph(frame):
+                print(f"    ⚠ 본문가드: 본문 paragraph지만 *방금 만든 인용구 다음*이 아님 ({context}) → 복구")
+            else:
+                print(f"    🛡 본문가드: 본문 위치 아님 감지 ({context}) → 복구 시도")
         else:
-            print(f"    🛡 본문가드: 본문 위치 아님 감지 ({context}) → 복구 시도")
+            # 일반 케이스 — editor 끝의 append target 안인지 강하게 검증
+            if await self._is_cursor_at_append_target(frame):
+                return True
+            print(f"    🛡 본문가드: append target 아님 감지 ({context}) → 복구 시도")
 
         # 1단계: JS Selection으로 인용구 뒤 .se-text 끝에 커서 배치
         if await self._js_place_cursor_after_quotation(frame):
@@ -2643,8 +2689,109 @@ class NaverBlogPublisher:
         for idx, heading_text in empty_entries:
             print(f"    [bulk-verify] 빈 인용구 #{idx+1}: {heading_text[:40]}")
 
+    async def _wait_for_new_image_and_trailing_text(
+        self, frame: Frame, before_count: int, timeout_ms: int = 10000
+    ):
+        """이미지 삽입 직후 새 .se-image element가 DOM에 들어오고 그 다음 .se-text도
+        생길 때까지 polling 대기.
+
+        Returns:
+            새로 추가된 image ElementHandle, 또는 timeout 시 None.
+        """
+        loop = asyncio.get_event_loop()
+        deadline = loop.time() + timeout_ms / 1000
+        while loop.time() < deadline:
+            js_handle = await frame.evaluate_handle(
+                """
+                (beforeCount) => {
+                    const root = document.querySelector('.se-content');
+                    if (!root) return null;
+                    const imgs = root.querySelectorAll('.se-component.se-image');
+                    if (imgs.length <= beforeCount) return null;
+                    const last = imgs[imgs.length - 1];
+                    let next = last.nextElementSibling;
+                    while (next && !next.classList.contains('se-text')) {
+                        next = next.nextElementSibling;
+                    }
+                    return next ? last : null;
+                }
+                """,
+                before_count,
+            )
+            elem = js_handle.as_element()
+            if elem is not None:
+                return elem
+            await js_handle.dispose()
+            await asyncio.sleep(0.2)
+        return None
+
+    async def _js_place_cursor_after_element(self, frame: Frame, element_handle) -> bool:
+        """주어진 element 바로 다음의 .se-component.se-text paragraph 끝에 cursor 배치.
+
+        ★ v4 (2026-05-21): 이미지 삽입 후 cursor가 이미지 위로 점프하는 사고 방어용.
+        전역 querySelector가 아니라 element identity로 직접 nextElementSibling 순회 →
+        이전 quote·숨김 템플릿·editor 외부 DOM 등에 잘못 잡힐 일이 없음.
+        """
+        try:
+            result = await frame.evaluate(
+                """
+                (el) => {
+                    if (!el) return 'no_element';
+                    let next = el.nextElementSibling;
+                    while (next) {
+                        const cl = next.classList;
+                        if (cl && cl.contains('se-text') && cl.contains('se-component')) break;
+                        next = next.nextElementSibling;
+                    }
+                    if (!next) return 'no_trailing_text';
+                    const para = next.querySelector('.se-text-paragraph');
+                    if (!para) return 'no_paragraph';
+                    const focusNode = para.querySelector('span.__se-node') || para;
+                    const range = document.createRange();
+                    if (focusNode.childNodes.length > 0) {
+                        range.setStartAfter(focusNode.lastChild);
+                    } else {
+                        range.setStart(focusNode, 0);
+                    }
+                    range.collapse(true);
+                    const sel = window.getSelection();
+                    sel.removeAllRanges();
+                    sel.addRange(range);
+                    const editable = para.closest('[contenteditable="true"]') || para;
+                    if (editable.focus) editable.focus();
+                    return {
+                        ok: true,
+                        activeTag: document.activeElement ? document.activeElement.tagName : null,
+                        prevClass: (next.previousElementSibling && next.previousElementSibling.className)
+                            ? String(next.previousElementSibling.className).slice(0, 60)
+                            : null,
+                    };
+                }
+                """,
+                element_handle,
+            )
+            if isinstance(result, dict) and result.get("ok"):
+                print(
+                    f"      이미지 다음 cursor 배치: active={result.get('activeTag')} "
+                    f"prev={result.get('prevClass')}"
+                )
+                return True
+            print(f"      이미지 다음 cursor 배치 실패: {result}")
+            return False
+        except Exception as e:
+            print(f"      이미지 다음 cursor 배치 예외: {str(e)[:80]}")
+            return False
+
     async def _insert_image(self, frame: Frame, image_path: Path):
-        """이미지 삽입 + 전후 여백 (App_blog_auto3 방식)"""
+        """이미지 삽입.
+
+        ★ v4 (2026-05-21): 이미지 삽입 후 다음 paragraph가 이미지 위에 입력되는 사고
+        해결. 핵심:
+        - 삽입 전 image count 기록 → 삽입 후 새 image element identity 확보
+        - sleep(3) 고정 대기 → DOM polling (image+trailing text가 실제로 생길 때까지)
+        - 새 image element의 nextElementSibling 첫 .se-text에 결정론적 cursor 배치
+        - 끝에 추가 Enter 제거 (cursor 어긋난 상태에서 Enter는 사고를 결정론적으로 만듦)
+        """
         await self._insert_empty_line()
 
         try:
@@ -2652,24 +2799,50 @@ class NaverBlogPublisher:
             if not img_btn:
                 img_btn = await frame.query_selector("button.se-image-toolbar-button")
 
-            if img_btn:
-                async with self.page.expect_file_chooser(timeout=10000) as fc_info:
-                    await img_btn.click()
-                file_chooser = await fc_info.value
-                await file_chooser.set_files(str(image_path))
-                await asyncio.sleep(3)
-
-                # 이미지 삽입 후 본문 영역으로 돌아가기
-                await self._click_below_component(frame)
-                print(f"    ✓ 이미지: {image_path.name}")
-            else:
+            if not img_btn:
                 print("    ⚠ 이미지 버튼 없음")
                 self._image_failures += 1
+                return
+
+            # 삽입 전 image count
+            before_count = await frame.evaluate(
+                """
+                () => {
+                    const root = document.querySelector('.se-content');
+                    if (!root) return 0;
+                    return root.querySelectorAll('.se-component.se-image').length;
+                }
+                """
+            )
+
+            async with self.page.expect_file_chooser(timeout=10000) as fc_info:
+                await img_btn.click()
+            file_chooser = await fc_info.value
+            await file_chooser.set_files(str(image_path))
+
+            # ★ sleep(3) 대신 DOM 변경 polling
+            new_image = await self._wait_for_new_image_and_trailing_text(
+                frame, before_count, timeout_ms=10000
+            )
+            if new_image is None:
+                print(f"    ⚠ 이미지 삽입 timeout (DOM 변경 감지 못함): {image_path.name}")
+                self._image_failures += 1
+                # 그래도 fallback으로 화면 아래 클릭 시도
+                await self._click_below_component(frame)
+                return
+
+            # ★ 새 image element 다음 paragraph에 결정론적 cursor 배치
+            placed = await self._js_place_cursor_after_element(frame, new_image)
+            if not placed:
+                # 폴백: 기존 좌표 클릭 방식
+                await self._click_below_component(frame)
+
+            print(f"    ✓ 이미지: {image_path.name}")
+            # ★ 끝의 _insert_empty_line() 제거됨 — SmartEditor가 이미 trailing
+            # paragraph를 만들어 cursor가 거기 있으므로 추가 Enter는 사고 위험
         except Exception as e:
             print(f"    ⚠ 이미지 실패: {e}")
             self._image_failures += 1
-
-        await self._insert_empty_line()
 
     async def _insert_horizontal_rule(self, frame: Frame):
         """구분선(수평선) 삽입 — 빈 줄 3개로 시각적 섹션 구분"""
