@@ -27,6 +27,12 @@ const nextConfig: NextConfig = {
   // 미설정 시 Next 가 lockfile 을 자동 탐색하다가 git 워크트리(.claude/worktrees/...)
   // 같은 비표준 위치에서 잘못된 상위 루트를 잡아 server.js 경로가 어그러진다.
   outputFileTracingRoot: path.join(__dirname, ".."),
+  experimental: {
+    // Next.js 16 기본 10MB 제한에 걸려 /api/publish 가 502 발생(이미지 12장 base64 → 10MB+).
+    // proxy.ts 가 본문 버퍼링하므로 라우트 segment config 가 아니라 여기서 키워야 함.
+    // (Next 16에서 middlewareClientMaxBodySize → proxyClientMaxBodySize 로 이름 변경.)
+    proxyClientMaxBodySize: "100mb",
+  },
   async headers() {
     if (isDev) return [];
     return [
