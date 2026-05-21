@@ -23,6 +23,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
 from config import ANALYSIS_RECORDS_FILE
+from paths import _default_data_source_dir
 
 router = APIRouter()
 
@@ -177,15 +178,37 @@ from pathlib import Path as _Path
 
 
 def _load_builtin_seeds_from_json() -> list[dict]:
-    """backend/analysis_records.json의 isBuiltin=True 레코드를 시드로 사용."""
+    """builtin 시드 소스를 후보 순서대로 시도:
+    1) backend/analysis_records.json (개발 환경 — source 파일이 곧 시드)
+    2) default-data/analysis_records.json (PyInstaller 빌드/배포 환경)
+       — paths._default_data_source_dir()가 _MEIPASS·backend/default-data·실행 파일 옆을 모두 탐색
+    둘 다 없으면 빈 리스트 (현재 동작과 호환).
+
+    배포 환경에선 source 파일이 빌드에 포함되지 않으므로 이 fallback이 없으면
+    BUILTIN_SEEDS=[]가 되어 ensure_builtin_seeds()가 아무 일도 안 함 →
+    기존 사용자(dataDir에 옛 파일이 있는 사람)의 builtin 머지가 누락됨.
+    """
+    # 1순위: 개발 환경 source
     seed_file = _Path(__file__).parent.parent / "analysis_records.json"
-    if not seed_file.exists():
-        return []
-    try:
-        data = json.loads(seed_file.read_text(encoding="utf-8"))
-        return [r for r in data if r.get("isBuiltin")]
-    except Exception:
-        return []
+    if seed_file.exists():
+        try:
+            data = json.loads(seed_file.read_text(encoding="utf-8"))
+            return [r for r in data if r.get("isBuiltin")]
+        except Exception:
+            pass  # fallback으로 진행
+
+    # 2순위: 배포 환경 default-data
+    default_src = _default_data_source_dir()
+    if default_src is not None:
+        seed_file = default_src / "analysis_records.json"
+        if seed_file.exists():
+            try:
+                data = json.loads(seed_file.read_text(encoding="utf-8"))
+                # default-data엔 이미 builtin만 있어야 하지만 안전을 위해 한 번 더 필터
+                return [r for r in data if r.get("isBuiltin")]
+            except Exception:
+                return []
+    return []
 
 
 BUILTIN_SEEDS: list[dict] = _load_builtin_seeds_from_json()
