@@ -1,6 +1,11 @@
 import { app } from "electron";
 import path from "path";
 
+// dev 모드(`electron path/to/main.js`)에선 app.getName()이 기본값 "Electron"이라
+// userData가 ~/Library/Application Support/Electron/ 로 떨어져 배포 앱과 분리됨.
+// setName으로 강제 일치시켜 dev/prod 동일 데이터 디렉토리 사용.
+app.setName("app-blog2-desktop");
+
 const isDev = !app.isPackaged;
 const backendExecutableName = process.platform === "win32" ? "BlogPublisher.exe" : "BlogPublisher";
 

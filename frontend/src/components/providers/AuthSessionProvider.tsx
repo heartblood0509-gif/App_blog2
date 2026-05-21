@@ -146,9 +146,14 @@ export function AuthSessionProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const authorize = useCallback(
-    async (activeSession: Session, activeDevice: DeviceInfo) => {
-      setGateState("checking");
-      setMessage(null);
+    async (activeSession: Session, activeDevice: DeviceInfo, opts?: { silent?: boolean }) => {
+      // silent=true: 배경 폴링·dev StrictMode 재실행 등 사용자 개입 없는 호출.
+      // 진입 시 게이트 UI로 전환하지 않아 children(WizardStateProvider 등) unmount를 막는다.
+      // 응답 후 결과 분기에서 실패면 정상적으로 게이트로 전환되므로 회귀는 없음.
+      if (!opts?.silent) {
+        setGateState("checking");
+        setMessage(null);
+      }
 
       const response = await fetch("/api/auth/device/authorize", {
         method: "POST",
@@ -258,7 +263,7 @@ export function AuthSessionProvider({ children }: { children: ReactNode }) {
 
     const interval = window.setInterval(() => {
       client.auth.getSession().then(({ data }) => {
-        if (data.session) authorize(data.session, deviceInfo).catch(() => {});
+        if (data.session) authorize(data.session, deviceInfo, { silent: true }).catch(() => {});
       });
     }, 5 * 60 * 1000);
 
