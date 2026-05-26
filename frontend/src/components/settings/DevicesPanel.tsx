@@ -12,6 +12,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import { MonitorSmartphone } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { useAuthSession } from "@/components/providers/AuthSessionProvider";
 
@@ -63,7 +64,12 @@ export function DevicesPanel() {
         )}
 
         {!loading && devices.length === 0 && !error && (
-          <div className="text-sm text-muted-foreground">등록된 기기가 없습니다.</div>
+          <div className="flex flex-col items-center justify-center py-12">
+            <MonitorSmartphone className="h-10 w-10 text-muted-foreground/50" />
+            <p className="mt-4 text-sm text-muted-foreground">
+              아직 등록된 기기가 없습니다
+            </p>
+          </div>
         )}
 
         {devices.map((device) => {
