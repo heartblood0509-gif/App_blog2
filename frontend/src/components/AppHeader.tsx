@@ -156,7 +156,7 @@ export function AppHeader({ onTitleClick, subtitle, pageTitle }: AppHeaderProps)
 
       {/* 본문 타이틀 row — 메인 또는 pageTitle이 전달된 페이지 */}
       {(isMain || pageTitle) && (
-        <div className="mt-6 text-center">
+        <div className="mt-20 text-center">
           {isMain && onTitleClick ? (
             <button
               onClick={onTitleClick}

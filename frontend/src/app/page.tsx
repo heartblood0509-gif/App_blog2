@@ -2166,7 +2166,7 @@ export default function Home() {
 
   return (
     <div className="min-h-screen bg-background text-foreground">
-      <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
+      <div className="mx-auto max-w-7xl px-4 pb-16 pt-8 sm:px-6 lg:px-8">
         <AppHeader
           onTitleClick={handleTitleClick}
           subtitle={
@@ -2179,7 +2179,7 @@ export default function Home() {
         />
 
         {/* Stepper */}
-        <nav className="mb-10">
+        <nav className="mb-16">
           <ol className="flex items-center justify-between">
             {STEPS.map((step, index) => {
               const Icon = step.icon;
