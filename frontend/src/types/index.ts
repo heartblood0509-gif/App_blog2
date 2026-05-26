@@ -16,6 +16,11 @@ export interface ProductInfo {
   keyInsight?: string;
   /** 감각 표현 키워드 (AI가 디테일 묘사할 때 참고) */
   sensoryDetails?: string[];
+  // ─────── 사이클 2/3 — 후기성 빌딩 블록 (4칸은 사이클 3에서 제거. precautions만 유지) ───────
+  /** 출시 상태 — false면 product-placement.ts에서 "예상 반응" 헤더로 분기 */
+  hasReviews?: boolean;
+  /** 부작용·안 맞을 수 있는 케이스 — 신뢰도 단락의 핵심 (시드·서사 템플릿이 커버 못 하는 유일한 영역) */
+  precautions?: string;
 }
 
 export interface SelectedProduct {
@@ -23,17 +28,45 @@ export interface SelectedProduct {
   advantages: string;
 }
 
-/** 사용자가 직접 등록한 제품 — 시드 6개와 동일한 프롬프트 품질을 위해 모든 메타데이터 필수 */
+/**
+ * 사용자가 직접 등록한 제품.
+ *
+ * v2 (후기성 폼 개편):
+ * - hasReviews: 출시 상태 토글. false면 realReviews 자리에 expectedReactions 사용
+ * - 장점 5분할(efficacy/ingredients/usability/differentiator/usage)로 세분화
+ *   · defaultAdvantages는 레거시 호환용으로 유지 — 5분할 필드를 합쳐 자동 채움
+ * - 5분할 필드 모두 선택사항 (사용자가 일부만 적어도 등록 가능)
+ */
 export interface UserProduct {
   id: string;
   name: string;
   category: string;
+  /** 레거시·호환용. 5분할 필드를 줄바꿈으로 합쳐 자동 채움 */
   defaultAdvantages: string;
   relatedSymptoms: string[];
   naturalMentionPatterns: string[];
   keyInsight: string;
   sensoryDetails: string[];
+  /** 실제 후기 — hasReviews=true일 때 사용 */
   realReviews: string[];
+  // ─────── v2 신규 필드 ───────
+  /** 출시 상태 토글. true=후기 있음, false=신상품. 기존 데이터 호환 위해 optional (undefined면 true 취급) */
+  hasReviews?: boolean;
+  /** 신상품 전용 — "예상 사용자 반응" (hasReviews=false일 때 후기 자리에 들어감) */
+  expectedReactions?: string[];
+  /** 효능·기대 효과 */
+  efficacy?: string;
+  /** 핵심 성분·특징 */
+  ingredients?: string;
+  /** 사용감 (감각) */
+  usability?: string;
+  /** 차별 포인트 */
+  differentiator?: string;
+  /** 사용 방법·팁 */
+  usage?: string;
+  // ─────── 사이클 2/3 — precautions만 유지 (4칸은 사이클 3에서 제거. 시드·서사 템플릿이 자동 커버) ───────
+  /** 부작용·안 맞을 수 있는 케이스 — 신뢰도 단락의 핵심 */
+  precautions?: string;
 }
 
 // 서사 구조 타입

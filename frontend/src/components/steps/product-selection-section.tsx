@@ -34,6 +34,8 @@ import type { ProductId, SelectedProduct, UserProduct } from "@/types";
 import type { ProductBase } from "@/lib/products";
 import { PRODUCTS, isSeedProduct } from "@/lib/products";
 import { ProductForm } from "@/components/steps/product-form";
+import { ProductAssistant } from "@/components/products/product-assistant";
+import { Wand2 } from "lucide-react";
 
 const SEED_PRODUCT_ICONS: Record<string, React.ElementType> = {
   "hair-loss-shampoo": Droplets,
@@ -70,6 +72,12 @@ export function ProductSelectionSection({
   // 등록·수정 폼 상태
   const [formOpen, setFormOpen] = useState(false);
   const [editingProduct, setEditingProduct] = useState<UserProduct | null>(null);
+  /** AI 어시스턴트가 채운 신규 prefill (수정 모드에선 사용 안 함) */
+  const [formPrefill, setFormPrefill] = useState<Partial<Omit<UserProduct, "id">> | null>(null);
+  /** AI 어시스턴트가 도메인 추론으로 채운 필드 이름 — ProductForm에 전달해 노란 배지 표시 (사이클 2) */
+  const [formAiGuessFields, setFormAiGuessFields] = useState<string[]>([]);
+  // AI 도움받기 다이얼로그 상태
+  const [assistantOpen, setAssistantOpen] = useState(false);
 
   // 시드 + 사용자 머지 (그리드 렌더용 — ProductBase 모양)
   const allProducts: ProductBase[] = [
@@ -146,14 +154,35 @@ export function ProductSelectionSection({
 
   const handleCreate = useCallback(() => {
     setEditingProduct(null);
+    setFormPrefill(null);
+    setFormAiGuessFields([]);
     setFormOpen(true);
   }, []);
 
   const handleEditUserProduct = useCallback((p: UserProduct, e: React.MouseEvent) => {
     e.stopPropagation();
     setEditingProduct(p);
+    setFormPrefill(null);
+    setFormAiGuessFields([]);
     setFormOpen(true);
   }, []);
+
+  /**
+   * AI 어시스턴트가 prefill을 만들어 보내면 → 폼을 prefill 모드로 열기 (사이클 2).
+   * aiGuessFields는 폼에 전달되어 노란 배경 + "AI 추정" 배지로 표시.
+   */
+  const handleAssistantPrefillReady = useCallback(
+    (
+      prefill: Partial<Omit<UserProduct, "id">>,
+      aiGuessFields: string[]
+    ) => {
+      setEditingProduct(null);
+      setFormPrefill(prefill);
+      setFormAiGuessFields(aiGuessFields);
+      setFormOpen(true);
+    },
+    []
+  );
 
   const handleDeleteUserProduct = useCallback(
     async (p: UserProduct, e: React.MouseEvent) => {
@@ -212,14 +241,24 @@ export function ProductSelectionSection({
     <section>
       <div className="mb-4 flex items-center justify-between">
         <div>
-          <h2 className="text-xl font-semibold">제품 선택</h2>
+          <h2 className="text-xl font-semibold">제품 프로필</h2>
           <p className="mt-1 text-sm text-muted-foreground">
-            후기에 포함할 제품을 선택하고 장점을 작성하세요 (복수 선택 가능)
+            글에 사용될 제품 프로필을 선택하세요
           </p>
         </div>
-        <Button variant="outline" size="sm" onClick={handleCreate} className="gap-1">
-          <Plus className="h-4 w-4" />새 등록
-        </Button>
+        <div className="flex gap-2">
+          <Button
+            variant="default"
+            size="sm"
+            onClick={() => setAssistantOpen(true)}
+            className="gap-1"
+          >
+            <Wand2 className="h-4 w-4" />AI 도움받기
+          </Button>
+          <Button variant="outline" size="sm" onClick={handleCreate} className="gap-1">
+            <Plus className="h-4 w-4" />새 등록
+          </Button>
+        </div>
       </div>
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
@@ -371,16 +410,28 @@ export function ProductSelectionSection({
         </DialogContent>
       </Dialog>
 
-      {/* 새 등록·수정 다이얼로그 */}
+      {/* 새 등록·수정 다이얼로그 — editingProduct(수정) 또는 formPrefill(AI prefill) 또는 null(빈 신규) */}
       <ProductForm
         open={formOpen}
-        initial={editingProduct}
+        initial={editingProduct ?? formPrefill}
         existingNames={[
           ...PRODUCTS.map((p) => p.name),
           ...userProducts.map((u) => u.name),
         ]}
-        onClose={() => setFormOpen(false)}
+        prefillAiGuessFields={formAiGuessFields}
+        onClose={() => {
+          setFormOpen(false);
+          setFormPrefill(null);
+          setFormAiGuessFields([]);
+        }}
         onSave={handleSaveUserProduct}
+      />
+
+      {/* AI 도움받기 다이얼로그 */}
+      <ProductAssistant
+        open={assistantOpen}
+        onClose={() => setAssistantOpen(false)}
+        onPrefillReady={handleAssistantPrefillReady}
       />
     </section>
   );

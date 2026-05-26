@@ -50,15 +50,37 @@ def find_product(product_id: str) -> Optional[dict]:
 # ─────────────────────────────────────────────
 
 class ProductUpsert(BaseModel):
-    """등록·수정 입력. id는 서버에서 부여."""
+    """등록·수정 입력. id는 서버에서 부여.
+
+    v2 (후기성 폼 개편):
+    - hasReviews 토글 추가 — false면 realReviews 비어도 OK, expectedReactions로 대체
+    - defaultAdvantages → 5분할 필드(efficacy/ingredients/usability/differentiator/usage)로 세분화
+      · 호환성 위해 defaultAdvantages 도 그대로 유지 (5칸을 합쳐 보존하거나 기존 데이터 그대로)
+    - 5분할 필드는 모두 선택 (사용자가 일부만 적어도 OK)
+    """
     name: str = Field(..., min_length=1)
     category: str = Field(..., min_length=1)
-    defaultAdvantages: str = Field(..., min_length=1)
+    defaultAdvantages: str = ""  # 기존 단일 텍스트(레거시·호환). 5분할 필드를 합쳐 자동 채움
     relatedSymptoms: list[str] = Field(..., min_length=1)
     naturalMentionPatterns: list[str] = Field(..., min_length=1)
     keyInsight: str = Field(..., min_length=1)
     sensoryDetails: list[str] = Field(..., min_length=1)
-    realReviews: list[str] = Field(..., min_length=1)
+    # 후기 — hasReviews=False면 비어도 OK
+    realReviews: list[str] = []
+    expectedReactions: list[str] = []  # 신상품(hasReviews=False) 전용 — "예상 사용자 반응"
+    hasReviews: bool = True  # 기본값 true (기존 데이터 호환)
+    # 장점 5분할 (모두 선택, 채울수록 글 품질 ↑)
+    efficacy: str = ""        # 효능·기대 효과
+    ingredients: str = ""     # 핵심 성분·특징
+    usability: str = ""       # 사용감 (감각)
+    differentiator: str = ""  # 차별 포인트
+    usage: str = ""           # 사용 방법·팁
+    # ─────── 사이클 2: 후기성 글 빌딩 블록 (모두 선택) ───────
+    usagePeriod: str = ""              # 사용 기간·체감 시점 — 시간축 단락
+    previousProductComparison: str = ""  # 이전 사용 제품 / 바꾼 이유 — 전환 서사 hook
+    priceRange: str = ""               # 가격대·가성비 포지셔닝 — 결론부 톤
+    targetPersona: str = ""            # 구체적 타겟 페르소나 — 공감 단락
+    precautions: str = ""              # 부작용·안 맞을 수 있는 케이스 — 신뢰도 단락
 
 
 # ─────────────────────────────────────────────
