@@ -78,7 +78,7 @@ export interface CustomReference {
 export type ToneType = "존댓말" | "반말" | "음슴체";
 
 // 콘텐츠 채널 타입 (블로그 외엔 향후 활성화 예정)
-export type Channel = "blog" | "thread" | "youtube" | "detail-page";
+export type Channel = "blog" | "thread" | "youtube";
 
 // 블로그 포스팅 카테고리 (channel === "blog"일 때만 의미)
 export type PostCategory = "review" | "brand" | "aeo" | "seoAeo";

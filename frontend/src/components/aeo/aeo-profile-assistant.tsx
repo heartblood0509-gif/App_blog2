@@ -125,7 +125,7 @@ function mapAnsweredInterviewIdsToFieldKeys(
 type Stage = "mode-select" | "interview" | "input" | "review";
 
 export function AeoProfileAssistant({ open, onClose, onSaved, prefill }: AeoProfileAssistantProps) {
-  const [stage, setStage] = useState<Stage>("mode-select");
+  const [stage, setStage] = useState<Stage>("interview");
 
   // prefill 답변 + 인터뷰 질문에서 prefill로 채워진 칸 제외 → 빈 칸만 인터뷰
   const prefillAnswers = useMemo(
@@ -145,7 +145,7 @@ export function AeoProfileAssistant({ open, onClose, onSaved, prefill }: AeoProf
   const [userAnsweredFieldKeys, setUserAnsweredFieldKeys] = useState<Set<string> | null>(null);
 
   const resetAll = useCallback(() => {
-    setStage("mode-select");
+    setStage("interview");
     setFreeformInput("");
     setLoading(false);
     setDraft(null);
@@ -439,10 +439,7 @@ export function AeoProfileAssistant({ open, onClose, onSaved, prefill }: AeoProf
                 headerLabel="AI AEO 프로필 도우미"
                 questions={remainingQuestions}
                 onComplete={handleInterviewComplete}
-                onCancel={() => {
-                  if (prefill) onClose();
-                  else setStage("mode-select");
-                }}
+                onCancel={() => onClose()}
               />
             )}
           </>
@@ -462,7 +459,7 @@ export function AeoProfileAssistant({ open, onClose, onSaved, prefill }: AeoProf
               💡 누구신지 / 경력·자격 / 어떤 분들에게 도움 주고 싶은지 / 추천 기준을 자유롭게 적어주세요.
             </p>
             <DialogFooter>
-              <Button variant="outline" onClick={() => setStage("mode-select")} disabled={loading}>
+              <Button variant="outline" onClick={() => setStage("interview")} disabled={loading}>
                 이전
               </Button>
               <Button
@@ -604,7 +601,7 @@ export function AeoProfileAssistant({ open, onClose, onSaved, prefill }: AeoProf
               </div>
             )}
             <DialogFooter className="shrink-0 gap-2 sm:gap-2">
-              <Button variant="outline" onClick={() => setStage("mode-select")} disabled={saving}>
+              <Button variant="outline" onClick={resetAll} disabled={saving}>
                 다시 입력
               </Button>
               <Button onClick={handleSave} disabled={saving} size="default" className="gap-1 min-w-[120px]">

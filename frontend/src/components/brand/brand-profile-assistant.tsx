@@ -140,7 +140,7 @@ function mapAnsweredInterviewIdsToFieldKeys(
 type Stage = "mode-select" | "interview" | "input" | "review";
 
 export function BrandProfileAssistant({ open, onClose, onSaved, prefill }: BrandProfileAssistantProps) {
-  const [stage, setStage] = useState<Stage>("mode-select");
+  const [stage, setStage] = useState<Stage>("interview");
 
   // prefill 답변 + 인터뷰에서 빈 칸만 추림
   const prefillAnswers = useMemo(
@@ -166,7 +166,7 @@ export function BrandProfileAssistant({ open, onClose, onSaved, prefill }: Brand
   const [userAnsweredFieldKeys, setUserAnsweredFieldKeys] = useState<Set<string> | null>(null);
 
   const resetAll = useCallback(() => {
-    setStage("mode-select");
+    setStage("interview");
     setFreeformInput("");
     setLoading(false);
     setDraft(null);
@@ -450,10 +450,7 @@ export function BrandProfileAssistant({ open, onClose, onSaved, prefill }: Brand
                 headerLabel="AI 브랜드 프로필 도우미"
                 questions={remainingQuestions}
                 onComplete={handleInterviewComplete}
-                onCancel={() => {
-                  if (prefill) onClose();
-                  else setStage("mode-select");
-                }}
+                onCancel={() => onClose()}
               />
             )}
           </>
@@ -474,7 +471,7 @@ export function BrandProfileAssistant({ open, onClose, onSaved, prefill }: Brand
               자세할수록 좋아요.
             </p>
             <DialogFooter>
-              <Button variant="outline" onClick={() => setStage("mode-select")} disabled={loading}>
+              <Button variant="outline" onClick={() => setStage("interview")} disabled={loading}>
                 이전
               </Button>
               <Button
@@ -665,7 +662,7 @@ export function BrandProfileAssistant({ open, onClose, onSaved, prefill }: Brand
               </div>
             )}
             <DialogFooter className="shrink-0 gap-2 sm:gap-2">
-              <Button variant="outline" onClick={() => setStage("mode-select")} disabled={saving}>
+              <Button variant="outline" onClick={resetAll} disabled={saving}>
                 다시 입력
               </Button>
               <Button onClick={handleSave} disabled={saving} size="default" className="gap-1 min-w-[120px]">

@@ -8,7 +8,6 @@ import {
   Layers,
   MessageSquare,
   SquarePlay,
-  LayoutGrid,
   Check,
 } from "lucide-react";
 import type { Channel } from "@/types";
@@ -21,10 +20,9 @@ const CHANNELS: Array<{
   logoSrc?: string;
   enabled: boolean;
 }> = [
-  { id: "blog", name: "블로그", description: "네이버 블로그 후기형 포스팅", icon: Layers, logoSrc: "/channel-logos/blog.svg", enabled: true },
+  { id: "blog", name: "블로그", description: "네이버 블로그 포스팅", icon: Layers, logoSrc: "/channel-logos/blog.svg", enabled: true },
   { id: "thread", name: "쓰레드", description: "짧은 호흡의 SNS 포스팅", icon: MessageSquare, logoSrc: "/channel-logos/thread.svg", enabled: true },
   { id: "youtube", name: "유튜브", description: "영상 스크립트 / 자막", icon: SquarePlay, logoSrc: "/channel-logos/youtube.svg", enabled: false },
-  { id: "detail-page", name: "상세페이지", description: "쇼핑몰 상품 상세", icon: LayoutGrid, logoSrc: "/channel-logos/detail-page.svg", enabled: false },
 ];
 
 interface StepChannelSelectProps {
@@ -43,7 +41,7 @@ export function StepChannelSelect({ channel, onChannelChange }: StepChannelSelec
           </p>
         </div>
 
-        <div className="mx-auto grid w-full max-w-5xl grid-cols-2 gap-4 sm:grid-cols-4 sm:gap-5">
+        <div className="mx-auto grid w-full max-w-4xl grid-cols-1 gap-4 sm:grid-cols-3 sm:gap-5">
           {CHANNELS.map((ch) => {
             const selected = channel === ch.id;
             const Icon = ch.icon;
