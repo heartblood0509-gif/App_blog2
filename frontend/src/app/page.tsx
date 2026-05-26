@@ -5,6 +5,14 @@ import { useRouter } from "next/navigation";
 import { AnimatePresence, motion } from "framer-motion";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+} from "@/components/ui/dialog";
 import { AppHeader } from "@/components/AppHeader";
 import { useWizardState } from "@/components/providers/WizardStateProvider";
 import {
@@ -256,6 +264,13 @@ export default function Home() {
 
   // Step 2 (글 설정) — 모든 입력 칸이 비었을 때 [다음] 누르면 안내 모달
   const [emptyInputsWarningOpen, setEmptyInputsWarningOpen] = useState(false);
+
+  // 헤더 "새로 시작" 버튼 → 진행 중 데이터 손실 방지 확인 다이얼로그
+  const [resetDialogOpen, setResetDialogOpen] = useState(false);
+  const handleConfirmReset = useCallback(() => {
+    resetState();
+    setResetDialogOpen(false);
+  }, [resetState]);
 
   // 페이지 밖(슬롯 이외의 영역)에 파일을 드롭했을 때 브라우저가 파일을 열어 위저드 진행이 날아가지 않도록 방어
   useEffect(() => {
@@ -2018,6 +2033,7 @@ export default function Home() {
             <StepThreadsGenerate
               threads={state.threads}
               onChange={handleThreadsChange}
+              onStartNew={resetState}
             />
           );
         default:
@@ -2133,6 +2149,7 @@ export default function Home() {
             imageSlots={state.imageSlots}
             generatedImages={state.generatedImages}
             excludedSlotIds={state.excludedSlotIds}
+            onStartNew={resetState}
           />
         );
       default:
@@ -2146,6 +2163,8 @@ export default function Home() {
         <AppHeader
           onTitleClick={resetState}
           subtitle="채널과 카테고리를 골라 콘텐츠를 단계별로 생성합니다"
+          showReset={state.currentStep > 0}
+          onResetClick={() => setResetDialogOpen(true)}
         />
 
         {/* Stepper */}
@@ -2304,6 +2323,29 @@ export default function Home() {
         open={emptyInputsWarningOpen}
         onClose={() => setEmptyInputsWarningOpen(false)}
       />
+
+      {/* 헤더 "새로 시작" 확인 다이얼로그 */}
+      <Dialog open={resetDialogOpen} onOpenChange={setResetDialogOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>처음으로 돌아가시겠어요?</DialogTitle>
+            <DialogDescription>
+              지금까지 작성한 내용이 모두 초기화됩니다. 계속하시겠어요?
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setResetDialogOpen(false)}
+            >
+              취소
+            </Button>
+            <Button variant="default" onClick={handleConfirmReset}>
+              새로 시작
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
