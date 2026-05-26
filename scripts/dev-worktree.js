@@ -202,7 +202,7 @@ function findFreePort(start) {
       const srv = net.createServer();
       srv.once("error", () => tryPort(p + 1));
       srv.once("listening", () => srv.close(() => resolve(p)));
-      srv.listen(p, "127.0.0.1");
+      srv.listen(p);
     }
     tryPort(start);
   });
