@@ -40,9 +40,102 @@ STEALTH_ARGS = [
 ]
 
 STEALTH_JS = """
+    // 0) Playwright 고유 전역 변수 제거 — 사이트 스크립트가 보기 전에 가장 먼저.
+    //    버전마다 이름이 달라 prefix 매칭으로 일괄 정리.
+    (() => {
+        try {
+            for (const key of Object.getOwnPropertyNames(window)) {
+                if (key.startsWith('__playwright') || key.startsWith('__pw')) {
+                    try { delete window[key]; } catch (e) {}
+                }
+            }
+        } catch (e) {}
+    })();
+
+    // 1) navigator.webdriver 가림
     Object.defineProperty(navigator, 'webdriver', {get: () => undefined});
-    window.chrome = {runtime: {}};
-    Object.defineProperty(navigator, 'plugins', {get: () => [1, 2, 3, 4, 5]});
+
+    // 2) window.chrome 확장 — 진짜 Chrome에 존재하는 표준 API 4종(runtime/loadTimes/csi/app).
+    //    빈 객체({runtime:{}})만 두면 탐지기가 즉시 잡아냄.
+    (() => {
+        const startTimestamp = Date.now() / 1000;
+        const startLoad = startTimestamp - Math.random() * 0.5;
+        window.chrome = {
+            app: {
+                isInstalled: false,
+                InstallState: {
+                    DISABLED: 'disabled',
+                    INSTALLED: 'installed',
+                    NOT_INSTALLED: 'not_installed',
+                },
+                RunningState: {
+                    CANNOT_RUN: 'cannot_run',
+                    READY_TO_RUN: 'ready_to_run',
+                    RUNNING: 'running',
+                },
+            },
+            runtime: {
+                OnInstalledReason: {
+                    CHROME_UPDATE: 'chrome_update',
+                    INSTALL: 'install',
+                    SHARED_MODULE_UPDATE: 'shared_module_update',
+                    UPDATE: 'update',
+                },
+                OnRestartRequiredReason: {
+                    APP_UPDATE: 'app_update',
+                    OS_UPDATE: 'os_update',
+                    PERIODIC: 'periodic',
+                },
+                PlatformArch: {
+                    ARM: 'arm', ARM64: 'arm64', MIPS: 'mips',
+                    MIPS64: 'mips64', X86_32: 'x86-32', X86_64: 'x86-64',
+                },
+                PlatformNaclArch: {
+                    ARM: 'arm', MIPS: 'mips',
+                    MIPS64: 'mips64', X86_32: 'x86-32', X86_64: 'x86-64',
+                },
+                PlatformOs: {
+                    ANDROID: 'android', CROS: 'cros', LINUX: 'linux',
+                    MAC: 'mac', OPENBSD: 'openbsd', WIN: 'win',
+                },
+                RequestUpdateCheckStatus: {
+                    NO_UPDATE: 'no_update',
+                    THROTTLED: 'throttled',
+                    UPDATE_AVAILABLE: 'update_available',
+                },
+                connect: () => {},
+                sendMessage: () => {},
+                id: undefined,
+            },
+            loadTimes: function () {
+                return {
+                    commitLoadTime: startLoad,
+                    connectionInfo: 'http/1.1',
+                    finishDocumentLoadTime: startLoad + 0.2,
+                    finishLoadTime: startLoad + 0.3,
+                    firstPaintAfterLoadTime: 0,
+                    firstPaintTime: startLoad + 0.15,
+                    navigationType: 'Other',
+                    npnNegotiatedProtocol: 'unknown',
+                    requestTime: startTimestamp - 0.5,
+                    startLoadTime: startTimestamp - 0.4,
+                    wasAlternateProtocolAvailable: false,
+                    wasFetchedViaSpdy: false,
+                    wasNpnNegotiated: false,
+                };
+            },
+            csi: function () {
+                return {
+                    startE: Date.now() - 1000,
+                    onloadT: Date.now() - 500,
+                    pageT: Math.floor(performance.now()),
+                    tran: 15,
+                };
+            },
+        };
+    })();
+
+    // 3) navigator.languages
     Object.defineProperty(navigator, 'languages', {get: () => ['ko-KR', 'ko', 'en-US', 'en']});
 """
 
