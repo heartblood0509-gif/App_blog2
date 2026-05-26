@@ -178,6 +178,14 @@ export default function Home() {
   const [userProducts, setUserProducts] = useState<UserProduct[]>([]);
   const [resetConfirmOpen, setResetConfirmOpen] = useState(false);
 
+  // 금지어 AI 부분 치환 — 본문 보존을 위해 단어 매핑만 받아 클라이언트가 surgical replace.
+  const [isReplacingForbidden, setIsReplacingForbidden] = useState(false);
+  const [replacementPreview, setReplacementPreview] = useState<{
+    replacements: Record<string, string>;
+    skipped: string[];
+  } | null>(null);
+  const [replacementDialogOpen, setReplacementDialogOpen] = useState(false);
+
   // 큰 타이틀 클릭 시: 위저드가 비어있으면 바로 reset, 진행 중이면 확인 모달.
   const handleTitleClick = useCallback(() => {
     const dirty = state.channel !== null || state.currentStep > 0;
@@ -1899,6 +1907,77 @@ export default function Home() {
     [state.generatedContent, updateState, runValidation]
   );
 
+  // 금지어 AI 대체어 요청 — "(삭제 필요)"인 BANNED 단어만 추출해 /api/replace-forbidden 호출.
+  // 응답은 단어→대체어 매핑 JSON. 본문은 여기서 손대지 않고, 컨펌 다이얼로그를 띄운다.
+  const handleReplaceForbiddenRequest = useCallback(async () => {
+    if (!state.qualityResult || !state.generatedContent) return;
+    const bannedWords = Array.from(
+      new Set(
+        state.qualityResult.forbiddenWords
+          .filter((fw) => fw.replacement === "(삭제 필요)")
+          .map((fw) => fw.word),
+      ),
+    );
+    if (bannedWords.length === 0) return;
+
+    setIsReplacingForbidden(true);
+    try {
+      const res = await fetch("/api/replace-forbidden", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          content: state.generatedContent,
+          words: bannedWords,
+        }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ error: "대체어 요청 실패" }));
+        throw new Error(err.error || "대체어 요청 실패");
+      }
+      const data = (await res.json()) as {
+        replacements: Record<string, string>;
+        skipped: string[];
+      };
+      if (Object.keys(data.replacements).length === 0) {
+        toast.info("AI가 적절한 대체어를 찾지 못했어요. 본문 수정에서 직접 빼주세요.");
+        return;
+      }
+      setReplacementPreview(data);
+      setReplacementDialogOpen(true);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "대체어 요청 실패";
+      toast.error(msg);
+    } finally {
+      setIsReplacingForbidden(false);
+    }
+  }, [state.qualityResult, state.generatedContent]);
+
+  // 다이얼로그에서 [적용하기] 클릭 → 본문 surgical replace (replaceAll, 한 단어=한 대체어).
+  // 본문 외 영역은 단 1글자도 안 바뀐다. 재검증까지 자동으로.
+  const handleReplacementApply = useCallback(() => {
+    if (!replacementPreview || !state.generatedContent) {
+      setReplacementDialogOpen(false);
+      return;
+    }
+    let next = state.generatedContent;
+    for (const [word, replacement] of Object.entries(replacementPreview.replacements)) {
+      next = next.split(word).join(replacement);
+    }
+    updateState({ generatedContent: next, contentDirty: true });
+    runValidation(next);
+    setReplacementDialogOpen(false);
+    setReplacementPreview(null);
+
+    const skippedCount = replacementPreview.skipped.length;
+    if (skippedCount > 0) {
+      toast.success(
+        `금지어 ${Object.keys(replacementPreview.replacements).length}개 대체 완료. ${skippedCount}개는 직접 수정이 필요합니다.`,
+      );
+    } else {
+      toast.success("금지어가 대체되었습니다.");
+    }
+  }, [replacementPreview, state.generatedContent, updateState, runValidation]);
+
   const renderStep = () => {
     // 쓰레드 채널 분기
     if (state.channel === "thread") {
@@ -2019,6 +2098,8 @@ export default function Home() {
             onRegenerate={handleContentRegenerate}
             onCopy={handleContentCopy}
             onContentEdit={handleContentEdit}
+            onReplaceForbidden={handleReplaceForbiddenRequest}
+            isReplacingForbidden={isReplacingForbidden}
             imageSlots={state.imageSlots}
             userPhotosBySlot={state.userPhotosBySlot}
             excludedSlotIds={state.excludedSlotIds}
@@ -2244,6 +2325,64 @@ export default function Home() {
               취소
             </Button>
             <Button onClick={confirmReset}>새로 시작</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* 금지어 AI 대체어 미리보기 + 적용 확인 */}
+      <Dialog
+        open={replacementDialogOpen}
+        onOpenChange={(open) => {
+          setReplacementDialogOpen(open);
+          if (!open) setReplacementPreview(null);
+        }}
+      >
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>AI가 제안한 대체어</DialogTitle>
+            <DialogDescription>
+              본문은 그대로 두고 아래 단어만 정확히 바뀝니다.
+            </DialogDescription>
+          </DialogHeader>
+
+          {replacementPreview && (
+            <div className="space-y-2 py-2">
+              {Object.entries(replacementPreview.replacements).map(
+                ([word, replacement]) => (
+                  <div
+                    key={word}
+                    className="flex items-center gap-2 text-sm"
+                  >
+                    <span className="text-red-400 line-through">{word}</span>
+                    <span className="text-muted-foreground">→</span>
+                    <span className="font-medium text-green-500">
+                      {replacement}
+                    </span>
+                  </div>
+                ),
+              )}
+              {replacementPreview.skipped.length > 0 && (
+                <div className="mt-3 rounded-md border border-amber-500/30 bg-amber-500/5 p-2 text-xs text-amber-600 dark:text-amber-400">
+                  AI가 적절한 대체어를 못 찾은 단어:{" "}
+                  <strong>{replacementPreview.skipped.join(", ")}</strong>
+                  <br />
+                  본문 수정에서 직접 다듬어주세요.
+                </div>
+              )}
+            </div>
+          )}
+
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => {
+                setReplacementDialogOpen(false);
+                setReplacementPreview(null);
+              }}
+            >
+              취소
+            </Button>
+            <Button onClick={handleReplacementApply}>적용하기</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
