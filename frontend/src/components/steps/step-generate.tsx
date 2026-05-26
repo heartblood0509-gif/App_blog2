@@ -621,8 +621,8 @@ export function StepGenerate({
     <div>
       <div className="mb-6 flex items-center justify-between">
         <div>
-          <h2 className="text-xl font-semibold">글 생성 & 미리보기</h2>
-          <p className="mt-1 text-base text-muted-foreground">
+          <h2 className="text-2xl font-semibold">글 생성 & 미리보기</h2>
+          <p className="mt-2 text-sm text-muted-foreground">
             생성된 글을 확인하고 품질 검증 결과를 검토하세요
           </p>
         </div>
@@ -720,7 +720,7 @@ export function StepGenerate({
                 <ScrollArea className="h-[calc(100dvh-18rem)] min-h-[560px] max-h-[900px] pr-4">
                   <div>
                     {isLoading && (
-                      <div className="mb-3 flex items-center gap-2 text-xs text-muted-foreground">
+                      <div className="mb-3 flex items-center gap-2 text-xs font-medium text-primary">
                         <Loader2 className="h-3 w-3 animate-spin" />
                         생성 중...
                       </div>

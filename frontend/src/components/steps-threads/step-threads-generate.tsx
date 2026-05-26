@@ -181,11 +181,9 @@ export function StepThreadsGenerate({
 
   return (
     <div className="space-y-6">
-      <div className="text-center mb-8">
-        <h2 className="text-2xl sm:text-3xl font-extrabold mb-3">
-          쓰레드 생성
-        </h2>
-        <p className="text-base sm:text-lg text-muted-foreground">
+      <div className="mb-6 text-center">
+        <h2 className="text-2xl font-semibold">쓰레드 생성</h2>
+        <p className="mt-2 text-sm text-muted-foreground">
           {isImageMode
             ? "레퍼런스 분석 결과를 바탕으로 쓰레드 게시물을 작성합니다"
             : "뉴스 기사를 분석하여 쓰레드 게시물을 작성합니다"}

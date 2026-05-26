@@ -33,6 +33,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import { Logo } from "@/components/Logo";
 import { getSupabaseBrowserClient } from "@/lib/auth/supabase-browser";
 import { AuthContextProvider } from "@/lib/auth/auth-context";
 import type {
@@ -61,6 +62,7 @@ interface AuthSessionContextValue {
   devices: RegisteredDevice[];
   refreshDevices: () => Promise<void>;
   gateState: GateState;
+  logout: () => Promise<void>;
 }
 
 const AuthSessionContext = createContext<AuthSessionContextValue | null>(null);
@@ -414,8 +416,9 @@ export function AuthSessionProvider({ children }: { children: ReactNode }) {
       devices: result?.devices ?? [],
       refreshDevices,
       gateState,
+      logout,
     }),
-    [session, client, deviceInfo, result, refreshDevices, gateState],
+    [session, client, deviceInfo, result, refreshDevices, gateState, logout],
   );
 
   if (gateState === "authorized") {
@@ -434,12 +437,37 @@ export function AuthSessionProvider({ children }: { children: ReactNode }) {
     );
   }
 
+  const iconToneClass = (() => {
+    switch (gateState) {
+      case "signed-out":
+      case "device-limit":
+        return "bg-primary/10 text-primary";
+      case "pending":
+        return "bg-amber-100 text-amber-600 dark:bg-amber-950/40 dark:text-amber-300";
+      case "blocked":
+      case "expired":
+      case "error":
+      case "config-missing":
+        return "bg-destructive/10 text-destructive";
+      default:
+        return "bg-muted text-muted-foreground";
+    }
+  })();
+
   return (
     <AuthSessionContext.Provider value={value}>
-      <main className="flex min-h-screen items-center justify-center bg-background px-4 py-8 text-foreground">
+      <main className="flex min-h-screen flex-col items-center justify-center bg-background px-4 py-8 text-foreground">
+        <div className="mb-6 flex items-center gap-2">
+          <Logo size={32} />
+          <span className="text-lg font-bold tracking-tight text-primary">
+            Blog Pick
+          </span>
+        </div>
         <Card className="w-full max-w-xl rounded-lg">
           <CardHeader>
-            <div className="mb-2 flex h-10 w-10 items-center justify-center rounded-lg bg-muted">
+            <div
+              className={`mb-2 flex h-10 w-10 items-center justify-center rounded-lg ${iconToneClass}`}
+            >
               {gateState === "signed-out" ? (
                 <ShieldCheck className="h-5 w-5" />
               ) : gateState === "device-limit" ? (

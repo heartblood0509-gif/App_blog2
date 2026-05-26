@@ -20,9 +20,9 @@ export function StepThreadsSettings({
 
   return (
     <div className="space-y-6">
-      <div className="text-center mb-8">
-        <h2 className="text-2xl sm:text-3xl font-extrabold mb-3">글 설정</h2>
-        <p className="text-base sm:text-lg text-muted-foreground">
+      <div className="mb-6 text-center">
+        <h2 className="text-2xl font-semibold">글 설정</h2>
+        <p className="mt-2 text-sm text-muted-foreground">
           {isImageMode
             ? "레퍼런스 스타일로 작성할 주제를 입력하세요"
             : "쓰레드 작성 시 추가로 반영할 내용을 입력하세요"}
