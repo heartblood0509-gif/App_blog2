@@ -55,7 +55,6 @@ interface StepGenerateProps {
    * page.tsx가 generatedContent + contentDirty 를 갱신하고, 마커 재파싱·자동 가공이 자동 트리거된다.
    */
   onContentEdit: (newContent: string) => void;
-  onQualityFix: () => void;
 
   // 이미지 관련
   imageSlots: ImageSlot[];
@@ -559,7 +558,6 @@ export function StepGenerate({
   onRegenerate,
   onCopy,
   onContentEdit,
-  onQualityFix,
   imageSlots,
   userPhotosBySlot,
   excludedSlotIds,
@@ -792,66 +790,23 @@ export function StepGenerate({
         <div className={`flex-[1] ${isEditing ? "pointer-events-none opacity-60" : ""}`}>
           <Card className="h-full">
             <CardHeader>
-              <div className="flex items-center justify-between">
-                <CardTitle className="flex items-center gap-2 text-base">
-                  <BarChart3 className="h-4 w-4" />
-                  품질 검증
-                </CardTitle>
-                {isEditing ? (
-                  <Badge variant="outline">수정 후 재검증</Badge>
-                ) : (
-                  qualityResult && (
-                    <Badge
-                      variant={qualityResult.isPass ? "default" : "destructive"}
-                    >
-                      {qualityResult.isPass ? "통과" : "미통과"}
-                    </Badge>
-                  )
-                )}
-              </div>
+              <CardTitle className="flex items-center gap-2 text-base">
+                <BarChart3 className="h-4 w-4" />
+                글 정보
+              </CardTitle>
             </CardHeader>
             <CardContent>
               {!qualityResult && (
                 <div className="flex flex-col items-center justify-center py-16">
                   <BarChart3 className="h-8 w-8 text-muted-foreground/50" />
                   <p className="mt-3 text-xs text-muted-foreground">
-                    글이 생성되면 품질 검증이 자동으로 실행됩니다
+                    글이 생성되면 글 정보가 자동으로 표시됩니다
                   </p>
                 </div>
               )}
 
               {qualityResult && (
                 <div className="space-y-1">
-                  {/* Fail Reasons + Fix Button */}
-                  {!qualityResult.isPass && qualityResult.failReasons.length > 0 && (
-                    <motion.div
-                      initial={{ opacity: 0 }}
-                      animate={{ opacity: 1 }}
-                      className="mb-3 rounded-md border border-red-500/20 bg-red-500/5 p-3"
-                    >
-                      <p className="mb-1.5 text-xs font-medium text-red-500">미통과 사유</p>
-                      {qualityResult.failReasons.map((reason, i) => (
-                        <p key={i} className="text-xs text-red-400">
-                          - {reason}
-                        </p>
-                      ))}
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        className="mt-3 w-full gap-2 border-red-500/30 text-red-500 hover:bg-red-500/10"
-                        onClick={onQualityFix}
-                        disabled={isLoading}
-                      >
-                        {isLoading ? (
-                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                        ) : (
-                          <Wrench className="h-3.5 w-3.5" />
-                        )}
-                        {isLoading ? "수정 중..." : "품질 자동 수정"}
-                      </Button>
-                    </motion.div>
-                  )}
-
                   {/* Character Count */}
                   <MetricRow
                     icon={Type}

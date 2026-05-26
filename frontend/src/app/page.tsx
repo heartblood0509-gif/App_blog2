@@ -1161,118 +1161,6 @@ export default function Home() {
     fetchContent().catch(() => {});
   }, [fetchContent]);
 
-  const handleQualityFix = useCallback(async () => {
-    if (!state.qualityResult || state.qualityResult.isPass) return;
-    updateState({ isLoading: true });
-    try {
-      // 브랜드 모드 분기
-      let res: Response;
-      if (state.postCategory === "brand") {
-        const profile = await fetchBrandProfile();
-        if (!profile) {
-          throw new Error("브랜드 프로필을 불러오지 못했습니다.");
-        }
-        res = await fetch("/api/brand/fix", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            profile,
-            template: state.selectedBrandTemplate,
-            infoVariantId: state.selectedBrandInfoVariant,
-            content: state.generatedContent,
-            failReasons: state.qualityResult.failReasons,
-            keyword: getEffectiveMainKeyword(state),
-          }),
-        });
-      } else if (state.postCategory === "aeo") {
-        const profile = await fetchAeoProfile();
-        if (!profile) {
-          throw new Error("AEO 프로필을 불러오지 못했습니다.");
-        }
-        res = await fetch("/api/aeo/fix", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            profile,
-            template: state.selectedAeoTemplate,
-            content: state.generatedContent,
-            failReasons: state.qualityResult.failReasons,
-            keyword: getEffectiveMainKeyword(state),
-          }),
-        });
-      } else {
-        res = await fetch("/api/fix", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            content: state.generatedContent,
-            failReasons: state.qualityResult.failReasons,
-            keyword: getEffectiveMainKeyword(state),
-          }),
-        });
-      }
-
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({ error: "수정 실패" }));
-        throw new Error(err.error || "품질 수정에 실패했습니다.");
-      }
-
-      if (!res.body) throw new Error("응답을 받을 수 없습니다.");
-      const reader = res.body.getReader();
-      const decoder = new TextDecoder();
-      let fixed = "";
-
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        fixed += decoder.decode(value, { stream: true });
-        updateState({ generatedContent: fixed });
-      }
-
-      // reader의 마지막 updateState가 커밋될 기회 부여 (race 방어)
-      await Promise.resolve();
-
-      // 품질 수정 완료 직후 후처리 (applyImagePostProcessing — postCategory 별 분기)
-      const finalizedFix = applyImagePostProcessing(
-        fixed,
-        state.postCategory,
-        state.selectedTitle,
-        getEffectiveMainKeyword(state),
-      );
-      if (finalizedFix !== fixed) {
-        fixed = finalizedFix;
-        updateState({ generatedContent: finalizedFix });
-      }
-
-      const validateEndpoint =
-        state.postCategory === "brand" ? "/api/brand/validate" : "/api/validate";
-      const validateRes = await fetch(validateEndpoint, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          text: fixed,
-          keyword: getEffectiveMainKeyword(state),
-          charRange: state.charCountRange,
-        }),
-      });
-      if (validateRes.ok) {
-        const quality = await validateRes.json();
-        updateState({ qualityResult: quality, isLoading: false });
-        if (quality.isPass) {
-          toast.success("품질 수정 완료! 모든 항목 통과.");
-        } else {
-          toast.info("일부 항목이 개선되었습니다. 한 번 더 시도해보세요.");
-        }
-      } else {
-        updateState({ isLoading: false });
-      }
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : "품질 수정 실패";
-      toast.error(msg);
-      updateState({ isLoading: false });
-    }
-  }, [state.postCategory, state.selectedBrandTemplate, state.selectedBrandInfoVariant, state.selectedAeoTemplate, state.generatedContent, state.qualityResult, state.mainKeyword, state.charCountRange, fetchBrandProfile, fetchAeoProfile, updateState]);
-
   // ─────────────────────────────
   // 이미지 핸들러
   // ─────────────────────────────
@@ -2122,7 +2010,6 @@ export default function Home() {
             onRegenerate={handleContentRegenerate}
             onCopy={handleContentCopy}
             onContentEdit={handleContentEdit}
-            onQualityFix={handleQualityFix}
             imageSlots={state.imageSlots}
             userPhotosBySlot={state.userPhotosBySlot}
             excludedSlotIds={state.excludedSlotIds}
