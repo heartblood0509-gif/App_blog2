@@ -95,18 +95,6 @@ export function AppHeader({
               메인으로
             </Link>
           )}
-          {isMain && showReset && onResetClick && (
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={onResetClick}
-              aria-label="새로 시작"
-              className="gap-1"
-            >
-              <RotateCcw className="h-4 w-4" />
-              새로 시작
-            </Button>
-          )}
         </div>
 
         <div className="flex items-center gap-1">
