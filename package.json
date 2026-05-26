@@ -6,6 +6,8 @@
   "main": "electron/dist/main.js",
   "scripts": {
     "dev": "cross-env NODE_ENV=development tsc -p electron && cross-env NODE_ENV=development electron electron/dist/main.js",
+    "dev:worktree": "node scripts/dev-worktree.js",
+    "dev:worktree:electron": "node scripts/dev-worktree.js --electron",
     "build:electron": "tsc -p electron",
     "build:next": "npm --prefix frontend run build",
     "build:backend": "node scripts/build-backend.js",
