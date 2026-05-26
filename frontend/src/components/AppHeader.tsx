@@ -7,8 +7,8 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { ArrowLeft, KeyRound, MonitorSmartphone } from "lucide-react";
-import { buttonVariants } from "@/components/ui/button";
+import { ArrowLeft, KeyRound, MonitorSmartphone, RotateCcw } from "lucide-react";
+import { Button, buttonVariants } from "@/components/ui/button";
 import {
   Tooltip,
   TooltipContent,
@@ -19,9 +19,16 @@ import { AdminEntryButton } from "@/components/providers/AdminEntryButton";
 interface AppHeaderProps {
   onTitleClick?: () => void;
   subtitle?: string;
+  showReset?: boolean;
+  onResetClick?: () => void;
 }
 
-export function AppHeader({ onTitleClick, subtitle }: AppHeaderProps) {
+export function AppHeader({
+  onTitleClick,
+  subtitle,
+  showReset = false,
+  onResetClick,
+}: AppHeaderProps) {
   const pathname = usePathname();
   const isMain = pathname === "/";
   const isApiKey = pathname?.startsWith("/settings/api-key") ?? false;
@@ -39,6 +46,20 @@ export function AppHeader({ onTitleClick, subtitle }: AppHeaderProps) {
             <ArrowLeft className="h-4 w-4" />
             메인으로
           </Link>
+        </div>
+      )}
+
+      {isMain && showReset && onResetClick && (
+        <div className="absolute left-0 top-0">
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={onResetClick}
+            aria-label="새로 시작"
+          >
+            <RotateCcw className="h-4 w-4" />
+            새로 시작
+          </Button>
         </div>
       )}
 

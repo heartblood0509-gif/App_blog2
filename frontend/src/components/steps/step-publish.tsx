@@ -35,6 +35,7 @@ interface StepPublishProps {
   imageSlots?: ImageSlot[];
   generatedImages?: Record<string, string>;
   excludedSlotIds?: string[];
+  onStartNew?: () => void;
 }
 
 export function StepPublish({
@@ -43,6 +44,7 @@ export function StepPublish({
   imageSlots = [],
   generatedImages = {},
   excludedSlotIds = [],
+  onStartNew,
 }: StepPublishProps) {
   const [isPublishing, setIsPublishing] = useState(false);
   const [accounts, setAccounts] = useState<BlogAccount[]>([]);
@@ -781,6 +783,18 @@ export function StepPublish({
             </p>
           </div>
         </motion.div>
+      )}
+
+      {/* 다음 글 작성 CTA */}
+      {content && onStartNew && (
+        <Button
+          size="lg"
+          className="w-full"
+          onClick={onStartNew}
+        >
+          <Plus className="h-4 w-4" />
+          새 글 만들기
+        </Button>
       )}
     </div>
   );
