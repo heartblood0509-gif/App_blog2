@@ -292,11 +292,9 @@ export function StepThreadsAnalysis({
   if (!internalMode) {
     return (
       <div className="space-y-6">
-        <div className="text-center mb-8">
-          <h2 className="text-2xl sm:text-3xl font-extrabold mb-3">
-            분석 방식을 선택하세요
-          </h2>
-          <p className="text-base sm:text-lg text-muted-foreground">
+        <div className="mb-6 text-center">
+          <h2 className="text-2xl font-semibold">분석 방식</h2>
+          <p className="mt-2 text-sm text-muted-foreground">
             템플릿을 활용하거나, 레퍼런스를 직접 분석할 수 있습니다
           </p>
         </div>

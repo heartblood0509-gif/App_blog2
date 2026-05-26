@@ -96,16 +96,17 @@ const NARRATIVES: NarrativeOption[] = [
     ],
     urlInput: "none",
   },
-  {
-    id: "custom-reference",
-    name: "직접 레퍼런스 제공",
-    description:
-      "참고할 블로그 글 URL을 직접 제공하면, 그 글의 톤과 구조를 그대로 따라 작성합니다.",
-    icon: LinkIcon,
-    flow: ["레퍼런스 URL 기반 자유 구조"],
-    urlInput: "required",
-    urlHint: "참고할 블로그 글 URL을 입력하세요.",
-  },
+  // 임시 숨김 — "직접 레퍼런스 제공" 기능 비활성화 (복구 시 아래 블록 주석만 해제)
+  // {
+  //   id: "custom-reference",
+  //   name: "직접 레퍼런스 제공",
+  //   description:
+  //     "참고할 블로그 글 URL을 직접 제공하면, 그 글의 톤과 구조를 그대로 따라 작성합니다.",
+  //   icon: LinkIcon,
+  //   flow: ["레퍼런스 URL 기반 자유 구조"],
+  //   urlInput: "required",
+  //   urlHint: "참고할 블로그 글 URL을 입력하세요.",
+  // },
 ];
 
 const POST_CATEGORIES: Array<{
@@ -295,8 +296,8 @@ export function StepNarrative({
         <>
           <section>
             <div className="mb-4">
-              <h2 className="text-xl font-semibold">포스팅 카테고리</h2>
-              <p className="mt-1 text-sm text-muted-foreground">
+              <h2 className="text-2xl font-semibold">포스팅 카테고리</h2>
+              <p className="mt-2 text-sm text-muted-foreground">
                 블로그 글의 종류를 선택하세요
               </p>
             </div>
@@ -392,7 +393,7 @@ export function StepNarrative({
           </p>
         </div>
 
-        <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
           {NARRATIVES.map((narrative) => (
             <NarrativeFlowCard
               key={narrative.id}

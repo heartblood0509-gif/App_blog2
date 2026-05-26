@@ -47,8 +47,8 @@ export function StepTitleSelect({
     <div>
       <div className="mb-6 flex items-center justify-between">
         <div>
-          <h2 className="text-xl font-semibold">제목 선택</h2>
-          <p className="mt-1 text-sm text-muted-foreground">
+          <h2 className="text-2xl font-semibold">제목 선택</h2>
+          <p className="mt-2 text-sm text-muted-foreground">
             생성된 제목 중 하나를 선택하거나 직접 입력하세요
           </p>
         </div>

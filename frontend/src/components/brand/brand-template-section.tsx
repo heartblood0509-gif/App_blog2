@@ -58,7 +58,8 @@ const TEMPLATES: TemplateCard[] = [
   { id: "info", name: "정보성글", description: "유입을 위한 정보성 글 (브랜드 추구방향과 일치)", icon: BookOpen, enabled: true },
   { id: "value-proof", name: "가치입증글", description: "권위·수치·결과로 신뢰를 입증하는 글", icon: Award, enabled: true },
   { id: "detail", name: "상세페이지글", description: "구매 전환 직전 단계의 글", icon: ShoppingBag, enabled: true },
-  { id: "custom", name: "내 템플릿 만들기", description: "내가 가진 글을 분석해서 똑같은 결의 새 글 만들기", icon: Edit3, enabled: true },
+  // 임시 숨김 — "내 템플릿 만들기" 기능 비활성화 (복구 시 아래 한 줄 주석만 해제)
+  // { id: "custom", name: "내 템플릿 만들기", description: "내가 가진 글을 분석해서 똑같은 결의 새 글 만들기", icon: Edit3, enabled: true },
 ];
 
 interface BrandTemplateSectionProps {
@@ -232,7 +233,7 @@ export function BrandTemplateSection({
         </p>
       </div>
 
-      <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
         {TEMPLATES.map((tpl) => {
           const selected = selectedTemplate === tpl.id;
           const Icon = tpl.icon;

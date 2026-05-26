@@ -12,8 +12,6 @@ import {
   RefreshCw,
   Copy,
   Loader2,
-  CheckCircle2,
-  XCircle,
   AlertTriangle,
   FileText,
   Hash,
@@ -55,7 +53,13 @@ interface StepGenerateProps {
    * page.tsx가 generatedContent + contentDirty 를 갱신하고, 마커 재파싱·자동 가공이 자동 트리거된다.
    */
   onContentEdit: (newContent: string) => void;
-  onQualityFix: () => void;
+  /**
+   * "(삭제 필요)" BANNED 금지어를 AI 대체어로 바꾸는 흐름 시작.
+   * page.tsx가 /api/replace-forbidden 호출 → 다이얼로그로 대체어 미리보기 → 사용자 확인 후 본문 surgical replace.
+   */
+  onReplaceForbidden?: () => void;
+  /** AI 대체어 요청 중 (버튼 비활성/스피너 표시용) */
+  isReplacingForbidden?: boolean;
 
   // 이미지 관련
   imageSlots: ImageSlot[];
@@ -98,13 +102,6 @@ function MetricRow({
       </div>
       <div className="flex items-center gap-2">
         <span className="text-sm font-medium">{value}</span>
-        {status === "pass" && (
-          <CheckCircle2 className="h-4 w-4 text-green-500" />
-        )}
-        {status === "fail" && <XCircle className="h-4 w-4 text-red-500" />}
-        {status === "warn" && (
-          <AlertTriangle className="h-4 w-4 text-yellow-500" />
-        )}
       </div>
     </div>
   );
@@ -559,7 +556,8 @@ export function StepGenerate({
   onRegenerate,
   onCopy,
   onContentEdit,
-  onQualityFix,
+  onReplaceForbidden,
+  isReplacingForbidden = false,
   imageSlots,
   userPhotosBySlot,
   excludedSlotIds,
@@ -621,8 +619,8 @@ export function StepGenerate({
     <div>
       <div className="mb-6 flex items-center justify-between">
         <div>
-          <h2 className="text-xl font-semibold">글 생성 & 미리보기</h2>
-          <p className="mt-1 text-base text-muted-foreground">
+          <h2 className="text-2xl font-semibold">글 생성 & 미리보기</h2>
+          <p className="mt-2 text-sm text-muted-foreground">
             생성된 글을 확인하고 품질 검증 결과를 검토하세요
           </p>
         </div>
@@ -720,7 +718,7 @@ export function StepGenerate({
                 <ScrollArea className="h-[calc(100dvh-18rem)] min-h-[560px] max-h-[900px] pr-4">
                   <div>
                     {isLoading && (
-                      <div className="mb-3 flex items-center gap-2 text-xs text-muted-foreground">
+                      <div className="mb-3 flex items-center gap-2 text-xs font-medium text-primary">
                         <Loader2 className="h-3 w-3 animate-spin" />
                         생성 중...
                       </div>
@@ -792,66 +790,23 @@ export function StepGenerate({
         <div className={`flex-[1] ${isEditing ? "pointer-events-none opacity-60" : ""}`}>
           <Card className="h-full">
             <CardHeader>
-              <div className="flex items-center justify-between">
-                <CardTitle className="flex items-center gap-2 text-base">
-                  <BarChart3 className="h-4 w-4" />
-                  품질 검증
-                </CardTitle>
-                {isEditing ? (
-                  <Badge variant="outline">수정 후 재검증</Badge>
-                ) : (
-                  qualityResult && (
-                    <Badge
-                      variant={qualityResult.isPass ? "default" : "destructive"}
-                    >
-                      {qualityResult.isPass ? "통과" : "미통과"}
-                    </Badge>
-                  )
-                )}
-              </div>
+              <CardTitle className="flex items-center gap-2 text-base">
+                <BarChart3 className="h-4 w-4" />
+                글 정보
+              </CardTitle>
             </CardHeader>
             <CardContent>
               {!qualityResult && (
                 <div className="flex flex-col items-center justify-center py-16">
                   <BarChart3 className="h-8 w-8 text-muted-foreground/50" />
                   <p className="mt-3 text-xs text-muted-foreground">
-                    글이 생성되면 품질 검증이 자동으로 실행됩니다
+                    글이 생성되면 글 정보가 자동으로 표시됩니다
                   </p>
                 </div>
               )}
 
               {qualityResult && (
                 <div className="space-y-1">
-                  {/* Fail Reasons + Fix Button */}
-                  {!qualityResult.isPass && qualityResult.failReasons.length > 0 && (
-                    <motion.div
-                      initial={{ opacity: 0 }}
-                      animate={{ opacity: 1 }}
-                      className="mb-3 rounded-md border border-red-500/20 bg-red-500/5 p-3"
-                    >
-                      <p className="mb-1.5 text-xs font-medium text-red-500">미통과 사유</p>
-                      {qualityResult.failReasons.map((reason, i) => (
-                        <p key={i} className="text-xs text-red-400">
-                          - {reason}
-                        </p>
-                      ))}
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        className="mt-3 w-full gap-2 border-red-500/30 text-red-500 hover:bg-red-500/10"
-                        onClick={onQualityFix}
-                        disabled={isLoading}
-                      >
-                        {isLoading ? (
-                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                        ) : (
-                          <Wrench className="h-3.5 w-3.5" />
-                        )}
-                        {isLoading ? "수정 중..." : "품질 자동 수정"}
-                      </Button>
-                    </motion.div>
-                  )}
-
                   {/* Character Count */}
                   <MetricRow
                     icon={Type}
@@ -970,6 +925,26 @@ export function StepGenerate({
                             </span>
                           </div>
                         ))}
+                        {/* AI로 대체 — "(삭제 필요)" BANNED 단어가 1개 이상 있을 때만 노출 */}
+                        {onReplaceForbidden &&
+                          qualityResult.forbiddenWords.some(
+                            (fw) => fw.replacement === "(삭제 필요)",
+                          ) && (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="mt-2 w-full gap-2 border-primary/30 text-primary hover:bg-primary/10"
+                              onClick={onReplaceForbidden}
+                              disabled={isReplacingForbidden || isLoading}
+                            >
+                              {isReplacingForbidden ? (
+                                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                              ) : (
+                                <Sparkles className="h-3.5 w-3.5" />
+                              )}
+                              {isReplacingForbidden ? "AI 대체어 찾는 중..." : "AI로 대체"}
+                            </Button>
+                          )}
                       </motion.div>
                     )}
                   </div>

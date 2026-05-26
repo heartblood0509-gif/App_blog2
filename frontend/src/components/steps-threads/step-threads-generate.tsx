@@ -20,6 +20,7 @@ import {
   Palette,
   Film,
   Square,
+  Plus,
 } from "lucide-react";
 import { toast } from "sonner";
 import { addHistory } from "@/lib/threads-history";
@@ -28,6 +29,7 @@ import type { ThreadsState, ThreadsImageStyle } from "@/types";
 interface StepThreadsGenerateProps {
   threads: ThreadsState;
   onChange: (partial: Partial<ThreadsState>) => void;
+  onStartNew?: () => void;
 }
 
 const IMAGE_STYLES: {
@@ -51,6 +53,7 @@ const ASPECT_RATIOS = [
 export function StepThreadsGenerate({
   threads,
   onChange,
+  onStartNew,
 }: StepThreadsGenerateProps) {
   // 이미지 분석 모드인지 (생성 시 analysis 프롬프트 사용)
   const isImageMode =
@@ -178,11 +181,9 @@ export function StepThreadsGenerate({
 
   return (
     <div className="space-y-6">
-      <div className="text-center mb-8">
-        <h2 className="text-2xl sm:text-3xl font-extrabold mb-3">
-          쓰레드 생성
-        </h2>
-        <p className="text-base sm:text-lg text-muted-foreground">
+      <div className="mb-6 text-center">
+        <h2 className="text-2xl font-semibold">쓰레드 생성</h2>
+        <p className="mt-2 text-sm text-muted-foreground">
           {isImageMode
             ? "레퍼런스 분석 결과를 바탕으로 쓰레드 게시물을 작성합니다"
             : "뉴스 기사를 분석하여 쓰레드 게시물을 작성합니다"}
@@ -411,6 +412,14 @@ export function StepThreadsGenerate({
             )}
           </div>
         </>
+      )}
+
+      {/* 다음 글 작성 CTA */}
+      {displayedContent && !isGenerating && onStartNew && (
+        <Button size="lg" className="w-full" onClick={onStartNew}>
+          <Plus className="h-4 w-4" />
+          새 글 만들기
+        </Button>
       )}
     </div>
   );

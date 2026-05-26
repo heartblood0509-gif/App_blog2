@@ -5,6 +5,14 @@ import { useRouter } from "next/navigation";
 import { AnimatePresence, motion } from "framer-motion";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { AppHeader } from "@/components/AppHeader";
 import { useWizardState } from "@/components/providers/WizardStateProvider";
 import {
@@ -168,6 +176,30 @@ export default function Home() {
   const router = useRouter();
   const { state, setState, updateState, resetState } = useWizardState();
   const [userProducts, setUserProducts] = useState<UserProduct[]>([]);
+  const [resetConfirmOpen, setResetConfirmOpen] = useState(false);
+
+  // 금지어 AI 부분 치환 — 본문 보존을 위해 단어 매핑만 받아 클라이언트가 surgical replace.
+  const [isReplacingForbidden, setIsReplacingForbidden] = useState(false);
+  const [replacementPreview, setReplacementPreview] = useState<{
+    replacements: Record<string, string>;
+    skipped: string[];
+  } | null>(null);
+  const [replacementDialogOpen, setReplacementDialogOpen] = useState(false);
+
+  // 큰 타이틀 클릭 시: 위저드가 비어있으면 바로 reset, 진행 중이면 확인 모달.
+  const handleTitleClick = useCallback(() => {
+    const dirty = state.channel !== null || state.currentStep > 0;
+    if (!dirty) {
+      resetState();
+      return;
+    }
+    setResetConfirmOpen(true);
+  }, [resetState, state.channel, state.currentStep]);
+
+  const confirmReset = useCallback(() => {
+    setResetConfirmOpen(false);
+    resetState();
+  }, [resetState]);
 
   // 이미지 일괄 생성 라운드 관리. ref로 두면 콜백에서 stale closure 없이 최신값 비교 가능.
   const bulkAbortRef = useRef<AbortController | null>(null);
@@ -1146,118 +1178,6 @@ export default function Home() {
     fetchContent().catch(() => {});
   }, [fetchContent]);
 
-  const handleQualityFix = useCallback(async () => {
-    if (!state.qualityResult || state.qualityResult.isPass) return;
-    updateState({ isLoading: true });
-    try {
-      // 브랜드 모드 분기
-      let res: Response;
-      if (state.postCategory === "brand") {
-        const profile = await fetchBrandProfile();
-        if (!profile) {
-          throw new Error("브랜드 프로필을 불러오지 못했습니다.");
-        }
-        res = await fetch("/api/brand/fix", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            profile,
-            template: state.selectedBrandTemplate,
-            infoVariantId: state.selectedBrandInfoVariant,
-            content: state.generatedContent,
-            failReasons: state.qualityResult.failReasons,
-            keyword: getEffectiveMainKeyword(state),
-          }),
-        });
-      } else if (state.postCategory === "aeo") {
-        const profile = await fetchAeoProfile();
-        if (!profile) {
-          throw new Error("AEO 프로필을 불러오지 못했습니다.");
-        }
-        res = await fetch("/api/aeo/fix", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            profile,
-            template: state.selectedAeoTemplate,
-            content: state.generatedContent,
-            failReasons: state.qualityResult.failReasons,
-            keyword: getEffectiveMainKeyword(state),
-          }),
-        });
-      } else {
-        res = await fetch("/api/fix", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            content: state.generatedContent,
-            failReasons: state.qualityResult.failReasons,
-            keyword: getEffectiveMainKeyword(state),
-          }),
-        });
-      }
-
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({ error: "수정 실패" }));
-        throw new Error(err.error || "품질 수정에 실패했습니다.");
-      }
-
-      if (!res.body) throw new Error("응답을 받을 수 없습니다.");
-      const reader = res.body.getReader();
-      const decoder = new TextDecoder();
-      let fixed = "";
-
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        fixed += decoder.decode(value, { stream: true });
-        updateState({ generatedContent: fixed });
-      }
-
-      // reader의 마지막 updateState가 커밋될 기회 부여 (race 방어)
-      await Promise.resolve();
-
-      // 품질 수정 완료 직후 후처리 (applyImagePostProcessing — postCategory 별 분기)
-      const finalizedFix = applyImagePostProcessing(
-        fixed,
-        state.postCategory,
-        state.selectedTitle,
-        getEffectiveMainKeyword(state),
-      );
-      if (finalizedFix !== fixed) {
-        fixed = finalizedFix;
-        updateState({ generatedContent: finalizedFix });
-      }
-
-      const validateEndpoint =
-        state.postCategory === "brand" ? "/api/brand/validate" : "/api/validate";
-      const validateRes = await fetch(validateEndpoint, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          text: fixed,
-          keyword: getEffectiveMainKeyword(state),
-          charRange: state.charCountRange,
-        }),
-      });
-      if (validateRes.ok) {
-        const quality = await validateRes.json();
-        updateState({ qualityResult: quality, isLoading: false });
-        if (quality.isPass) {
-          toast.success("품질 수정 완료! 모든 항목 통과.");
-        } else {
-          toast.info("일부 항목이 개선되었습니다. 한 번 더 시도해보세요.");
-        }
-      } else {
-        updateState({ isLoading: false });
-      }
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : "품질 수정 실패";
-      toast.error(msg);
-      updateState({ isLoading: false });
-    }
-  }, [state.postCategory, state.selectedBrandTemplate, state.selectedBrandInfoVariant, state.selectedAeoTemplate, state.generatedContent, state.qualityResult, state.mainKeyword, state.charCountRange, fetchBrandProfile, fetchAeoProfile, updateState]);
-
   // ─────────────────────────────
   // 이미지 핸들러
   // ─────────────────────────────
@@ -1987,6 +1907,77 @@ export default function Home() {
     [state.generatedContent, updateState, runValidation]
   );
 
+  // 금지어 AI 대체어 요청 — "(삭제 필요)"인 BANNED 단어만 추출해 /api/replace-forbidden 호출.
+  // 응답은 단어→대체어 매핑 JSON. 본문은 여기서 손대지 않고, 컨펌 다이얼로그를 띄운다.
+  const handleReplaceForbiddenRequest = useCallback(async () => {
+    if (!state.qualityResult || !state.generatedContent) return;
+    const bannedWords = Array.from(
+      new Set(
+        state.qualityResult.forbiddenWords
+          .filter((fw) => fw.replacement === "(삭제 필요)")
+          .map((fw) => fw.word),
+      ),
+    );
+    if (bannedWords.length === 0) return;
+
+    setIsReplacingForbidden(true);
+    try {
+      const res = await fetch("/api/replace-forbidden", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          content: state.generatedContent,
+          words: bannedWords,
+        }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ error: "대체어 요청 실패" }));
+        throw new Error(err.error || "대체어 요청 실패");
+      }
+      const data = (await res.json()) as {
+        replacements: Record<string, string>;
+        skipped: string[];
+      };
+      if (Object.keys(data.replacements).length === 0) {
+        toast.info("AI가 적절한 대체어를 찾지 못했어요. 본문 수정에서 직접 빼주세요.");
+        return;
+      }
+      setReplacementPreview(data);
+      setReplacementDialogOpen(true);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "대체어 요청 실패";
+      toast.error(msg);
+    } finally {
+      setIsReplacingForbidden(false);
+    }
+  }, [state.qualityResult, state.generatedContent]);
+
+  // 다이얼로그에서 [적용하기] 클릭 → 본문 surgical replace (replaceAll, 한 단어=한 대체어).
+  // 본문 외 영역은 단 1글자도 안 바뀐다. 재검증까지 자동으로.
+  const handleReplacementApply = useCallback(() => {
+    if (!replacementPreview || !state.generatedContent) {
+      setReplacementDialogOpen(false);
+      return;
+    }
+    let next = state.generatedContent;
+    for (const [word, replacement] of Object.entries(replacementPreview.replacements)) {
+      next = next.split(word).join(replacement);
+    }
+    updateState({ generatedContent: next, contentDirty: true });
+    runValidation(next);
+    setReplacementDialogOpen(false);
+    setReplacementPreview(null);
+
+    const skippedCount = replacementPreview.skipped.length;
+    if (skippedCount > 0) {
+      toast.success(
+        `금지어 ${Object.keys(replacementPreview.replacements).length}개 대체 완료. ${skippedCount}개는 직접 수정이 필요합니다.`,
+      );
+    } else {
+      toast.success("금지어가 대체되었습니다.");
+    }
+  }, [replacementPreview, state.generatedContent, updateState, runValidation]);
+
   const renderStep = () => {
     // 쓰레드 채널 분기
     if (state.channel === "thread") {
@@ -2018,6 +2009,7 @@ export default function Home() {
             <StepThreadsGenerate
               threads={state.threads}
               onChange={handleThreadsChange}
+              onStartNew={resetState}
             />
           );
         default:
@@ -2106,7 +2098,8 @@ export default function Home() {
             onRegenerate={handleContentRegenerate}
             onCopy={handleContentCopy}
             onContentEdit={handleContentEdit}
-            onQualityFix={handleQualityFix}
+            onReplaceForbidden={handleReplaceForbiddenRequest}
+            isReplacingForbidden={isReplacingForbidden}
             imageSlots={state.imageSlots}
             userPhotosBySlot={state.userPhotosBySlot}
             excludedSlotIds={state.excludedSlotIds}
@@ -2133,6 +2126,7 @@ export default function Home() {
             imageSlots={state.imageSlots}
             generatedImages={state.generatedImages}
             excludedSlotIds={state.excludedSlotIds}
+            onStartNew={resetState}
           />
         );
       default:
@@ -2142,14 +2136,22 @@ export default function Home() {
 
   return (
     <div className="min-h-screen bg-background text-foreground">
-      <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
+      <div className="mx-auto max-w-7xl px-4 pb-16 pt-8 sm:px-6 lg:px-8">
         <AppHeader
-          onTitleClick={resetState}
-          subtitle="채널과 카테고리를 골라 콘텐츠를 단계별로 생성합니다"
+          onTitleClick={handleTitleClick}
+          subtitle={
+            state.channel === "thread"
+              ? "쓰레드 글과 이미지를 한 번에 만듭니다"
+              : state.channel === "blog"
+                ? "후기 · 브랜드 · AEO 블로그 글을 단계별로 자동 생성합니다"
+                : "어떤 채널의 콘텐츠를 만들지 골라보세요"
+          }
+          showReset={state.currentStep > 0}
+          onResetClick={() => setResetConfirmOpen(true)}
         />
 
         {/* Stepper */}
-        <nav className="mb-10">
+        <nav className="mb-16">
           <ol className="flex items-center justify-between">
             {STEPS.map((step, index) => {
               const Icon = step.icon;
@@ -2192,8 +2194,8 @@ export default function Home() {
                         isCompleted
                           ? "border-primary bg-primary text-primary-foreground"
                           : isActive
-                            ? "border-primary bg-primary/10 text-primary"
-                            : "border-muted bg-muted/30 text-muted-foreground"
+                            ? "border-primary bg-primary text-primary-foreground shadow-[0_0_0_4px_color-mix(in_oklch,var(--primary)_18%,transparent)]"
+                            : "border-muted bg-muted/40 text-muted-foreground"
                       }`}
                     >
                       {isCompleted ? (
@@ -2203,12 +2205,12 @@ export default function Home() {
                       )}
                     </div>
                     <span
-                      className={`text-xs font-medium whitespace-nowrap ${
+                      className={`hidden text-xs whitespace-nowrap transition-colors sm:inline-block ${
                         isActive
-                          ? "text-foreground"
+                          ? "font-semibold text-primary"
                           : isCompleted
-                            ? "text-primary"
-                            : "text-muted-foreground"
+                            ? "font-medium text-foreground"
+                            : "font-medium text-muted-foreground"
                       }`}
                     >
                       {step.label}
@@ -2269,7 +2271,8 @@ export default function Home() {
               title={advanceHint()}
               className="gap-2"
             >
-              다음
+              <span className="hidden sm:inline">다음: {STEPS[state.currentStep + 1].label}</span>
+              <span className="sm:hidden">다음</span>
               <ChevronRight className="h-4 w-4" />
             </Button>
           )}
@@ -2304,6 +2307,85 @@ export default function Home() {
         open={emptyInputsWarningOpen}
         onClose={() => setEmptyInputsWarningOpen(false)}
       />
+
+      {/* 큰 타이틀 클릭 또는 헤더 "새로 시작" 버튼 → 위저드 초기화 확인 */}
+      <Dialog open={resetConfirmOpen} onOpenChange={setResetConfirmOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>처음으로 돌아갈까요?</DialogTitle>
+            <DialogDescription>
+              지금까지 입력하신 내용이 모두 사라집니다. 계속하시겠어요?
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setResetConfirmOpen(false)}
+            >
+              취소
+            </Button>
+            <Button onClick={confirmReset}>새로 시작</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* 금지어 AI 대체어 미리보기 + 적용 확인 */}
+      <Dialog
+        open={replacementDialogOpen}
+        onOpenChange={(open) => {
+          setReplacementDialogOpen(open);
+          if (!open) setReplacementPreview(null);
+        }}
+      >
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>AI가 제안한 대체어</DialogTitle>
+            <DialogDescription>
+              본문은 그대로 두고 아래 단어만 정확히 바뀝니다.
+            </DialogDescription>
+          </DialogHeader>
+
+          {replacementPreview && (
+            <div className="space-y-2 py-2">
+              {Object.entries(replacementPreview.replacements).map(
+                ([word, replacement]) => (
+                  <div
+                    key={word}
+                    className="flex items-center gap-2 text-sm"
+                  >
+                    <span className="text-red-400 line-through">{word}</span>
+                    <span className="text-muted-foreground">→</span>
+                    <span className="font-medium text-green-500">
+                      {replacement}
+                    </span>
+                  </div>
+                ),
+              )}
+              {replacementPreview.skipped.length > 0 && (
+                <div className="mt-3 rounded-md border border-amber-500/30 bg-amber-500/5 p-2 text-xs text-amber-600 dark:text-amber-400">
+                  AI가 적절한 대체어를 못 찾은 단어:{" "}
+                  <strong>{replacementPreview.skipped.join(", ")}</strong>
+                  <br />
+                  본문 수정에서 직접 다듬어주세요.
+                </div>
+              )}
+            </div>
+          )}
+
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => {
+                setReplacementDialogOpen(false);
+                setReplacementPreview(null);
+              }}
+            >
+              취소
+            </Button>
+            <Button onClick={handleReplacementApply}>적용하기</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

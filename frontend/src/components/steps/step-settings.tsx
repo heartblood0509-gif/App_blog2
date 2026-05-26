@@ -7,7 +7,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
-import { Search, User, FileText, Hash, Type, Link as LinkIcon, MessageCircleQuestion } from "lucide-react";
+import { Search, User, FileText, Hash, Link as LinkIcon, MessageCircleQuestion } from "lucide-react";
 import type { WizardState, CharCountRange } from "@/types";
 import type { AeoProfile, AeoSource } from "@/types/aeo";
 import { TargetQuerySelector } from "@/components/aeo/target-query-selector";
@@ -102,8 +102,8 @@ export function StepSettings({ state, onChange }: StepSettingsProps) {
   return (
     <div className="space-y-6">
       <div className="mb-6">
-        <h2 className="text-xl font-semibold">글 설정</h2>
-        <p className="mt-1 text-sm text-muted-foreground">
+        <h2 className="text-2xl font-semibold">글 설정</h2>
+        <p className="mt-2 text-sm text-muted-foreground">
           키워드, 페르소나, 기타 요구사항을 설정하세요
         </p>
       </div>
@@ -127,7 +127,7 @@ export function StepSettings({ state, onChange }: StepSettingsProps) {
                 placeholder="예: 미르엔 욕실 리모델링 후기를 신뢰감 있게 풀어주세요&#10;&#10;비워두면 키워드만 보고 AI가 알아서 글을 구성합니다.&#10;채워두면 입력한 내용에 맞춰 제목과 본문이 만들어집니다."
                 value={state.topic}
                 onChange={(e) => onChange({ topic: e.target.value })}
-                rows={3}
+                className="min-h-[100px]"
               />
             </CardContent>
           </Card>
@@ -151,29 +151,6 @@ export function StepSettings({ state, onChange }: StepSettingsProps) {
               />
               <p className="mt-2 text-xs font-medium text-destructive">
                 비워두면 글은 생성되지만, 검색 노출(상위노출)을 원한다면 메인 키워드 입력을 권장합니다.
-              </p>
-            </CardContent>
-          </Card>
-
-          {/* Sub Keywords */}
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2 text-sm">
-                <Hash className="h-4 w-4" />
-                서브 키워드
-                <Badge variant="secondary" className="text-[10px]">
-                  선택
-                </Badge>
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <Input
-                placeholder="쉼표로 구분 (예: 두피케어, 민감성두피)"
-                value={state.subKeywords}
-                onChange={(e) => onChange({ subKeywords: e.target.value })}
-              />
-              <p className="mt-2 text-xs text-muted-foreground">
-                본문에 자연스럽게 포함될 서브 키워드를 입력하세요
               </p>
             </CardContent>
           </Card>
@@ -235,37 +212,26 @@ export function StepSettings({ state, onChange }: StepSettingsProps) {
             </CardContent>
           </Card>
 
-          {/* Character Count */}
+          {/* Sub Keywords */}
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2 text-sm">
-                <Type className="h-4 w-4" />
-                글자수 설정
+                <Hash className="h-4 w-4" />
+                서브 키워드
+                <Badge variant="secondary" className="text-[10px]">
+                  선택
+                </Badge>
               </CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="flex gap-3">
-                {CHAR_COUNT_OPTIONS.map((option) => {
-                  const selected =
-                    state.charCountRange.label === option.label;
-                  return (
-                    <Button
-                      key={option.label}
-                      variant={selected ? "default" : "outline"}
-                      size="sm"
-                      className="flex-1"
-                      onClick={() => handleCharCountSelect(option)}
-                    >
-                      {option.label}
-                    </Button>
-                  );
-                })}
-              </div>
-              {state.charCountRange.label === "레퍼런스 맞춤" && (
-                <p className="mt-2 text-xs text-muted-foreground">
-                  레퍼런스 글의 글자수에 맞춰 생성됩니다
-                </p>
-              )}
+              <Input
+                placeholder="쉼표로 구분 (예: 두피케어, 민감성두피)"
+                value={state.subKeywords}
+                onChange={(e) => onChange({ subKeywords: e.target.value })}
+              />
+              <p className="mt-2 text-xs text-muted-foreground">
+                본문에 자연스럽게 포함될 서브 키워드를 입력하세요
+              </p>
             </CardContent>
           </Card>
         </div>
