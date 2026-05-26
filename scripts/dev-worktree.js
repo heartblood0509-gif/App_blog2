@@ -47,7 +47,7 @@ if (!worktreeRoot) die("이 스크립트는 워크트리 안(루트의 package.j
 
 const WORKTREE_MARKER = `${path.sep}.claude${path.sep}worktrees${path.sep}`;
 if (!worktreeRoot.includes(WORKTREE_MARKER)) {
-  console.log("[!] 워크트리가 아닙니다. 메인 체크아웃에서 실행 중이면 ./start.sh 또는 `npm run dev` 를 쓰세요.");
+  console.log("[!] 워크트리가 아닙니다. 메인 체크아웃에서는 Electron 테스트면 `npm run dev`, 웹만이면 `./start.sh` 를 쓰세요.");
   process.exit(0);
 }
 
