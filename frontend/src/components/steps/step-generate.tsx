@@ -55,6 +55,13 @@ interface StepGenerateProps {
    * page.tsx가 generatedContent + contentDirty 를 갱신하고, 마커 재파싱·자동 가공이 자동 트리거된다.
    */
   onContentEdit: (newContent: string) => void;
+  /**
+   * "(삭제 필요)" BANNED 금지어를 AI 대체어로 바꾸는 흐름 시작.
+   * page.tsx가 /api/replace-forbidden 호출 → 다이얼로그로 대체어 미리보기 → 사용자 확인 후 본문 surgical replace.
+   */
+  onReplaceForbidden?: () => void;
+  /** AI 대체어 요청 중 (버튼 비활성/스피너 표시용) */
+  isReplacingForbidden?: boolean;
 
   // 이미지 관련
   imageSlots: ImageSlot[];
@@ -558,6 +565,8 @@ export function StepGenerate({
   onRegenerate,
   onCopy,
   onContentEdit,
+  onReplaceForbidden,
+  isReplacingForbidden = false,
   imageSlots,
   userPhotosBySlot,
   excludedSlotIds,
@@ -925,6 +934,26 @@ export function StepGenerate({
                             </span>
                           </div>
                         ))}
+                        {/* AI로 대체 — "(삭제 필요)" BANNED 단어가 1개 이상 있을 때만 노출 */}
+                        {onReplaceForbidden &&
+                          qualityResult.forbiddenWords.some(
+                            (fw) => fw.replacement === "(삭제 필요)",
+                          ) && (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="mt-2 w-full gap-2 border-primary/30 text-primary hover:bg-primary/10"
+                              onClick={onReplaceForbidden}
+                              disabled={isReplacingForbidden || isLoading}
+                            >
+                              {isReplacingForbidden ? (
+                                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                              ) : (
+                                <Sparkles className="h-3.5 w-3.5" />
+                              )}
+                              {isReplacingForbidden ? "AI 대체어 찾는 중..." : "AI로 대체"}
+                            </Button>
+                          )}
                       </motion.div>
                     )}
                   </div>
