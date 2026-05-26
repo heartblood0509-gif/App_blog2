@@ -5,6 +5,14 @@ import { useRouter } from "next/navigation";
 import { AnimatePresence, motion } from "framer-motion";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { AppHeader } from "@/components/AppHeader";
 import { useWizardState } from "@/components/providers/WizardStateProvider";
 import {
@@ -168,6 +176,22 @@ export default function Home() {
   const router = useRouter();
   const { state, setState, updateState, resetState } = useWizardState();
   const [userProducts, setUserProducts] = useState<UserProduct[]>([]);
+  const [resetConfirmOpen, setResetConfirmOpen] = useState(false);
+
+  // 큰 타이틀 클릭 시: 위저드가 비어있으면 바로 reset, 진행 중이면 확인 모달.
+  const handleTitleClick = useCallback(() => {
+    const dirty = state.channel !== null || state.currentStep > 0;
+    if (!dirty) {
+      resetState();
+      return;
+    }
+    setResetConfirmOpen(true);
+  }, [resetState, state.channel, state.currentStep]);
+
+  const confirmReset = useCallback(() => {
+    setResetConfirmOpen(false);
+    resetState();
+  }, [resetState]);
 
   // 이미지 일괄 생성 라운드 관리. ref로 두면 콜백에서 stale closure 없이 최신값 비교 가능.
   const bulkAbortRef = useRef<AbortController | null>(null);
@@ -2144,8 +2168,14 @@ export default function Home() {
     <div className="min-h-screen bg-background text-foreground">
       <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
         <AppHeader
-          onTitleClick={resetState}
-          subtitle="채널과 카테고리를 골라 콘텐츠를 단계별로 생성합니다"
+          onTitleClick={handleTitleClick}
+          subtitle={
+            state.channel === "thread"
+              ? "쓰레드 글과 이미지를 한 번에 만듭니다"
+              : state.channel === "blog"
+                ? "후기 · 브랜드 · AEO 블로그 글을 단계별로 자동 생성합니다"
+                : "어떤 채널의 콘텐츠를 만들지 골라보세요"
+          }
         />
 
         {/* Stepper */}
@@ -2192,8 +2222,8 @@ export default function Home() {
                         isCompleted
                           ? "border-primary bg-primary text-primary-foreground"
                           : isActive
-                            ? "border-primary bg-primary/10 text-primary"
-                            : "border-muted bg-muted/30 text-muted-foreground"
+                            ? "border-primary bg-primary text-primary-foreground shadow-[0_0_0_4px_color-mix(in_oklch,var(--primary)_18%,transparent)]"
+                            : "border-muted bg-muted/40 text-muted-foreground"
                       }`}
                     >
                       {isCompleted ? (
@@ -2203,12 +2233,12 @@ export default function Home() {
                       )}
                     </div>
                     <span
-                      className={`text-xs font-medium whitespace-nowrap ${
+                      className={`hidden text-xs whitespace-nowrap transition-colors sm:inline-block ${
                         isActive
-                          ? "text-foreground"
+                          ? "font-semibold text-primary"
                           : isCompleted
-                            ? "text-primary"
-                            : "text-muted-foreground"
+                            ? "font-medium text-foreground"
+                            : "font-medium text-muted-foreground"
                       }`}
                     >
                       {step.label}
@@ -2269,7 +2299,8 @@ export default function Home() {
               title={advanceHint()}
               className="gap-2"
             >
-              다음
+              <span className="hidden sm:inline">다음: {STEPS[state.currentStep + 1].label}</span>
+              <span className="sm:hidden">다음</span>
               <ChevronRight className="h-4 w-4" />
             </Button>
           )}
@@ -2304,6 +2335,27 @@ export default function Home() {
         open={emptyInputsWarningOpen}
         onClose={() => setEmptyInputsWarningOpen(false)}
       />
+
+      {/* 큰 타이틀 클릭 시 위저드 초기화 확인 */}
+      <Dialog open={resetConfirmOpen} onOpenChange={setResetConfirmOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>처음으로 돌아갈까요?</DialogTitle>
+            <DialogDescription>
+              지금까지 입력하신 내용이 모두 사라집니다. 계속하시겠어요?
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setResetConfirmOpen(false)}
+            >
+              취소
+            </Button>
+            <Button onClick={confirmReset}>처음으로</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

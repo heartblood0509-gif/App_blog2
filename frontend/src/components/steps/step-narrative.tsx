@@ -295,8 +295,8 @@ export function StepNarrative({
         <>
           <section>
             <div className="mb-4">
-              <h2 className="text-xl font-semibold">포스팅 카테고리</h2>
-              <p className="mt-1 text-sm text-muted-foreground">
+              <h2 className="text-2xl font-semibold">포스팅 카테고리</h2>
+              <p className="mt-2 text-sm text-muted-foreground">
                 블로그 글의 종류를 선택하세요
               </p>
             </div>
