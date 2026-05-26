@@ -23,6 +23,7 @@ import { toast } from "sonner";
 import { BlogContentRenderer } from "@/components/blog-content-renderer";
 import { ThreadsContentPreview } from "@/components/steps-threads/threads-content-preview";
 import { YoutubeScriptResult } from "@/components/steps-youtube/youtube-script-result";
+import { useWizardState } from "@/components/providers/WizardStateProvider";
 import type { BlogAccount, ImageSlot } from "@/types";
 import type { MediaMatch } from "@/lib/youtube-script/apply-matches";
 import { pruneExcludedMarkers } from "@/lib/image/marker-parser";
@@ -44,7 +45,9 @@ export function StepPublish({
   generatedImages = {},
   excludedSlotIds = [],
 }: StepPublishProps) {
+  const { resetState } = useWizardState();
   const [isPublishing, setIsPublishing] = useState(false);
+  const [publishedUrl, setPublishedUrl] = useState<string | null>(null);
   const [accounts, setAccounts] = useState<BlogAccount[]>([]);
   const [selectedAccountId, setSelectedAccountId] = useState<string>("");
   const [showAddModal, setShowAddModal] = useState(false);
@@ -341,7 +344,7 @@ export function StepPublish({
       } else {
         toast.success(data.message || "네이버 블로그에 발행되었습니다!");
         if (data.post_url) {
-          toast.info(`발행 URL: ${data.post_url}`);
+          setPublishedUrl(data.post_url);
         }
       }
       if (data.warning) {
@@ -366,11 +369,46 @@ export function StepPublish({
   return (
     <div className="space-y-6">
       <div className="mb-6">
-        <h2 className="text-xl font-semibold">발행</h2>
-        <p className="mt-1 text-sm text-muted-foreground">
+        <h2 className="text-2xl font-semibold">발행</h2>
+        <p className="mt-2 text-sm text-muted-foreground">
           블로그 계정을 선택하고 발행하세요
         </p>
       </div>
+
+      {/* 발행 성공 카드 — 발행 후 다음 액션 안내 */}
+      {publishedUrl && (
+        <div className="rounded-lg border border-primary/30 bg-primary/5 p-5">
+          <div className="flex items-center gap-2 text-primary">
+            <CheckCircle2 className="h-5 w-5" />
+            <span className="font-semibold">발행 완료</span>
+          </div>
+          <p className="mt-2 text-sm text-muted-foreground">
+            네이버 블로그에 게시되었습니다. 아래 버튼으로 결과를 확인하거나 새 글을 시작하세요.
+          </p>
+          <div className="mt-4 flex flex-wrap gap-2">
+            <a
+              href={publishedUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1.5 rounded-md border border-primary/40 bg-background px-3 py-1.5 text-sm font-medium text-primary transition-colors hover:bg-primary/10"
+            >
+              <ExternalLink className="h-4 w-4" />
+              포스트 보기
+            </a>
+            <Button
+              size="sm"
+              onClick={() => {
+                setPublishedUrl(null);
+                resetState();
+              }}
+              className="gap-1.5"
+            >
+              <Plus className="h-4 w-4" />
+              새 글 만들기
+            </Button>
+          </div>
+        </div>
+      )}
 
       {/* 계정 선택 영역 */}
       <Card>
