@@ -8,7 +8,13 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { ArrowLeft, KeyRound, LogOut, MonitorSmartphone } from "lucide-react";
+import {
+  ArrowLeft,
+  KeyRound,
+  LogOut,
+  MonitorSmartphone,
+  RotateCcw,
+} from "lucide-react";
 import { Button, buttonVariants } from "@/components/ui/button";
 import {
   Tooltip,
@@ -25,12 +31,21 @@ interface AppHeaderProps {
   subtitle?: string;
   /** 메인이 아닌 페이지에서 본문 큰 타이틀로 표시할 텍스트 */
   pageTitle?: string;
+  /** 메인 위저드에서 진행 중일 때 좌측에 노출되는 "새로 시작" 버튼 (대안 진입) */
+  showReset?: boolean;
+  onResetClick?: () => void;
 }
 
 const BRAND_NAME = "Blog Pick";
 const MAIN_PAGE_TITLE = "콘텐츠 생성기";
 
-export function AppHeader({ onTitleClick, subtitle, pageTitle }: AppHeaderProps) {
+export function AppHeader({
+  onTitleClick,
+  subtitle,
+  pageTitle,
+  showReset = false,
+  onResetClick,
+}: AppHeaderProps) {
   const pathname = usePathname();
   const isMain = pathname === "/";
   const isApiKey = pathname?.startsWith("/settings/api-key") ?? false;
@@ -79,6 +94,18 @@ export function AppHeader({ onTitleClick, subtitle, pageTitle }: AppHeaderProps)
               <ArrowLeft className="h-4 w-4" />
               메인으로
             </Link>
+          )}
+          {isMain && showReset && onResetClick && (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={onResetClick}
+              aria-label="새로 시작"
+              className="gap-1"
+            >
+              <RotateCcw className="h-4 w-4" />
+              새로 시작
+            </Button>
           )}
         </div>
 

@@ -36,6 +36,7 @@ interface StepPublishProps {
   imageSlots?: ImageSlot[];
   generatedImages?: Record<string, string>;
   excludedSlotIds?: string[];
+  onStartNew?: () => void;
 }
 
 export function StepPublish({
@@ -44,6 +45,7 @@ export function StepPublish({
   imageSlots = [],
   generatedImages = {},
   excludedSlotIds = [],
+  onStartNew,
 }: StepPublishProps) {
   const { resetState } = useWizardState();
   const [isPublishing, setIsPublishing] = useState(false);
@@ -562,24 +564,6 @@ export function StepPublish({
         </div>
       )}
 
-      {/* 자동/수동 발행 토글 */}
-      <div className="flex items-start gap-2 rounded-lg border border-border/60 bg-muted/30 p-3">
-        <label className="flex items-center gap-2 cursor-pointer select-none whitespace-nowrap">
-          <input
-            type="checkbox"
-            className="h-4 w-4 cursor-pointer"
-            checked={autoPublish}
-            onChange={(e) => setAutoPublish(e.target.checked)}
-          />
-          <span className="text-sm font-medium">자동 발행</span>
-        </label>
-        <span className="text-xs text-muted-foreground pt-0.5">
-          {autoPublish
-            ? "⚠️ 글 작성 후 '발행' 버튼까지 자동 클릭 (검토 없이 즉시 게시됨)"
-            : "📝 글 작성만 하고 Chrome을 열어둡니다. 직접 '발행' 버튼을 눌러 게시하세요 (안전)"}
-        </span>
-      </div>
-
       {/* 액션 영역 — 두 그룹 박스 분리:
           (A) 블로그 그대로 내보내기 = 발행 / 복사 / 마크다운 (메인 카테고리, 실선 박스)
           (B) 다른 채널로 변환      = 쓰레드 / 유튜브 (보조 카테고리, 점선 박스 + 옅은 배경)
@@ -819,6 +803,18 @@ export function StepPublish({
             </p>
           </div>
         </motion.div>
+      )}
+
+      {/* 다음 글 작성 CTA */}
+      {content && onStartNew && (
+        <Button
+          size="lg"
+          className="w-full"
+          onClick={onStartNew}
+        >
+          <Plus className="h-4 w-4" />
+          새 글 만들기
+        </Button>
       )}
     </div>
   );

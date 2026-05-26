@@ -16,6 +16,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import platform
 import random
 import re
 import signal
@@ -44,6 +45,42 @@ STEALTH_JS = """
     Object.defineProperty(navigator, 'plugins', {get: () => [1, 2, 3, 4, 5]});
     Object.defineProperty(navigator, 'languages', {get: () => ['ko-KR', 'ko', 'en-US', 'en']});
 """
+
+# 사용자가 다양한 OS(Win10/11, macOS, Linux) 환경에서 봇을 실행하므로
+# 런타임에 호스트 OS 를 감지해 자연스러운 UA/헤더로 위장. Chrome 버전은 한 곳에서 관리.
+CHROME_VERSION = "131.0.0.0"
+
+
+def _realistic_browser_profile() -> dict:
+    system = platform.system()
+    if system == "Windows":
+        ua_os = "Windows NT 10.0; Win64; x64"
+        ch_platform = "Windows"
+    elif system == "Darwin":
+        ua_os = "Macintosh; Intel Mac OS X 10_15_7"
+        ch_platform = "macOS"
+    else:
+        ua_os = "X11; Linux x86_64"
+        ch_platform = "Linux"
+
+    user_agent = (
+        f"Mozilla/5.0 ({ua_os}) AppleWebKit/537.36 "
+        f"(KHTML, like Gecko) Chrome/{CHROME_VERSION} Safari/537.36"
+    )
+    major = CHROME_VERSION.split(".")[0]
+    sec_ch_ua = (
+        f'"Chromium";v="{major}", "Google Chrome";v="{major}", "Not?A_Brand";v="99"'
+    )
+    return {
+        "user_agent": user_agent,
+        "extra_http_headers": {
+            "Accept-Language": "ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7",
+            "Sec-CH-UA": sec_ch_ua,
+            "Sec-CH-UA-Mobile": "?0",
+            "Sec-CH-UA-Platform": f'"{ch_platform}"',
+        },
+    }
+
 
 # ===== 인용구 스타일 6종 (SmartEditor ONE) =====
 QUOTE_STYLES = {
@@ -273,6 +310,7 @@ class NaverBlogPublisher:
 
         pw = await async_playwright().start()
         self._pw = pw  # GC 방지용 참조 (auto_publish=False 시 사용)
+        browser_profile = _realistic_browser_profile()
         self.browser = await pw.chromium.launch_persistent_context(
             user_data_dir=str(profile_dir),
             headless=False,
@@ -280,6 +318,8 @@ class NaverBlogPublisher:
             viewport={"width": 1280, "height": 900},
             locale="ko-KR",
             timezone_id="Asia/Seoul",
+            user_agent=browser_profile["user_agent"],
+            extra_http_headers=browser_profile["extra_http_headers"],
             ignore_default_args=["--enable-automation"],
         )
 
@@ -305,9 +345,9 @@ class NaverBlogPublisher:
         # Stealth JS 주입
         await self.page.add_init_script(STEALTH_JS)
 
-    # ===== 자동 로그인 (App_blog_auto3 기반 3단계 폴백) =====
+    # ===== 자동 로그인 (키스트로크 전용 + 폼 자동 탐지) =====
     async def _auto_login(self, naver_id: str, naver_pw: str):
-        """ID/PW 자동 입력 + 로그인. 3단계 폴백."""
+        """ID/PW 자동 입력 + 로그인. 키스트로크 한 가지 방법만 사용."""
         if not self.page:
             return
 
@@ -319,87 +359,52 @@ class NaverBlogPublisher:
         print(f"  자동 로그인 시도: {naver_id}")
         await asyncio.sleep(2)
 
-        # === ID 입력 (3단계 폴백) ===
+        # === 폼 자동 탐지 ===
+        # PW 는 type=password 라는 가장 신뢰도 높은 단서로 잡고,
+        # 같은 form 안의 첫 번째 visible text/email/tel 입력을 ID 로 간주.
         try:
-            id_field = await self.page.wait_for_selector("#id", timeout=10000)
+            pw_field = await self.page.wait_for_selector(
+                'input[type="password"]:visible', timeout=10000
+            )
         except Exception:
-            raise RuntimeError("로그인 페이지에서 ID 입력칸을 찾을 수 없습니다.")
+            raise RuntimeError("로그인 폼의 비밀번호 입력칸을 찾을 수 없습니다.")
 
-        # 방법 1: Playwright fill
-        try:
-            await id_field.click()
-            await asyncio.sleep(0.5)
-            await self.page.fill("#id", naver_id)
-        except Exception:
-            pass
+        id_handle = await pw_field.evaluate_handle("""el => {
+            const form = el.closest('form') || document;
+            const inputs = form.querySelectorAll('input');
+            for (const inp of inputs) {
+                const t = (inp.type || '').toLowerCase();
+                if (['text', 'email', 'tel'].includes(t) && inp.offsetParent !== null) {
+                    return inp;
+                }
+            }
+            return null;
+        }""")
+        id_field = id_handle.as_element()
+        if id_field is None:
+            raise RuntimeError("로그인 폼의 ID 입력칸을 찾을 수 없습니다.")
 
-        # 방법 2: 한 글자씩 타이핑
-        current_val = await id_field.evaluate("el => el.value")
-        if not current_val:
-            try:
-                await id_field.click(click_count=3)
-                await self.page.keyboard.type(naver_id, delay=50)
-            except Exception:
-                pass
+        # === ID 입력 (키스트로크) ===
+        await id_field.click(click_count=3)            # 잔여값 전체 선택
+        await self.page.keyboard.press("Delete")
+        await self.page.keyboard.type(naver_id, delay=random.randint(40, 90))
+        await asyncio.sleep(random.uniform(0.3, 0.7))
 
-        # 방법 3: JavaScript 인젝션
-        current_val = await id_field.evaluate("el => el.value")
-        if not current_val:
-            safe_id = json.dumps(naver_id)
-            await self.page.evaluate(f"""
-                const el = document.getElementById('id');
-                const setter = Object.getOwnPropertyDescriptor(
-                    window.HTMLInputElement.prototype, 'value'
-                ).set;
-                setter.call(el, {safe_id});
-                el.dispatchEvent(new Event('input', {{bubbles: true}}));
-                el.dispatchEvent(new Event('change', {{bubbles: true}}));
-            """)
+        # === PW 입력 (키스트로크) ===
+        await pw_field.click(click_count=3)
+        await self.page.keyboard.press("Delete")
+        await self.page.keyboard.type(naver_pw, delay=random.randint(40, 90))
+        await asyncio.sleep(random.uniform(0.3, 0.7))
 
-        await asyncio.sleep(0.5)
-
-        # === PW 입력 (동일 3단계) ===
-        try:
-            pw_field = await self.page.wait_for_selector("#pw", timeout=5000)
-        except Exception:
-            raise RuntimeError("비밀번호 입력칸을 찾을 수 없습니다.")
-
-        try:
-            await pw_field.click()
-            await asyncio.sleep(0.5)
-            await self.page.fill("#pw", naver_pw)
-        except Exception:
-            pass
-
-        current_val = await pw_field.evaluate("el => el.value")
-        if not current_val:
-            try:
-                await pw_field.click(click_count=3)
-                await self.page.keyboard.type(naver_pw, delay=50)
-            except Exception:
-                pass
-
-        current_val = await pw_field.evaluate("el => el.value")
-        if not current_val:
-            safe_pw = json.dumps(naver_pw)
-            await self.page.evaluate(f"""
-                const el = document.getElementById('pw');
-                const setter = Object.getOwnPropertyDescriptor(
-                    window.HTMLInputElement.prototype, 'value'
-                ).set;
-                setter.call(el, {safe_pw});
-                el.dispatchEvent(new Event('input', {{bubbles: true}}));
-                el.dispatchEvent(new Event('change', {{bubbles: true}}));
-            """)
-
-        await asyncio.sleep(0.5)
-
-        # === 로그인 버튼 클릭 ===
-        login_btn = await self.page.query_selector(
-            '#log\\.login, button[type="submit"], .btn_login, .btn_global'
-        )
-        if login_btn:
-            await login_btn.click()
+        # === 로그인 제출 ===
+        submit_handle = await pw_field.evaluate_handle("""el => {
+            const form = el.closest('form');
+            if (!form) return null;
+            return form.querySelector('button[type="submit"], input[type="submit"]');
+        }""")
+        submit_btn = submit_handle.as_element()
+        if submit_btn:
+            await submit_btn.click()
         else:
             await self.page.keyboard.press("Enter")
 
@@ -436,7 +441,11 @@ class NaverBlogPublisher:
         if not self.page:
             raise RuntimeError("브라우저가 실행되지 않았습니다.")
 
-        await self.page.goto("https://blog.naver.com/GoBlogWrite.naver")
+        # 발행 시작 시 항상 네이버 로그인 페이지부터 진입.
+        # 이미 로그인된 세션이면 네이버가 url= 파라미터(www.naver.com)로 즉시 리다이렉트하므로
+        # 아래 로그인 감지 분기가 자연스럽게 스킵된다.
+        login_url = "https://nid.naver.com/nidlogin.login?mode=form&url=https://www.naver.com/"
+        await self.page.goto(login_url)
         await self._human_pause(1500, 2500)
 
         # 로그인 페이지 리다이렉트 감지

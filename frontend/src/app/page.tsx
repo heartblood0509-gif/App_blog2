@@ -2042,6 +2042,7 @@ export default function Home() {
             <StepThreadsGenerate
               threads={state.threads}
               onChange={handleThreadsChange}
+              onStartNew={resetState}
             />
           );
         default:
@@ -2157,6 +2158,7 @@ export default function Home() {
             imageSlots={state.imageSlots}
             generatedImages={state.generatedImages}
             excludedSlotIds={state.excludedSlotIds}
+            onStartNew={resetState}
           />
         );
       default:
@@ -2176,6 +2178,8 @@ export default function Home() {
                 ? "후기 · 브랜드 · AEO 블로그 글을 단계별로 자동 생성합니다"
                 : "어떤 채널의 콘텐츠를 만들지 골라보세요"
           }
+          showReset={state.currentStep > 0}
+          onResetClick={() => setResetConfirmOpen(true)}
         />
 
         {/* Stepper */}
@@ -2336,9 +2340,9 @@ export default function Home() {
         onClose={() => setEmptyInputsWarningOpen(false)}
       />
 
-      {/* 큰 타이틀 클릭 시 위저드 초기화 확인 */}
+      {/* 큰 타이틀 클릭 또는 헤더 "새로 시작" 버튼 → 위저드 초기화 확인 */}
       <Dialog open={resetConfirmOpen} onOpenChange={setResetConfirmOpen}>
-        <DialogContent>
+        <DialogContent className="max-w-md">
           <DialogHeader>
             <DialogTitle>처음으로 돌아갈까요?</DialogTitle>
             <DialogDescription>
@@ -2352,7 +2356,7 @@ export default function Home() {
             >
               취소
             </Button>
-            <Button onClick={confirmReset}>처음으로</Button>
+            <Button onClick={confirmReset}>새로 시작</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
