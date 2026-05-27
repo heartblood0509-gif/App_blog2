@@ -39,7 +39,7 @@
   },
   "build": {
     "appId": "com.heartblood.appblog2",
-    "productName": "App Blog Publisher",
+    "productName": "Blog Pick",
     "directories": {
       "output": "release",
       "buildResources": "build"
@@ -50,6 +50,10 @@
       "!**/__pycache__"
     ],
     "extraResources": [
+      {
+        "from": "build/icon.png",
+        "to": "icon.png"
+      },
       {
         "from": "electron/splash.html",
         "to": "splash.html"
@@ -93,21 +97,26 @@
     ],
     "win": {
       "target": "nsis",
-      "artifactName": "App-Blog-Publisher-Setup-${version}-${arch}.${ext}",
-      "verifyUpdateCodeSignature": false
+      "artifactName": "Blog-Pick-Setup-${version}-${arch}.${ext}",
+      "verifyUpdateCodeSignature": false,
+      "icon": "build/icon.png"
     },
     "mac": {
       "target": [
         "dmg",
         "zip"
       ],
-      "artifactName": "App-Blog-Publisher-${version}-mac-${arch}.${ext}",
+      "artifactName": "Blog-Pick-${version}-mac-${arch}.${ext}",
       "identity": null,
-      "gatekeeperAssess": false
+      "gatekeeperAssess": false,
+      "icon": "build/icon.png"
+    },
+    "linux": {
+      "icon": "build/icon.png"
     },
     "protocols": [
       {
-        "name": "App Blog Publisher Auth",
+        "name": "Blog Pick Auth",
         "schemes": [
           "com.heartblood.appblog2"
         ]

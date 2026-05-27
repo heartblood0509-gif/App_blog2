@@ -45,6 +45,30 @@ interface GithubRelease {
   body?: string;
 }
 
+interface ReleaseMetadata {
+  version: string;
+  releaseName?: string;
+  releaseNotes?: string;
+}
+
+// GitHub Releases API 에서 최신 릴리즈 메타데이터를 가져온다.
+// macOS 는 electron-updater 자동 다운로드를 못 쓰므로 이 함수가 체크의 본체이고,
+// Windows 는 electron-updater 가 latest.yml 만 읽어서 release.name 을 모르기 때문에
+// update-available 이벤트 후 보강 호출로 사용한다.
+async function fetchReleaseMetadata(): Promise<GithubRelease | null> {
+  const response = await fetch(LATEST_RELEASE_API, {
+    headers: {
+      Accept: "application/vnd.github+json",
+      "User-Agent": "Blog-Pick",
+    },
+  });
+  if (response.status === 404) return null;
+  if (!response.ok) {
+    throw new Error(`GitHub release check failed: ${response.status}`);
+  }
+  return (await response.json()) as GithubRelease;
+}
+
 let registered = false;
 
 let progressWin: BrowserWindow | null = null;
@@ -95,8 +119,9 @@ function showMainAgain(): void {
 function openProgressWindow(): void {
   if (progressWin && !progressWin.isDestroyed()) return;
   progressWin = new BrowserWindow({
-    width: 380,
-    height: 160,
+    width: 460,
+    height: 220,
+    center: true,
     frame: false,
     resizable: false,
     movable: true,
@@ -106,7 +131,7 @@ function openProgressWindow(): void {
     alwaysOnTop: true,
     skipTaskbar: false,
     backgroundColor: "#1a1a1a",
-    title: "App Blog Publisher 업데이트",
+    title: "Blog Pick 업데이트",
     webPreferences: {
       sandbox: true,
       contextIsolation: true,
@@ -142,7 +167,10 @@ function closeProgressWindow(): void {
 }
 
 function sendProgress(
-  payload: { phase: "downloading"; percent: number } | { phase: "installing" },
+  payload:
+    | { phase: "downloading"; percent: number }
+    | { phase: "installing" }
+    | { phase: "restarting" },
 ): void {
   if (!progressWin || progressWin.isDestroyed()) return;
   try {
@@ -180,17 +208,21 @@ function cleanupAfterFailure(message: string): void {
 
 function proceedToInstall(): void {
   if (!progressWin || progressWin.isDestroyed()) openProgressWindow();
+  // 1) 먼저 "설치 중" 단계를 약 2.5초 노출 — 사용자가 진행 단계를 인지할 시간 확보.
   sendProgress({ phase: "installing" });
-  // 짧은 지연으로 UI 가 "곧 재시작됩니다…" 로 보이게 한 뒤 NSIS 실행.
   setTimeout(() => {
-    try {
-      // 핵심: isSilent=true → NsisUpdater 가 `/S --force-run` 으로 인스톨러 호출.
-      autoUpdater.quitAndInstall(true, true);
-    } catch (e) {
-      log.error(`[updater] quitAndInstall 실패: ${(e as Error).message}`);
-      cleanupAfterFailure((e as Error).message);
-    }
-  }, 600);
+    // 2) "재시작" 단계를 약 0.5초 노출한 뒤 실제 quitAndInstall 호출.
+    sendProgress({ phase: "restarting" });
+    setTimeout(() => {
+      try {
+        // 핵심: isSilent=true → NsisUpdater 가 `/S --force-run` 으로 인스톨러 호출.
+        autoUpdater.quitAndInstall(true, true);
+      } catch (e) {
+        log.error(`[updater] quitAndInstall 실패: ${(e as Error).message}`);
+        cleanupAfterFailure((e as Error).message);
+      }
+    }, 500);
+  }, 2500);
 }
 
 /** main.ts 의 endBusy 가 busy 해제 transition 에서 호출. */
@@ -223,23 +255,14 @@ function initMacUpdater(): void {
   const checkMacRelease = async (silent: boolean): Promise<GithubRelease | null> => {
     if (!silent) send("checking");
     try {
-      const response = await fetch(LATEST_RELEASE_API, {
-        headers: {
-          Accept: "application/vnd.github+json",
-          "User-Agent": "App-Blog-Publisher",
-        },
-      });
-      if (response.status === 404) {
+      const release = await fetchReleaseMetadata();
+      if (!release) {
         if (!silent) send("none");
         return null;
       }
-      if (!response.ok) {
-        throw new Error(`GitHub release check failed: ${response.status}`);
-      }
-      const release = (await response.json()) as GithubRelease;
       const latestVersion = release.tag_name?.replace(/^v/i, "");
       if (latestVersion && isNewerVersion(latestVersion, app.getVersion())) {
-        const info = {
+        const info: ReleaseMetadata = {
           version: latestVersion,
           releaseName: release.name ?? release.tag_name,
           releaseNotes: release.body,
@@ -282,7 +305,27 @@ function initWindowsUpdater(): void {
   autoUpdater.disableDifferentialDownload = true;
 
   autoUpdater.on("checking-for-update", () => send("checking"));
-  autoUpdater.on("update-available", (info) => send("available", info));
+  autoUpdater.on("update-available", (info) => {
+    // electron-updater 의 UpdateInfo 는 latest.yml 의 version/files/sha 만 채움.
+    // release.name(사용자 친화 한 줄 요약)·release.body 는 빌드 시점에 모르므로
+    // GitHub Releases API 를 한 번 더 호출해서 보강한 뒤 토스트로 전송.
+    const baseVersion = info?.version ?? "";
+    const baseNotes = typeof info?.releaseNotes === "string" ? info.releaseNotes : undefined;
+    fetchReleaseMetadata()
+      .then((release) => {
+        const merged: ReleaseMetadata = {
+          version: baseVersion,
+          releaseName: release?.name ?? release?.tag_name ?? undefined,
+          releaseNotes: release?.body ?? baseNotes,
+        };
+        send("available", merged);
+      })
+      .catch((e) => {
+        // 네트워크 실패 시에도 토스트는 띄움 — release.name 만 빠진 안전 fallback.
+        log.warn(`[updater] release metadata 보강 실패: ${(e as Error).message}`);
+        send("available", { version: baseVersion, releaseNotes: baseNotes });
+      });
+  });
   autoUpdater.on("update-not-available", () => send("none"));
   autoUpdater.on("error", (e) => {
     // 자동 부팅 체크(예: 0건 → "No published versions") 의 자연스러운 실패는 silent.

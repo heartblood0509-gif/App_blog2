@@ -1,18 +1,27 @@
 import { app, BrowserWindow, dialog, ipcMain, powerMonitor, shell } from "electron";
 import { spawnSync } from "node:child_process";
 import crypto from "node:crypto";
+import fs from "node:fs";
 import path from "node:path";
 import log from "electron-log";
 import { paths } from "./paths";
 import { applyWindowSecurity } from "./security";
-import { getFreePort } from "./net-utils";
+import { getFreePort, getPreferredOrFreePort } from "./net-utils";
 import { PythonManager } from "./python-manager";
 import { NextServerManager } from "./next-server";
 import { initJobObject, assignToJob, closeJobObject } from "./job-object";
 import { initUpdater, tryInstallNow } from "./updater";
 import { CredentialBroker } from "./credential-broker";
 import { redactTransform } from "./log-redactor";
-import { getDeviceInfo, loadGeminiApiKey, registerSettingsIpc } from "./settings";
+import {
+  getAutoLoginEnabled,
+  getDeviceInfo,
+  loadFrontendPort,
+  loadGeminiApiKey,
+  registerSettingsIpc,
+  saveFrontendPort,
+  setAutoLoginEnabled,
+} from "./settings";
 
 // §G — userData/logs/main.log 로 회전 저장 + redaction.
 log.transports.file.resolvePathFn = () =>
@@ -83,6 +92,19 @@ export function setInstallPending(v: boolean): void {
   installPending = v;
 }
 
+// app.getVersion() 은 dev 모드에서 Electron 프레임워크 버전(예: 33.4.11)을 반환하는
+// 알려진 동작이 있어, 사용자 친화 타이틀("Blog Pick v0.2.3")을 위해 package.json 을
+// 직접 읽는다. prod 빌드(app.asar 내부)에서도 `../../package.json` 경로가 유효하므로
+// dev/prod 양쪽에서 같은 결과.
+function getAppVersion(): string {
+  try {
+    const pkgPath = path.join(__dirname, "..", "..", "package.json");
+    const data = JSON.parse(fs.readFileSync(pkgPath, "utf-8")) as { version?: string };
+    if (typeof data?.version === "string" && data.version.length > 0) return data.version;
+  } catch { /* fall through */ }
+  return app.getVersion();
+}
+
 // §A 보안 토큰. packaged 빌드에서는 ALLOW_INSECURE_DEV_* 플래그를 절대 set 하지 않음.
 const APP_TOKEN = crypto.randomBytes(32).toString("hex");
 const APP_SESSION_TOKEN = crypto.randomBytes(32).toString("hex");
@@ -140,7 +162,7 @@ if (!gotLock) {
 
   app.whenReady().then(boot).catch((err) => {
     console.error("[main] boot failed:", err);
-    dialog.showErrorBox("App Blog Publisher", `서비스 시작 실패:\n${String(err?.message ?? err)}`);
+    dialog.showErrorBox("Blog Pick",`서비스 시작 실패:\n${String(err?.message ?? err)}`);
     app.exit(1);
   });
 
@@ -265,7 +287,7 @@ async function boot(): Promise<void> {
   await broker.start();
   if (!broker.isEncryptionAvailable()) {
     dialog.showErrorBox(
-      "App Blog Publisher",
+      "Blog Pick",
       "이 PC 에서 비밀번호 암호화 기능을 사용할 수 없습니다.\n" +
         "Windows 사용자 프로필에 문제가 있을 수 있습니다.\n" +
         "기존 계정의 비밀번호는 다시 입력해야 동작합니다.",
@@ -273,7 +295,10 @@ async function boot(): Promise<void> {
   }
 
   const backendPort = await getFreePort();
-  const frontendPort = await getFreePort();
+  // §J — Supabase 세션 영속성을 위해 매 부팅마다 같은 포트(=같은 origin)를 시도한다.
+  // 마지막에 사용한 포트가 비어 있으면 재사용, 점유돼 있으면 빈 포트로 fallback.
+  const frontendPort = await getPreferredOrFreePort(loadFrontendPort());
+  saveFrontendPort(frontendPort);
   const frontendOrigin = `http://127.0.0.1:${frontendPort}`;
 
   python = new PythonManager(backendPort, {
@@ -296,11 +321,23 @@ async function boot(): Promise<void> {
   assignToJob(nextSrv.pid);
 
   const allowedOrigin = nextSrv.url;
+  // macOS dock 아이콘은 dev 모드에서 Electron 기본 아이콘이 떠서 명시 지정.
+  // prod 빌드에선 .app 번들 아이콘을 OS 가 직접 쓰므로 setIcon 은 dev 한정 보정 용도.
+  if (process.platform === "darwin" && app.dock) {
+    try {
+      app.dock.setIcon(paths.iconPng);
+    } catch {
+      /* 아이콘 파일 누락 등은 무시 — 기본 아이콘 유지 */
+    }
+  }
+
+  const fixedTitle = `Blog Pick v${getAppVersion()}`;
   mainWindow = new BrowserWindow({
     width: 1280,
     height: 800,
     backgroundColor: "#1a1a1a",
-    title: "App Blog Publisher",
+    title: fixedTitle,
+    icon: paths.iconPng,
     webPreferences: {
       contextIsolation: true,
       sandbox: true,
@@ -309,6 +346,14 @@ async function boot(): Promise<void> {
       allowRunningInsecureContent: false,
       preload: paths.preload,
     },
+  });
+  // Electron 기본 동작: 페이지가 로드되면 HTML <title> 이 BrowserWindow.title 을 덮어쓴다.
+  // 그러면 "Blog Pick v0.2.3" 가 "Blog Pick" 으로 바뀌어 버전 표시가 사라지므로 차단.
+  mainWindow.on("page-title-updated", (event) => {
+    event.preventDefault();
+    if (mainWindow && !mainWindow.isDestroyed() && mainWindow.getTitle() !== fixedTitle) {
+      mainWindow.setTitle(fixedTitle);
+    }
   });
   applyWindowSecurity(mainWindow, allowedOrigin);
 
@@ -331,6 +376,11 @@ async function boot(): Promise<void> {
     const url = pendingAuthDeepLink;
     pendingAuthDeepLink = null;
     return url;
+  });
+  ipcMain.handle("auth:getAutoLoginEnabled", () => getAutoLoginEnabled());
+  ipcMain.handle("auth:setAutoLoginEnabled", (_e, enabled: boolean) => {
+    setAutoLoginEnabled(Boolean(enabled));
+    return getAutoLoginEnabled();
   });
 
   // §D busy IPC.

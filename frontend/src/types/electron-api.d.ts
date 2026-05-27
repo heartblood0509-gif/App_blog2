@@ -63,6 +63,8 @@ interface ElectronAuthApi {
   getDeviceInfo: () => Promise<ElectronAuthDeviceInfo>;
   getPendingDeepLink: () => Promise<string | null>;
   onDeepLink: (cb: (url: string) => void) => () => void;
+  getAutoLoginEnabled: () => Promise<boolean>;
+  setAutoLoginEnabled: (enabled: boolean) => Promise<boolean>;
 }
 
 interface ElectronAPI {
