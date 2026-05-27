@@ -31,6 +31,10 @@ contextBridge.exposeInMainWorld("electronAPI", {
       ipcRenderer.on("auth:deepLink", handler);
       return () => ipcRenderer.removeListener("auth:deepLink", handler);
     },
+    getAutoLoginEnabled: (): Promise<boolean> =>
+      ipcRenderer.invoke("auth:getAutoLoginEnabled"),
+    setAutoLoginEnabled: (enabled: boolean): Promise<boolean> =>
+      ipcRenderer.invoke("auth:setAutoLoginEnabled", enabled),
   },
   updater: {
     check: () => ipcRenderer.invoke("updater:check"),

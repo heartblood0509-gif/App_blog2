@@ -1,12 +1,11 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Separator } from "@/components/ui/separator";
 import {
   Dialog,
   DialogContent,
@@ -15,22 +14,11 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import {
-  Search,
-  FileText,
-  Hash,
-  Link as LinkIcon,
-  MessageCircleQuestion,
-  Sparkles,
-  Loader2,
-} from "lucide-react";
+import { Search, FileText, Hash, Sparkles, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import type { WizardState, ProductInfo } from "@/types";
-import type { AeoProfile, AeoSource } from "@/types/aeo";
-import type { ProductSummary } from "@/lib/prompts/story-skeleton";
-import type { UserAnswers } from "@/lib/prompts/story-skeleton";
+import type { ProductSummary, UserAnswers } from "@/lib/prompts/story-skeleton";
 import { PRODUCTS } from "@/lib/products";
-import { TargetQuerySelector } from "@/components/aeo/target-query-selector";
 import { Label } from "@/components/ui/label";
 
 // 후기성 모드는 페르소나 카드를 제거하면서 PERSONA_PRESETS 사용처가 사라짐.
@@ -44,59 +32,6 @@ interface StepSettingsProps {
 }
 
 export function StepSettings({ state, onChange, customProductInfoById }: StepSettingsProps) {
-  // AEO 모드: 선택된 프로필 객체 fetch (TargetQuerySelector에 전달)
-  const [aeoProfile, setAeoProfile] = useState<AeoProfile | null>(null);
-  useEffect(() => {
-    if (state.postCategory !== "aeo" || !state.selectedAeoProfileId) {
-      return;
-    }
-    let aborted = false;
-    fetch("/api/aeo/profiles", { cache: "no-store" })
-      .then((res) => res.json())
-      .then((list: AeoProfile[]) => {
-        if (aborted) return;
-        const found = Array.isArray(list)
-          ? list.find((p) => p.id === state.selectedAeoProfileId) ?? null
-          : null;
-        setAeoProfile(found);
-      })
-      .catch(() => {
-        if (!aborted) setAeoProfile(null);
-      });
-    return () => {
-      aborted = true;
-    };
-  }, [state.postCategory, state.selectedAeoProfileId]);
-
-  const handleAeoTargetQueriesChange = useCallback(
-    (queries: string[]) => {
-      onChange({ aeoTargetQueries: queries });
-    },
-    [onChange]
-  );
-
-  const updateAeoSource = useCallback(
-    (index: number, partial: Partial<AeoSource>) => {
-      const next = [...state.aeoSources];
-      next[index] = { ...next[index], ...partial };
-      onChange({ aeoSources: next });
-    },
-    [state.aeoSources, onChange]
-  );
-
-  const addAeoSource = useCallback(() => {
-    onChange({ aeoSources: [...state.aeoSources, { url: "", note: "" }] });
-  }, [state.aeoSources, onChange]);
-
-  const removeAeoSource = useCallback(
-    (index: number) => {
-      onChange({
-        aeoSources: state.aeoSources.filter((_, i) => i !== index),
-      });
-    },
-    [state.aeoSources, onChange]
-  );
-
   // ─────── AI 스토리 추천 (후기성 전용) ───────
   const [isRecommending, setIsRecommending] = useState(false);
   const [overwriteOpen, setOverwriteOpen] = useState(false);
@@ -411,83 +346,6 @@ export function StepSettings({ state, onChange, customProductInfoById }: StepSet
           </Card>
         </div>
       </div>
-
-      {/* AEO 전용 — 타겟 자연어 질문 + 출처/근거 */}
-      {state.postCategory === "aeo" && (
-        <>
-          <Separator className="my-2" />
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2 text-sm">
-                <MessageCircleQuestion className="h-4 w-4" />
-                타겟 자연어 질문
-                <Badge variant="secondary" className="text-[10px]">AEO</Badge>
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <TargetQuerySelector
-                profile={state.postCategory === "aeo" ? aeoProfile : null}
-                mainKeyword={state.mainKeyword}
-                subKeywords={state.subKeywords}
-                topic={state.topic}
-                queries={state.aeoTargetQueries}
-                onChange={handleAeoTargetQueriesChange}
-              />
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2 text-sm">
-                <LinkIcon className="h-4 w-4" />
-                출처·근거 (URL 또는 메모)
-                <Badge variant="secondary" className="text-[10px]">선택</Badge>
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              <p className="text-xs text-muted-foreground">
-                식약처·논문·협회 가이드 등 권위 있는 자료를 추가하면 AI 인용률이 크게 올라갑니다.
-                비워두면 다음 단계에서 한 번 더 알려드릴게요.
-              </p>
-              {state.aeoSources.length === 0 ? (
-                <Button variant="outline" size="sm" onClick={addAeoSource} className="gap-1">
-                  + 출처 추가
-                </Button>
-              ) : (
-                <div className="space-y-2">
-                  {state.aeoSources.map((src, i) => (
-                    <div key={i} className="flex gap-2">
-                      <Input
-                        placeholder="URL (선택)"
-                        value={src.url ?? ""}
-                        onChange={(e) => updateAeoSource(i, { url: e.target.value })}
-                        className="flex-1"
-                      />
-                      <Input
-                        placeholder='메모 (예: "식약처 의약외품 고시")'
-                        value={src.note ?? ""}
-                        onChange={(e) => updateAeoSource(i, { note: e.target.value })}
-                        className="flex-1"
-                      />
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => removeAeoSource(i)}
-                        className="shrink-0 text-muted-foreground"
-                      >
-                        삭제
-                      </Button>
-                    </div>
-                  ))}
-                  <Button variant="outline" size="sm" onClick={addAeoSource} className="gap-1">
-                    + 출처 추가
-                  </Button>
-                </div>
-              )}
-            </CardContent>
-          </Card>
-        </>
-      )}
 
       {/* 기존 textarea에 내용 있을 때 덮어쓰기 확인 다이얼로그 */}
       <Dialog

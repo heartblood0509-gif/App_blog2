@@ -99,7 +99,6 @@ import {
 const MAX_BY_CATEGORY: Record<string, number> = {
   brand: 12,
   review: 12,
-  aeo: 8,
   seoAeo: 12, // SEO·AEO 통합형은 브랜드와 동일한 후처리 파이프라인을 사용하므로 캡도 12장으로 일치
 };
 function resolveMaxCount(postCategory: PostCategory | null): number {
@@ -110,7 +109,7 @@ function resolveMaxCount(postCategory: PostCategory | null): number {
 /**
  * 후처리 파이프라인 — postCategory 별로 다른 규칙 적용.
  * - brand, seoAeo: 브랜드 8단계 (살균 → HOOK → 중복제거 → 열거 → 소제목 → 도입부 → 채움 → 캡)
- * - review/aeo: 기존 4단계 (HOOK → 중복제거 → 도입부 → 소제목 → 캡)
+ * - review: 기존 4단계 (HOOK → 중복제거 → 도입부 → 소제목 → 캡)
  */
 function applyImagePostProcessing(
   raw: string,
@@ -152,7 +151,6 @@ import { StepThreadsAnalysis } from "@/components/steps-threads/step-threads-ana
 import { StepThreadsSettings } from "@/components/steps-threads/step-threads-settings";
 import { StepThreadsGenerate } from "@/components/steps-threads/step-threads-generate";
 import { TemplateFitModal } from "@/components/brand/template-fit-modal";
-import { SourceWarningModal } from "@/components/aeo/source-warning-modal";
 import { EmptyInputsWarningModal } from "@/components/empty-inputs-warning-modal";
 
 // Step 2 (글 설정) 입력 칸 중 하나라도 채워졌는지 검사
@@ -311,10 +309,6 @@ export default function Home() {
   // 모달의 ①/③ 동작 후 같은 입력으로 fetchContent를 다시 부를 때, 검문소를 재실행하지 않기 위한 1회용 플래그.
   const bypassFitCheckRef = useRef(false);
 
-  // AEO 모드 — Step 2→3 진행 시 출처가 비어있으면 경고. "그대로 진행" 1회 통과 플래그.
-  const [sourceWarningOpen, setSourceWarningOpen] = useState(false);
-  const bypassSourceWarningRef = useRef(false);
-
   // Step 2 (글 설정) — 모든 입력 칸이 비었을 때 [다음] 누르면 안내 모달
   const [emptyInputsWarningOpen, setEmptyInputsWarningOpen] = useState(false);
 
@@ -462,11 +456,6 @@ export default function Home() {
             if (!state.selectedAnalysisRecordId) return false;
           }
         }
-        if (state.postCategory === "aeo") {
-          // AEO 프로필 + 글 타입 선택 필수.
-          if (!state.selectedAeoProfileId) return false;
-          if (!state.selectedAeoTemplate) return false;
-        }
         if (state.postCategory === "seoAeo") {
           // SEO·AEO 통합형 — AEO 프로필만 필수 (글 타입은 단일 흐름이라 미사용)
           if (!state.selectedAeoProfileId) return false;
@@ -564,10 +553,6 @@ export default function Home() {
             !state.selectedAnalysisRecordId
           )
             return "보관함에서 분석을 선택해주세요";
-        }
-        if (state.postCategory === "aeo") {
-          if (!state.selectedAeoProfileId) return "AEO 프로필을 선택해주세요";
-          if (!state.selectedAeoTemplate) return "AEO 글 타입을 선택해주세요";
         }
         if (state.postCategory === "seoAeo") {
           if (!state.selectedAeoProfileId) return "AEO 프로필을 선택해주세요";
@@ -781,36 +766,6 @@ export default function Home() {
         return;
       }
 
-      // AEO 모드 분기
-      if (state.postCategory === "aeo") {
-        const profile = await fetchAeoProfile();
-        if (!profile) {
-          throw new Error("AEO 프로필을 불러오지 못했습니다.");
-        }
-        const res = await fetch("/api/aeo/titles", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            profile,
-            template: state.selectedAeoTemplate,
-            mainKeyword: getEffectiveMainKeyword(state),
-            subKeywords: state.subKeywords || undefined,
-            topic: state.topic || undefined,
-            count: 5,
-          }),
-        });
-        if (!res.ok) {
-          const err = await res.json();
-          throw new Error(err.error || "제목 생성에 실패했습니다.");
-        }
-        const data = await res.json();
-        if (!Array.isArray(data.suggestions)) {
-          throw new Error("응답 형식이 올바르지 않습니다. 다시 시도해주세요.");
-        }
-        updateState({ titleSuggestions: data.suggestions, isLoading: false });
-        return;
-      }
-
       // 후기성 모드 (기존)
       const res = await fetch("/api/titles", {
         method: "POST",
@@ -840,7 +795,7 @@ export default function Home() {
       toast.error(msg);
       updateState({ isLoading: false });
     }
-  }, [state.postCategory, state.selectedBrandTemplate, state.selectedBrandInfoVariant, state.selectedBrandIntroVariant, state.selectedBrandValueProofVariant, state.selectedBrandDetailVariant, state.selectedAnalysisRecordId, state.referenceAnalysis, state.referenceTitleFormula, state.selectedAeoTemplate, state.selectedProducts, state.narrativeType, state.toneType, state.mainKeyword, state.subKeywords, state.persona, state.topic, customProductInfoById, fetchBrandProfile, fetchAeoProfile, updateState]);
+  }, [state.postCategory, state.selectedBrandTemplate, state.selectedBrandInfoVariant, state.selectedBrandIntroVariant, state.selectedBrandValueProofVariant, state.selectedBrandDetailVariant, state.selectedAnalysisRecordId, state.referenceAnalysis, state.referenceTitleFormula, state.selectedProducts, state.narrativeType, state.toneType, state.mainKeyword, state.subKeywords, state.persona, state.topic, customProductInfoById, fetchBrandProfile, fetchAeoProfile, updateState]);
 
   // 검증 호출. fetchContent와 본문 직접 수정(handleContentEdit) 양쪽에서 재사용한다.
   const runValidation = useCallback(
@@ -849,8 +804,6 @@ export default function Home() {
         const endpoint =
           state.postCategory === "brand"
             ? "/api/brand/validate"
-            : state.postCategory === "aeo"
-            ? "/api/aeo/validate"
             : "/api/validate";
         const res = await fetch(endpoint, {
           method: "POST",
@@ -930,52 +883,6 @@ export default function Home() {
       }
     }
 
-    if (
-      state.postCategory === "aeo" &&
-      state.selectedAeoTemplate &&
-      !bypassFitCheckRef.current
-    ) {
-      updateState({ isLoading: true });
-      try {
-        const checkRes = await fetch("/api/aeo/check-fit", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            template: state.selectedAeoTemplate,
-            topic: effectiveTopic || undefined,
-            mainKeyword: getEffectiveMainKeyword(state),
-            subKeywords: state.subKeywords || undefined,
-            selectedTitle: state.selectedTitle || undefined,
-          }),
-        });
-        if (checkRes.ok) {
-          const fit = await checkRes.json();
-          // eslint-disable-next-line no-console
-          console.log("[AEO 검문소 응답]", fit);
-          if (
-            !fit.skipped &&
-            fit.match === false &&
-            typeof fit.confidence === "number" &&
-            fit.confidence >= 0.6
-          ) {
-            updateState({ isLoading: false });
-            const sugs = Array.isArray(fit.suggestions)
-              ? fit.suggestions.filter((s: unknown): s is string => typeof s === "string")
-              : typeof fit.suggestion === "string"
-              ? [fit.suggestion]
-              : [];
-            setFitGate({
-              open: true,
-              reason: typeof fit.reason === "string" ? fit.reason : "",
-              suggestions: sugs,
-            });
-            return;
-          }
-        }
-      } catch {
-        // AEO 검문소 실패 — 통과 처리
-      }
-    }
     bypassFitCheckRef.current = false;
 
     updateState({
@@ -1061,28 +968,7 @@ export default function Home() {
             subKeywords: state.subKeywords || undefined,
             requirements: state.requirements || undefined,
             charCount: state.charCountRange,
-          }),
-        });
-      } else if (state.postCategory === "aeo") {
-        const profile = await fetchAeoProfile();
-        if (!profile) {
-          throw new Error("AEO 프로필을 불러오지 못했습니다.");
-        }
-        res = await fetch("/api/aeo/generate", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            profile,
-            template: state.selectedAeoTemplate,
-            mainKeyword: getEffectiveMainKeyword(state),
-            subKeywords: state.subKeywords || undefined,
-            topic: effectiveTopic || undefined,
-            requirements: state.requirements || undefined,
-            charCount: state.charCountRange,
-            selectedTitle: state.selectedTitle,
-            targetQueries: state.aeoTargetQueries.length > 0 ? state.aeoTargetQueries : undefined,
-            sources: state.aeoSources.length > 0 ? state.aeoSources : undefined,
-            // V1 첨부 제품 (선택)
+            // V1 첨부 제품 (선택) — undefined면 라우트에서 격리 패턴으로 기존 경로 유지
             attachedProduct: resolveAttachedProduct(state.selectedAeoProductId, userProducts),
           }),
         });
@@ -1162,7 +1048,7 @@ export default function Home() {
       toast.error(msg);
       updateState({ isLoading: false });
     }
-  }, [state.postCategory, state.selectedBrandTemplate, state.selectedBrandInfoVariant, state.selectedAeoTemplate, state.aeoTargetQueries, state.aeoSources, state.topic, state.selectedProducts, state.narrativeType, state.toneType, state.mainKeyword, state.subKeywords, state.persona, state.requirements, state.charCountRange, state.selectedTitle, state.referenceAnalysis, state.referenceExcerpts, state.referenceText, state.toneExample, customProductInfoById, fetchBrandProfile, fetchAeoProfile, updateState, runValidation]);
+  }, [state.postCategory, state.selectedBrandTemplate, state.selectedBrandInfoVariant, state.topic, state.selectedProducts, state.narrativeType, state.toneType, state.mainKeyword, state.subKeywords, state.persona, state.requirements, state.charCountRange, state.selectedTitle, state.referenceAnalysis, state.referenceExcerpts, state.referenceText, state.toneExample, customProductInfoById, fetchBrandProfile, fetchAeoProfile, updateState, runValidation]);
 
   // ── Phase 1 검문소 모달 핸들러 ──
   const handleFitAcceptSuggestion = useCallback(
@@ -1619,23 +1505,6 @@ export default function Home() {
     if (!canAdvance()) return;
     const nextStep = state.currentStep + 1;
 
-    // AEO 모드: Step 2(설정) → Step 3(제목) 진행 시 출처 누락이면 경고 모달.
-    // "그대로 진행"이면 bypass 플래그가 켜져 한 번 통과.
-    if (
-      nextStep === 3 &&
-      state.postCategory === "aeo" &&
-      !bypassSourceWarningRef.current
-    ) {
-      const hasSource = state.aeoSources.some(
-        (s) => (s.url?.trim() || s.note?.trim() || "").length > 0
-      );
-      if (!hasSource) {
-        setSourceWarningOpen(true);
-        return;
-      }
-    }
-    bypassSourceWarningRef.current = false;
-
     updateState({
       currentStep: nextStep,
       maxVisitedStep: Math.max(state.maxVisitedStep, nextStep),
@@ -1650,16 +1519,6 @@ export default function Home() {
         fetchContent().catch(() => {});
       }
     }
-  };
-
-  const handleSourceWarningProceed = () => {
-    setSourceWarningOpen(false);
-    bypassSourceWarningRef.current = true;
-    handleNext();
-  };
-
-  const handleSourceWarningGoBack = () => {
-    setSourceWarningOpen(false);
   };
 
   const handleBack = () => {
@@ -1702,8 +1561,6 @@ export default function Home() {
           selectedCustomReferenceId: null,
           referenceAnalysis: "",
           referenceExcerpts: [],
-          aeoTargetQueries: [],
-          aeoSources: [],
         });
       } else {
         updateState({
@@ -1739,15 +1596,9 @@ export default function Home() {
         contentDirty: false,
         generatedImages: {},
         customPromptsBySlot: {},
-        // AEO 프로필 — aeo와 seoAeo가 공유 (브랜드형/개인형 신원을 두 모드에서 모두 사용)
+        // AEO 프로필 — seoAeo가 사용
         selectedAeoProfileId:
-          (postCategory === "aeo" || postCategory === "seoAeo")
-            ? state.selectedAeoProfileId
-            : null,
-        // AEO 글 타입·자연어 질문·출처는 aeo 전용 자원
-        selectedAeoTemplate: postCategory === "aeo" ? state.selectedAeoTemplate : null,
-        aeoTargetQueries: postCategory === "aeo" ? state.aeoTargetQueries : [],
-        aeoSources: postCategory === "aeo" ? state.aeoSources : [],
+          postCategory === "seoAeo" ? state.selectedAeoProfileId : null,
         // 브랜드 전용 — 카테고리 바뀌면 템플릿/변형 선택 초기화 (프로필 ID는 보존)
         selectedBrandTemplate: postCategory === "brand" ? state.selectedBrandTemplate : null,
         selectedBrandInfoVariant: postCategory === "brand" ? state.selectedBrandInfoVariant : null,
@@ -1759,9 +1610,6 @@ export default function Home() {
     [
       updateState,
       state.selectedAeoProfileId,
-      state.selectedAeoTemplate,
-      state.aeoTargetQueries,
-      state.aeoSources,
       state.selectedBrandTemplate,
       state.selectedBrandInfoVariant,
       state.selectedBrandIntroVariant,
@@ -1876,15 +1724,6 @@ export default function Home() {
   const handleAeoProfileChange = useCallback(
     (profileId: string) => {
       updateState({ selectedAeoProfileId: profileId });
-    },
-    [updateState]
-  );
-
-  const handleAeoTemplateChange = useCallback(
-    (template: import("@/types/aeo").AeoTemplateId) => {
-      // 글 타입이 바뀌면 타겟 쿼리는 그대로 두되, 제목/본문은 새로 받아야 하므로 비우지 않음
-      // (사용자가 같은 키워드로 두 타입을 비교해볼 수 있게)
-      updateState({ selectedAeoTemplate: template });
     },
     [updateState]
   );
@@ -2122,9 +1961,7 @@ export default function Home() {
             brandCustomReferenceMode={state.brandCustomReferenceMode}
             onBrandCustomReferenceModeChange={handleBrandCustomReferenceModeChange}
             selectedAeoProfileId={state.selectedAeoProfileId}
-            selectedAeoTemplate={state.selectedAeoTemplate}
             onAeoProfileChange={handleAeoProfileChange}
-            onAeoTemplateChange={handleAeoTemplateChange}
             onAnalysisRecordSelect={handleAnalysisRecordSelect}
             userProducts={userProducts}
             onUserProductsChange={refetchUserProducts}
@@ -2360,13 +2197,6 @@ export default function Home() {
           }}
         />
       )}
-
-      {/* AEO 출처 누락 경고 모달 */}
-      <SourceWarningModal
-        open={sourceWarningOpen}
-        onProceedAnyway={handleSourceWarningProceed}
-        onGoBack={handleSourceWarningGoBack}
-      />
 
       {/* Step 2 빈 입력 안내 모달 */}
       <EmptyInputsWarningModal

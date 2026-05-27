@@ -16,6 +16,13 @@ interface SettingsFile {
   gemini_api_key_encrypted?: string; // base64 DPAPI
   device_id_encrypted?: string; // base64 DPAPI
   device_id_plain?: string; // fallback only when safeStorage is unavailable
+  // §J — 자동 로그인 / 세션 영속성. 매 부팅마다 Next dev 포트가 바뀌면 Supabase 가
+  // IndexedDB 를 origin 별로 분리 저장하기 때문에 세션이 복원되지 않는다. 마지막에
+  // 성공한 포트를 재사용해 origin 을 안정화한다.
+  frontend_port?: number;
+  // 사용자가 로그인 화면 체크박스로 제어. false 이면 다음 부팅 시 Supabase 로컬
+  // 세션을 비우고 로그인 화면을 다시 띄운다. 기본값 true.
+  auto_login_enabled?: boolean;
 }
 
 function settingsPath(): string {
@@ -89,6 +96,36 @@ export function getOrCreateDeviceId(): string {
   }
   writeRawAtomic(data);
   return deviceId;
+}
+
+export function loadFrontendPort(): number | undefined {
+  const data = readRaw();
+  const port = data.frontend_port;
+  if (typeof port === "number" && Number.isInteger(port) && port > 0 && port < 65536) {
+    return port;
+  }
+  return undefined;
+}
+
+export function saveFrontendPort(port: number): void {
+  const data = readRaw();
+  if (data.frontend_port === port) return;
+  data.frontend_port = port;
+  writeRawAtomic(data);
+}
+
+export function getAutoLoginEnabled(): boolean {
+  const data = readRaw();
+  // 기본값 true — 처음 사용자에게는 자동 로그인이 켜져 있다.
+  return data.auto_login_enabled !== false;
+}
+
+export function setAutoLoginEnabled(enabled: boolean): void {
+  const data = readRaw();
+  const next = Boolean(enabled);
+  if (data.auto_login_enabled === next) return;
+  data.auto_login_enabled = next;
+  writeRawAtomic(data);
 }
 
 export function getDeviceInfo() {

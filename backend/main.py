@@ -21,6 +21,7 @@ from routers.brand_profiles import router as brand_profiles_router
 from routers.aeo_profiles import router as aeo_profiles_router
 from routers.analysis_records import router as analysis_records_router, ensure_builtin_seeds
 from routers.products import router as products_router
+from routers.profile_bundle import router as profile_bundle_router
 from config import HOST, PORT
 from auth import verify_app_token
 from log_redactor import RedactingFilter
@@ -146,6 +147,7 @@ app.include_router(brand_profiles_router, prefix="/brand-profiles", tags=["brand
 app.include_router(aeo_profiles_router, prefix="/aeo-profiles", tags=["aeo-profiles"], dependencies=_protected)
 app.include_router(analysis_records_router, prefix="/analysis-records", tags=["analysis-records"], dependencies=_protected)
 app.include_router(products_router, prefix="/products", tags=["products"], dependencies=_protected)
+app.include_router(profile_bundle_router, prefix="/profile-bundle", tags=["profile-bundle"], dependencies=_protected)
 
 
 @app.on_event("startup")

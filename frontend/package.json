@@ -3,11 +3,14 @@
   "version": "0.2.3",
   "private": true,
   "scripts": {
+    "predev": "node scripts/check-whats-new-version.mjs",
     "dev": "next dev",
+    "prebuild": "node scripts/check-whats-new-version.mjs",
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "test": "vitest run"
+    "test": "vitest run",
+    "check:whats-new": "node scripts/check-whats-new-version.mjs"
   },
   "dependencies": {
     "@base-ui/react": "^1.4.0",

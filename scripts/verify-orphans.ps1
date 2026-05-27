@@ -7,11 +7,11 @@
 #   powershell -ExecutionPolicy Bypass -File scripts/verify-orphans.ps1
 #
 # 가정:
-#   release\win-unpacked\App Blog Publisher.exe 가 존재 (npm run dist 이후).
+#   release\win-unpacked\Blog Pick.exe 가 존재 (npm run dist 이후).
 
 $ErrorActionPreference = "Stop"
 $root = Split-Path -Parent $PSScriptRoot
-$exe  = Join-Path $root "release\win-unpacked\App Blog Publisher.exe"
+$exe  = Join-Path $root "release\win-unpacked\Blog Pick.exe"
 
 if (-not (Test-Path $exe)) {
   Write-Error "FAIL: 설치본을 찾을 수 없습니다: $exe (npm run dist 먼저 실행)"
@@ -27,7 +27,7 @@ function Get-OurChildren {
   Get-Process -Name python,node,chrome,BlogPublisher -ErrorAction SilentlyContinue |
     Where-Object {
       $_.Path -and (
-        $_.Path -like "*App Blog Publisher*" -or
+        $_.Path -like "*Blog Pick*" -or
         $_.Path -like "*ms-playwright*" -or
         $_.Path -like "*resources\backend*"
       )

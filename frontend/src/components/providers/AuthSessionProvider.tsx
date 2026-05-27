@@ -114,6 +114,7 @@ export function AuthSessionProvider({ children }: { children: ReactNode }) {
   const [message, setMessage] = useState<string | null>(null);
   const [selectedDeviceId, setSelectedDeviceId] = useState<string>("");
   const [isReplacing, setIsReplacing] = useState(false);
+  const [autoLoginEnabled, setAutoLoginEnabled] = useState<boolean>(true);
 
   const replacementBlockedUntil = result?.next_replacement_at
     ? new Date(result.next_replacement_at)
@@ -236,11 +237,27 @@ export function AuthSessionProvider({ children }: { children: ReactNode }) {
     });
   }, [loadConfig]);
 
+  // 로그인 화면 체크박스의 초기값을 Electron settings.json 에서 로드.
+  // Electron 외 환경(웹 브라우저)에서는 default true 유지.
+  useEffect(() => {
+    window.electronAPI?.auth?.getAutoLoginEnabled?.().then((v) => {
+      if (typeof v === "boolean") setAutoLoginEnabled(v);
+    }).catch(() => {});
+  }, []);
+
   useEffect(() => {
     if (!client || !deviceInfo) return;
 
     let alive = true;
-    client.auth.getSession().then(({ data }) => {
+    const init = async () => {
+      // §J — 자동 로그인이 꺼져 있으면 저장된 Supabase 세션을 비운 뒤 게이트 표시.
+      // 이전 부팅에서 사용자가 체크박스를 해제하고 종료했다면 이 경로로 진입한다.
+      // scope: "local" 은 Supabase 서버 세션은 건드리지 않고 IndexedDB 만 비운다.
+      const allowAuto = await window.electronAPI?.auth?.getAutoLoginEnabled?.().catch(() => true) ?? true;
+      if (!allowAuto) {
+        await client.auth.signOut({ scope: "local" }).catch(() => {});
+      }
+      const { data } = await client.auth.getSession();
       if (!alive) return;
       setSession(data.session);
       if (data.session) {
@@ -251,7 +268,8 @@ export function AuthSessionProvider({ children }: { children: ReactNode }) {
       } else {
         setGateState("signed-out");
       }
-    });
+    };
+    init().catch(() => {});
 
     const {
       data: { subscription },
@@ -316,6 +334,11 @@ export function AuthSessionProvider({ children }: { children: ReactNode }) {
     }
     setGateState("signed-out");
   }, [client, config]);
+
+  const handleAutoLoginToggle = useCallback((checked: boolean) => {
+    setAutoLoginEnabled(checked);
+    window.electronAPI?.auth?.setAutoLoginEnabled?.(checked).catch(() => {});
+  }, []);
 
   const logout = useCallback(async () => {
     await Promise.allSettled([client?.auth.signOut(), clearLocalAppSession()]);
@@ -518,6 +541,18 @@ export function AuthSessionProvider({ children }: { children: ReactNode }) {
                 canReplace={canReplace}
                 nextReplacementAt={result?.next_replacement_at ?? null}
               />
+            )}
+
+            {gateState === "signed-out" && (
+              <label className="flex cursor-pointer items-center gap-2 text-sm text-muted-foreground">
+                <input
+                  type="checkbox"
+                  className="h-4 w-4 cursor-pointer accent-primary"
+                  checked={autoLoginEnabled}
+                  onChange={(e) => handleAutoLoginToggle(e.target.checked)}
+                />
+                다음에 자동 로그인
+              </label>
             )}
 
             <div className="flex flex-wrap gap-2">

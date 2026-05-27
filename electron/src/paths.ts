@@ -47,4 +47,10 @@ export const paths = {
   playwrightBrowsers: isDev
     ? path.join(__dirname, "..", "..", "playwright-cache")
     : path.join(process.resourcesPath, "ms-playwright"),
+
+  // dev: 워크스페이스 루트의 build/icon.png. prod: macOS 는 번들 아이콘을 OS 가 직접 쓰지만
+  // BrowserWindow.icon / app.dock.setIcon 폴백용 경로도 잡아둔다.
+  iconPng: isDev
+    ? path.join(__dirname, "..", "..", "build", "icon.png")
+    : path.join(process.resourcesPath, "icon.png"),
 };
