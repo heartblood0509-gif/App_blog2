@@ -3201,7 +3201,7 @@ class NaverBlogPublisher:
         naver_pw: str = "",
         profile_path: str = "",
         image_slots: list[dict] | None = None,
-        auto_publish: bool = True,
+        auto_publish: bool = False,
         on_manual_close=None,
     ) -> dict:
         """네이버 블로그 발행.

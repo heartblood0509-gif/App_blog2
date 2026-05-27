@@ -3,7 +3,7 @@
 // §D — 작업 진행 중에는 자동 업데이트 설치를 차단한다.
 //
 // 사용 예:
-//   useBusy("publish:auto", isPublishing);
+//   useBusy("publish:compose", isPublishing);
 //   useBusy(`publish:manual:${manualSessionId}`, true);
 //
 // 첫 인자 = unique operation id (Set 에 들어가므로 중복 add 안전).
