@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain, powerMonitor, shell } from "electron";
+import { app, BrowserWindow, dialog, ipcMain, powerMonitor, screen, shell } from "electron";
 import { spawnSync } from "node:child_process";
 import crypto from "node:crypto";
 import fs from "node:fs";
@@ -103,6 +103,14 @@ function getAppVersion(): string {
     if (typeof data?.version === "string" && data.version.length > 0) return data.version;
   } catch { /* fall through */ }
   return app.getVersion();
+}
+
+function getInitialWindowBounds(): { width: number; height: number } {
+  const { width: workAreaWidth, height: workAreaHeight } = screen.getPrimaryDisplay().workAreaSize;
+  return {
+    width: Math.min(1920, workAreaWidth),
+    height: Math.min(1080, workAreaHeight),
+  };
 }
 
 // §A 보안 토큰. packaged 빌드에서는 ALLOW_INSECURE_DEV_* 플래그를 절대 set 하지 않음.
@@ -332,9 +340,10 @@ async function boot(): Promise<void> {
   }
 
   const fixedTitle = `Blog Pick v${getAppVersion()}`;
+  const initialBounds = getInitialWindowBounds();
   mainWindow = new BrowserWindow({
-    width: 1280,
-    height: 800,
+    width: initialBounds.width,
+    height: initialBounds.height,
     backgroundColor: "#1a1a1a",
     title: fixedTitle,
     icon: paths.iconPng,
