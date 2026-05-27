@@ -82,12 +82,18 @@ console.log(`[dev-worktree] mode    =${isElectron ? "electron" : "web"}`);
   }
 
   // Web 모드: 백엔드 + 프론트 직접 기동
-  // 강제 포트 지정 시 그 포트만 시도. 점유돼 있으면 즉시 실패하여 사용자에게 알린다.
+  //
+  // 포트 결정 우선순위:
+  //   1. CLI 인자(--frontend-port / --backend-port) — 명시적 지정 시 즉시 실패 가능
+  //   2. PORT 환경변수 (frontend만) — Claude Code preview_start autoPort 호환
+  //   3. findFreePort 자동 탐색
   const backendPort = explicitBackendPort
     ? await ensurePortFree(explicitBackendPort, "백엔드")
     : await findFreePort(8001);
   const frontendPort = explicitFrontendPort
     ? await ensurePortFree(explicitFrontendPort, "프론트엔드")
+    : process.env.PORT
+    ? Number.parseInt(process.env.PORT, 10)
     : await findFreePort(3000);
 
   // 2. frontend/.env.local
