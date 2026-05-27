@@ -297,11 +297,24 @@ export interface WizardState {
    */
   brandCustomReferenceMode: import("./brand").BrandCustomReferenceMode;
 
+  /**
+   * 브랜드 모드에서 첨부한 제품 ID — 후기성과 동일한 products.json 풀에서 선택.
+   * undefined면 첨부 안 함(기존 동작과 100% 동일).
+   * NEXT_PUBLIC_ENABLE_PRODUCT_ATTACH=1일 때만 UI 노출.
+   */
+  selectedBrandProductId?: ProductId;
+
   // Step 2 AEO 분기 (postCategory === "aeo"일 때만 의미)
   /** 선택된 AEO 프로필 ID (예: "aeo1") */
   selectedAeoProfileId: string | null;
   /** 선택된 AEO 글 타입 (정보성/비교추천) */
   selectedAeoTemplate: import("./aeo").AeoTemplateId | null;
+  /**
+   * AEO 모드에서 첨부한 제품 ID. 후기성 products.json 풀 공유.
+   * undefined면 첨부 안 함. NEXT_PUBLIC_ENABLE_PRODUCT_ATTACH=1일 때만 UI 노출.
+   * 브랜드 첨부와 별도 필드로 관리 — 모드 전환 시 상태 오염 방지.
+   */
+  selectedAeoProductId?: ProductId;
   /** Phase 3에서 자동 추론 후 사용자 확정한 자연어 질문들 */
   aeoTargetQueries: string[];
   /** 출처·근거 (선택 입력, 비우면 경고 모달) */
