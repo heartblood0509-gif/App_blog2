@@ -55,7 +55,7 @@ function basicAuthChallenge(): NextResponse {
   return new NextResponse("Authentication required", {
     status: 401,
     headers: {
-      "WWW-Authenticate": 'Basic realm="App Blog Publisher"',
+      "WWW-Authenticate": 'Basic realm="Blog Pick"',
     },
   });
 }

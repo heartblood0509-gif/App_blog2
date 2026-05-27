@@ -1,6 +1,6 @@
 # smoke-packaged.ps1
 #
-# release\win-unpacked\App Blog Publisher.exe 를 띄워:
+# release\win-unpacked\Blog Pick.exe 를 띄워:
 #   1) 백엔드 /health 가 200 인지
 #   2) /publish/validate 가 없는 account_id 에 대해 account-not-found 응답을 주는지
 #      (§H — endpoint·토큰·인증·dependency 가 모두 살아있는지 검증)
@@ -9,7 +9,7 @@
 
 $ErrorActionPreference = "Stop"
 $root = Split-Path -Parent $PSScriptRoot
-$exe  = Join-Path $root "release\win-unpacked\App Blog Publisher.exe"
+$exe  = Join-Path $root "release\win-unpacked\Blog Pick.exe"
 
 if (-not (Test-Path $exe)) {
   Write-Error "FAIL: 설치본을 찾을 수 없습니다: $exe (npm run dist 먼저 실행)"
@@ -24,7 +24,7 @@ try {
   $children = Get-Process -Name python,node,BlogPublisher -ErrorAction SilentlyContinue |
     Where-Object {
       $_.Path -and (
-        $_.Path -like "*App Blog Publisher*" -or
+        $_.Path -like "*Blog Pick*" -or
         $_.Path -like "*resources\backend*"
       )
     }
