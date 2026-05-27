@@ -12,6 +12,7 @@ import {
   ArrowLeft,
   KeyRound,
   LogOut,
+  Megaphone,
   MonitorSmartphone,
   RotateCcw,
 } from "lucide-react";
@@ -25,6 +26,7 @@ import { AdminEntryButton } from "@/components/providers/AdminEntryButton";
 import { useAuthSession } from "@/components/providers/AuthSessionProvider";
 import { Logo } from "@/components/Logo";
 import { ThemeToggle } from "@/components/ThemeToggle";
+import { useWhatsNew } from "@/hooks/use-whats-new";
 
 interface AppHeaderProps {
   onTitleClick?: () => void;
@@ -50,6 +52,8 @@ export function AppHeader({
   const isMain = pathname === "/";
   const isApiKey = pathname?.startsWith("/settings/api-key") ?? false;
   const isDevices = pathname?.startsWith("/settings/devices") ?? false;
+  const isWhatsNew = pathname?.startsWith("/whats-new") ?? false;
+  const { hasUnseen } = useWhatsNew();
   const { session, logout } = useAuthSession();
   // dev 환경에선 session이 비어 있어 칩이 안 보이므로 placeholder 노출 — 시각 검수용.
   const userEmail =
@@ -130,6 +134,31 @@ export function AppHeader({
               </Tooltip>
             </>
           )}
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <Link
+                  href="/whats-new"
+                  aria-label={hasUnseen ? "새 소식 (새 항목 있음)" : "새 소식"}
+                  className={`relative ${buttonVariants({
+                    variant: isWhatsNew ? "secondary" : "ghost",
+                    size: "icon",
+                  })}`}
+                >
+                  <Megaphone className="h-4 w-4" />
+                  {hasUnseen && (
+                    <span
+                      aria-hidden
+                      className="absolute right-1.5 top-1.5 h-2 w-2 rounded-full bg-red-500 ring-2 ring-background"
+                    />
+                  )}
+                </Link>
+              }
+            />
+            <TooltipContent>
+              {hasUnseen ? "새 소식 (새 항목 있음)" : "새 소식"}
+            </TooltipContent>
+          </Tooltip>
           <AdminEntryButton />
           <ThemeToggle />
           <Tooltip>

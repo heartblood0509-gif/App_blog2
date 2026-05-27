@@ -87,7 +87,10 @@ console.log(`[dev-worktree] mode    =${isElectron ? "electron" : "web"}`);
   const backend = spawnBackend(worktreeRoot, backendPort);
   await waitForPort(backendPort, 30_000).catch(() => die("백엔드가 30초 안에 LISTEN 하지 못함"));
 
-  // 4. 프론트 기동 (node_modules 가 symlink 면 webpack fallback, 진짜 dir 면 Turbopack)
+  // 4. 새 소식 안전장치: package.json version 과 whats-new.json 최신 버전 일치 검사 (경고만)
+  runWhatsNewCheck(worktreeRoot);
+
+  // 5. 프론트 기동 (node_modules 가 symlink 면 webpack fallback, 진짜 dir 면 Turbopack)
   console.log(`\n[dev-worktree] 프론트 기동 (PORT=${frontendPort})`);
   const frontend = spawnFrontend(worktreeRoot, frontendPort, backendPort);
 
@@ -235,6 +238,19 @@ function waitForPort(port, timeoutMs) {
     }
     check();
   });
+}
+
+function runWhatsNewCheck(worktreeRoot) {
+  // 새 소식 빠짐 안전장치. exit code 무시 — 경고만, 빌드 막지 않음.
+  const script = path.join(worktreeRoot, "frontend", "scripts", "check-whats-new-version.mjs");
+  if (!fs.existsSync(script)) return;
+  try {
+    require("child_process").execFileSync(process.execPath, [script], {
+      stdio: "inherit",
+    });
+  } catch {
+    // 체크 실패해도 dev 는 계속 진행
+  }
 }
 
 function spawnBackend(worktreeRoot, port) {
