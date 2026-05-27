@@ -1,22 +1,12 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useState } from "react";
 import { motion } from "framer-motion";
 import { toast } from "sonner";
 import { Card, CardContent } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Textarea } from "@/components/ui/textarea";
-import { Label } from "@/components/ui/label";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
 import {
   Droplets,
   Sparkles,
@@ -25,7 +15,6 @@ import {
   CircleDot,
   FlaskConical,
   Pencil,
-  Check,
   Plus,
   Trash2,
   Package,
@@ -65,10 +54,6 @@ export function ProductSelectionSection({
   onUserProductsChange,
   onProductDeleted,
 }: ProductSelectionSectionProps) {
-  const [editingId, setEditingId] = useState<ProductId | null>(null);
-  const [draftAdvantages, setDraftAdvantages] = useState("");
-  const dialogTextareaRef = useRef<HTMLTextAreaElement | null>(null);
-
   // 등록·수정 폼 상태
   const [formOpen, setFormOpen] = useState(false);
   const [editingProduct, setEditingProduct] = useState<UserProduct | null>(null);
@@ -105,48 +90,6 @@ export function ProductSelectionSection({
     },
     [selectedProducts, onChange, isSelected]
   );
-
-  const openEditor = useCallback(
-    (id: ProductId, defaultAdvantages: string) => {
-      const current =
-        selectedProducts.find((p) => p.id === id)?.advantages ?? defaultAdvantages;
-      setDraftAdvantages(current);
-      setEditingId(id);
-    },
-    [selectedProducts]
-  );
-
-  const closeEditor = useCallback(() => {
-    setEditingId(null);
-  }, []);
-
-  const handleSaveAdvantages = useCallback(() => {
-    if (!editingId) return;
-    const exists = selectedProducts.some((p) => p.id === editingId);
-    if (exists) {
-      onChange(
-        selectedProducts.map((p) =>
-          p.id === editingId ? { ...p, advantages: draftAdvantages } : p
-        )
-      );
-    } else {
-      onChange([...selectedProducts, { id: editingId, advantages: draftAdvantages }]);
-    }
-    setEditingId(null);
-  }, [editingId, draftAdvantages, selectedProducts, onChange]);
-
-  useEffect(() => {
-    if (editingId && dialogTextareaRef.current) {
-      const textarea = dialogTextareaRef.current;
-      textarea.focus();
-      const length = textarea.value.length;
-      textarea.setSelectionRange(length, length);
-    }
-  }, [editingId]);
-
-  const editingProductForAdvantages = editingId
-    ? allProducts.find((p) => p.id === editingId) ?? null
-    : null;
 
   // ─────────────────────────────────────────────
   // 사용자 제품 등록·수정·삭제
@@ -256,7 +199,7 @@ export function ProductSelectionSection({
             <Wand2 className="h-4 w-4" />AI 도움받기
           </Button>
           <Button variant="outline" size="sm" onClick={handleCreate} className="gap-1">
-            <Plus className="h-4 w-4" />새 등록
+            <Plus className="h-4 w-4" />새 등록 (직접)
           </Button>
         </div>
       </div>
@@ -330,18 +273,6 @@ export function ProductSelectionSection({
                       </Button>
                     </>
                   )}
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant={selected ? "default" : "outline"}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      openEditor(product.id, product.defaultAdvantages);
-                    }}
-                  >
-                    <Pencil className="h-3.5 w-3.5" />
-                    장점 작성
-                  </Button>
                 </div>
               </CardContent>
             </Card>
@@ -364,51 +295,6 @@ export function ProductSelectionSection({
           </span>
         </motion.div>
       )}
-
-      {/* 장점 작성 다이얼로그 */}
-      <Dialog
-        open={editingId !== null}
-        onOpenChange={(open) => {
-          if (!open) closeEditor();
-        }}
-      >
-        <DialogContent className="max-w-xl">
-          <DialogHeader>
-            <DialogTitle>
-              {editingProductForAdvantages ? `${editingProductForAdvantages.name} 장점 작성` : "제품 장점 작성"}
-            </DialogTitle>
-            <DialogDescription>
-              후기에 반영할 제품의 장점을 자유롭게 작성하세요.
-            </DialogDescription>
-          </DialogHeader>
-
-          <div className="space-y-2">
-            <Label className="text-xs text-muted-foreground">제품 장점</Label>
-            <Textarea
-              ref={dialogTextareaRef}
-              value={draftAdvantages}
-              onChange={(e) => setDraftAdvantages(e.target.value)}
-              placeholder="제품의 장점을 작성하세요..."
-              className="min-h-[180px] text-sm"
-            />
-            {editingProductForAdvantages && !isSelected(editingProductForAdvantages.id) && (
-              <p className="text-xs text-muted-foreground">
-                저장하면 이 제품이 자동으로 선택됩니다.
-              </p>
-            )}
-          </div>
-
-          <DialogFooter>
-            <Button type="button" variant="outline" onClick={closeEditor}>
-              취소
-            </Button>
-            <Button type="button" variant="default" onClick={handleSaveAdvantages}>
-              <Check className="h-3.5 w-3.5" />
-              저장
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
 
       {/* 새 등록·수정 다이얼로그 — editingProduct(수정) 또는 formPrefill(AI prefill) 또는 null(빈 신규) */}
       <ProductForm

@@ -191,7 +191,7 @@ export function BrandProfileSection({ selectedProfileId, onSelect }: BrandProfil
             <Wand2 className="h-4 w-4" />AI 도움받기
           </Button>
           <Button variant="outline" size="sm" onClick={handleCreate} className="gap-1">
-            <Plus className="h-4 w-4" />새 등록
+            <Plus className="h-4 w-4" />새 등록 (직접)
           </Button>
         </div>
       </div>

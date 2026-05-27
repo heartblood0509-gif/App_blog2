@@ -6,7 +6,6 @@ from typing import List, Optional
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
-from bots.naver_blog_publisher import NaverBlogPublisher
 from config import CHROME_PROFILES_DIR
 from credentials import BrokerError, decrypt_pw_for_account
 from routers.accounts import find_account
@@ -119,6 +118,8 @@ async def publish_to_naver(req: PublishRequest):
             raise HTTPException(400, f"credential-decrypt-failed:{e}")
 
         try:
+            from bots.naver_blog_publisher import NaverBlogPublisher
+
             publisher = NaverBlogPublisher()
             result = await publisher.publish(
                 title=req.title,

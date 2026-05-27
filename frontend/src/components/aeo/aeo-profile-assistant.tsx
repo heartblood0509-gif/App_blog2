@@ -682,8 +682,11 @@ function PreviewListField({
   onChange: (v: string[]) => void;
   aiSuggested?: boolean;
 }) {
+  const serializedValues = values.join("\n");
+  const [text, setText] = useState(serializedValues);
   const empty = values.length === 0;
   const aiCls = aiSuggested ? "bg-amber-50 dark:bg-amber-950/20 border-amber-300" : "";
+
   return (
     <div className="space-y-1">
       <Label className="text-xs flex items-center gap-1">
@@ -701,11 +704,14 @@ function PreviewListField({
         )}
       </Label>
       <Textarea
-        value={values.join("\n")}
-        onChange={(e) =>
-          onChange(e.target.value.split("\n").map((s) => s.trim()).filter(Boolean))
-        }
-        rows={Math.min(Math.max(values.length, 2), 6)}
+        value={text}
+        onChange={(e) => {
+          const nextText = e.target.value;
+          const nextValues = nextText.split("\n").map((s) => s.trim()).filter(Boolean);
+          setText(nextText);
+          onChange(nextValues);
+        }}
+        rows={Math.min(Math.max(text.split("\n").length, 2), 6)}
         placeholder="한 줄에 하나씩"
         className={empty ? "border-amber-300" : aiCls}
       />

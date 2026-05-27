@@ -117,6 +117,7 @@ export function buildCustomProductInfo(p: UserProduct): ProductInfo {
     naturalMentionPatterns: p.naturalMentionPatterns,
     keyInsight: p.keyInsight,
     sensoryDetails: p.sensoryDetails,
+    productUrl: p.productUrl,
     realReviews: reviewsForPrompt,
     // 사이클 2/3 — 신상품 분기 + precautions만 유지 (4칸은 사이클 3에서 제거)
     hasReviews: p.hasReviews,

@@ -16,6 +16,8 @@ export interface ProductInfo {
   keyInsight?: string;
   /** 감각 표현 키워드 (AI가 디테일 묘사할 때 참고) */
   sensoryDetails?: string[];
+  /** 판매 제품 URL. 있으면 후기성 글 본문 마지막 줄에 삽입 */
+  productUrl?: string;
   // ─────── 사이클 2/3 — 후기성 빌딩 블록 (4칸은 사이클 3에서 제거. precautions만 유지) ───────
   /** 출시 상태 — false면 product-placement.ts에서 "예상 반응" 헤더로 분기 */
   hasReviews?: boolean;
@@ -49,6 +51,8 @@ export interface UserProduct {
   sensoryDetails: string[];
   /** 실제 후기 — hasReviews=true일 때 사용 */
   realReviews: string[];
+  /** 판매 제품 URL. 선택 입력 */
+  productUrl?: string;
   // ─────── v2 신규 필드 ───────
   /** 출시 상태 토글. true=후기 있음, false=신상품. 기존 데이터 호환 위해 optional (undefined면 true 취급) */
   hasReviews?: boolean;

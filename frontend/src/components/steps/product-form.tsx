@@ -45,6 +45,7 @@ const EMPTY: Payload = {
   keyInsight: "",
   sensoryDetails: [],
   realReviews: [],
+  productUrl: "",
   hasReviews: true,
   expectedReactions: [],
   efficacy: "",
@@ -100,6 +101,7 @@ const PH = {
   realReviews: `머리 빠지는 건 바로 줄진 않는데 두피가 덜 자극받으니까 덜 빠지는 느낌
 기존 탈모샴푸처럼 뻣뻣하거나 떡지는 느낌 없음
 꾸준히 썼을 때 차이가 나는 쪽`,
+  productUrl: "https://example.com/products/hair-shampoo",
   expectedReactions: `처음 써본 사람은 "확 잡아주는 느낌"보다 "두피가 편해지는 흐름"이라고 느낄 듯
 꾸준히 쓸수록 차이가 나는 타입이라 단기 체감보다 1~2주 후가 핵심`,
   // 사이클 3 — precautions만 유지 (신뢰도 단락의 핵심)
@@ -154,6 +156,21 @@ function AiBadge({ show }: { show: boolean }) {
   );
 }
 
+type ArrayFieldKey =
+  | "relatedSymptoms"
+  | "naturalMentionPatterns"
+  | "sensoryDetails"
+  | "realReviews"
+  | "expectedReactions";
+
+const EMPTY_LINES_TEXT: Record<ArrayFieldKey, string> = {
+  relatedSymptoms: "",
+  naturalMentionPatterns: "",
+  sensoryDetails: "",
+  realReviews: "",
+  expectedReactions: "",
+};
+
 export function ProductForm({
   open,
   initial,
@@ -163,6 +180,10 @@ export function ProductForm({
   onSave,
 }: ProductFormProps) {
   const [payload, setPayload] = useState<Payload>(EMPTY);
+  // 배열 필드의 원본 텍스트 — Enter로 빈 줄 입력해도 사라지지 않도록 분리 보관.
+  // 저장 시 linesToArray로 변환.
+  const [linesText, setLinesText] =
+    useState<Record<ArrayFieldKey, string>>(EMPTY_LINES_TEXT);
   const [submitting, setSubmitting] = useState(false);
 
   const aiGuessSet = useMemo(
@@ -181,14 +202,25 @@ export function ProductForm({
           hasReviews: rest.hasReviews ?? true,
         };
         setPayload(merged);
+        setLinesText({
+          relatedSymptoms: arrayToLines(merged.relatedSymptoms),
+          naturalMentionPatterns: arrayToLines(merged.naturalMentionPatterns),
+          sensoryDetails: arrayToLines(merged.sensoryDetails),
+          realReviews: arrayToLines(merged.realReviews),
+          expectedReactions: arrayToLines(merged.expectedReactions ?? []),
+        });
       } else {
         setPayload(EMPTY);
+        setLinesText(EMPTY_LINES_TEXT);
       }
     }
   }, [open, initial]);
 
   const update = <K extends keyof Payload>(key: K, value: Payload[K]) =>
     setPayload((prev) => ({ ...prev, [key]: value }));
+
+  const updateLines = (key: ArrayFieldKey, value: string) =>
+    setLinesText((prev) => ({ ...prev, [key]: value }));
 
   const handleSave = async () => {
     if (submitting) return;
@@ -199,12 +231,13 @@ export function ProductForm({
       category: payload.category.trim(),
       defaultAdvantages: "", // 아래에서 composeAdvantagesNatural로 채움
       keyInsight: stripQuotes(payload.keyInsight.trim()),
-      relatedSymptoms: payload.relatedSymptoms,
-      naturalMentionPatterns: payload.naturalMentionPatterns,
-      sensoryDetails: payload.sensoryDetails,
-      realReviews: payload.realReviews,
+      relatedSymptoms: linesToArray(linesText.relatedSymptoms),
+      naturalMentionPatterns: linesToArray(linesText.naturalMentionPatterns),
+      sensoryDetails: linesToArray(linesText.sensoryDetails),
+      realReviews: linesToArray(linesText.realReviews),
+      productUrl: payload.productUrl?.trim() ?? "",
       hasReviews: payload.hasReviews,
-      expectedReactions: payload.expectedReactions,
+      expectedReactions: linesToArray(linesText.expectedReactions),
       efficacy: payload.efficacy?.trim() ?? "",
       ingredients: payload.ingredients?.trim() ?? "",
       usability: payload.usability?.trim() ?? "",
@@ -339,6 +372,28 @@ export function ProductForm({
                     ))}
                   </datalist>
                 </div>
+              </div>
+
+              <div className="mt-3">
+                <Label htmlFor="product-url" className="text-xs flex items-center">
+                  판매 제품 URL
+                  <AiBadge show={aiGuessSet.has("productUrl")} />
+                </Label>
+                <Input
+                  id="product-url"
+                  type="url"
+                  value={payload.productUrl ?? ""}
+                  onChange={(e) => update("productUrl", e.target.value)}
+                  placeholder="예: https://example.com/products/..."
+                  className={
+                    aiGuessSet.has("productUrl")
+                      ? "border-amber-300 bg-amber-50 dark:bg-amber-950/20"
+                      : ""
+                  }
+                />
+                <p className="mt-1 text-[11px] text-muted-foreground">
+                  비우면 제품명은 1~2회만 자연스럽게 언급됩니다. 입력하면 본문 마지막 줄에 링크가 들어갑니다.
+                </p>
               </div>
 
               {/* 출시 상태 토글 */}
@@ -503,10 +558,8 @@ export function ProductForm({
                 >
                   <Textarea
                     rows={6}
-                    value={arrayToLines(payload.relatedSymptoms)}
-                    onChange={(e) =>
-                      update("relatedSymptoms", linesToArray(e.target.value))
-                    }
+                    value={linesText.relatedSymptoms}
+                    onChange={(e) => updateLines("relatedSymptoms", e.target.value)}
                     placeholder={PH.relatedSymptoms}
                   />
                 </Section>
@@ -518,9 +571,9 @@ export function ProductForm({
                 >
                   <Textarea
                     rows={4}
-                    value={arrayToLines(payload.naturalMentionPatterns)}
+                    value={linesText.naturalMentionPatterns}
                     onChange={(e) =>
-                      update("naturalMentionPatterns", linesToArray(e.target.value))
+                      updateLines("naturalMentionPatterns", e.target.value)
                     }
                     placeholder={PH.naturalMentionPatterns}
                   />
@@ -533,10 +586,8 @@ export function ProductForm({
                 >
                   <Textarea
                     rows={4}
-                    value={arrayToLines(payload.sensoryDetails)}
-                    onChange={(e) =>
-                      update("sensoryDetails", linesToArray(e.target.value))
-                    }
+                    value={linesText.sensoryDetails}
+                    onChange={(e) => updateLines("sensoryDetails", e.target.value)}
                     placeholder={PH.sensoryDetails}
                   />
                 </Section>
@@ -550,10 +601,8 @@ export function ProductForm({
                   >
                     <Textarea
                       rows={4}
-                      value={arrayToLines(payload.realReviews)}
-                      onChange={(e) =>
-                        update("realReviews", linesToArray(e.target.value))
-                      }
+                      value={linesText.realReviews}
+                      onChange={(e) => updateLines("realReviews", e.target.value)}
                       placeholder={PH.realReviews}
                     />
                     <p className="text-[11px] text-muted-foreground">
@@ -568,9 +617,9 @@ export function ProductForm({
                   >
                     <Textarea
                       rows={4}
-                      value={arrayToLines(payload.expectedReactions ?? [])}
+                      value={linesText.expectedReactions}
                       onChange={(e) =>
-                        update("expectedReactions", linesToArray(e.target.value))
+                        updateLines("expectedReactions", e.target.value)
                       }
                       placeholder={PH.expectedReactions}
                     />

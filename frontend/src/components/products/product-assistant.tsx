@@ -42,6 +42,7 @@ interface AssistResponse {
   name?: string;
   category?: string;
   keyInsight?: string;
+  productUrl?: string;
   efficacy?: string;
   ingredients?: string;
   usability?: string;
@@ -133,6 +134,7 @@ export function ProductAssistant({
           name: data.name ?? "",
           category: data.category ?? "",
           keyInsight: data.keyInsight ?? "",
+          productUrl: data.productUrl ?? "",
           efficacy: data.efficacy ?? "",
           ingredients: data.ingredients ?? "",
           usability: data.usability ?? "",

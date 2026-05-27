@@ -67,6 +67,7 @@ class ProductUpsert(BaseModel):
     sensoryDetails: list[str] = Field(..., min_length=1)
     # 후기 — hasReviews=False면 비어도 OK
     realReviews: list[str] = []
+    productUrl: str = ""  # 선택 — 판매 제품 URL. 있으면 프론트 생성 후처리에서 본문 끝에 삽입
     expectedReactions: list[str] = []  # 신상품(hasReviews=False) 전용 — "예상 사용자 반응"
     hasReviews: bool = True  # 기본값 true (기존 데이터 호환)
     # 장점 5분할 (모두 선택, 채울수록 글 품질 ↑)

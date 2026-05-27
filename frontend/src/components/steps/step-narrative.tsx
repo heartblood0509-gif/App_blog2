@@ -157,6 +157,20 @@ const TONES: {
   },
 ];
 
+function scrollToClickTarget(element: HTMLElement | null) {
+  if (!element) return;
+  const run = () => {
+    const rect = element.getBoundingClientRect();
+    const targetY =
+      window.scrollY + rect.top - window.innerHeight / 2 + rect.height / 2;
+    window.scrollTo({ top: Math.max(0, targetY), behavior: "smooth" });
+  };
+  window.requestAnimationFrame(() => {
+    window.setTimeout(run, 260);
+    window.setTimeout(run, 560);
+  });
+}
+
 interface StepNarrativeProps {
   narrativeSource: NarrativeSource | null;
   referenceUrl: string;
@@ -260,12 +274,33 @@ export function StepNarrative({
   // 점진 노출 시각 피드백: 새 섹션이 처음 노출되는 순간만 부드럽게 스크롤
   const productSectionRef = useRef<HTMLDivElement | null>(null);
   const narrativeSectionRef = useRef<HTMLDivElement | null>(null);
+  const toneSectionRef = useRef<HTMLElement | null>(null);
+  const brandProfileSectionRef = useRef<HTMLDivElement | null>(null);
+  const brandTemplateSectionRef = useRef<HTMLDivElement | null>(null);
+  const aeoProfileSectionRef = useRef<HTMLDivElement | null>(null);
+  const aeoTemplateSectionRef = useRef<HTMLDivElement | null>(null);
+  const productGridRef = useRef<HTMLDivElement | null>(null);
+  const narrativeGridRef = useRef<HTMLDivElement | null>(null);
+  const toneGridRef = useRef<HTMLDivElement | null>(null);
+  const brandProfileGridRef = useRef<HTMLDivElement | null>(null);
+  const brandTemplateGridRef = useRef<HTMLDivElement | null>(null);
+  const aeoProfileGridRef = useRef<HTMLDivElement | null>(null);
+  const aeoTemplateGridRef = useRef<HTMLDivElement | null>(null);
   const prevPostCategoryRef = useRef(postCategory);
   const prevHasProductsRef = useRef(selectedProducts.length > 0);
+  const prevNarrativeSourceRef = useRef(narrativeSource);
+  const prevBrandProfileIdRef = useRef(selectedBrandProfileId);
+  const prevAeoProfileIdRef = useRef(selectedAeoProfileId);
 
   useEffect(() => {
-    if (prevPostCategoryRef.current !== "review" && postCategory === "review") {
-      productSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    if (prevPostCategoryRef.current !== postCategory) {
+      if (postCategory === "review") {
+        scrollToClickTarget(productGridRef.current ?? productSectionRef.current);
+      } else if (postCategory === "brand") {
+        scrollToClickTarget(brandProfileGridRef.current ?? brandProfileSectionRef.current);
+      } else if (postCategory === "aeo" || postCategory === "seoAeo") {
+        scrollToClickTarget(aeoProfileGridRef.current ?? aeoProfileSectionRef.current);
+      }
     }
     prevPostCategoryRef.current = postCategory;
   }, [postCategory]);
@@ -273,10 +308,43 @@ export function StepNarrative({
   useEffect(() => {
     const hasProducts = selectedProducts.length > 0;
     if (!prevHasProductsRef.current && hasProducts && postCategory === "review") {
-      narrativeSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+      scrollToClickTarget(narrativeGridRef.current ?? narrativeSectionRef.current);
     }
     prevHasProductsRef.current = hasProducts;
   }, [selectedProducts.length, postCategory]);
+
+  useEffect(() => {
+    if (
+      prevNarrativeSourceRef.current !== narrativeSource &&
+      narrativeSource &&
+      postCategory === "review"
+    ) {
+      scrollToClickTarget(toneGridRef.current ?? toneSectionRef.current);
+    }
+    prevNarrativeSourceRef.current = narrativeSource;
+  }, [narrativeSource, postCategory]);
+
+  useEffect(() => {
+    if (
+      prevBrandProfileIdRef.current !== selectedBrandProfileId &&
+      selectedBrandProfileId &&
+      postCategory === "brand"
+    ) {
+      scrollToClickTarget(brandTemplateGridRef.current ?? brandTemplateSectionRef.current);
+    }
+    prevBrandProfileIdRef.current = selectedBrandProfileId;
+  }, [selectedBrandProfileId, postCategory]);
+
+  useEffect(() => {
+    if (
+      prevAeoProfileIdRef.current !== selectedAeoProfileId &&
+      selectedAeoProfileId &&
+      postCategory === "aeo"
+    ) {
+      scrollToClickTarget(aeoTemplateGridRef.current ?? aeoTemplateSectionRef.current);
+    }
+    prevAeoProfileIdRef.current = selectedAeoProfileId;
+  }, [selectedAeoProfileId, postCategory]);
 
   // 레퍼런스 분석 보기/수정 패널 상태
   const [isAnalysisOpen, setIsAnalysisOpen] = useState(true);
@@ -363,13 +431,15 @@ export function StepNarrative({
               className="space-y-10"
             >
               <Separator />
-              <ProductSelectionSection
-                selectedProducts={selectedProducts}
-                onChange={onSelectedProductsChange}
-                userProducts={userProducts}
-                onUserProductsChange={onUserProductsChange}
-                onProductDeleted={onProductDeleted}
-              />
+              <div ref={productGridRef}>
+                <ProductSelectionSection
+                  selectedProducts={selectedProducts}
+                  onChange={onSelectedProductsChange}
+                  userProducts={userProducts}
+                  onUserProductsChange={onUserProductsChange}
+                  onProductDeleted={onProductDeleted}
+                />
+              </div>
             </motion.div>
           )}
 
@@ -393,7 +463,7 @@ export function StepNarrative({
           </p>
         </div>
 
-        <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+        <div ref={narrativeGridRef} className="grid grid-cols-1 gap-4 md:grid-cols-2">
           {NARRATIVES.map((narrative) => (
             <NarrativeFlowCard
               key={narrative.id}
@@ -647,7 +717,7 @@ export function StepNarrative({
       <Separator />
 
       {/* Tone Section — review 블록 내부에 위치하여 seoAeo에서는 자연 숨김 */}
-      <section>
+      <section ref={toneSectionRef}>
         <div className="mb-4">
           <h2 className="text-xl font-semibold">말투 선택</h2>
           <p className="mt-1 text-sm text-muted-foreground">
@@ -655,7 +725,7 @@ export function StepNarrative({
           </p>
         </div>
 
-        <div className="flex flex-wrap gap-3">
+        <div ref={toneGridRef} className="flex flex-wrap gap-3">
           {TONES.map((tone) => {
             const selected = toneType === tone.type;
             return (
@@ -732,53 +802,59 @@ export function StepNarrative({
           {postCategory === "brand" && (
             <motion.div
               key="brand-profile-section"
+              ref={brandProfileSectionRef}
               initial={{ opacity: 0, y: 10 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.25 }}
               className="space-y-10"
             >
               <Separator />
-              <BrandProfileSection
-                selectedProfileId={selectedBrandProfileId}
-                onSelect={onBrandProfileChange}
-              />
+              <div ref={brandProfileGridRef}>
+                <BrandProfileSection
+                  selectedProfileId={selectedBrandProfileId}
+                  onSelect={onBrandProfileChange}
+                />
+              </div>
             </motion.div>
           )}
 
           {postCategory === "brand" && selectedBrandProfileId && (
             <motion.div
               key="brand-template-section"
+              ref={brandTemplateSectionRef}
               initial={{ opacity: 0, y: 10 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.25 }}
               className="space-y-10"
             >
               <Separator />
-              <BrandTemplateSection
-                selectedTemplate={selectedBrandTemplate}
-                selectedInfoVariant={selectedBrandInfoVariant}
-                selectedIntroVariant={selectedBrandIntroVariant}
-                selectedValueProofVariant={selectedBrandValueProofVariant}
-                selectedDetailVariant={selectedBrandDetailVariant}
-                onTemplateChange={onBrandTemplateChange}
-                onInfoVariantChange={onBrandInfoVariantChange}
-                onIntroVariantChange={onBrandIntroVariantChange}
-                onValueProofVariantChange={onBrandValueProofVariantChange}
-                onDetailVariantChange={onBrandDetailVariantChange}
-                referenceUrl={referenceUrl}
-                referenceText={referenceText}
-                referenceAnalysis={referenceAnalysis}
-                isAnalyzing={isAnalyzing}
-                onReferenceUrlChange={onReferenceUrlChange}
-                onReferenceTextChange={onReferenceTextChange}
-                onReferenceAnalysisChange={onReferenceAnalysisChange}
-                onAnalyzeUrl={onAnalyze}
-                onAnalyzeText={onAnalyzeText}
-                customReferenceMode={brandCustomReferenceMode}
-                onCustomReferenceModeChange={onBrandCustomReferenceModeChange}
-                selectedAnalysisRecordId={selectedAnalysisRecordId}
-                onAnalysisRecordSelect={onAnalysisRecordSelect}
-              />
+              <div ref={brandTemplateGridRef}>
+                <BrandTemplateSection
+                  selectedTemplate={selectedBrandTemplate}
+                  selectedInfoVariant={selectedBrandInfoVariant}
+                  selectedIntroVariant={selectedBrandIntroVariant}
+                  selectedValueProofVariant={selectedBrandValueProofVariant}
+                  selectedDetailVariant={selectedBrandDetailVariant}
+                  onTemplateChange={onBrandTemplateChange}
+                  onInfoVariantChange={onBrandInfoVariantChange}
+                  onIntroVariantChange={onBrandIntroVariantChange}
+                  onValueProofVariantChange={onBrandValueProofVariantChange}
+                  onDetailVariantChange={onBrandDetailVariantChange}
+                  referenceUrl={referenceUrl}
+                  referenceText={referenceText}
+                  referenceAnalysis={referenceAnalysis}
+                  isAnalyzing={isAnalyzing}
+                  onReferenceUrlChange={onReferenceUrlChange}
+                  onReferenceTextChange={onReferenceTextChange}
+                  onReferenceAnalysisChange={onReferenceAnalysisChange}
+                  onAnalyzeUrl={onAnalyze}
+                  onAnalyzeText={onAnalyzeText}
+                  customReferenceMode={brandCustomReferenceMode}
+                  onCustomReferenceModeChange={onBrandCustomReferenceModeChange}
+                  selectedAnalysisRecordId={selectedAnalysisRecordId}
+                  onAnalysisRecordSelect={onAnalysisRecordSelect}
+                />
+              </div>
             </motion.div>
           )}
 
@@ -786,32 +862,38 @@ export function StepNarrative({
           {(postCategory === "aeo" || postCategory === "seoAeo") && (
             <motion.div
               key="aeo-profile-section"
+              ref={aeoProfileSectionRef}
               initial={{ opacity: 0, y: 10 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.25 }}
               className="space-y-10"
             >
               <Separator />
-              <AeoProfileSection
-                selectedProfileId={selectedAeoProfileId}
-                onSelect={onAeoProfileChange}
-              />
+              <div ref={aeoProfileGridRef}>
+                <AeoProfileSection
+                  selectedProfileId={selectedAeoProfileId}
+                  onSelect={onAeoProfileChange}
+                />
+              </div>
             </motion.div>
           )}
 
           {postCategory === "aeo" && selectedAeoProfileId && (
             <motion.div
               key="aeo-template-section"
+              ref={aeoTemplateSectionRef}
               initial={{ opacity: 0, y: 10 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.25 }}
               className="space-y-10"
             >
               <Separator />
-              <AeoTemplateSection
-                selectedTemplate={selectedAeoTemplate}
-                onTemplateChange={onAeoTemplateChange}
-              />
+              <div ref={aeoTemplateGridRef}>
+                <AeoTemplateSection
+                  selectedTemplate={selectedAeoTemplate}
+                  onTemplateChange={onAeoTemplateChange}
+                />
+              </div>
             </motion.div>
           )}
         </>

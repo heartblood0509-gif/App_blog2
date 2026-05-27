@@ -48,6 +48,12 @@ const EMPTY_PAYLOAD = (): Omit<BrandProfile, "id"> => ({
 const linesToArray = (s: string): string[] =>
   s.split("\n").map((x) => x.trim()).filter(Boolean);
 const arrayToLines = (a: string[] | undefined): string => (a ?? []).join("\n");
+const EMPTY_LIST_TEXT = {
+  differentiators: "",
+  villains: "",
+  coreValues: "",
+  forbiddenWords: "",
+};
 
 /** 평면 펼침 섹션 — 토글 없음. 헤더 + 본문 카드. */
 function Section({
@@ -74,6 +80,7 @@ function Section({
 
 export function BrandProfileForm({ open, initial, onClose, onSave }: BrandProfileFormProps) {
   const [payload, setPayload] = useState<Omit<BrandProfile, "id">>(EMPTY_PAYLOAD());
+  const [listText, setListText] = useState(EMPTY_LIST_TEXT);
   const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
@@ -82,9 +89,17 @@ export function BrandProfileForm({ open, initial, onClose, onSave }: BrandProfil
         // id가 있으면 수정 모드(완성 프로필), 없으면 신규 + prefill 일부 칸
         const { id: _ignored, ...rest } = initial as Partial<BrandProfile>;
         void _ignored;
-        setPayload({ ...EMPTY_PAYLOAD(), ...rest });
+        const merged = { ...EMPTY_PAYLOAD(), ...rest };
+        setPayload(merged);
+        setListText({
+          differentiators: arrayToLines(merged.differentiators),
+          villains: arrayToLines(merged.villains),
+          coreValues: arrayToLines(merged.coreValues),
+          forbiddenWords: arrayToLines(merged.forbidden.forbiddenWords),
+        });
       } else {
         setPayload(EMPTY_PAYLOAD());
+        setListText(EMPTY_LIST_TEXT);
       }
     }
   }, [open, initial]);
@@ -100,9 +115,19 @@ export function BrandProfileForm({ open, initial, onClose, onSave }: BrandProfil
 
   const handleSave = async () => {
     if (!canSave || submitting) return;
+    const normalized: Omit<BrandProfile, "id"> = {
+      ...payload,
+      differentiators: linesToArray(listText.differentiators),
+      villains: linesToArray(listText.villains),
+      coreValues: linesToArray(listText.coreValues),
+      forbidden: {
+        ...payload.forbidden,
+        forbiddenWords: linesToArray(listText.forbiddenWords),
+      },
+    };
     setSubmitting(true);
     try {
-      await onSave(payload);
+      await onSave(normalized);
       onClose();
     } finally {
       setSubmitting(false);
@@ -265,8 +290,11 @@ export function BrandProfileForm({ open, initial, onClose, onSave }: BrandProfil
                   <Label className="text-xs">차별점 · 강점</Label>
                   <Textarea
                     rows={3}
-                    value={arrayToLines(payload.differentiators)}
-                    onChange={(e) => update("differentiators", linesToArray(e.target.value))}
+                    value={listText.differentiators}
+                    onChange={(e) => {
+                      setListText((prev) => ({ ...prev, differentiators: e.target.value }));
+                      update("differentiators", linesToArray(e.target.value));
+                    }}
                     placeholder="한 줄에 하나씩&#10;예: 전 일정 관광 포함&#10;추가 비용 0원"
                   />
                 </div>
@@ -274,8 +302,11 @@ export function BrandProfileForm({ open, initial, onClose, onSave }: BrandProfil
                   <Label className="text-xs">자주 폭로하고 싶은 업계 관행 (3~5개 권장)</Label>
                   <Textarea
                     rows={4}
-                    value={arrayToLines(payload.villains)}
-                    onChange={(e) => update("villains", linesToArray(e.target.value))}
+                    value={listText.villains}
+                    onChange={(e) => {
+                      setListText((prev) => ({ ...prev, villains: e.target.value }));
+                      update("villains", linesToArray(e.target.value));
+                    }}
                     placeholder="한 줄에 하나씩&#10;예:&#10;미끼 가격으로 유인하는 여행사&#10;추가 옵션비 폭탄 업체&#10;다단계 모객 사기"
                   />
                   <p className="text-[11px] text-muted-foreground mt-1">
@@ -301,8 +332,11 @@ export function BrandProfileForm({ open, initial, onClose, onSave }: BrandProfil
               >
                 <Textarea
                   rows={4}
-                  value={arrayToLines(payload.coreValues)}
-                  onChange={(e) => update("coreValues", linesToArray(e.target.value))}
+                  value={listText.coreValues}
+                  onChange={(e) => {
+                    setListText((prev) => ({ ...prev, coreValues: e.target.value }));
+                    update("coreValues", linesToArray(e.target.value));
+                  }}
                   placeholder="한 줄에 하나씩&#10;예:&#10;정직 / 투명 가격&#10;전문가 동행&#10;공동구매로 거품 제거"
                 />
               </Section>
@@ -313,13 +347,14 @@ export function BrandProfileForm({ open, initial, onClose, onSave }: BrandProfil
               >
                 <Textarea
                   rows={2}
-                  value={arrayToLines(payload.forbidden.forbiddenWords)}
-                  onChange={(e) =>
+                  value={listText.forbiddenWords}
+                  onChange={(e) => {
+                    setListText((prev) => ({ ...prev, forbiddenWords: e.target.value }));
                     update("forbidden", {
                       ...payload.forbidden,
                       forbiddenWords: linesToArray(e.target.value),
-                    })
-                  }
+                    });
+                  }}
                   placeholder="한 줄에 하나씩&#10;예: 협력사 실명, 제외 표현"
                 />
                 <p className="text-[11px] text-muted-foreground">

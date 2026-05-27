@@ -36,6 +36,12 @@ export function getProductInterviewQuestions(hasReviews: boolean): InterviewQues
       kind: "text",
     },
     {
+      id: "productUrl",
+      label: "판매 제품 URL이 있나요? (없으면 건너뛰세요)",
+      example: "https://example.com/products/hair-shampoo",
+      kind: "text",
+    },
+    {
       id: "keyInsight",
       label: "이 제품, 한마디로?",
       example: "탈모를 잡는다보다 빠질 환경을 줄이는 타입",

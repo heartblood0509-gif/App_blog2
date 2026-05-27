@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { motion } from "framer-motion";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -15,7 +15,6 @@ import {
   BookOpen,
   Award,
   ShoppingBag,
-  Edit3,
   Check,
   Loader2,
   Search,
@@ -61,6 +60,22 @@ const TEMPLATES: TemplateCard[] = [
   // 임시 숨김 — "내 템플릿 만들기" 기능 비활성화 (복구 시 아래 한 줄 주석만 해제)
   // { id: "custom", name: "내 템플릿 만들기", description: "내가 가진 글을 분석해서 똑같은 결의 새 글 만들기", icon: Edit3, enabled: true },
 ];
+
+function scrollToClickTarget(getElement: () => HTMLElement | null) {
+  const run = () => {
+    const element = getElement();
+    if (!element) return;
+    const rect = element.getBoundingClientRect();
+    const targetY =
+      window.scrollY + rect.top - window.innerHeight / 2 + rect.height / 2;
+    window.scrollTo({ top: Math.max(0, targetY), behavior: "smooth" });
+  };
+
+  window.requestAnimationFrame(() => {
+    window.setTimeout(run, 260);
+    window.setTimeout(run, 560);
+  });
+}
 
 interface BrandTemplateSectionProps {
   selectedTemplate: BrandTemplateId | null;
@@ -130,8 +145,18 @@ export function BrandTemplateSection({
   const [builtinRecords, setBuiltinRecords] = useState<AnalysisRecord[]>([]);
   // "보기" 모달용 — 내장 분석 마크다운 readonly 표시
   const [viewingRecord, setViewingRecord] = useState<AnalysisRecord | null>(null);
+  const templateDetailRef = useRef<HTMLDivElement | null>(null);
+  const templateGridRef = useRef<HTMLDivElement | null>(null);
+  const prevSelectedTemplateRef = useRef(selectedTemplate);
 
   const isCustomTemplate = selectedTemplate === "custom";
+
+  useEffect(() => {
+    if (prevSelectedTemplateRef.current !== selectedTemplate && selectedTemplate) {
+      scrollToClickTarget(() => templateGridRef.current ?? templateDetailRef.current);
+    }
+    prevSelectedTemplateRef.current = selectedTemplate;
+  }, [selectedTemplate]);
 
   // 템플릿 선택 시 builtin 분석 카드 fetch.
   // - intro/info/value-proof/detail: 해당 scope의 builtin만 표시
@@ -286,6 +311,7 @@ export function BrandTemplateSection({
       {isCustomTemplate && (
         <motion.div
           key="custom-template-panel"
+          ref={templateDetailRef}
           initial={{ opacity: 0, height: 0 }}
           animate={{ opacity: 1, height: "auto" }}
           transition={{ duration: 0.2 }}
@@ -535,6 +561,7 @@ export function BrandTemplateSection({
           selectedTemplate === "detail") && (
           <motion.div
             key={`${selectedTemplate}-variants`}
+            ref={templateDetailRef}
             initial={{ opacity: 0, height: 0 }}
             animate={{ opacity: 1, height: "auto" }}
             transition={{ duration: 0.2 }}
@@ -547,7 +574,10 @@ export function BrandTemplateSection({
               </p>
             </div>
 
-            <div className="grid grid-cols-1 gap-4 p-1 sm:grid-cols-2 md:grid-cols-3">
+            <div
+              ref={templateGridRef}
+              className="grid grid-cols-1 gap-4 p-1 sm:grid-cols-2 md:grid-cols-3"
+            >
               {/* 내장 카드들 — selectedTemplate scope의 builtin records 자동 렌더링.
                   'builtin-info-5-trap'(함정 폭로형)은 'builtin-info-whistleblower'(업계 내부고발형)와
                   단계·톤·정책이 사실상 동일해서 UI에서만 숨김. 데이터·dispatch 코드는 보존(부활용). */}

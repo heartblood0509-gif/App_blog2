@@ -1632,13 +1632,20 @@ export default function Home() {
 
   const handleChannelChange = useCallback(
     (channel: Channel) => {
+      const shouldAutoAdvance = state.currentStep === 0;
+      const nextStep = shouldAutoAdvance ? 1 : state.currentStep;
+      const nextMaxVisitedStep =
+        shouldAutoAdvance
+          ? Math.max(state.maxVisitedStep, nextStep)
+          : state.maxVisitedStep;
+
       // 채널이 실제로 바뀐 경우 블로그 관련 입력값까지 모두 리셋해
       // 다른 채널/플로우의 stale state가 다음 진행을 막지 않도록 한다.
       if (channel !== state.channel) {
         updateState({
           channel,
-          currentStep: 0,
-          maxVisitedStep: 0,
+          currentStep: shouldAutoAdvance ? nextStep : 0,
+          maxVisitedStep: shouldAutoAdvance ? nextStep : 0,
           threads: initialThreadsState,
           selectedProducts: [],
           postCategory: null,
@@ -1654,10 +1661,14 @@ export default function Home() {
           aeoSources: [],
         });
       } else {
-        updateState({ channel });
+        updateState({
+          channel,
+          currentStep: nextStep,
+          maxVisitedStep: nextMaxVisitedStep,
+        });
       }
     },
-    [updateState, state.channel]
+    [updateState, state.channel, state.currentStep, state.maxVisitedStep]
   );
 
   const handleThreadsChange = useCallback(

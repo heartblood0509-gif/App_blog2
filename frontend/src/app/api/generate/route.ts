@@ -6,6 +6,57 @@ import type { NarrativeType, ProductInfo, ToneType, SelectedProduct } from "@/ty
 
 export const maxDuration = 60;
 
+function getSelectedProductUrls(
+  products: SelectedProduct[],
+  customProductInfoById?: Record<string, ProductInfo>
+): string[] {
+  const seen = new Set<string>();
+  const urls: string[] = [];
+
+  for (const selected of products) {
+    const url = customProductInfoById?.[selected.id]?.productUrl?.trim();
+    if (!url || seen.has(url)) continue;
+    seen.add(url);
+    urls.push(url);
+  }
+
+  return urls;
+}
+
+function isHashtagLine(line: string): boolean {
+  const trimmed = line.trim();
+  if (!trimmed.startsWith("#")) return false;
+  return /^(#[^\s#]+)(\s+#[^\s#]+)*$/.test(trimmed);
+}
+
+function placeProductUrlsBeforeHashtags(content: string, urls: string[]): string {
+  if (urls.length === 0) return content;
+
+  const urlSet = new Set(urls);
+  const lines = content
+    .split(/\r?\n/)
+    .filter((line) => !urlSet.has(line.trim()));
+
+  while (lines.length > 0 && lines[lines.length - 1].trim() === "") {
+    lines.pop();
+  }
+
+  const hashtagLines: string[] = [];
+  while (lines.length > 0 && isHashtagLine(lines[lines.length - 1])) {
+    hashtagLines.unshift(lines.pop()!.trim());
+    while (lines.length > 0 && lines[lines.length - 1].trim() === "") {
+      lines.pop();
+    }
+  }
+
+  const body = lines.join("\n").trimEnd();
+  const suffix = hashtagLines.length > 0
+    ? `${urls.join("\n")}\n\n${hashtagLines.join("\n")}`
+    : urls.join("\n");
+
+  return body ? `${body}\n\n${suffix}` : suffix;
+}
+
 /**
  * Phase F: 후처리 재생성 + 안전장치
  *  1. 1차 전체 생성 (버퍼)
@@ -100,6 +151,11 @@ export async function POST(request: Request) {
         finalContent = firstContent;
       }
     }
+
+    finalContent = placeProductUrlsBeforeHashtags(
+      finalContent,
+      getSelectedProductUrls(products, customProductInfoById)
+    );
 
     // 청크 단위로 클라이언트에 전송 (기존 스트리밍 인터페이스 유지)
     const encoder = new TextEncoder();

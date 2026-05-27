@@ -46,9 +46,15 @@ const arrayToLines = (a: string[] | undefined): string => (a ?? []).join("\n");
 const csvToArray = (s: string): string[] =>
   s.split(",").map((x) => x.trim()).filter(Boolean);
 const arrayToCsv = (a: string[] | undefined): string => (a ?? []).join(", ");
+const EMPTY_LIST_TEXT = {
+  credentials: "",
+  recommendationCriteria: "",
+  trustedSources: "",
+};
 
 export function AeoProfileForm({ open, initial, onClose, onSave }: AeoProfileFormProps) {
   const [payload, setPayload] = useState<Omit<AeoProfile, "id">>(EMPTY_PAYLOAD());
+  const [listText, setListText] = useState(EMPTY_LIST_TEXT);
   const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
@@ -57,9 +63,16 @@ export function AeoProfileForm({ open, initial, onClose, onSave }: AeoProfileFor
         // id가 있으면 수정 모드, 없으면 신규 + prefill 일부 칸
         const { id: _ignored, ...rest } = initial as Partial<AeoProfile>;
         void _ignored;
-        setPayload({ ...EMPTY_PAYLOAD(), ...rest });
+        const merged = { ...EMPTY_PAYLOAD(), ...rest };
+        setPayload(merged);
+        setListText({
+          credentials: arrayToLines(merged.identity.credentials),
+          recommendationCriteria: arrayToLines(merged.recommendationCriteria),
+          trustedSources: arrayToLines(merged.trustedSources),
+        });
       } else {
         setPayload(EMPTY_PAYLOAD());
+        setListText(EMPTY_LIST_TEXT);
       }
     }
   }, [open, initial]);
@@ -73,9 +86,18 @@ export function AeoProfileForm({ open, initial, onClose, onSave }: AeoProfileFor
 
   const handleSave = async () => {
     if (!canSave || submitting) return;
+    const normalized: Omit<AeoProfile, "id"> = {
+      ...payload,
+      identity: {
+        ...payload.identity,
+        credentials: linesToArray(listText.credentials),
+      },
+      recommendationCriteria: linesToArray(listText.recommendationCriteria),
+      trustedSources: linesToArray(listText.trustedSources),
+    };
     setSubmitting(true);
     try {
-      await onSave(payload);
+      await onSave(normalized);
       onClose();
     } finally {
       setSubmitting(false);
@@ -158,8 +180,14 @@ export function AeoProfileForm({ open, initial, onClose, onSave }: AeoProfileFor
                 <Label htmlFor="aeo-credentials" className="text-xs">자격·경력 (한 줄에 하나씩)</Label>
                 <Textarea
                   id="aeo-credentials"
-                  value={arrayToLines(payload.identity.credentials)}
-                  onChange={(e) => update("identity", { ...payload.identity, credentials: linesToArray(e.target.value) })}
+                  value={listText.credentials}
+                  onChange={(e) => {
+                    setListText((prev) => ({ ...prev, credentials: e.target.value }));
+                    update("identity", {
+                      ...payload.identity,
+                      credentials: linesToArray(e.target.value),
+                    });
+                  }}
                   placeholder={"바디·헤어케어 제품 브랜딩 및 판매 경력 8년\n누적 판매 1만 개 이상\n자체 임상 6개월 운영\n재구매율 35%"}
                   rows={4}
                 />
@@ -182,8 +210,14 @@ export function AeoProfileForm({ open, initial, onClose, onSave }: AeoProfileFor
               <h3 className="text-sm font-semibold">[6] 추천 기준 (위→아래 순서가 우선순위)</h3>
               <p className="text-xs text-muted-foreground">제품·솔루션을 추천할 때 무엇을 가장 중요하게 보는지</p>
               <Textarea
-                value={arrayToLines(payload.recommendationCriteria)}
-                onChange={(e) => update("recommendationCriteria", linesToArray(e.target.value))}
+                value={listText.recommendationCriteria}
+                onChange={(e) => {
+                  setListText((prev) => ({
+                    ...prev,
+                    recommendationCriteria: e.target.value,
+                  }));
+                  update("recommendationCriteria", linesToArray(e.target.value));
+                }}
                 placeholder={"안전한 성분 (자극 유발 성분 제외 여부)\n민감성 피부도 안심하고 사용할 수 있는 제품\n자체 임상 결과\n식약처 등재 여부\n실사용자 후기"}
                 rows={6}
               />
@@ -194,8 +228,11 @@ export function AeoProfileForm({ open, initial, onClose, onSave }: AeoProfileFor
               <h3 className="text-sm font-semibold">[7] 자주 인용하는 출처</h3>
               <p className="text-xs text-muted-foreground">신뢰할 만한 자료원 (한 줄에 하나씩)</p>
               <Textarea
-                value={arrayToLines(payload.trustedSources)}
-                onChange={(e) => update("trustedSources", linesToArray(e.target.value))}
+                value={listText.trustedSources}
+                onChange={(e) => {
+                  setListText((prev) => ({ ...prev, trustedSources: e.target.value }));
+                  update("trustedSources", linesToArray(e.target.value));
+                }}
                 placeholder={"식약처 화장품 성분 안전성 정보\n대한피부과학회 가이드\nKCID 화장품 안전성 데이터베이스"}
                 rows={4}
               />
