@@ -24,6 +24,7 @@
 //   node scripts/dev-worktree.js                # 웹 브라우저 테스트 (기본)
 //   node scripts/dev-worktree.js --electron     # Electron 데스크톱 앱
 //   node scripts/dev-worktree.js --main <path>  # 메인 체크아웃 경로 명시
+//   node scripts/dev-worktree.js --frontend-port 3006 --backend-port 8006  # 포트 강제 지정 (선택)
 //
 // 호환: macOS / Linux / Windows (Git Bash, PowerShell, cmd 모두)
 
@@ -40,6 +41,11 @@ const argv = process.argv.slice(2);
 const isElectron = argv.includes("--electron");
 const mainArgIdx = argv.indexOf("--main");
 const explicitMain = mainArgIdx >= 0 ? argv[mainArgIdx + 1] : null;
+// 포트 강제 지정 (선택). 미지정 시 빈 포트 자동 검색.
+const fePortIdx = argv.indexOf("--frontend-port");
+const explicitFrontendPort = fePortIdx >= 0 ? Number(argv[fePortIdx + 1]) : null;
+const bePortIdx = argv.indexOf("--backend-port");
+const explicitBackendPort = bePortIdx >= 0 ? Number(argv[bePortIdx + 1]) : null;
 
 // ─────────────────────────────────────────────────────── 위치 확인
 const worktreeRoot = findWorktreeRoot(process.cwd());
@@ -76,8 +82,13 @@ console.log(`[dev-worktree] mode    =${isElectron ? "electron" : "web"}`);
   }
 
   // Web 모드: 백엔드 + 프론트 직접 기동
-  const backendPort = await findFreePort(8001);
-  const frontendPort = await findFreePort(3000);
+  // 강제 포트 지정 시 그 포트만 시도. 점유돼 있으면 즉시 실패하여 사용자에게 알린다.
+  const backendPort = explicitBackendPort
+    ? await ensurePortFree(explicitBackendPort, "백엔드")
+    : await findFreePort(8001);
+  const frontendPort = explicitFrontendPort
+    ? await ensurePortFree(explicitFrontendPort, "프론트엔드")
+    : await findFreePort(3000);
 
   // 2. frontend/.env.local
   ensureEnvLocal(mainRoot, worktreeRoot, backendPort);
@@ -187,6 +198,15 @@ function fastCopy(src, dst) {
 }
 
 function ensureEnvLocal(mainRoot, worktreeRoot, backendPort) {
+  // 1) frontend/.env — GEMINI_API_KEY 같은 개인 키가 보통 여기 들어있음.
+  //    .env.local이 아니라 .env에 키를 두는 프로젝트도 있으니 둘 다 복사.
+  copyEnvFileIfMissing(
+    path.join(mainRoot, "frontend", ".env"),
+    path.join(worktreeRoot, "frontend", ".env"),
+    "frontend/.env"
+  );
+
+  // 2) frontend/.env.local — BACKEND_URL/ALLOW_INSECURE_DEV_AUTH 오버라이드 포함.
   const dst = path.join(worktreeRoot, "frontend", ".env.local");
   if (fs.existsSync(dst)) {
     console.log(`\n[dev-worktree] frontend/.env.local 이미 존재 — 건너뜀`);
@@ -199,7 +219,7 @@ function ensureEnvLocal(mainRoot, worktreeRoot, backendPort) {
     console.log(`\n[dev-worktree] frontend/.env.local 생성 (메인 .env.local 복사 + 오버라이드)`);
   } else {
     console.log(`\n[dev-worktree] frontend/.env.local 생성 (메인에 .env.local 없음 — 기본값만)`);
-    console.log(`  ⚠ GEMINI_API_KEY 등 개인 키는 직접 채워야 합니다.`);
+    console.log(`  ⚠ GEMINI_API_KEY 등 개인 키는 frontend/.env 또는 .env.local 에 직접 채워야 합니다.`);
   }
   const override = [
     "",
@@ -209,6 +229,16 @@ function ensureEnvLocal(mainRoot, worktreeRoot, backendPort) {
     "",
   ].join("\n");
   fs.writeFileSync(dst, base + override, "utf8");
+}
+
+function copyEnvFileIfMissing(srcPath, dstPath, label) {
+  if (!fs.existsSync(srcPath)) return;
+  if (fs.existsSync(dstPath)) {
+    console.log(`\n[dev-worktree] ${label} 이미 존재 — 건너뜀`);
+    return;
+  }
+  fs.copyFileSync(srcPath, dstPath);
+  console.log(`\n[dev-worktree] ${label} 생성 (메인에서 복사)`);
 }
 
 function findFreePort(start) {
@@ -221,6 +251,18 @@ function findFreePort(start) {
       srv.listen(p);
     }
     tryPort(start);
+  });
+}
+
+// 강제 지정 포트가 비어 있는지 확인. 점유 시 즉시 실패시켜 자동 대체 포트로 도망가지 않게 한다.
+function ensurePortFree(port, label) {
+  return new Promise((resolve, reject) => {
+    const srv = net.createServer();
+    srv.once("error", () =>
+      reject(new Error(`${label} 포트 ${port} 가 이미 사용 중입니다. 다른 포트를 쓰거나 점유 프로세스를 종료하세요.`))
+    );
+    srv.once("listening", () => srv.close(() => resolve(port)));
+    srv.listen(port);
   });
 }
 
