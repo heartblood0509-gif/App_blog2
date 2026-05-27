@@ -36,13 +36,11 @@ import type {
   BrandValueProofVariantId,
   BrandDetailVariantId,
 } from "@/types/brand";
-import type { AeoTemplateId } from "@/types/aeo";
 import { ProductSelectionSection } from "@/components/steps/product-selection-section";
 import { NarrativeFlowCard } from "@/components/narrative/narrative-flow-card";
 import { BrandProfileSection } from "@/components/brand/brand-profile-section";
 import { BrandTemplateSection } from "@/components/brand/brand-template-section";
 import { AeoProfileSection } from "@/components/aeo/aeo-profile-section";
-import { AeoTemplateSection } from "@/components/aeo/aeo-template-section";
 
 type NarrativeOption = {
   id: NarrativeSource;
@@ -118,8 +116,6 @@ const POST_CATEGORIES: Array<{
 }> = [
   { id: "review", name: "후기성 블로그", description: "실사용자 톤의 자연스러운 후기", icon: Star, enabled: true },
   { id: "brand", name: "브랜드 블로그", description: "브랜드 보이스의 공식 콘텐츠", icon: Building2, enabled: true },
-  // "aeo" 단독 카테고리는 SEO·AEO 통합형이 대체하므로 UI에서 숨김.
-  // 분기 코드(postCategory === "aeo")는 기존 데이터·하위호환 위해 유지.
   { id: "seoAeo", name: "AEO 블로그", description: "검색 노출과 AI 답변 인용을 함께 노리는 질문형 글", icon: HelpCircle, enabled: true },
 ];
 
@@ -198,11 +194,9 @@ interface StepNarrativeProps {
   /** "내 템플릿 만들기" 전용 — 브랜드 노출 모드 */
   brandCustomReferenceMode: import("@/types/brand").BrandCustomReferenceMode;
   onBrandCustomReferenceModeChange: (mode: import("@/types/brand").BrandCustomReferenceMode) => void;
-  // AEO 분기 (postCategory === "aeo"일 때 사용)
+  // AEO 분기 (postCategory === "seoAeo"일 때 사용)
   selectedAeoProfileId: string | null;
-  selectedAeoTemplate: AeoTemplateId | null;
   onAeoProfileChange: (profileId: string) => void;
-  onAeoTemplateChange: (template: AeoTemplateId) => void;
   onAnalysisRecordSelect: (recordId: string) => void;
   // 후기성 — 사용자 등록 제품
   userProducts: UserProduct[];
@@ -247,9 +241,7 @@ export function StepNarrative({
   brandCustomReferenceMode,
   onBrandCustomReferenceModeChange,
   selectedAeoProfileId,
-  selectedAeoTemplate,
   onAeoProfileChange,
-  onAeoTemplateChange,
   onAnalysisRecordSelect,
   userProducts,
   onUserProductsChange,
@@ -782,8 +774,8 @@ export function StepNarrative({
             </motion.div>
           )}
 
-          {/* AEO Profile — AEO 또는 SEO·AEO 통합형 카테고리에서 공유 */}
-          {(postCategory === "aeo" || postCategory === "seoAeo") && (
+          {/* AEO Profile — SEO·AEO 통합형 카테고리에서 사용 */}
+          {postCategory === "seoAeo" && (
             <motion.div
               key="aeo-profile-section"
               initial={{ opacity: 0, y: 10 }}
@@ -795,22 +787,6 @@ export function StepNarrative({
               <AeoProfileSection
                 selectedProfileId={selectedAeoProfileId}
                 onSelect={onAeoProfileChange}
-              />
-            </motion.div>
-          )}
-
-          {postCategory === "aeo" && selectedAeoProfileId && (
-            <motion.div
-              key="aeo-template-section"
-              initial={{ opacity: 0, y: 10 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.25 }}
-              className="space-y-10"
-            >
-              <Separator />
-              <AeoTemplateSection
-                selectedTemplate={selectedAeoTemplate}
-                onTemplateChange={onAeoTemplateChange}
               />
             </motion.div>
           )}
