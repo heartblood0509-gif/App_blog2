@@ -35,7 +35,7 @@ export async function POST(request: Request) {
         content,
         account_id,
         images: images ?? [],
-        auto_publish: auto_publish ?? true,
+        auto_publish: auto_publish ?? false,
       }),
     });
 

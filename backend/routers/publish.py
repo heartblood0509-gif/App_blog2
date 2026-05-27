@@ -42,7 +42,7 @@ class PublishRequest(BaseModel):
     content: str
     account_id: str
     images: List[ImageSlotData] = []
-    auto_publish: bool = True  # False면 글 작성만 하고 Chrome 열어둠
+    auto_publish: bool = False  # False면 글 작성만 하고 Chrome 열어둠
 
 
 class PublishResponse(BaseModel):
@@ -67,7 +67,7 @@ class ManualStatusResponse(BaseModel):
 
 @router.post("/", response_model=PublishResponse)
 async def publish_to_naver(req: PublishRequest):
-    """네이버 블로그에 글을 자동 발행합니다."""
+    """네이버 블로그 에디터에 글을 작성합니다."""
     account = find_account(req.account_id)
     if not account:
         raise HTTPException(404, f"등록되지 않은 계정입니다: {req.account_id}")

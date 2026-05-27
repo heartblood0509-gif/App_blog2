@@ -13,6 +13,11 @@ interface UpdaterStateEvent {
   s: UpdaterState;
   p?: unknown;
 }
+interface BlogSplitNavigationEvent {
+  url: string;
+  canGoBack: boolean;
+  canGoForward: boolean;
+}
 
 contextBridge.exposeInMainWorld("electronAPI", {
   platform: process.platform,
@@ -63,6 +68,27 @@ contextBridge.exposeInMainWorld("electronAPI", {
     start: (opId: string) => ipcRenderer.invoke("publish:start", opId),
     end: (opId: string) => ipcRenderer.invoke("publish:end", opId),
     isActive: (): Promise<boolean> => ipcRenderer.invoke("publish:isActive"),
+  },
+  blogSplit: {
+    open: (url?: string): Promise<{ ok: boolean }> => ipcRenderer.invoke("blogSplit:open", url),
+    close: (): Promise<void> => ipcRenderer.invoke("blogSplit:close"),
+    isOpen: (): Promise<boolean> => ipcRenderer.invoke("blogSplit:isOpen"),
+    getUrl: (): Promise<string> => ipcRenderer.invoke("blogSplit:getUrl"),
+    navigate: (
+      action: "back" | "forward" | "reload" | "home" | "go",
+      url?: string,
+    ): Promise<{ ok: boolean; url: string; canGoBack: boolean; canGoForward: boolean }> =>
+      ipcRenderer.invoke("blogSplit:navigate", action, url),
+    onState: (cb: (open: boolean) => void) => {
+      const handler = (_: IpcRendererEvent, open: boolean) => cb(open);
+      ipcRenderer.on("blogSplit:state", handler);
+      return () => ipcRenderer.removeListener("blogSplit:state", handler);
+    },
+    onNavigation: (cb: (state: BlogSplitNavigationEvent) => void) => {
+      const handler = (_: IpcRendererEvent, state: BlogSplitNavigationEvent) => cb(state);
+      ipcRenderer.on("blogSplit:navigation", handler);
+      return () => ipcRenderer.removeListener("blogSplit:navigation", handler);
+    },
   },
   // §F 설정. 평문 key 는 renderer 로 흐르지 않음 (마스킹만).
   settings: {

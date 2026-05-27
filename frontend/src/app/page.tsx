@@ -2020,8 +2020,11 @@ export default function Home() {
   };
 
   return (
-    <div className="min-h-screen bg-background text-foreground">
-      <div className="mx-auto max-w-7xl px-4 pb-16 pt-8 sm:px-6 lg:px-8">
+    <div data-blog-pick-root className="min-h-screen bg-background text-foreground">
+      <div
+        data-blog-pick-shell
+        className="mx-auto max-w-7xl px-4 pb-16 pt-8 sm:px-6 lg:px-8"
+      >
         <AppHeader
           onTitleClick={handleTitleClick}
           subtitle={
