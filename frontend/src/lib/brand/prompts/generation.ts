@@ -23,6 +23,11 @@ import { buildValueProofPrompt } from "./templates/value-proof/prompt";
 import { buildValueProofStructureBasedPrompt } from "./templates/value-proof/value-proof-structure-based/prompt";
 import { buildDetailStructureBasedPrompt } from "./templates/detail/detail-structure-based/prompt";
 import { buildCustomPrompt } from "./templates/custom";
+import type { UserProduct } from "@/types";
+import {
+  buildAttachedProductBlock,
+  brandTemplateToAttachMode,
+} from "@/lib/prompts/attached-product-context";
 
 export interface BuildBrandPromptOptions {
   profile: BrandProfile;
@@ -52,9 +57,14 @@ export interface BuildBrandPromptOptions {
   analysisRecordId?: string;
   /** structure-based 모드 전용 — API 라우트가 백엔드에서 fetch한 분석 레코드 */
   analysisRecord?: AnalysisRecord;
+  /**
+   * V1 첨부 제품 — 후기성 풀에서 선택한 단일 제품.
+   * undefined면 격리 패턴(A7)에 의해 기존 경로 100% 유지.
+   */
+  attachedProduct?: UserProduct;
 }
 
-export function buildBrandGenerationPrompt(opts: BuildBrandPromptOptions): string {
+function buildBaseBrandPrompt(opts: BuildBrandPromptOptions): string {
   const { template, infoVariantId, introVariantId, valueProofVariantId, detailVariantId } = opts;
 
   // "내 템플릿 만들기" — 4개 톤 통합 진입점. variant 개념 없음.
@@ -105,4 +115,25 @@ export function buildBrandGenerationPrompt(opts: BuildBrandPromptOptions): strin
     default:
       throw new Error(`알 수 없는 템플릿: ${template}`);
   }
+}
+
+/**
+ * 브랜드 글 생성 프롬프트 — 진입점.
+ *
+ * 격리 패턴 (A7): attachedProduct가 없으면 기존 경로 100% 동일.
+ * 있을 때만 dispatcher 결과 프롬프트 끝에 첨부 제품 컨텍스트 블록을 추가한다.
+ */
+export function buildBrandGenerationPrompt(opts: BuildBrandPromptOptions): string {
+  const basePrompt = buildBaseBrandPrompt(opts);
+
+  if (!opts.attachedProduct) {
+    return basePrompt;
+  }
+
+  const attachedBlock = buildAttachedProductBlock(
+    opts.attachedProduct,
+    brandTemplateToAttachMode(opts.template),
+  );
+
+  return `${basePrompt}\n\n${attachedBlock}`;
 }
