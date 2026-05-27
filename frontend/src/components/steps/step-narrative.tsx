@@ -27,6 +27,7 @@ import {
   Star,
   Building2,
   HelpCircle,
+  Package,
 } from "lucide-react";
 import type { NarrativeSource, ToneType, Channel, PostCategory, SelectedProduct, UserProduct } from "@/types";
 import type {
@@ -44,6 +45,7 @@ import { BrandTemplateSection } from "@/components/brand/brand-template-section"
 import { AeoProfileSection } from "@/components/aeo/aeo-profile-section";
 import { AeoTemplateSection } from "@/components/aeo/aeo-template-section";
 import { AttachedProductSection } from "@/components/shared/attached-product-section";
+import { ProfileBundleDialog } from "@/components/profile-bundle-dialog";
 
 // V1 feature flag — 미설정 또는 "1"이 아니면 첨부 섹션 자체 미노출 (A9)
 const PRODUCT_ATTACH_ENABLED =
@@ -371,8 +373,33 @@ export function StepNarrative({
   const hasAnalysis = referenceAnalysis.trim().length > 0;
   const canAnalyze = referenceUrl.trim().length > 0 && !isAnalyzing;
 
+  // 프로필 가져오기/내보내기 다이얼로그
+  const [bundleDialogOpen, setBundleDialogOpen] = useState(false);
+  // 가져오기 성공 시 프로필 섹션들을 강제 리마운트(재fetch)하기 위한 키
+  const [profileRefreshKey, setProfileRefreshKey] = useState(0);
+
   return (
     <div className="space-y-10">
+      {/* 프로필 가져오기 / 내보내기 — 모든 카테고리 공용 */}
+      {channel === "blog" && (
+        <div className="flex justify-end">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setBundleDialogOpen(true)}
+            className="gap-1"
+          >
+            <Package className="h-4 w-4" />
+            프로필 가져오기 / 내보내기
+          </Button>
+        </div>
+      )}
+      <ProfileBundleDialog
+        open={bundleDialogOpen}
+        onClose={() => setBundleDialogOpen(false)}
+        onImported={() => setProfileRefreshKey((k) => k + 1)}
+      />
+
       {/* Post Category Section — channel === "blog"일 때만 노출 */}
       {channel === "blog" && (
         <>
@@ -447,6 +474,7 @@ export function StepNarrative({
               <Separator />
               <div ref={productGridRef}>
                 <ProductSelectionSection
+                  key={`product-section-${profileRefreshKey}`}
                   selectedProducts={selectedProducts}
                   onChange={onSelectedProductsChange}
                   userProducts={userProducts}
@@ -825,6 +853,7 @@ export function StepNarrative({
               <Separator />
               <div ref={brandProfileGridRef}>
                 <BrandProfileSection
+                  key={`brand-section-${profileRefreshKey}`}
                   selectedProfileId={selectedBrandProfileId}
                   onSelect={onBrandProfileChange}
                 />
@@ -904,6 +933,7 @@ export function StepNarrative({
               <Separator />
               <div ref={aeoProfileGridRef}>
                 <AeoProfileSection
+                  key={`aeo-section-${profileRefreshKey}`}
                   selectedProfileId={selectedAeoProfileId}
                   onSelect={onAeoProfileChange}
                 />
