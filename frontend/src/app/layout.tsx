@@ -24,7 +24,7 @@ const pretendard = localFont({
 });
 
 export const metadata: Metadata = {
-  title: "후기성 블로그 생성기",
+  title: "Blog Pick",
   description: "자연스러운 후기성 블로그 포스팅을 자동으로 생성합니다.",
 };
 

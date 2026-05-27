@@ -36,10 +36,7 @@ const initialWizardState: WizardState = {
   selectedBrandDetailVariant: null,
   selectedBrandProductId: undefined,
   selectedAeoProfileId: null,
-  selectedAeoTemplate: null,
   selectedAeoProductId: undefined,
-  aeoTargetQueries: [],
-  aeoSources: [],
   brandPropositions: null,
   brandPropositionsCacheKey: null,
   selectedAnalysisRecordId: null,
@@ -133,9 +130,14 @@ function loadFromStorage(): WizardState {
   try {
     const raw = window.localStorage.getItem(LS_KEY);
     if (!raw) return initialWizardState;
-    const parsed = JSON.parse(raw) as Partial<WizardState>;
-    // v3 — 시드 6개 영구 제거. 옛 사용자 localStorage 자동 정리.
-    return { ...initialWizardState, ...purgeLegacySeedIds(parsed) };
+    const parsed = JSON.parse(raw) as Partial<WizardState> & { postCategory?: unknown };
+    // 마이그레이션 1: 옛 "aeo" 단독 카테고리는 제거되었으므로 seoAeo로 승격.
+    // (UI에서 "AEO 블로그"로 표시되던 흐름과 동일한 통합형으로 자연스럽게 이어짐)
+    if (parsed.postCategory === "aeo") {
+      parsed.postCategory = "seoAeo";
+    }
+    // 마이그레이션 2 (v3): 시드 6개 영구 제거. 옛 사용자 localStorage 자동 정리.
+    return { ...initialWizardState, ...purgeLegacySeedIds(parsed as Partial<WizardState>) };
   } catch {
     return initialWizardState;
   }

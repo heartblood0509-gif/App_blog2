@@ -103,14 +103,15 @@ export function UpdaterToast() {
 
             {status === "available" && (
               <>
-                <div className="font-medium text-sm pr-6">
+                <div className="font-semibold text-base pr-6">
                   {info?.version
                     ? `새 버전 ${info.version} 이(가) 있습니다`
                     : "새 버전이 있습니다"}
                 </div>
-                {info?.releaseNotes && (
-                  <p className="text-xs text-muted-foreground mt-1 line-clamp-2 whitespace-pre-line">
-                    {info.releaseNotes}
+                {/* 한 줄 요약: GitHub Release 제목(release.name) 우선. 없으면 본문 첫 줄 fallback. */}
+                {(info?.releaseName || info?.releaseNotes) && (
+                  <p className="text-sm text-muted-foreground mt-1.5 line-clamp-3 whitespace-pre-line">
+                    {info?.releaseName ?? info?.releaseNotes}
                   </p>
                 )}
                 <div className="flex gap-2 justify-end mt-3">

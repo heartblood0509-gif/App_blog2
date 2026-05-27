@@ -118,7 +118,7 @@ export type ToneType = "존댓말" | "반말" | "음슴체";
 export type Channel = "blog" | "thread" | "youtube";
 
 // 블로그 포스팅 카테고리 (channel === "blog"일 때만 의미)
-export type PostCategory = "review" | "brand" | "aeo" | "seoAeo";
+export type PostCategory = "review" | "brand" | "seoAeo";
 
 // 누락된 카테고리 분기를 컴파일 타임에 잡기 위한 helper
 export function assertNeverCategory(_x: never): never {
@@ -308,21 +308,15 @@ export interface WizardState {
    */
   selectedBrandProductId?: ProductId;
 
-  // Step 2 AEO 분기 (postCategory === "aeo"일 때만 의미)
-  /** 선택된 AEO 프로필 ID (예: "aeo1") */
+  // Step 2 AEO 분기 (postCategory === "seoAeo"일 때만 의미)
+  /** 선택된 AEO 프로필 ID (예: "aeo1") — seoAeo가 사용 */
   selectedAeoProfileId: string | null;
-  /** 선택된 AEO 글 타입 (정보성/비교추천) */
-  selectedAeoTemplate: import("./aeo").AeoTemplateId | null;
   /**
-   * AEO 모드에서 첨부한 제품 ID. 후기성 products.json 풀 공유.
+   * seoAeo(AEO 블로그) 모드에서 첨부한 제품 ID. 후기성 products.json 풀 공유.
    * undefined면 첨부 안 함. NEXT_PUBLIC_ENABLE_PRODUCT_ATTACH=1일 때만 UI 노출.
    * 브랜드 첨부와 별도 필드로 관리 — 모드 전환 시 상태 오염 방지.
    */
   selectedAeoProductId?: ProductId;
-  /** Phase 3에서 자동 추론 후 사용자 확정한 자연어 질문들 */
-  aeoTargetQueries: string[];
-  /** 출처·근거 (선택 입력, 비우면 경고 모달) */
-  aeoSources: import("./aeo").AeoSource[];
 
   /**
    * 정보성글 전용 — distill 결과 캐시.

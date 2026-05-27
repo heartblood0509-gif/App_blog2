@@ -2,7 +2,7 @@
 <html lang="ko">
   <head>
     <meta charset="utf-8" />
-    <title>App Blog Publisher 업데이트</title>
+    <title>Blog Pick 업데이트</title>
     <style>
       html, body {
         margin: 0;
@@ -23,13 +23,84 @@
         height: 100%;
         padding: 18px 20px;
         box-sizing: border-box;
-        gap: 12px;
+        gap: 14px;
       }
       .title {
         font-size: 13px;
         font-weight: 600;
         letter-spacing: 0.2px;
       }
+
+      /* 3 칸 stepper: ●─────○─────○  */
+      .stepper {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        position: relative;
+        margin: 2px 4px 0;
+      }
+      .step {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 6px;
+        z-index: 1;
+        flex: 1;
+      }
+      .step .dot {
+        width: 20px;
+        height: 20px;
+        border-radius: 999px;
+        background: #2a2a2a;
+        border: 2px solid #3a3a3a;
+        color: #c0c0c0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 11px;
+        font-weight: 600;
+        transition: background 0.2s, border-color 0.2s, color 0.2s;
+      }
+      .step .label {
+        font-size: 11px;
+        color: #909090;
+        transition: color 0.2s;
+      }
+      .step.active .dot {
+        background: linear-gradient(135deg, #6a8cff, #8aa6ff);
+        border-color: #8aa6ff;
+        color: #fff;
+        box-shadow: 0 0 0 4px rgba(106, 140, 255, 0.18);
+      }
+      .step.active .label {
+        color: #e5e5e5;
+        font-weight: 600;
+      }
+      .step.done .dot {
+        background: #6a8cff;
+        border-color: #6a8cff;
+        color: #fff;
+      }
+      .step.done .dot::before {
+        content: "✓";
+        font-size: 12px;
+      }
+      .step.done .dot .num {
+        display: none;
+      }
+      .step.done .label {
+        color: #b0b0b0;
+      }
+      .connector {
+        position: absolute;
+        top: 9px;
+        left: 12%;
+        right: 12%;
+        height: 2px;
+        background: #3a3a3a;
+        z-index: 0;
+      }
+
       .bar {
         width: 100%;
         height: 6px;
@@ -98,7 +169,24 @@
   </head>
   <body>
     <div class="wrap">
-      <div class="title">App Blog Publisher 업데이트</div>
+      <div class="title">Blog Pick 업데이트</div>
+
+      <div class="stepper" id="stepper">
+        <div class="connector"></div>
+        <div class="step active" data-step="1">
+          <div class="dot"><span class="num">1</span></div>
+          <div class="label">다운로드</div>
+        </div>
+        <div class="step" data-step="2">
+          <div class="dot"><span class="num">2</span></div>
+          <div class="label">설치</div>
+        </div>
+        <div class="step" data-step="3">
+          <div class="dot"><span class="num">3</span></div>
+          <div class="label">재시작</div>
+        </div>
+      </div>
+
       <div class="bar" id="bar"><div class="fill" id="fill"></div></div>
       <div class="row">
         <div class="sub" id="sub">다운로드 준비 중…</div>
@@ -111,19 +199,38 @@
         var fill = document.getElementById("fill");
         var sub = document.getElementById("sub");
         var cancelBtn = document.getElementById("cancelBtn");
+        var steps = document.querySelectorAll(".step");
+
+        function setStep(activeIndex) {
+          // activeIndex: 1=다운로드, 2=설치, 3=재시작.
+          // 1 보다 작은 인덱스는 done, 같은 인덱스는 active, 큰 인덱스는 pending.
+          steps.forEach(function (el) {
+            var i = Number(el.getAttribute("data-step"));
+            el.classList.remove("active", "done");
+            if (i < activeIndex) el.classList.add("done");
+            else if (i === activeIndex) el.classList.add("active");
+          });
+        }
 
         if (window.api && typeof window.api.onProgress === "function") {
           window.api.onProgress(function (payload) {
             if (!payload || typeof payload !== "object") return;
             if (payload.phase === "downloading") {
+              setStep(1);
               bar.classList.remove("indeterminate");
               var pct = Math.max(0, Math.min(100, Number(payload.percent) || 0));
               fill.style.width = pct + "%";
               sub.textContent = "다운로드 중… " + pct.toFixed(0) + "%";
               cancelBtn.disabled = false;
             } else if (payload.phase === "installing") {
+              setStep(2);
               bar.classList.add("indeterminate");
-              sub.textContent = "곧 재시작됩니다…";
+              sub.textContent = "설치 중입니다… 잠시만 기다려 주세요";
+              cancelBtn.disabled = true;
+            } else if (payload.phase === "restarting") {
+              setStep(3);
+              bar.classList.add("indeterminate");
+              sub.textContent = "재시작 중…";
               cancelBtn.disabled = true;
             }
           });

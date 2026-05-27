@@ -164,7 +164,7 @@ jobs:
       - name: Apply clean ad-hoc signature
         shell: bash
         run: |
-          APP_PATH=$(find release -maxdepth 3 -type d -name "App Blog Publisher.app" | head -1)
+          APP_PATH=$(find release -maxdepth 3 -type d -name "Blog Pick.app" | head -1)
           if [ -z "$APP_PATH" ]; then
             echo "App bundle not found in release/" >&2
             exit 1
@@ -178,13 +178,13 @@ jobs:
       - name: Package macOS .dmg/.zip from signed .app
         shell: bash
         run: |
-          APP_PATH=$(find release -maxdepth 3 -type d -name "App Blog Publisher.app" | head -1)
+          APP_PATH=$(find release -maxdepth 3 -type d -name "Blog Pick.app" | head -1)
           npx electron-builder --mac --${{ matrix.arch }} --prepackaged "$APP_PATH" --publish never
 
       - name: Verify final .app signature
         shell: bash
         run: |
-          APP_PATH=$(find release -maxdepth 3 -type d -name "App Blog Publisher.app" | head -1)
+          APP_PATH=$(find release -maxdepth 3 -type d -name "Blog Pick.app" | head -1)
           codesign --verify --deep --strict --verbose=2 "$APP_PATH"
 
       - name: Upload macOS release assets
@@ -222,7 +222,10 @@ jobs:
         run: |
           NOTES_FILE="$(mktemp)"
           cat > "$NOTES_FILE" <<'EOF'
-          ## App Blog Publisher VERSION_PLACEHOLDER
+          ## Blog Pick VERSION_PLACEHOLDER
+
+          > ℹ️ 이번 버전부터 앱 이름이 **"App Blog Publisher" → "Blog Pick"** 으로 변경되었습니다.
+          > 계정·기기·API 키 등 모든 데이터는 그대로 유지됩니다. 다만 이전 버전의 앱 파일은 자동으로 제거되지 않으니, 아래 정리 안내를 참고해 주세요.
 
           ### 🍎 macOS 설치 안내 (꼭 읽어주세요)
 
@@ -231,22 +234,28 @@ jobs:
           아래 절차를 따르시면 정상 실행됩니다.
 
           1. 본인 Mac에 맞는 `.dmg` 파일 다운로드
-             - Apple Silicon (M1/M2/M3/M4): `App-Blog-Publisher-VERSION_PLACEHOLDER-mac-arm64.dmg`
-             - Intel Mac: `App-Blog-Publisher-VERSION_PLACEHOLDER-mac-x64.dmg`
+             - Apple Silicon (M1/M2/M3/M4): `Blog-Pick-VERSION_PLACEHOLDER-mac-arm64.dmg`
+             - Intel Mac: `Blog-Pick-VERSION_PLACEHOLDER-mac-x64.dmg`
           2. `.dmg`를 더블클릭 → 앱을 **응용 프로그램(Applications)** 폴더로 드래그
           3. **터미널** 앱을 열고 (Spotlight에서 "터미널" 검색) 아래 명령어를 그대로 붙여넣은 후 Enter:
              ```bash
-             xattr -dr com.apple.quarantine "/Applications/App Blog Publisher.app"
+             xattr -dr com.apple.quarantine "/Applications/Blog Pick.app"
              ```
              비밀번호는 묻지 않습니다. 아무 출력 없이 끝나면 성공입니다.
-          4. **응용 프로그램**에서 `App Blog Publisher` 실행
+          4. **응용 프로그램**에서 `Blog Pick` 실행
+          5. (선택) 이전 버전 `App Blog Publisher.app` 이 응용 프로그램 폴더에 남아 있다면 휴지통으로 옮겨 주세요.
 
           > 이 명령어는 macOS가 인터넷 다운로드 파일에 자동으로 붙이는 "격리(quarantine)" 표식을 제거하는 것이며, 앱 내용 자체를 수정하지 않습니다. 최초 1회만 실행하면 됩니다 (자동 업데이트로 앱이 교체되면 다시 한 번 실행).
 
           ### 🪟 Windows 설치 안내
 
-          `App-Blog-Publisher-Setup-VERSION_PLACEHOLDER-x64.exe`를 다운로드 후 실행하세요.
+          `Blog-Pick-Setup-VERSION_PLACEHOLDER-x64.exe`를 다운로드 후 실행하세요.
           SmartScreen 경고가 뜨면 **"추가 정보" → "실행"** 으로 진행하세요.
+
+          (선택) 이전 버전 **"App Blog Publisher"** 가 시작 메뉴/제어판 → 프로그램 추가/제거에 남아 있다면 수동으로 제거해 주세요. 데이터는 새 버전에 그대로 유지됩니다.
+
+          ---
+          첫 자동 업데이트는 파일명 변경으로 인해 1 회 전체 다운로드(수백 MB)가 발생할 수 있습니다. 다음 업데이트부터는 평소처럼 빠르게 동작합니다.
           EOF
           sed -i.bak "s/VERSION_PLACEHOLDER/${VERSION}/g" "$NOTES_FILE" && rm -f "${NOTES_FILE}.bak"
 

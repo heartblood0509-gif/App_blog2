@@ -1,6 +1,7 @@
 // AEO 블로그 모드 전용 타입.
-// 후기성(types/index.ts) / 브랜드(types/brand.ts)와 격리. 공용 타입만 ./index 에서 import.
-import type { ImageSlot, UserPhoto, QualityResult, CharCountRange } from "./index";
+// 현재는 SEO·AEO 통합형(postCategory === "seoAeo")만 사용하며, 프로필 구조만 공유한다.
+// 옛 "aeo" 단독 모드용 타입(AeoTemplateId, AeoSource, AeoTargetQuery, AeoTitleSuggestion, AeoWizardState)은
+// 모드 제거와 함께 정리되었다.
 
 // ─────────────────────────────────────────────
 // AEO 프로필 (단순화 8개 칸)
@@ -34,65 +35,4 @@ export interface AeoProfile {
   /** [7] 자주 인용하는 출처 */
   trustedSources: string[];
   forbidden: AeoForbidden; // [8] 절대 쓰지 않는 말
-}
-
-// ─────────────────────────────────────────────
-// 글 타입 (MVP 2종)
-// ─────────────────────────────────────────────
-
-/** AEO 글 타입 — MVP는 informational, comparison 2종 */
-export type AeoTemplateId =
-  | "informational"  // 정보성글
-  | "comparison";    // 비교·추천글
-
-// ─────────────────────────────────────────────
-// AEO 특화 입력 (Step 2에서 채워짐)
-// ─────────────────────────────────────────────
-
-/** Phase 3에서 자동 추론 후 사용자 확정한 자연어 질문 */
-export type AeoTargetQuery = string;
-
-/** 출처/근거 항목 (URL 또는 메모) */
-export interface AeoSource {
-  url?: string;
-  note?: string;
-}
-
-// ─────────────────────────────────────────────
-// 위저드 상태 (브랜드와 격리)
-// 후기성 WizardState 와 공유될 일부 필드는 types/index.ts WizardState 에 추가
-// ─────────────────────────────────────────────
-
-export interface AeoTitleSuggestion {
-  title: string;
-  type: string;
-}
-
-export interface AeoWizardState {
-  selectedProfileId: string | null;
-  selectedTemplate: AeoTemplateId | null;
-  targetQueries: AeoTargetQuery[];
-  sources: AeoSource[];
-
-  mainKeyword: string;
-  subKeywords: string;
-  requirements: string;
-  charCountRange: CharCountRange;
-
-  titleSuggestions: AeoTitleSuggestion[];
-  selectedTitle: string;
-
-  generatedContent: string;
-  qualityResult: QualityResult | null;
-
-  imageSlots: ImageSlot[];
-  userPhotosBySlot: Record<string, UserPhoto>;
-  excludedSlotIds: string[];
-  generatedImages: Record<string, string>;
-  isGeneratingBySlot: Record<string, boolean>;
-  isImageGenerating: boolean;
-  customPromptsBySlot: Record<string, string>;
-
-  currentStep: number;
-  isLoading: boolean;
 }
