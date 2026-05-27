@@ -1,4 +1,14 @@
-import { app, BrowserWindow, dialog, ipcMain, powerMonitor, shell } from "electron";
+import {
+  app,
+  BrowserWindow,
+  WebContentsView,
+  dialog,
+  ipcMain,
+  powerMonitor,
+  screen,
+  shell,
+  type Rectangle,
+} from "electron";
 import { spawnSync } from "node:child_process";
 import crypto from "node:crypto";
 import fs from "node:fs";
@@ -33,6 +43,7 @@ log.hooks.push((message) => redactTransform(message));
 Object.assign(console, log.functions);
 
 let mainWindow: BrowserWindow | null = null;
+let blogSplitView: WebContentsView | null = null;
 let python: PythonManager | null = null;
 let nextSrv: NextServerManager | null = null;
 let broker: CredentialBroker | null = null;
@@ -103,6 +114,213 @@ function getAppVersion(): string {
     if (typeof data?.version === "string" && data.version.length > 0) return data.version;
   } catch { /* fall through */ }
   return app.getVersion();
+}
+
+function getInitialWindowBounds(): { width: number; height: number } {
+  const { width: workAreaWidth, height: workAreaHeight } = screen.getPrimaryDisplay().workAreaSize;
+  return {
+    width: Math.min(1920, workAreaWidth),
+    height: Math.min(1080, workAreaHeight),
+  };
+}
+
+const BLOG_SPLIT_DEFAULT_URL = "https://blog.naver.com";
+const BLOG_SPLIT_NAVER_HOME_URL = "https://www.naver.com";
+const BLOG_SPLIT_TOOLBAR_HEIGHT = 44;
+const BLOG_SPLIT_ALLOWED_HOSTS = new Set([
+  "naver.com",
+  "www.naver.com",
+  "m.naver.com",
+  "blog.naver.com",
+  "section.blog.naver.com",
+  "m.blog.naver.com",
+  "nid.naver.com",
+]);
+
+function parseAllowedBlogSplitUrl(value: string): URL | null {
+  try {
+    const parsed = new URL(value.trim());
+    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+      return null;
+    }
+    if (!BLOG_SPLIT_ALLOWED_HOSTS.has(parsed.hostname)) {
+      return null;
+    }
+    parsed.protocol = "https:";
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+function normalizeBlogSplitUrl(value?: unknown): string {
+  if (typeof value !== "string" || value.trim().length === 0) {
+    return BLOG_SPLIT_DEFAULT_URL;
+  }
+  const parsed = parseAllowedBlogSplitUrl(value);
+  if (!parsed) {
+    return BLOG_SPLIT_DEFAULT_URL;
+  }
+  return parsed.toString();
+}
+
+function getBlogSplitBounds(): Rectangle | null {
+  if (!mainWindow || mainWindow.isDestroyed()) return null;
+  const { width, height } = mainWindow.getContentBounds();
+  const leftWidth = Math.floor(width / 2);
+  return {
+    x: leftWidth,
+    y: BLOG_SPLIT_TOOLBAR_HEIGHT,
+    width: Math.max(0, width - leftWidth),
+    height: Math.max(0, height - BLOG_SPLIT_TOOLBAR_HEIGHT),
+  };
+}
+
+function notifyBlogSplitState(open: boolean): void {
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  mainWindow.webContents.send("blogSplit:state", open);
+}
+
+function notifyBlogSplitNavigation(): void {
+  if (!mainWindow || mainWindow.isDestroyed() || !isBlogSplitOpen()) return;
+  const contents = blogSplitView!.webContents;
+  mainWindow.webContents.send("blogSplit:navigation", {
+    url: contents.getURL(),
+    canGoBack: contents.navigationHistory.canGoBack(),
+    canGoForward: contents.navigationHistory.canGoForward(),
+  });
+}
+
+function isBlogSplitOpen(): boolean {
+  return Boolean(blogSplitView && !blogSplitView.webContents.isDestroyed());
+}
+
+function getBlogSplitUrl(): string {
+  if (!isBlogSplitOpen()) return "";
+  return blogSplitView!.webContents.getURL();
+}
+
+function layoutBlogSplitView(): void {
+  if (!blogSplitView || blogSplitView.webContents.isDestroyed()) return;
+  const bounds = getBlogSplitBounds();
+  if (bounds) blogSplitView.setBounds(bounds);
+}
+
+function applyBlogSplitSecurity(view: WebContentsView): void {
+  view.webContents.on("will-navigate", (event, url) => {
+    const parsed = parseAllowedBlogSplitUrl(url);
+    if (!parsed) {
+      event.preventDefault();
+      return;
+    }
+    if (parsed.toString() !== url) {
+      event.preventDefault();
+      view.webContents.loadURL(parsed.toString()).catch(() => {});
+    }
+  });
+  view.webContents.setWindowOpenHandler(({ url }) => {
+    const parsed = parseAllowedBlogSplitUrl(url);
+    if (parsed) {
+      view.webContents.loadURL(parsed.toString()).catch(() => {});
+    }
+    return { action: "deny" };
+  });
+}
+
+async function openBlogSplitView(url?: unknown): Promise<{ ok: boolean }> {
+  if (!mainWindow || mainWindow.isDestroyed()) return { ok: false };
+
+  if (!isBlogSplitOpen()) {
+    blogSplitView = new WebContentsView({
+      webPreferences: {
+        contextIsolation: true,
+        sandbox: true,
+        nodeIntegration: false,
+        webSecurity: true,
+        allowRunningInsecureContent: false,
+      },
+    });
+    applyBlogSplitSecurity(blogSplitView);
+    blogSplitView.webContents.on("did-navigate", notifyBlogSplitNavigation);
+    blogSplitView.webContents.on("did-navigate-in-page", notifyBlogSplitNavigation);
+    blogSplitView.webContents.on("did-finish-load", notifyBlogSplitNavigation);
+    blogSplitView.webContents.once("destroyed", () => {
+      blogSplitView = null;
+      notifyBlogSplitState(false);
+    });
+    mainWindow.contentView.addChildView(blogSplitView);
+  }
+
+  layoutBlogSplitView();
+  try {
+    await blogSplitView!.webContents.loadURL(normalizeBlogSplitUrl(url));
+  } catch {
+    closeBlogSplitView();
+    return { ok: false };
+  }
+  notifyBlogSplitState(true);
+  notifyBlogSplitNavigation();
+  return { ok: true };
+}
+
+function closeBlogSplitView(): void {
+  if (!blogSplitView) {
+    notifyBlogSplitState(false);
+    return;
+  }
+  const view = blogSplitView;
+  blogSplitView = null;
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.contentView.removeChildView(view);
+  }
+  if (!view.webContents.isDestroyed()) {
+    view.webContents.close({ waitForBeforeUnload: false });
+  }
+  notifyBlogSplitState(false);
+}
+
+async function navigateBlogSplit(action: unknown, url?: unknown): Promise<{
+  ok: boolean;
+  url: string;
+  canGoBack: boolean;
+  canGoForward: boolean;
+}> {
+  if (!isBlogSplitOpen()) {
+    return { ok: false, url: "", canGoBack: false, canGoForward: false };
+  }
+
+  const contents = blogSplitView!.webContents;
+  switch (action) {
+    case "back":
+      if (contents.navigationHistory.canGoBack()) contents.navigationHistory.goBack();
+      break;
+    case "forward":
+      if (contents.navigationHistory.canGoForward()) contents.navigationHistory.goForward();
+      break;
+    case "reload":
+      contents.reload();
+      break;
+    case "home":
+      await contents.loadURL(BLOG_SPLIT_NAVER_HOME_URL);
+      break;
+    case "go":
+      await contents.loadURL(normalizeBlogSplitUrl(url));
+      break;
+    default:
+      return {
+        ok: false,
+        url: contents.getURL(),
+        canGoBack: contents.navigationHistory.canGoBack(),
+        canGoForward: contents.navigationHistory.canGoForward(),
+      };
+  }
+
+  return {
+    ok: true,
+    url: contents.getURL(),
+    canGoBack: contents.navigationHistory.canGoBack(),
+    canGoForward: contents.navigationHistory.canGoForward(),
+  };
 }
 
 // §A 보안 토큰. packaged 빌드에서는 ALLOW_INSECURE_DEV_* 플래그를 절대 set 하지 않음.
@@ -332,9 +550,10 @@ async function boot(): Promise<void> {
   }
 
   const fixedTitle = `Blog Pick v${getAppVersion()}`;
+  const initialBounds = getInitialWindowBounds();
   mainWindow = new BrowserWindow({
-    width: 1280,
-    height: 800,
+    width: initialBounds.width,
+    height: initialBounds.height,
     backgroundColor: "#1a1a1a",
     title: fixedTitle,
     icon: paths.iconPng,
@@ -402,7 +621,22 @@ async function boot(): Promise<void> {
   });
   ipcMain.handle("publish:isActive", () => publishingOps.size > 0);
 
+  ipcMain.handle("blogSplit:open", async (_e, url?: unknown) => openBlogSplitView(url));
+  ipcMain.handle("blogSplit:close", () => {
+    closeBlogSplitView();
+  });
+  ipcMain.handle("blogSplit:isOpen", () => isBlogSplitOpen());
+  ipcMain.handle("blogSplit:getUrl", () => getBlogSplitUrl());
+  ipcMain.handle("blogSplit:navigate", async (_e, action: unknown, url?: unknown) =>
+    navigateBlogSplit(action, url),
+  );
+
   await mainWindow.loadURL(allowedOrigin);
+  mainWindow.on("resize", layoutBlogSplitView);
+  mainWindow.on("maximize", layoutBlogSplitView);
+  mainWindow.on("unmaximize", layoutBlogSplitView);
+  mainWindow.on("enter-full-screen", layoutBlogSplitView);
+  mainWindow.on("leave-full-screen", layoutBlogSplitView);
 
   mainWindow.on("close", (event) => {
     if (process.platform === "darwin" && !isQuitting) {
@@ -412,6 +646,7 @@ async function boot(): Promise<void> {
   });
 
   mainWindow.on("closed", () => {
+    closeBlogSplitView();
     mainWindow = null;
   });
 

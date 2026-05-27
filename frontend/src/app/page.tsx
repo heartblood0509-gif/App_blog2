@@ -463,6 +463,10 @@ export default function Home() {
         return true;
       }
       case 2:
+        // 후기성: 메인 키워드 필수 (AI 스토리 추천 + 검색 노출 안정성)
+        if (state.postCategory === "review") {
+          return state.mainKeyword.trim().length > 0;
+        }
         // SEO·AEO 통합형은 주제 또는 메인 키워드 중 1개는 필수 (LLM이 의도를 잡기 위한 최소 신호)
         if (state.postCategory === "seoAeo") {
           return (
@@ -555,6 +559,12 @@ export default function Home() {
         }
         return undefined;
       case 2:
+        if (
+          state.postCategory === "review" &&
+          state.mainKeyword.trim().length === 0
+        ) {
+          return "메인 키워드를 입력해주세요";
+        }
         if (state.postCategory === "seoAeo") {
           if (
             state.topic.trim().length === 0 &&
@@ -1480,10 +1490,12 @@ export default function Home() {
     if (state.currentStep >= STEPS.length - 1) return;
 
     // Step 2 (글 설정) — 모든 칸이 비어있으면 안내 모달을 띄우고 진행 차단
-    // 쓰레드 모드는 검사 대상 필드(블로그 전용)를 안 쓰므로 건너뜀
+    // 쓰레드 모드는 검사 대상 필드(블로그 전용)를 안 쓰므로 건너뜀.
+    // 후기성은 mainKeyword가 필수라 canAdvance()가 직접 차단하므로 이 모달은 건너뜀.
     if (
       state.currentStep === 2 &&
       state.channel !== "thread" &&
+      state.postCategory !== "review" &&
       !hasAnyContextInput(state)
     ) {
       setEmptyInputsWarningOpen(true);
@@ -1961,7 +1973,13 @@ export default function Home() {
           />
         );
       case 2:
-        return <StepSettings state={state} onChange={updateState} />;
+        return (
+          <StepSettings
+            state={state}
+            onChange={updateState}
+            customProductInfoById={customProductInfoById}
+          />
+        );
       case 3:
         return (
           <StepTitleSelect
@@ -2020,8 +2038,11 @@ export default function Home() {
   };
 
   return (
-    <div className="min-h-screen bg-background text-foreground">
-      <div className="mx-auto max-w-7xl px-4 pb-16 pt-8 sm:px-6 lg:px-8">
+    <div data-blog-pick-root className="min-h-screen bg-background text-foreground">
+      <div
+        data-blog-pick-shell
+        className="mx-auto max-w-7xl px-4 pb-16 pt-8 sm:px-6 lg:px-8"
+      >
         <AppHeader
           onTitleClick={handleTitleClick}
           subtitle={

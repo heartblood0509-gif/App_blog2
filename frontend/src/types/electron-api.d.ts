@@ -39,6 +39,30 @@ interface ElectronPublishApi {
   isActive: () => Promise<boolean>;
 }
 
+interface ElectronBlogSplitApi {
+  open: (url?: string) => Promise<{ ok: boolean }>;
+  close: () => Promise<void>;
+  isOpen: () => Promise<boolean>;
+  getUrl: () => Promise<string>;
+  navigate: (
+    action: "back" | "forward" | "reload" | "home" | "go",
+    url?: string,
+  ) => Promise<{
+    ok: boolean;
+    url: string;
+    canGoBack: boolean;
+    canGoForward: boolean;
+  }>;
+  onState: (cb: (open: boolean) => void) => () => void;
+  onNavigation: (
+    cb: (state: {
+      url: string;
+      canGoBack: boolean;
+      canGoForward: boolean;
+    }) => void,
+  ) => () => void;
+}
+
 interface ElectronSettingsApi {
   getMasked: () => Promise<{
     hasKey: boolean;
@@ -73,6 +97,7 @@ interface ElectronAPI {
   updater: ElectronUpdaterApi;
   app: ElectronAppApi;
   publish: ElectronPublishApi;
+  blogSplit: ElectronBlogSplitApi;
   settings: ElectronSettingsApi;
 }
 

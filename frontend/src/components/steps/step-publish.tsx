@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { motion } from "framer-motion";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -10,14 +10,20 @@ import {
   Copy,
   Download,
   ExternalLink,
+  ArrowLeft,
+  ArrowRight,
   CheckCircle2,
   FileText,
   Loader2,
+  Link,
   Plus,
   User,
   X,
   MessageCircle,
+  PanelRightClose,
+  PanelRightOpen,
   RefreshCw,
+  RotateCw,
 } from "lucide-react";
 import { toast } from "sonner";
 import { BlogContentRenderer } from "@/components/blog-content-renderer";
@@ -57,17 +63,66 @@ export function StepPublish({
   const [newNaverId, setNewNaverId] = useState("");
   const [newNaverPw, setNewNaverPw] = useState("");
   const [isAdding, setIsAdding] = useState(false);
-  const [autoPublish, setAutoPublish] = useState(false); // 기본: 검토 후 수동 발행
+  const [isBlogSplitOpen, setIsBlogSplitOpen] = useState(false);
+  const [isTogglingBlogSplit, setIsTogglingBlogSplit] = useState(false);
+  const [blogSplitUrl, setBlogSplitUrl] = useState("https://blog.naver.com");
+  const [blogSplitAddress, setBlogSplitAddress] = useState("https://blog.naver.com");
+  const [blogSplitNavState, setBlogSplitNavState] = useState({
+    canGoBack: false,
+    canGoForward: false,
+  });
   // §D 수동 발행 세션 — Chrome 창이 살아있는 동안 busy 유지.
   const [manualSessionId, setManualSessionId] = useState<string | null>(null);
 
-  // 자동 발행 중 + 수동 발행 Chrome 창 살아있는 동안 둘 다 busy.
-  useBusy("publish:auto", isPublishing);
+  // 글 작성 중 + 수동 발행 Chrome 창 살아있는 동안 둘 다 busy.
+  useBusy("publish:compose", isPublishing);
   useBusy(`publish:manual:${manualSessionId ?? "none"}`, manualSessionId !== null);
 
   // §H 발행 진행 상태 — 종료 모달 가드용 (busy 와 별도 Set). 같은 opId 공유.
-  usePublishing("publish:auto", isPublishing);
+  usePublishing("publish:compose", isPublishing);
   usePublishing(`publish:manual:${manualSessionId ?? "none"}`, manualSessionId !== null);
+
+  useEffect(() => {
+    const api = window.electronAPI?.blogSplit;
+    if (!api) return;
+    let mounted = true;
+
+    api.isOpen().then((open) => {
+      if (mounted) setIsBlogSplitOpen(open);
+      if (open) {
+        api.getUrl().then((url) => {
+          if (!mounted || !url) return;
+          setBlogSplitUrl(url);
+          setBlogSplitAddress(url);
+        }).catch(() => {});
+      }
+    }).catch(() => {});
+    const unsubscribeState = api.onState((open) => {
+      setIsBlogSplitOpen(open);
+    });
+    const unsubscribeNavigation = api.onNavigation((state) => {
+      setBlogSplitUrl(state.url);
+      setBlogSplitAddress(state.url);
+      setBlogSplitNavState({
+        canGoBack: state.canGoBack,
+        canGoForward: state.canGoForward,
+      });
+    });
+
+    return () => {
+      mounted = false;
+      unsubscribeState();
+      unsubscribeNavigation();
+      api.close().catch(() => {});
+    };
+  }, []);
+
+  useEffect(() => {
+    document.body.classList.toggle("blog-split-open", isBlogSplitOpen);
+    return () => {
+      document.body.classList.remove("blog-split-open");
+    };
+  }, [isBlogSplitOpen]);
 
   // ─────────────────────────────────────────────
   // 블로그 본문 → 쓰레드 변환 (1소스 멀티유즈)
@@ -328,7 +383,7 @@ export function StepPublish({
           content: cleanedContent,
           account_id: selectedAccountId,
           images,
-          auto_publish: autoPublish,
+          auto_publish: false,
         }),
       });
       const data = await res.json();
@@ -366,9 +421,153 @@ export function StepPublish({
     }
   };
 
+  const handleToggleBlogSplit = async () => {
+    const api = window.electronAPI?.blogSplit;
+    if (!api) {
+      toast.error("앱 실행 환경에서만 블로그 홈 화면을 함께 열 수 있습니다.");
+      return;
+    }
+
+    setIsTogglingBlogSplit(true);
+    try {
+      if (isBlogSplitOpen) {
+        await api.close();
+        setIsBlogSplitOpen(false);
+        return;
+      }
+      const result = await api.open("http://blog.naver.com");
+      if (!result.ok) {
+        throw new Error("블로그 홈 화면을 열 수 없습니다.");
+      }
+      const url = await api.getUrl().catch(() => "https://blog.naver.com");
+      setBlogSplitUrl(url);
+      setBlogSplitAddress(url);
+      setIsBlogSplitOpen(true);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "블로그 홈 화면을 열 수 없습니다.");
+    } finally {
+      setIsTogglingBlogSplit(false);
+    }
+  };
+
+  const handleBlogSplitNavigate = async (
+    action: "back" | "forward" | "reload" | "home" | "go",
+    url?: string,
+  ) => {
+    const api = window.electronAPI?.blogSplit;
+    if (!api) return;
+    try {
+      const result = await api.navigate(action, url);
+      if (result.url) {
+        setBlogSplitUrl(result.url);
+        setBlogSplitAddress(result.url);
+      }
+      setBlogSplitNavState({
+        canGoBack: result.canGoBack,
+        canGoForward: result.canGoForward,
+      });
+    } catch {
+      toast.error("블로그 화면 이동에 실패했습니다.");
+    }
+  };
+
+  const handleBlogSplitAddressSubmit = (e: FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    handleBlogSplitNavigate("go", blogSplitAddress);
+  };
+
+  const handleCopyBlogSplitUrl = async () => {
+    try {
+      await navigator.clipboard.writeText(blogSplitUrl);
+      toast.success("블로그 화면 주소를 복사했습니다.");
+    } catch {
+      toast.error("주소 복사에 실패했습니다.");
+    }
+  };
+
   const selectedAccount = accounts.find((a) => a.id === selectedAccountId);
 
   return (
+    <>
+      {isBlogSplitOpen && (
+        <div
+          className="fixed top-0 z-50 flex h-11 items-center gap-2 border-b border-border bg-background px-3 shadow-sm"
+          style={{ left: "50vw", width: "50vw" }}
+        >
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            className="h-8 w-8 shrink-0"
+            disabled={!blogSplitNavState.canGoBack}
+            onClick={() => handleBlogSplitNavigate("back")}
+            title="뒤로가기"
+            aria-label="뒤로가기"
+          >
+            <ArrowLeft className="h-4 w-4" />
+          </Button>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            className="h-8 w-8 shrink-0"
+            disabled={!blogSplitNavState.canGoForward}
+            onClick={() => handleBlogSplitNavigate("forward")}
+            title="앞으로가기"
+            aria-label="앞으로가기"
+          >
+            <ArrowRight className="h-4 w-4" />
+          </Button>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            className="h-8 w-8 shrink-0"
+            onClick={() => handleBlogSplitNavigate("reload")}
+            title="새로고침"
+            aria-label="새로고침"
+          >
+            <RotateCw className="h-4 w-4" />
+          </Button>
+
+          <form
+            className="flex min-w-0 flex-1 items-center gap-2 rounded-md border border-input bg-muted/30 px-2"
+            onSubmit={handleBlogSplitAddressSubmit}
+            title={blogSplitUrl}
+          >
+            <Link className="h-4 w-4 shrink-0 text-muted-foreground" />
+            <input
+              value={blogSplitAddress}
+              onChange={(e) => setBlogSplitAddress(e.target.value)}
+              className="h-8 min-w-0 flex-1 bg-transparent text-sm outline-none"
+              aria-label="블로그 화면 주소"
+              spellCheck={false}
+            />
+          </form>
+
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            className="h-8 w-8 shrink-0"
+            onClick={handleCopyBlogSplitUrl}
+            title="링크 복사"
+            aria-label="링크 복사"
+          >
+            <Link className="h-4 w-4" />
+          </Button>
+          <Button
+            type="button"
+            className="h-8 shrink-0 bg-[#03c75a] px-3 text-sm font-semibold text-white hover:bg-[#02b351]"
+            onClick={() => handleBlogSplitNavigate("home")}
+            title="네이버 홈"
+            aria-label="네이버 홈"
+          >
+            N 홈
+          </Button>
+        </div>
+      )}
+
     <div className="space-y-6">
       <div className="mb-6">
         <h2 className="text-2xl font-semibold">발행</h2>
@@ -587,14 +786,27 @@ export function StepPublish({
                 <ExternalLink className="h-4 w-4" />
               )}
               {isPublishing
-                ? autoPublish
-                  ? "발행 중..."
-                  : "글 작성 중..."
+                ? "글 작성 중..."
                 : selectedAccount
-                  ? autoPublish
-                    ? `"${selectedAccount.label}"에 자동 발행`
-                    : `"${selectedAccount.label}"에 글 작성 (수동 발행)`
+                  ? `"${selectedAccount.label}"에 글 작성 (수동 발행)`
                   : "계정을 선택하세요"}
+            </Button>
+
+            <Button
+              variant="outline"
+              size="lg"
+              onClick={handleToggleBlogSplit}
+              disabled={isTogglingBlogSplit}
+              className="gap-2"
+            >
+              {isTogglingBlogSplit ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : isBlogSplitOpen ? (
+                <PanelRightClose className="h-4 w-4" />
+              ) : (
+                <PanelRightOpen className="h-4 w-4" />
+              )}
+              {isBlogSplitOpen ? "분할 닫기" : "블로그 홈 보기"}
             </Button>
 
             <Button
@@ -817,5 +1029,6 @@ export function StepPublish({
         </Button>
       )}
     </div>
+    </>
   );
 }
