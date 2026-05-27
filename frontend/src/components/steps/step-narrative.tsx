@@ -43,6 +43,11 @@ import { BrandProfileSection } from "@/components/brand/brand-profile-section";
 import { BrandTemplateSection } from "@/components/brand/brand-template-section";
 import { AeoProfileSection } from "@/components/aeo/aeo-profile-section";
 import { AeoTemplateSection } from "@/components/aeo/aeo-template-section";
+import { AttachedProductSection } from "@/components/shared/attached-product-section";
+
+// V1 feature flag — 미설정 또는 "1"이 아니면 첨부 섹션 자체 미노출 (A9)
+const PRODUCT_ATTACH_ENABLED =
+  process.env.NEXT_PUBLIC_ENABLE_PRODUCT_ATTACH === "1";
 
 type NarrativeOption = {
   id: NarrativeSource;
@@ -222,6 +227,11 @@ interface StepNarrativeProps {
   userProducts: UserProduct[];
   onUserProductsChange: () => void;
   onProductDeleted: (id: string) => void;
+  // 브랜드/AEO 모드에서 첨부한 제품 (V1, NEXT_PUBLIC_ENABLE_PRODUCT_ATTACH=1일 때만)
+  selectedBrandProductId?: string;
+  selectedAeoProductId?: string;
+  onBrandProductAttach?: (productId: string | undefined) => void;
+  onAeoProductAttach?: (productId: string | undefined) => void;
 }
 
 export function StepNarrative({
@@ -268,6 +278,10 @@ export function StepNarrative({
   userProducts,
   onUserProductsChange,
   onProductDeleted,
+  selectedBrandProductId,
+  selectedAeoProductId,
+  onBrandProductAttach,
+  onAeoProductAttach,
 }: StepNarrativeProps) {
   const selectedOption = NARRATIVES.find((n) => n.id === narrativeSource) ?? null;
 
@@ -818,6 +832,25 @@ export function StepNarrative({
             </motion.div>
           )}
 
+          {/* 브랜드 모드 — 제품 첨부 (선택, V1) */}
+          {postCategory === "brand" && selectedBrandProfileId && PRODUCT_ATTACH_ENABLED && onBrandProductAttach && (
+            <motion.div
+              key="brand-attached-product-section"
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.25 }}
+              className="space-y-10"
+            >
+              <Separator />
+              <AttachedProductSection
+                mode="brand"
+                value={selectedBrandProductId}
+                onChange={onBrandProductAttach}
+                userProducts={userProducts}
+              />
+            </motion.div>
+          )}
+
           {postCategory === "brand" && selectedBrandProfileId && (
             <motion.div
               key="brand-template-section"
@@ -875,6 +908,25 @@ export function StepNarrative({
                   onSelect={onAeoProfileChange}
                 />
               </div>
+            </motion.div>
+          )}
+
+          {/* AEO 모드 — 제품 첨부 (선택, V1) */}
+          {postCategory === "aeo" && selectedAeoProfileId && PRODUCT_ATTACH_ENABLED && onAeoProductAttach && (
+            <motion.div
+              key="aeo-attached-product-section"
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.25 }}
+              className="space-y-10"
+            >
+              <Separator />
+              <AttachedProductSection
+                mode="aeo"
+                value={selectedAeoProductId}
+                onChange={onAeoProductAttach}
+                userProducts={userProducts}
+              />
             </motion.div>
           )}
 

@@ -9,8 +9,14 @@ import { buildAeoGenerationPrompt } from "@/lib/aeo/prompts/generation";
 import { generateStream } from "@/lib/gemini";
 import { CONFIG } from "@/lib/config";
 import type { AeoProfile, AeoTemplateId, AeoSource } from "@/types/aeo";
+import type { UserProduct } from "@/types";
+import { detectLabelLeak } from "@/lib/prompts/attached-product-context";
 
 export const maxDuration = 60;
+
+// V1 feature flag (A9)
+const PRODUCT_ATTACH_ENABLED =
+  process.env.NEXT_PUBLIC_ENABLE_PRODUCT_ATTACH === "1";
 
 export async function POST(request: Request) {
   try {
@@ -27,6 +33,7 @@ export async function POST(request: Request) {
       targetQueries,
       sources,
       apiKey,
+      attachedProduct,
     } = body as {
       profile: AeoProfile;
       template: AeoTemplateId;
@@ -39,7 +46,11 @@ export async function POST(request: Request) {
       targetQueries?: string[];
       sources?: AeoSource[];
       apiKey?: string;
+      /** V1 첨부 제품 (선택) */
+      attachedProduct?: UserProduct;
     };
+
+    const effectiveAttachedProduct = PRODUCT_ATTACH_ENABLED ? attachedProduct : undefined;
 
     if (!profile || !template || !mainKeyword || !selectedTitle) {
       return Response.json(
@@ -59,12 +70,24 @@ export async function POST(request: Request) {
       requirements,
       targetQueries,
       sources,
+      attachedProduct: effectiveAttachedProduct,
     });
 
     // 1차 생성 (버퍼) — 브랜드 generate와 동일 패턴
     const firstContent = await collectStream(prompt, apiKey);
     if (!firstContent) {
       throw new Error("생성된 내용이 없습니다. 다시 시도해주세요.");
+    }
+
+    // dev 모드 라벨 누수 가드 (A6)
+    if (process.env.NODE_ENV === "development" && effectiveAttachedProduct) {
+      const leaks = detectLabelLeak(firstContent);
+      if (leaks.length > 0) {
+        console.warn(
+          `[attached-product] 라벨 누수 감지 (aeo/${template}):`,
+          leaks,
+        );
+      }
     }
 
     // 청크 단위 스트리밍 (후기성·브랜드와 동일 인터페이스)
