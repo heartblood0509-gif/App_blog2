@@ -1,14 +1,26 @@
 import { GoogleGenAI, Modality } from "@google/genai";
+import { getServerGeminiKey } from "@/lib/server/gemini-key";
 
-let genaiInstance: GoogleGenAI | null = null;
+// 캐시는 키 단위로 보관. 키가 바뀌면 자동으로 새 인스턴스가 만들어진다.
+// (이전엔 모듈 싱글톤이라 ApiKeyPanel 에서 키를 바꿔도 옛 키로 호출되는 버그가 있었음.)
+const genaiByKey = new Map<string, GoogleGenAI>();
 
-function getGenAI(apiKey?: string): GoogleGenAI {
-  const key = apiKey || process.env.GEMINI_API_KEY || "";
+async function resolveKey(apiKey?: string): Promise<string> {
+  if (apiKey) return apiKey;
+  // 서버측 헬퍼: 로컬 비밀 파일(.gemini-key.local) → process.env.GEMINI_API_KEY 순.
+  const { key } = await getServerGeminiKey();
   if (!key) throw new Error("Gemini API 키가 설정되지 않았습니다.");
-  if (!genaiInstance) {
-    genaiInstance = new GoogleGenAI({ apiKey: key });
+  return key;
+}
+
+async function getGenAI(apiKey?: string): Promise<GoogleGenAI> {
+  const key = await resolveKey(apiKey);
+  let inst = genaiByKey.get(key);
+  if (!inst) {
+    inst = new GoogleGenAI({ apiKey: key });
+    genaiByKey.set(key, inst);
   }
-  return genaiInstance;
+  return inst;
 }
 
 /**
@@ -19,7 +31,7 @@ export async function* generateStream(
   model: string = "gemini-2.5-flash",
   apiKey?: string
 ): AsyncGenerator<string> {
-  const ai = getGenAI(apiKey);
+  const ai = await getGenAI(apiKey);
   const response = await ai.models.generateContentStream({
     model,
     contents: prompt,
@@ -52,7 +64,7 @@ export async function generateText(
   apiKey?: string,
   generationConfig?: GenerateTextConfig
 ): Promise<string> {
-  const ai = getGenAI(apiKey);
+  const ai = await getGenAI(apiKey);
   const response = await ai.models.generateContent({
     model,
     contents: prompt,
@@ -73,7 +85,7 @@ export async function* generateMultimodalStream(
   model: string,
   apiKey?: string
 ): AsyncGenerator<string> {
-  const ai = getGenAI(apiKey);
+  const ai = await getGenAI(apiKey);
   const response = await ai.models.generateContentStream({
     model,
     contents: [{ role: "user", parts: parts as never }],
@@ -141,7 +153,7 @@ export async function generateImage(
   apiKey?: string
 ): Promise<GeneratedImageResult | null> {
   try {
-    const ai = getGenAI(apiKey);
+    const ai = await getGenAI(apiKey);
     const resp = await ai.models.generateContent({
       model,
       contents: prompt,
@@ -171,7 +183,7 @@ export async function generateImageWithAspect(
   apiKey?: string
 ): Promise<GeneratedImageResult | null> {
   try {
-    const ai = getGenAI(apiKey);
+    const ai = await getGenAI(apiKey);
     const config = {
       responseModalities: [Modality.TEXT, Modality.IMAGE],
       imageConfig: { aspectRatio },
@@ -209,7 +221,7 @@ export async function transformImage(
   referenceCount: number = 1
 ): Promise<GeneratedImageResult | null> {
   try {
-    const ai = getGenAI(apiKey);
+    const ai = await getGenAI(apiKey);
 
     // parts 배열 구성: [text, image, image, ...]
     const parts: Array<
