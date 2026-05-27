@@ -76,8 +76,11 @@ console.log(`[dev-worktree] mode    =${isElectron ? "electron" : "web"}`);
   }
 
   // Web 모드: 백엔드 + 프론트 직접 기동
+  // PORT 환경변수가 주어지면 frontend는 그 포트를 사용한다 (Claude Code preview_start autoPort 호환).
   const backendPort = await findFreePort(8001);
-  const frontendPort = await findFreePort(3000);
+  const frontendPort = process.env.PORT
+    ? Number.parseInt(process.env.PORT, 10)
+    : await findFreePort(3000);
 
   // 2. frontend/.env.local
   ensureEnvLocal(mainRoot, worktreeRoot, backendPort);
