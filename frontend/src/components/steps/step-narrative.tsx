@@ -306,7 +306,8 @@ export function StepNarrative({
         scrollToClickTarget(productGridRef.current ?? productSectionRef.current);
       } else if (postCategory === "brand") {
         scrollToClickTarget(brandProfileGridRef.current ?? brandProfileSectionRef.current);
-      } else if (postCategory === "aeo" || postCategory === "seoAeo") {
+      } else if (postCategory === "seoAeo") {
+        // "aeo" 단독 카테고리는 seoAeo 통합형으로 흡수됨 — 옛 분기 정리
         scrollToClickTarget(aeoProfileGridRef.current ?? aeoProfileSectionRef.current);
       }
     }
@@ -347,7 +348,7 @@ export function StepNarrative({
     if (
       prevAeoProfileIdRef.current !== selectedAeoProfileId &&
       selectedAeoProfileId &&
-      postCategory === "aeo"
+      postCategory === "seoAeo"
     ) {
       scrollToClickTarget(aeoTemplateGridRef.current ?? aeoTemplateSectionRef.current);
     }
