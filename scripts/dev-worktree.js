@@ -145,6 +145,19 @@ async function prepareDeps(mainRoot, worktreeRoot) {
     const method = fastCopy(src, dst);
     console.log(`  ${rel}: ${method} 완료`);
   }
+
+  // Python 의존성 설치. requirements.txt 의 모든 패키지를 글로벌(또는 활성화된 venv) python 에 설치.
+  // 미설치 상태에서 백엔드가 import 시점에 죽는 걸 막는다. 이미 설치되어 있으면 pip 가 빠르게 통과.
+  console.log("\n[dev-worktree] Python 의존성 설치 (backend/requirements.txt)");
+  const pythonCmd = process.platform === "win32" ? "python" : "python3";
+  const r = spawnSync(
+    pythonCmd,
+    ["-m", "pip", "install", "-r", "backend/requirements.txt"],
+    { cwd: worktreeRoot, stdio: "inherit", shell: process.platform === "win32" }
+  );
+  if (r.status !== 0) {
+    die(`pip install 실패 — 수동으로 \`${pythonCmd} -m pip install -r backend/requirements.txt\` 실행 후 다시 시도`);
+  }
 }
 
 // OS 별 최적 빠른 복사. 진짜 디렉토리로 보이도록 (Turbopack 호환).

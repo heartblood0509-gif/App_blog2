@@ -34,7 +34,9 @@ const initialWizardState: WizardState = {
   selectedBrandIntroVariant: null,
   selectedBrandValueProofVariant: null,
   selectedBrandDetailVariant: null,
+  selectedBrandProductId: undefined,
   selectedAeoProfileId: null,
+  selectedAeoProductId: undefined,
   brandPropositions: null,
   brandPropositionsCacheKey: null,
   selectedAnalysisRecordId: null,
@@ -72,6 +74,37 @@ const initialWizardState: WizardState = {
 
 const LS_KEY = "blog-pick-wizard-state-v1";
 
+/**
+ * v3 (시드 6개 영구 제거) — 마이그레이션.
+ *
+ * 50명 배포 환경에서 옛 사용자의 localStorage에 시드 ID가 남아있으면
+ * BRAND_PRODUCTS lookup 실패 → silent fail (제품 컨텍스트 누락된 글 생성).
+ * 다음 접속 시 자동 1회 정리.
+ */
+const LEGACY_SEED_IDS = new Set([
+  "therapy-shampoo",
+  "hair-loss-shampoo",
+  "scalp-brush",
+  "body-lotion",
+  "hair-tonic",
+  "soap",
+]);
+
+function purgeLegacySeedIds(state: Partial<WizardState>): Partial<WizardState> {
+  return {
+    ...state,
+    selectedProducts: (state.selectedProducts ?? []).filter(
+      (p) => !LEGACY_SEED_IDS.has(p.id),
+    ),
+    selectedBrandProductId: LEGACY_SEED_IDS.has(state.selectedBrandProductId ?? "")
+      ? undefined
+      : state.selectedBrandProductId,
+    selectedAeoProductId: LEGACY_SEED_IDS.has(state.selectedAeoProductId ?? "")
+      ? undefined
+      : state.selectedAeoProductId,
+  };
+}
+
 // localStorage 보관에서 제외할 필드: 큰 이진 / 진행 중 플래그 / IDB 관리 데이터
 const NON_PERSISTABLE_KEYS = [
   "generatedImages",
@@ -98,12 +131,13 @@ function loadFromStorage(): WizardState {
     const raw = window.localStorage.getItem(LS_KEY);
     if (!raw) return initialWizardState;
     const parsed = JSON.parse(raw) as Partial<WizardState> & { postCategory?: unknown };
-    // 마이그레이션: 옛 "aeo" 단독 카테고리는 제거되었으므로 seoAeo로 승격.
+    // 마이그레이션 1: 옛 "aeo" 단독 카테고리는 제거되었으므로 seoAeo로 승격.
     // (UI에서 "AEO 블로그"로 표시되던 흐름과 동일한 통합형으로 자연스럽게 이어짐)
     if (parsed.postCategory === "aeo") {
       parsed.postCategory = "seoAeo";
     }
-    return { ...initialWizardState, ...(parsed as Partial<WizardState>) };
+    // 마이그레이션 2 (v3): 시드 6개 영구 제거. 옛 사용자 localStorage 자동 정리.
+    return { ...initialWizardState, ...purgeLegacySeedIds(parsed as Partial<WizardState>) };
   } catch {
     return initialWizardState;
   }

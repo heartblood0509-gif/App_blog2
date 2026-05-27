@@ -25,6 +25,7 @@ from datetime import date
 from pathlib import Path
 
 from playwright.async_api import async_playwright, Frame, Page, Browser
+from playwright_stealth import Stealth
 
 from config import CHROME_PROFILES_DIR
 from paths import LOG_DIR
@@ -40,8 +41,7 @@ STEALTH_ARGS = [
 ]
 
 STEALTH_JS = """
-    // 0) Playwright 고유 전역 변수 제거 — 사이트 스크립트가 보기 전에 가장 먼저.
-    //    버전마다 이름이 달라 prefix 매칭으로 일괄 정리.
+    // 1) Playwright 고유 전역 변수 제거 — 라이브러리가 처리하지 않는 영역.
     (() => {
         try {
             for (const key of Object.getOwnPropertyNames(window)) {
@@ -52,91 +52,39 @@ STEALTH_JS = """
         } catch (e) {}
     })();
 
-    // 1) navigator.webdriver 가림
-    Object.defineProperty(navigator, 'webdriver', {get: () => undefined});
-
-    // 2) window.chrome 확장 — 진짜 Chrome에 존재하는 표준 API 4종(runtime/loadTimes/csi/app).
-    //    빈 객체({runtime:{}})만 두면 탐지기가 즉시 잡아냄.
+    // 2) chrome.runtime 보강. 라이브러리의 chrome_runtime=True 옵션이 현 버전에서 실제로
+    //    runtime 객체를 생성하지 않아 (app/csi/loadTimes 만 들어감), 직접 채워 넣는다.
+    //    runtime 부재는 headless Chrome 단서로 흔히 사용됨.
     (() => {
-        const startTimestamp = Date.now() / 1000;
-        const startLoad = startTimestamp - Math.random() * 0.5;
-        window.chrome = {
-            app: {
-                isInstalled: false,
-                InstallState: {
-                    DISABLED: 'disabled',
-                    INSTALLED: 'installed',
-                    NOT_INSTALLED: 'not_installed',
-                },
-                RunningState: {
-                    CANNOT_RUN: 'cannot_run',
-                    READY_TO_RUN: 'ready_to_run',
-                    RUNNING: 'running',
-                },
-            },
-            runtime: {
-                OnInstalledReason: {
-                    CHROME_UPDATE: 'chrome_update',
-                    INSTALL: 'install',
-                    SHARED_MODULE_UPDATE: 'shared_module_update',
-                    UPDATE: 'update',
-                },
-                OnRestartRequiredReason: {
-                    APP_UPDATE: 'app_update',
-                    OS_UPDATE: 'os_update',
-                    PERIODIC: 'periodic',
-                },
-                PlatformArch: {
-                    ARM: 'arm', ARM64: 'arm64', MIPS: 'mips',
-                    MIPS64: 'mips64', X86_32: 'x86-32', X86_64: 'x86-64',
-                },
-                PlatformNaclArch: {
-                    ARM: 'arm', MIPS: 'mips',
-                    MIPS64: 'mips64', X86_32: 'x86-32', X86_64: 'x86-64',
-                },
-                PlatformOs: {
-                    ANDROID: 'android', CROS: 'cros', LINUX: 'linux',
-                    MAC: 'mac', OPENBSD: 'openbsd', WIN: 'win',
-                },
-                RequestUpdateCheckStatus: {
-                    NO_UPDATE: 'no_update',
-                    THROTTLED: 'throttled',
-                    UPDATE_AVAILABLE: 'update_available',
-                },
-                connect: () => {},
-                sendMessage: () => {},
-                id: undefined,
-            },
-            loadTimes: function () {
-                return {
-                    commitLoadTime: startLoad,
-                    connectionInfo: 'http/1.1',
-                    finishDocumentLoadTime: startLoad + 0.2,
-                    finishLoadTime: startLoad + 0.3,
-                    firstPaintAfterLoadTime: 0,
-                    firstPaintTime: startLoad + 0.15,
-                    navigationType: 'Other',
-                    npnNegotiatedProtocol: 'unknown',
-                    requestTime: startTimestamp - 0.5,
-                    startLoadTime: startTimestamp - 0.4,
-                    wasAlternateProtocolAvailable: false,
-                    wasFetchedViaSpdy: false,
-                    wasNpnNegotiated: false,
+        try {
+            if (window.chrome && typeof window.chrome === 'object' && !window.chrome.runtime) {
+                window.chrome.runtime = {
+                    OnInstalledReason: {
+                        CHROME_UPDATE: 'chrome_update', INSTALL: 'install',
+                        SHARED_MODULE_UPDATE: 'shared_module_update', UPDATE: 'update',
+                    },
+                    OnRestartRequiredReason: {
+                        APP_UPDATE: 'app_update', OS_UPDATE: 'os_update', PERIODIC: 'periodic',
+                    },
+                    PlatformArch: {
+                        ARM: 'arm', ARM64: 'arm64', MIPS: 'mips',
+                        MIPS64: 'mips64', X86_32: 'x86-32', X86_64: 'x86-64',
+                    },
+                    PlatformOs: {
+                        ANDROID: 'android', CROS: 'cros', LINUX: 'linux',
+                        MAC: 'mac', OPENBSD: 'openbsd', WIN: 'win',
+                    },
+                    RequestUpdateCheckStatus: {
+                        NO_UPDATE: 'no_update', THROTTLED: 'throttled',
+                        UPDATE_AVAILABLE: 'update_available',
+                    },
+                    connect: () => {},
+                    sendMessage: () => {},
+                    id: undefined,
                 };
-            },
-            csi: function () {
-                return {
-                    startE: Date.now() - 1000,
-                    onloadT: Date.now() - 500,
-                    pageT: Math.floor(performance.now()),
-                    tran: 15,
-                };
-            },
-        };
+            }
+        } catch (e) {}
     })();
-
-    // 3) navigator.languages
-    Object.defineProperty(navigator, 'languages', {get: () => ['ko-KR', 'ko', 'en-US', 'en']});
 """
 
 # 사용자가 다양한 OS(Win10/11, macOS, Linux) 환경에서 봇을 실행하므로
@@ -149,12 +97,15 @@ def _realistic_browser_profile() -> dict:
     if system == "Windows":
         ua_os = "Windows NT 10.0; Win64; x64"
         ch_platform = "Windows"
+        nav_platform = "Win32"
     elif system == "Darwin":
         ua_os = "Macintosh; Intel Mac OS X 10_15_7"
         ch_platform = "macOS"
+        nav_platform = "MacIntel"
     else:
         ua_os = "X11; Linux x86_64"
         ch_platform = "Linux"
+        nav_platform = "Linux x86_64"
 
     user_agent = (
         f"Mozilla/5.0 ({ua_os}) AppleWebKit/537.36 "
@@ -166,6 +117,7 @@ def _realistic_browser_profile() -> dict:
     )
     return {
         "user_agent": user_agent,
+        "navigator_platform": nav_platform,
         "extra_http_headers": {
             "Accept-Language": "ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7",
             "Sec-CH-UA": sec_ch_ua,
@@ -416,6 +368,26 @@ class NaverBlogPublisher:
             ignore_default_args=["--enable-automation"],
         )
 
+        # playwright-stealth: launch_persistent_context는 공식 미지원이라 컨텍스트에 수동 적용.
+        # 정책: 위조 자국(toString 누설)이 남는 evasion 은 끄고 Chromium 기본값에 맡긴다.
+        #   - userAgent: launch 옵션의 user_agent 로 이미 지정됨
+        #   - languages: locale='ko-KR' + Accept-Language 헤더로 이미 ko-KR
+        #   - vendor: Chromium 기본 'Google Inc.' 가 정상
+        #   - plugins/mimeTypes: Chromium 기본 PDF 5종이 정상이고 NaCl 도 이미 없음
+        # 유지하는 evasion: webdriver, chrome.app/csi/loadTimes, permissions, platform 등 진짜 단서가 되는 칸만.
+        # chrome_runtime 은 라이브러리 기본값 False 라 명시적으로 켜고, 실제 runtime 객체는 STEALTH_JS 가 보강.
+        stealth = Stealth(
+            chrome_runtime=True,
+            navigator_platform_override=browser_profile["navigator_platform"],
+            navigator_user_agent=False,
+            navigator_languages=False,
+            navigator_vendor=False,
+            navigator_plugins=False,
+        )
+        await stealth.apply_stealth_async(self.browser)
+        # 후처리 init_script 는 컨텍스트 레벨로 등록해야 라이브러리 패치 이후 일관 적용.
+        await self.browser.add_init_script(STEALTH_JS)
+
         # §B-3 즉시 등록. 발행 도중 백엔드가 종료되어도 teardown 훅이 잡을 수 있음.
         entry = (self._pw, self.browser)
         _detached_contexts.append(entry)
@@ -434,9 +406,6 @@ class NaverBlogPublisher:
             self.page = self.browser.pages[0]
         else:
             self.page = await self.browser.new_page()
-
-        # Stealth JS 주입
-        await self.page.add_init_script(STEALTH_JS)
 
     # ===== 자동 로그인 (키스트로크 전용 + 폼 자동 탐지) =====
     async def _auto_login(self, naver_id: str, naver_pw: str):

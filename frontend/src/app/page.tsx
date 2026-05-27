@@ -39,8 +39,32 @@ import type {
   ProductInfo,
 } from "@/types";
 import { initialThreadsState } from "@/types";
-import { fetchUserProducts } from "@/lib/products";
+import { fetchUserProducts, PRODUCTS } from "@/lib/products";
 import { buildCustomProductInfo } from "@/lib/prompts/brand-context";
+
+// V1 첨부 제품: ID로 user 등록 풀 + 시드 풀에서 UserProduct 모양으로 lookup.
+// 시드 제품은 5분할 필드가 없으므로 defaultAdvantages만 활용됨 (빌더에서 자동 폴백).
+function resolveAttachedProduct(
+  id: string | undefined,
+  userProducts: UserProduct[],
+): UserProduct | undefined {
+  if (!id) return undefined;
+  const userP = userProducts.find((p) => p.id === id);
+  if (userP) return userP;
+  const seed = PRODUCTS.find((p) => p.id === id);
+  if (!seed) return undefined;
+  return {
+    id: seed.id,
+    name: seed.name,
+    category: seed.category,
+    defaultAdvantages: seed.defaultAdvantages,
+    relatedSymptoms: [],
+    naturalMentionPatterns: [],
+    keyInsight: "",
+    sensoryDetails: [],
+    realReviews: [],
+  };
+}
 import {
   runImageBulk,
   type SlotJob,
@@ -267,8 +291,13 @@ export default function Home() {
     setState((prev) => ({
       ...prev,
       selectedProducts: prev.selectedProducts.filter((p) => p.id !== deletedId),
+      // dangling reference 정리 (A1): 브랜드/AEO 첨부 ID가 사라진 제품 가리키면 초기화
+      selectedBrandProductId:
+        prev.selectedBrandProductId === deletedId ? undefined : prev.selectedBrandProductId,
+      selectedAeoProductId:
+        prev.selectedAeoProductId === deletedId ? undefined : prev.selectedAeoProductId,
     }));
-  }, []);
+  }, [setState]);
 
   // Phase 1 검문소 — 브랜드 모드 글 생성 직전 LLM 적합성 검사 결과를 띄우는 모달 상태.
   // 글 생성 자체는 막지 않음. 사용자가 ① 추천 적용 / ② 이전 단계 / ③ 그냥 진행 중 선택.
@@ -904,6 +933,8 @@ export default function Home() {
               isStructureBasedVariant || isCustomLibrary
                 ? state.selectedAnalysisRecordId || undefined
                 : undefined,
+            // V1 첨부 제품 (선택) — undefined면 라우트에서 격리 패턴으로 기존 경로 유지
+            attachedProduct: resolveAttachedProduct(state.selectedBrandProductId, userProducts),
           }),
         });
       } else if (state.postCategory === "seoAeo") {
@@ -927,6 +958,8 @@ export default function Home() {
             subKeywords: state.subKeywords || undefined,
             requirements: state.requirements || undefined,
             charCount: state.charCountRange,
+            // V1 첨부 제품 (선택) — undefined면 라우트에서 격리 패턴으로 기존 경로 유지
+            attachedProduct: resolveAttachedProduct(state.selectedAeoProductId, userProducts),
           }),
         });
       } else {
@@ -1910,6 +1943,10 @@ export default function Home() {
             userProducts={userProducts}
             onUserProductsChange={refetchUserProducts}
             onProductDeleted={handleProductDeleted}
+            selectedBrandProductId={state.selectedBrandProductId}
+            selectedAeoProductId={state.selectedAeoProductId}
+            onBrandProductAttach={(id) => updateState({ selectedBrandProductId: id })}
+            onAeoProductAttach={(id) => updateState({ selectedAeoProductId: id })}
           />
         );
       case 2:

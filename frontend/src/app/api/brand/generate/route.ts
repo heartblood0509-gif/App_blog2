@@ -17,8 +17,14 @@ import type {
   BrandDetailVariantId,
   AnalysisRecord,
 } from "@/types/brand";
+import type { UserProduct } from "@/types";
+import { detectLabelLeak } from "@/lib/prompts/attached-product-context";
 
 export const maxDuration = 60;
+
+// V1 feature flag (A9) — 미설정 또는 "1"이 아니면 attachedProduct 무시
+const PRODUCT_ATTACH_ENABLED =
+  process.env.NEXT_PUBLIC_ENABLE_PRODUCT_ATTACH === "1";
 
 export async function POST(request: Request) {
   try {
@@ -41,6 +47,7 @@ export async function POST(request: Request) {
       referenceAnalysis,
       referenceExcerpts,
       analysisRecordId,
+      attachedProduct,
     } = body as {
       profile: BrandProfile;
       template: BrandTemplateId;
@@ -59,7 +66,12 @@ export async function POST(request: Request) {
       referenceAnalysis?: string;
       referenceExcerpts?: string[];
       analysisRecordId?: string;
+      /** V1 첨부 제품 (선택) */
+      attachedProduct?: UserProduct;
     };
+
+    // flag off면 무시 (A9) → 빌더가 격리 패턴으로 기존 경로 100% 유지
+    const effectiveAttachedProduct = PRODUCT_ATTACH_ENABLED ? attachedProduct : undefined;
 
     if (!profile || !template || !mainKeyword || !selectedTitle) {
       return Response.json(
@@ -120,12 +132,24 @@ export async function POST(request: Request) {
       referenceExcerpts,
       analysisRecordId,
       analysisRecord,
+      attachedProduct: effectiveAttachedProduct,
     });
 
     // 1차 생성 (버퍼)
     const firstContent = await collectStream(prompt, apiKey);
     if (!firstContent) {
       throw new Error("생성된 내용이 없습니다. 다시 시도해주세요.");
+    }
+
+    // dev 모드 라벨 누수 가드 (A6) — 첨부 활성 시에만 검사
+    if (process.env.NODE_ENV === "development" && effectiveAttachedProduct) {
+      const leaks = detectLabelLeak(firstContent);
+      if (leaks.length > 0) {
+        console.warn(
+          `[attached-product] 라벨 누수 감지 (brand/${template}):`,
+          leaks,
+        );
+      }
     }
 
     // 청크 단위 스트리밍 (후기성과 동일 인터페이스)

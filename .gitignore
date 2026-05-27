@@ -7,7 +7,10 @@ __pycache__/
 venv/
 *.egg-info/
 dist/
-build/
+# build/ 디렉터리는 ignore 하지만 electron-builder 정적 리소스(앱 아이콘)는 예외.
+# gitignore 사양상 디렉터리를 통째 ignore 하면 그 안의 재포함이 불가능하므로 build/* 패턴 사용.
+build/*
+!build/icon.png
 .DS_Store
 *.tsbuildinfo
 accounts.json
