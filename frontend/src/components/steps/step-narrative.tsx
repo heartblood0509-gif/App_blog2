@@ -44,6 +44,12 @@ import { BrandTemplateSection } from "@/components/brand/brand-template-section"
 import { AeoProfileSection } from "@/components/aeo/aeo-profile-section";
 import { AttachedProductSection } from "@/components/shared/attached-product-section";
 import { ProfileBundleDialog } from "@/components/profile-bundle-dialog";
+import {
+  INTENT_LABELS,
+  INTENT_EXAMPLES,
+  INTENT_ICONS,
+  INTENT_ORDER,
+} from "@/lib/seo-aeo/templates";
 
 // V1 feature flag — 미설정 또는 "1"이 아니면 첨부 섹션 자체 미노출 (A9)
 const PRODUCT_ATTACH_ENABLED =
@@ -218,6 +224,9 @@ interface StepNarrativeProps {
   // AEO 분기 (postCategory === "seoAeo"일 때 사용)
   selectedAeoProfileId: string | null;
   onAeoProfileChange: (profileId: string) => void;
+  // Intent Mode — seoAeo 내부의 글 의도 선택 (5택, 기본 "auto")
+  selectedTemplateType: import("@/types").SeoAeoTemplateType;
+  onTemplateTypeChange: (templateType: import("@/types").SeoAeoTemplateType) => void;
   onAnalysisRecordSelect: (recordId: string) => void;
   // 후기성 — 사용자 등록 제품
   userProducts: UserProduct[];
@@ -268,6 +277,8 @@ export function StepNarrative({
   onBrandCustomReferenceModeChange,
   selectedAeoProfileId,
   onAeoProfileChange,
+  selectedTemplateType,
+  onTemplateTypeChange,
   onAnalysisRecordSelect,
   userProducts,
   onUserProductsChange,
@@ -931,6 +942,85 @@ export function StepNarrative({
                   onSelect={onAeoProfileChange}
                 />
               </div>
+            </motion.div>
+          )}
+
+          {/* AEO 블로그(seoAeo) 모드 — 글 템플릿 (5택, 기본 "AI에게 맡기기")
+              auto = 기존 동작 그대로 유지 (회귀 0 보호).
+              나머지 4개 = 새 7단계 프롬프트 + 어휘 계약.
+              UI 패턴: 브랜드 글 템플릿(brand-template-section.tsx)과 동일한 카드 그리드. */}
+          {postCategory === "seoAeo" && selectedAeoProfileId && (
+            <motion.div
+              key="aeo-intent-section"
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.25 }}
+              className="space-y-10"
+            >
+              <Separator />
+              <section>
+                <div className="mb-4">
+                  <h2 className="text-xl font-semibold">글 템플릿</h2>
+                  <p className="mt-1 text-sm text-muted-foreground">
+                    어떤 종류의 AEO 글을 만들지 선택하세요
+                  </p>
+                </div>
+
+                <div
+                  role="radiogroup"
+                  aria-label="AEO 글 템플릿 선택"
+                  className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3"
+                >
+                  {INTENT_ORDER.map((value) => {
+                    const selected = selectedTemplateType === value;
+                    const Icon = INTENT_ICONS[value];
+
+                    return (
+                      <Card
+                        key={value}
+                        role="radio"
+                        aria-checked={selected}
+                        tabIndex={0}
+                        onClick={() => onTemplateTypeChange(value)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter" || e.key === " ") {
+                            e.preventDefault();
+                            onTemplateTypeChange(value);
+                          }
+                        }}
+                        className={`cursor-pointer transition-all duration-200 ${
+                          selected
+                            ? "ring-2 ring-primary bg-primary/5"
+                            : "hover:ring-1 hover:ring-muted-foreground/30"
+                        }`}
+                      >
+                        <CardHeader>
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-2">
+                              <Icon className="h-5 w-5 text-primary" />
+                              <CardTitle className="text-base">
+                                {INTENT_LABELS[value]}
+                              </CardTitle>
+                            </div>
+                            {selected && (
+                              <motion.div
+                                initial={{ scale: 0 }}
+                                animate={{ scale: 1 }}
+                                className="flex h-6 w-6 items-center justify-center rounded-full bg-primary"
+                              >
+                                <Check className="h-3.5 w-3.5 text-primary-foreground" />
+                              </motion.div>
+                            )}
+                          </div>
+                          <CardDescription className="text-xs leading-relaxed">
+                            {INTENT_EXAMPLES[value]}
+                          </CardDescription>
+                        </CardHeader>
+                      </Card>
+                    );
+                  })}
+                </div>
+              </section>
             </motion.div>
           )}
 

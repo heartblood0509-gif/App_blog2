@@ -2,7 +2,7 @@ import { validateContent } from "@/lib/quality/validator";
 
 export async function POST(request: Request) {
   try {
-    const { text, keyword, charRange } = await request.json();
+    const { text, keyword, charRange, intentMode } = await request.json();
 
     if (!text || !keyword) {
       return Response.json(
@@ -14,7 +14,8 @@ export async function POST(request: Request) {
     const result = validateContent(
       text,
       keyword,
-      charRange || { min: 1500, max: 2000 }
+      charRange || { min: 1500, max: 2000 },
+      Boolean(intentMode),
     );
 
     return Response.json(result);

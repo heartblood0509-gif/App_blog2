@@ -23,7 +23,8 @@ function stripImageMarkers(text: string): string {
 export function validateContent(
   text: string,
   keyword: string,
-  charRange: { min: number; max: number }
+  charRange: { min: number; max: number },
+  intentMode = false,
 ): QualityResult {
   // 이미지 마커 제외한 본문으로 품질 지표 계산
   const textForMetrics = stripImageMarkers(text);
@@ -93,11 +94,17 @@ export function validateContent(
 
   // 문장부호 검출 — 마침표/쉼표/느낌표/물음표/따옴표 (한국어 전각 따옴표 포함)
   // 해시태그 라인과 이미지 마커는 이미 textForMetrics 에서 제외됨
-  const PUNCT_RE = /[.,!?"'"""‘’]/g;
+  // Intent Mode 는 질문형 소제목·FAQ 가 핵심이므로 물음표를 reject 대상에서 제외.
+  const PUNCT_RE = intentMode
+    ? /[.,!"'"""‘’]/g
+    : /[.,!?"'"""‘’]/g;
   const punctMatches = textForMetrics.match(PUNCT_RE);
   const punctCount = punctMatches ? punctMatches.length : 0;
   if (punctCount > 0) {
-    failReasons.push(`문장부호 검출: ${punctCount}개 (마침표 쉼표 느낌표 물음표 따옴표 전부 제거 필요)`);
+    const punctLabel = intentMode
+      ? "마침표 쉼표 느낌표 따옴표 전부 제거 필요"
+      : "마침표 쉼표 느낌표 물음표 따옴표 전부 제거 필요";
+    failReasons.push(`문장부호 검출: ${punctCount}개 (${punctLabel})`);
   }
 
   // 긴 문단 검출 — 6줄 이상 연속된 비공백 본문 줄 (소제목은 break 포인트)
