@@ -361,6 +361,16 @@ interface BlogSplitAnchorResult {
   componentOrder: string[];
 }
 
+interface BlogSplitTitleToBodyResult {
+  ok: boolean;
+  titleCursorEnd: boolean;
+  bodyCursor: boolean;
+  reason: string;
+  fallback: boolean;
+}
+
+type BlogSplitStructuralAnchor = { kind: "image" | "quote"; index: number };
+
 type BlogSplitPasteBlock =
   | { type: "text"; lines: string[] }
   | { type: "quote"; text: string }
@@ -368,6 +378,16 @@ type BlogSplitPasteBlock =
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function trustedCursorResult(reason = "trusted_current"): BlogSplitAnchorResult {
+  return {
+    ok: true,
+    reason,
+    trailingText: true,
+    cursorAtAppend: true,
+    componentOrder: [],
+  };
 }
 
 function escapeHtml(value: string): string {
@@ -593,6 +613,86 @@ async function pasteClipboardIntoFocusedBlogSplit(waitMs = 900): Promise<void> {
   await sleep(waitMs);
 }
 
+async function placeTitleCursorAtEnd(frame: WebFrameMain): Promise<{ ok: boolean; reason: string }> {
+  const result = await frame.executeJavaScript(`
+    (() => {
+      const selectors = [
+        ".se-documentTitle [contenteditable='true']",
+        ".se-documentTitle .se-title-text",
+        ".se-title-text [contenteditable='true']",
+        ".se-title-text",
+      ];
+      for (const selector of selectors) {
+        const el = document.querySelector(selector);
+        if (!el) continue;
+        const target = el.closest("[contenteditable='true']") || el;
+        target.scrollIntoView({ block: "center", inline: "nearest" });
+        target.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
+        target.dispatchEvent(new MouseEvent("mouseup", { bubbles: true }));
+        target.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+        if (target.focus) target.focus();
+        const range = document.createRange();
+        range.selectNodeContents(target);
+        range.collapse(false);
+        const sel = window.getSelection();
+        sel.removeAllRanges();
+        sel.addRange(range);
+        return { ok: true, reason: "ok" };
+      }
+      return { ok: false, reason: "title_target_not_found" };
+    })()
+  `, true);
+  if (!result || typeof result !== "object") return { ok: false, reason: "invalid_result" };
+  const value = result as { ok?: unknown; reason?: unknown };
+  return {
+    ok: value.ok === true,
+    reason: typeof value.reason === "string" ? value.reason : "unknown",
+  };
+}
+
+async function pressEnterInBlogSplit(waitMs = 700): Promise<void> {
+  const contents = blogSplitView!.webContents;
+  contents.sendInputEvent({ type: "keyDown", keyCode: "Enter" });
+  contents.sendInputEvent({ type: "keyUp", keyCode: "Enter" });
+  await sleep(waitMs);
+}
+
+async function moveFromTitleToBody(frame: WebFrameMain): Promise<BlogSplitTitleToBodyResult> {
+  const titleCursor = await placeTitleCursorAtEnd(frame);
+  if (!titleCursor.ok) {
+    return {
+      ok: false,
+      titleCursorEnd: false,
+      bodyCursor: false,
+      reason: titleCursor.reason,
+      fallback: false,
+    };
+  }
+
+  await sleep(300);
+  await pressEnterInBlogSplit(700);
+
+  const bodyCursor = await placeCursorAtAppendTarget(frame);
+  if (bodyCursor.ok) {
+    return {
+      ok: true,
+      titleCursorEnd: true,
+      bodyCursor: true,
+      reason: bodyCursor.reason,
+      fallback: false,
+    };
+  }
+
+  const fallbackCursor = await ensureAppendCursor(frame);
+  return {
+    ok: fallbackCursor.ok,
+    titleCursorEnd: true,
+    bodyCursor: fallbackCursor.ok,
+    reason: `${bodyCursor.reason}:fallback:${fallbackCursor.reason}`,
+    fallback: true,
+  };
+}
+
 async function getBlogEditorComponentOrder(frame: WebFrameMain): Promise<string[]> {
   const result = await frame.executeJavaScript(`
     (() => {
@@ -628,9 +728,16 @@ async function placeCursorAtAppendTarget(frame: WebFrameMain): Promise<BlogSplit
       };
 
       const placeAtEnd = (textComponent) => {
-        const para = textComponent.querySelector(".se-text-paragraph") ||
+        const paragraphs = Array.from(textComponent.querySelectorAll(".se-text-paragraph"));
+        const para = paragraphs[paragraphs.length - 1] ||
           textComponent.querySelector("[contenteditable='true']");
         if (!para) return { ok: false, reason: "no_paragraph" };
+        const editable = para.closest("[contenteditable='true']") || para;
+        para.scrollIntoView({ block: "center", inline: "nearest" });
+        if (editable.focus) editable.focus();
+        para.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
+        para.dispatchEvent(new MouseEvent("mouseup", { bubbles: true }));
+        para.dispatchEvent(new MouseEvent("click", { bubbles: true }));
         const focusNode = para.querySelector("span.__se-node") || para;
         const range = document.createRange();
         if (focusNode.childNodes.length > 0) {
@@ -642,12 +749,6 @@ async function placeCursorAtAppendTarget(frame: WebFrameMain): Promise<BlogSplit
         const sel = window.getSelection();
         sel.removeAllRanges();
         sel.addRange(range);
-        const editable = para.closest("[contenteditable='true']") || para;
-        if (editable.focus) editable.focus();
-        para.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
-        para.dispatchEvent(new MouseEvent("mouseup", { bubbles: true }));
-        para.dispatchEvent(new MouseEvent("click", { bubbles: true }));
-        para.scrollIntoView({ block: "center", inline: "nearest" });
         return { ok: true, reason: "ok" };
       };
 
@@ -744,7 +845,15 @@ async function placeCursorAfterComponent(
       if (!para) {
         return { ok: false, reason: "no_paragraph", trailingText: true, cursorAtAppend: false, componentOrder: componentOrder() };
       }
-      const focusNode = para.querySelector("span.__se-node") || para;
+      const paragraphs = Array.from(next.querySelectorAll(".se-text-paragraph"));
+      const targetPara = paragraphs[paragraphs.length - 1] || para;
+      const editable = targetPara.closest("[contenteditable='true']") || targetPara;
+      targetPara.scrollIntoView({ block: "center", inline: "nearest" });
+      if (editable.focus) editable.focus();
+      targetPara.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
+      targetPara.dispatchEvent(new MouseEvent("mouseup", { bubbles: true }));
+      targetPara.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      const focusNode = targetPara.querySelector("span.__se-node") || targetPara;
       const range = document.createRange();
       if (focusNode.childNodes.length > 0) {
         range.setStartAfter(focusNode.lastChild);
@@ -755,12 +864,6 @@ async function placeCursorAfterComponent(
       const sel = window.getSelection();
       sel.removeAllRanges();
       sel.addRange(range);
-      const editable = para.closest("[contenteditable='true']") || para;
-      if (editable.focus) editable.focus();
-      para.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
-      para.dispatchEvent(new MouseEvent("mouseup", { bubbles: true }));
-      para.dispatchEvent(new MouseEvent("click", { bubbles: true }));
-      para.scrollIntoView({ block: "center", inline: "nearest" });
 
       const components = Array.from(root.querySelectorAll(".se-component"))
         .filter((component) => !component.closest(".se-documentTitle"));
@@ -859,6 +962,120 @@ async function getBlogEditorSnapshot(frame: WebFrameMain): Promise<unknown> {
   `);
 }
 
+async function getSelectionDiagnostics(frame: WebFrameMain, label: string): Promise<unknown> {
+  return frame.executeJavaScript(`
+    ((label) => {
+      const text = (el) => (el && el.textContent ? el.textContent.trim() : "");
+      const root = document.querySelector(".se-content") || document.querySelector(".se-sections");
+      const components = root
+        ? Array.from(root.querySelectorAll(".se-component"))
+            .filter((component) => !component.closest(".se-documentTitle"))
+        : [];
+      const componentOrder = components.map((component) => {
+        if (component.classList.contains("se-image")) return "image";
+        if (component.classList.contains("se-quotation")) return "quote";
+        if (component.classList.contains("se-text")) return "text";
+        return "other";
+      });
+      const sel = window.getSelection();
+      const focusNode = sel && sel.rangeCount > 0 ? sel.focusNode : null;
+      const focusEl = focusNode
+        ? (focusNode.nodeType === Node.ELEMENT_NODE ? focusNode : focusNode.parentElement)
+        : null;
+      const component = focusEl ? focusEl.closest(".se-component") : null;
+      const paragraphs = component ? Array.from(component.querySelectorAll(".se-text-paragraph")) : [];
+      const para = focusEl ? focusEl.closest(".se-text-paragraph") : null;
+      const componentIndex = component ? components.indexOf(component) : -1;
+      const paragraphIndex = para ? paragraphs.indexOf(para) : -1;
+      const focusTextLength = focusNode && typeof focusNode.textContent === "string"
+        ? focusNode.textContent.length
+        : null;
+      const focusOffset = sel && sel.rangeCount > 0 ? sel.focusOffset : null;
+      const componentType = component
+        ? component.classList.contains("se-image")
+          ? "image"
+          : component.classList.contains("se-quotation")
+            ? "quote"
+            : component.classList.contains("se-text")
+              ? "text"
+              : "other"
+        : "none";
+      return {
+        label,
+        componentOrder,
+        selection: {
+          componentType,
+          componentIndex,
+          paragraphIndex,
+          paragraphCount: paragraphs.length,
+          focusOffset,
+          focusTextLength,
+          atLastParagraph: paragraphIndex >= 0 && paragraphIndex === paragraphs.length - 1,
+          nearNodeEnd: typeof focusOffset === "number" && typeof focusTextLength === "number"
+            ? focusOffset >= focusTextLength
+            : null,
+          firstText: text(paragraphs[0]).slice(0, 60),
+          currentText: text(para).slice(0, 60),
+          lastText: text(paragraphs[paragraphs.length - 1]).slice(0, 60),
+        },
+        textComponents: components
+          .filter((component) => component.classList.contains("se-text"))
+          .map((component, index) => {
+            const ps = Array.from(component.querySelectorAll(".se-text-paragraph"));
+            return {
+              index,
+              first: text(ps[0]).slice(0, 50),
+              last: text(ps[ps.length - 1]).slice(0, 50),
+              paragraphs: ps.length,
+            };
+          })
+          .slice(0, 8),
+      };
+    })(${JSON.stringify(label)})
+  `, true);
+}
+
+function compactSelectionDiagnostics(value: unknown): string {
+  if (!value || typeof value !== "object") return "diag=invalid";
+  const diag = value as {
+    selection?: {
+      componentType?: unknown;
+      componentIndex?: unknown;
+      paragraphIndex?: unknown;
+      paragraphCount?: unknown;
+      atLastParagraph?: unknown;
+      nearNodeEnd?: unknown;
+      currentText?: unknown;
+      lastText?: unknown;
+    };
+    componentOrder?: unknown;
+  };
+  const sel = diag.selection || {};
+  const order = Array.isArray(diag.componentOrder)
+    ? diag.componentOrder.filter((item): item is string => typeof item === "string").join(">")
+    : "";
+  const currentText = typeof sel.currentText === "string" ? sel.currentText : "";
+  const lastText = typeof sel.lastText === "string" ? sel.lastText : "";
+  return [
+    `sel=${String(sel.componentType)}#${String(sel.componentIndex)}`,
+    `p=${String(sel.paragraphIndex)}/${String(sel.paragraphCount)}`,
+    `lastP=${String(sel.atLastParagraph)}`,
+    `end=${String(sel.nearNodeEnd)}`,
+    `cur="${currentText}"`,
+    `last="${lastText}"`,
+    `order=${order}`,
+  ].join(" ");
+}
+
+async function logSelectionDiagnostics(frame: WebFrameMain, label: string): Promise<string> {
+  const diagnostics = await getSelectionDiagnostics(frame, label).catch((error: unknown) => ({
+    label,
+    error: error instanceof Error ? error.message : String(error),
+  }));
+  log.info(`[pasteProbe] ${label} ${JSON.stringify(diagnostics)}`);
+  return compactSelectionDiagnostics(diagnostics);
+}
+
 async function countEditorComponents(frame: WebFrameMain): Promise<{ quotes: number; images: number }> {
   const result = await frame.executeJavaScript(`
     (() => ({
@@ -955,8 +1172,18 @@ async function runBlogSplitPasteProbe(input: unknown): Promise<BlogSplitPastePro
 
   try {
     const titleFocused = await focusInEditor(frame, "title");
+    if (titleFocused) await sleep(700);
     clipboard.write({ text: title });
-    if (titleFocused) await pasteClipboardIntoFocusedBlogSplit();
+    if (titleFocused) await pasteClipboardIntoFocusedBlogSplit(500);
+    const titleToBody = titleFocused
+      ? await moveFromTitleToBody(frame)
+      : {
+          ok: false,
+          titleCursorEnd: false,
+          bodyCursor: false,
+          reason: "title focus failed",
+          fallback: false,
+        };
     const snapshotAfterTitle = (await getBlogEditorSnapshot(frame)) as { title?: string };
     steps.push({
       name: "title:text/plain",
@@ -964,8 +1191,13 @@ async function runBlogSplitPasteProbe(input: unknown): Promise<BlogSplitPastePro
         titleFocused &&
         normalizeComparableText(snapshotAfterTitle.title || "").includes(
           normalizeComparableText(title),
-        ),
+      ),
       detail: titleFocused ? `title=${snapshotAfterTitle.title || ""}` : "title focus failed",
+    });
+    steps.push({
+      name: "title:enterToBody",
+      ok: titleToBody.ok,
+      detail: `titleCursorEnd=${titleToBody.titleCursorEnd} bodyCursor=${titleToBody.bodyCursor} reason=${titleToBody.reason}${titleToBody.fallback ? " fallback=true" : ""}`,
     });
 
     if (blocks.length === 0) {
@@ -984,19 +1216,73 @@ async function runBlogSplitPasteProbe(input: unknown): Promise<BlogSplitPastePro
       });
     }
 
+    let cursorTrusted = titleToBody.ok;
+    let lastStructuralAnchor: BlogSplitStructuralAnchor | null = null;
+
+    const cursorForPaste = async (): Promise<{
+      cursor: BlogSplitAnchorResult;
+      source: "trusted" | "anchor" | "fallback" | "anchor:fallback";
+    }> => {
+      if (cursorTrusted) {
+        if (lastStructuralAnchor) {
+          const anchored = await placeCursorAfterComponent(
+            frame,
+            lastStructuralAnchor.kind,
+            lastStructuralAnchor.index,
+          );
+          if (anchored.ok) return { cursor: anchored, source: "anchor" };
+          const fallback = await ensureAppendCursor(frame);
+          return { cursor: fallback, source: "anchor:fallback" };
+        }
+        return { cursor: trustedCursorResult(), source: "trusted" };
+      }
+
+      const fallback = await ensureAppendCursor(frame);
+      return { cursor: fallback, source: "fallback" };
+    };
+
     for (const [blockIndex, block] of blocks.entries()) {
       if (block.type === "text") {
-        const beforeCursor = await ensureAppendCursor(frame);
+        const before = await cursorForPaste();
+        const beforeCursor = before.cursor;
+        const beforeCursorSource = before.source;
+        const textAnchor = lastStructuralAnchor;
+        const shouldEnterAfterText = blockIndex < blocks.length - 1;
         clipboard.write({
           text: plainTextFromLines(block.lines),
           html: renderParagraphHtml(block.lines),
         });
         if (beforeCursor.ok) await pasteClipboardIntoFocusedBlogSplit();
-        const afterCursor = beforeCursor.ok ? await placeCursorAtAppendTarget(frame) : beforeCursor;
+        const afterCursor = beforeCursor.ok
+          ? textAnchor
+            ? await placeCursorAfterComponent(frame, textAnchor.kind, textAnchor.index)
+            : await placeCursorAtAppendTarget(frame)
+          : beforeCursor;
+        const afterCursorSource = textAnchor ? "anchor" : "append";
+        const afterPasteDiag = blockIndex === 1
+          ? await logSelectionDiagnostics(frame, `after block:${blockIndex}:textPaste`)
+          : "";
+        let enteredAfterText = false;
+        let enterReason = "not_needed";
+        let afterEnterDiag = "";
+        if (afterCursor.ok && shouldEnterAfterText) {
+          await sleep(300);
+          await pressEnterInBlogSplit(500);
+          const enterCursor = textAnchor
+            ? trustedCursorResult("trusted_after_enter")
+            : await placeCursorAtAppendTarget(frame);
+          enteredAfterText = enterCursor.ok;
+          enterReason = enterCursor.reason;
+          afterEnterDiag = blockIndex === 1
+            ? await logSelectionDiagnostics(frame, `after block:${blockIndex}:textEnter`)
+            : "";
+        }
+        cursorTrusted = shouldEnterAfterText ? enteredAfterText : afterCursor.ok;
+        lastStructuralAnchor = null;
         steps.push({
           name: `block:${blockIndex}:textHtmlPaste`,
-          ok: beforeCursor.ok && afterCursor.ok,
-          detail: `lines=${block.lines.length} cursorAfter=${afterCursor.ok} reason=${afterCursor.reason}`,
+          ok: beforeCursor.ok && afterCursor.ok && (!shouldEnterAfterText || enteredAfterText),
+          detail: `lines=${block.lines.length} beforeCursorSource=${beforeCursorSource} cursorAfter=${afterCursor.ok} afterCursorSource=${afterCursorSource} reason=${afterCursor.reason} enteredAfterText=${enteredAfterText} enterReason=${enterReason}${afterPasteDiag ? ` afterPasteDiag=[${afterPasteDiag}]` : ""}${afterEnterDiag ? ` afterEnterDiag=[${afterEnterDiag}]` : ""}`,
         });
         continue;
       }
@@ -1006,16 +1292,19 @@ async function runBlogSplitPasteProbe(input: unknown): Promise<BlogSplitPastePro
         const quoteLines = block.text.split("\n").map((line) => line.trim()).filter(Boolean);
         const quoteHtml = `<blockquote>${renderParagraphHtml(quoteLines.length ? quoteLines : [block.text])}</blockquote>`;
         clipboard.write({ text: block.text, html: quoteHtml });
-        const beforeCursor = await ensureAppendCursor(frame);
+        const beforePlacement = await cursorForPaste();
+        const beforeCursor = beforePlacement.cursor;
         if (beforeCursor.ok) await pasteClipboardIntoFocusedBlogSplit();
         const afterCursor = beforeCursor.ok
           ? await waitForPastedComponentAndPlaceCursor(frame, "quote", before.quotes, 5000)
           : beforeCursor;
         const after = await countEditorComponents(frame);
+        cursorTrusted = afterCursor.ok;
+        lastStructuralAnchor = after.quotes > before.quotes ? { kind: "quote", index: before.quotes } : null;
         steps.push({
           name: `block:${blockIndex}:quoteHtmlPaste`,
           ok: beforeCursor.ok && after.quotes > before.quotes && afterCursor.ok,
-          detail: `quotes ${before.quotes}->${after.quotes} cursorAfter=${afterCursor.ok} trailingText=${afterCursor.trailingText} reason=${afterCursor.reason}`,
+          detail: `quotes ${before.quotes}->${after.quotes} beforeCursorSource=${beforePlacement.source} cursorAfter=${afterCursor.ok} trailingText=${afterCursor.trailingText} reason=${afterCursor.reason}`,
         });
         continue;
       }
@@ -1036,16 +1325,28 @@ async function runBlogSplitPasteProbe(input: unknown): Promise<BlogSplitPastePro
       const image = createNativeImageFromBase64(imagePayload.base64, mimeType);
       const imageSize = image.getSize();
       clipboard.write({ image });
-      const beforeCursor = await ensureAppendCursor(frame);
+      const beforePlacement = await cursorForPaste();
+      const beforeCursor = beforePlacement.cursor;
+      const beforeImageDiag = blockIndex === 2
+        ? await logSelectionDiagnostics(frame, `before block:${blockIndex}:imagePaste`)
+        : "";
       if (beforeCursor.ok) await pasteClipboardIntoFocusedBlogSplit(3000);
       const afterCursor = beforeCursor.ok
         ? await waitForPastedComponentAndPlaceCursor(frame, "image", before.images)
         : beforeCursor;
+      if (afterCursor.ok && blockIndex < blocks.length - 1) {
+        await sleep(700);
+      }
+      const afterImageDiag = blockIndex === 0
+        ? await logSelectionDiagnostics(frame, `after block:${blockIndex}:imagePaste`)
+        : "";
       const after = await countEditorComponents(frame);
+      cursorTrusted = afterCursor.ok;
+      lastStructuralAnchor = after.images > before.images ? { kind: "image", index: before.images } : null;
       steps.push({
         name: `block:${blockIndex}:imagePngPaste`,
         ok: beforeCursor.ok && !image.isEmpty() && after.images > before.images && afterCursor.ok,
-        detail: `imageEmpty=${image.isEmpty()} size=${imageSize.width}x${imageSize.height} images ${before.images}->${after.images} cursorAfter=${afterCursor.ok} trailingText=${afterCursor.trailingText} reason=${afterCursor.reason}`,
+        detail: `imageEmpty=${image.isEmpty()} size=${imageSize.width}x${imageSize.height} images ${before.images}->${after.images} beforeCursorSource=${beforePlacement.source} cursorAfter=${afterCursor.ok} trailingText=${afterCursor.trailingText} reason=${afterCursor.reason}${beforeImageDiag ? ` beforeImageDiag=[${beforeImageDiag}]` : ""}${afterImageDiag ? ` afterImageDiag=[${afterImageDiag}]` : ""}`,
       });
     }
 
