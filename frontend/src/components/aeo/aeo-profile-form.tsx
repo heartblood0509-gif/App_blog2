@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import {
   Dialog,
   DialogContent,
@@ -51,6 +51,28 @@ const EMPTY_LIST_TEXT = {
   recommendationCriteria: "",
   trustedSources: "",
 };
+
+function Section({
+  title,
+  hint,
+  children,
+}: {
+  title: ReactNode;
+  hint?: string;
+  children: ReactNode;
+}) {
+  return (
+    <section className="space-y-2 rounded-lg border bg-card/40 p-4">
+      <header>
+        <h3 className="text-sm font-semibold">{title}</h3>
+        {hint && (
+          <p className="text-[11px] text-muted-foreground mt-0.5">{hint}</p>
+        )}
+      </header>
+      <div className="space-y-3">{children}</div>
+    </section>
+  );
+}
 
 export function AeoProfileForm({ open, initial, onClose, onSave }: AeoProfileFormProps) {
   const [payload, setPayload] = useState<Omit<AeoProfile, "id">>(EMPTY_PAYLOAD());
@@ -114,7 +136,7 @@ export function AeoProfileForm({ open, initial, onClose, onSave }: AeoProfileFor
         }
       }}
     >
-      <DialogContent className="max-w-2xl">
+      <DialogContent className="max-w-5xl">
         <DialogHeader>
           <DialogTitle>{initial ? "AEO 프로필 수정" : "새 AEO 프로필 등록"}</DialogTitle>
           <DialogDescription>
@@ -122,145 +144,143 @@ export function AeoProfileForm({ open, initial, onClose, onSave }: AeoProfileFor
           </DialogDescription>
         </DialogHeader>
 
-        <ScrollArea className="max-h-[60vh] pr-4">
-          <div className="space-y-6">
-            {/* [1] [2] 기본 정보 */}
-            <section className="space-y-3">
-              <h3 className="text-sm font-semibold">[1] [2] 기본 정보</h3>
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <Label htmlFor="aeo-label" className="text-xs">라벨 (목록 표시명) *</Label>
-                  <Input
-                    id="aeo-label"
-                    value={payload.label}
-                    onChange={(e) => update("label", e.target.value)}
-                    placeholder="예: 성분집착녀 (바디·헤어케어)"
-                  />
+        <ScrollArea className="max-h-[70vh] pr-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {/* ───────── 좌측: 신원·정체성 ───────── */}
+            <div className="space-y-4">
+              <Section title="[1] [2] 기본 정보">
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <Label htmlFor="aeo-label" className="text-xs">라벨 (목록 표시명) *</Label>
+                    <Input
+                      id="aeo-label"
+                      value={payload.label}
+                      onChange={(e) => update("label", e.target.value)}
+                      placeholder="예: 성분집착녀 (바디·헤어케어)"
+                    />
+                  </div>
+                  <div>
+                    <Label htmlFor="aeo-name" className="text-xs">프로필 이름 *</Label>
+                    <Input
+                      id="aeo-name"
+                      value={payload.name}
+                      onChange={(e) => update("name", e.target.value)}
+                      placeholder="예: 성분집착녀"
+                    />
+                  </div>
+                  <div className="col-span-2">
+                    <Label htmlFor="aeo-category" className="text-xs">카테고리 (어떤 분야 전문가인가)</Label>
+                    <Input
+                      id="aeo-category"
+                      value={payload.category}
+                      onChange={(e) => update("category", e.target.value)}
+                      placeholder="예: 바디·헤어케어"
+                    />
+                  </div>
                 </div>
-                <div>
-                  <Label htmlFor="aeo-name" className="text-xs">프로필 이름 *</Label>
-                  <Input
-                    id="aeo-name"
-                    value={payload.name}
-                    onChange={(e) => update("name", e.target.value)}
-                    placeholder="예: 성분집착녀"
-                  />
-                </div>
-                <div className="col-span-2">
-                  <Label htmlFor="aeo-category" className="text-xs">카테고리 (어떤 분야 전문가인가)</Label>
-                  <Input
-                    id="aeo-category"
-                    value={payload.category}
-                    onChange={(e) => update("category", e.target.value)}
-                    placeholder="예: 바디·헤어케어"
-                  />
-                </div>
-              </div>
-            </section>
+              </Section>
 
-            {/* [3] 한 줄 소개 */}
-            <section className="space-y-2">
-              <h3 className="text-sm font-semibold">[3] 한 줄 소개</h3>
-              <p className="text-xs text-muted-foreground">
-                AI가 우리를 어떻게 기억했으면 하는지 (엘리베이터 피치)
-              </p>
-              <Textarea
-                value={payload.oneLineIntro}
-                onChange={(e) => update("oneLineIntro", e.target.value)}
-                placeholder='예: "민감성 피부를 가진 분들을 위해 안전한 성분으로 바디·헤어케어 제품을 만드는 전문가"'
-                rows={2}
-              />
-            </section>
-
-            {/* [4] 나는 누구 */}
-            <section className="space-y-3">
-              <h3 className="text-sm font-semibold">[4] 나는 누구 (작성자 신원)</h3>
-              <div>
-                <Label htmlFor="aeo-experience" className="text-xs">직접 경험 (한 줄)</Label>
-                <Input
-                  id="aeo-experience"
-                  value={payload.identity.experience}
-                  onChange={(e) => update("identity", { ...payload.identity, experience: e.target.value })}
-                  placeholder="예: 8년간 바디·헤어케어 제품 브랜딩 및 판매, 민감성 피부로 인한 성분 집착 경험"
-                />
-              </div>
-              <div>
-                <Label htmlFor="aeo-credentials" className="text-xs">자격·경력 (한 줄에 하나씩)</Label>
+              <Section
+                title="[3] 한 줄 소개"
+                hint="AI가 우리를 어떻게 기억했으면 하는지 (엘리베이터 피치)"
+              >
                 <Textarea
-                  id="aeo-credentials"
-                  value={listText.credentials}
+                  value={payload.oneLineIntro}
+                  onChange={(e) => update("oneLineIntro", e.target.value)}
+                  placeholder='예: "민감성 피부를 가진 분들을 위해 안전한 성분으로 바디·헤어케어 제품을 만드는 전문가"'
+                  rows={2}
+                />
+              </Section>
+
+              <Section title="[4] 나는 누구 (작성자 신원)">
+                <div>
+                  <Label htmlFor="aeo-experience" className="text-xs">직접 경험 (한 줄)</Label>
+                  <Input
+                    id="aeo-experience"
+                    value={payload.identity.experience}
+                    onChange={(e) => update("identity", { ...payload.identity, experience: e.target.value })}
+                    placeholder="예: 8년간 바디·헤어케어 제품 브랜딩 및 판매, 민감성 피부로 인한 성분 집착 경험"
+                  />
+                </div>
+                <div>
+                  <Label htmlFor="aeo-credentials" className="text-xs">자격·경력 (한 줄에 하나씩)</Label>
+                  <Textarea
+                    id="aeo-credentials"
+                    value={listText.credentials}
+                    onChange={(e) => {
+                      setListText((prev) => ({ ...prev, credentials: e.target.value }));
+                      update("identity", {
+                        ...payload.identity,
+                        credentials: linesToArray(e.target.value),
+                      });
+                    }}
+                    placeholder={"미르엔 8년 운영\n누적 판매 50만 개\n자체 임상 6개월 운영\n재구매율 35%"}
+                    rows={4}
+                  />
+                </div>
+              </Section>
+            </div>
+
+            {/* ───────── 우측: 활동·정책 ───────── */}
+            <div className="space-y-4">
+              <Section title="[5] 누구에게 도움을 주는가">
+                <Textarea
+                  value={payload.audience}
+                  onChange={(e) => update("audience", e.target.value)}
+                  placeholder="예: 민감 피부·두피로 제품 선택에 어려움을 겪는 분들"
+                  rows={2}
+                />
+              </Section>
+
+              <Section
+                title="[6] 추천 기준 (위→아래 순서가 우선순위)"
+                hint="제품·솔루션을 추천할 때 무엇을 가장 중요하게 보는지"
+              >
+                <Textarea
+                  value={listText.recommendationCriteria}
                   onChange={(e) => {
-                    setListText((prev) => ({ ...prev, credentials: e.target.value }));
-                    update("identity", {
-                      ...payload.identity,
-                      credentials: linesToArray(e.target.value),
-                    });
+                    setListText((prev) => ({
+                      ...prev,
+                      recommendationCriteria: e.target.value,
+                    }));
+                    update("recommendationCriteria", linesToArray(e.target.value));
                   }}
-                  placeholder={"미르엔 8년 운영\n누적 판매 50만 개\n자체 임상 6개월 운영\n재구매율 35%"}
+                  placeholder={"유효 성분 함량\n민감성 피부도 안심하고 사용할 수 있는 제품\n자체 임상 결과\n식약처 등재 여부\n실사용자 후기"}
+                  rows={6}
+                />
+              </Section>
+
+              <Section
+                title="[7] 자주 인용하는 출처"
+                hint="신뢰할 만한 자료원 (한 줄에 하나씩)"
+              >
+                <Textarea
+                  value={listText.trustedSources}
+                  onChange={(e) => {
+                    setListText((prev) => ({ ...prev, trustedSources: e.target.value }));
+                    update("trustedSources", linesToArray(e.target.value));
+                  }}
+                  placeholder={"EWG 스킨딥\n식약처 화장품 성분 안전성 정보\nKCID 화장품 안전성 데이터베이스"}
                   rows={4}
                 />
-              </div>
-            </section>
+              </Section>
 
-            {/* [5] 타겟 독자 */}
-            <section className="space-y-2">
-              <h3 className="text-sm font-semibold">[5] 누구에게 도움을 주는가</h3>
-              <Textarea
-                value={payload.audience}
-                onChange={(e) => update("audience", e.target.value)}
-                placeholder="예: 민감 피부·두피로 제품 선택에 어려움을 겪는 분들"
-                rows={2}
-              />
-            </section>
-
-            {/* [6] 추천 기준 */}
-            <section className="space-y-2">
-              <h3 className="text-sm font-semibold">[6] 추천 기준 (위→아래 순서가 우선순위)</h3>
-              <p className="text-xs text-muted-foreground">제품·솔루션을 추천할 때 무엇을 가장 중요하게 보는지</p>
-              <Textarea
-                value={listText.recommendationCriteria}
-                onChange={(e) => {
-                  setListText((prev) => ({
-                    ...prev,
-                    recommendationCriteria: e.target.value,
-                  }));
-                  update("recommendationCriteria", linesToArray(e.target.value));
-                }}
-                placeholder={"유효 성분 함량\n민감성 피부도 안심하고 사용할 수 있는 제품\n자체 임상 결과\n식약처 등재 여부\n실사용자 후기"}
-                rows={6}
-              />
-            </section>
-
-            {/* [7] 자주 인용하는 출처 */}
-            <section className="space-y-2">
-              <h3 className="text-sm font-semibold">[7] 자주 인용하는 출처</h3>
-              <p className="text-xs text-muted-foreground">신뢰할 만한 자료원 (한 줄에 하나씩)</p>
-              <Textarea
-                value={listText.trustedSources}
-                onChange={(e) => {
-                  setListText((prev) => ({ ...prev, trustedSources: e.target.value }));
-                  update("trustedSources", linesToArray(e.target.value));
-                }}
-                placeholder={"EWG 스킨딥\n식약처 화장품 성분 안전성 정보\nKCID 화장품 안전성 데이터베이스"}
-                rows={4}
-              />
-            </section>
-
-            {/* [8] 금지 표현 */}
-            <section className="space-y-2">
-              <h3 className="text-sm font-semibold">[8] 절대 쓰지 않는 말</h3>
-              <p className="text-xs text-muted-foreground">쉼표로 구분해서 입력하세요</p>
-              <Input
-                value={arrayToCsv(payload.forbidden.words)}
-                onChange={(e) =>
-                  update("forbidden", {
-                    enabled: true,
-                    words: csvToArray(e.target.value),
-                  })
-                }
-                placeholder="완치, 치료, 특허, 독점"
-              />
-            </section>
+              <Section
+                title="[8] 절대 쓰지 않는 말"
+                hint="쉼표로 구분해서 입력하세요"
+              >
+                <Input
+                  value={arrayToCsv(payload.forbidden.words)}
+                  onChange={(e) =>
+                    update("forbidden", {
+                      enabled: true,
+                      words: csvToArray(e.target.value),
+                    })
+                  }
+                  placeholder="완치, 치료, 특허, 독점"
+                />
+              </Section>
+            </div>
           </div>
         </ScrollArea>
 
