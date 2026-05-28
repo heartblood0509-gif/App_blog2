@@ -349,6 +349,20 @@ export function AeoProfileAssistant({ open, onClose, onSaved, prefill }: AeoProf
     [userAnsweredFieldKeys]
   );
 
+  const aiSuggestedCount = useMemo(() => {
+    if (!draft || !userAnsweredFieldKeys) return 0;
+    let count = 0;
+    if (isAiSuggested("name", !!draft.name?.trim())) count++;
+    if (isAiSuggested("category", !!draft.category?.trim())) count++;
+    if (isAiSuggested("oneLineIntro", !!draft.oneLineIntro?.trim())) count++;
+    if (isAiSuggested("identity.experience", !!draft.identity?.experience?.trim())) count++;
+    if (isAiSuggested("identity.credentials", (draft.identity?.credentials ?? []).length > 0)) count++;
+    if (isAiSuggested("audience", !!draft.audience?.trim())) count++;
+    if (isAiSuggested("recommendationCriteria", (draft.recommendationCriteria ?? []).length > 0)) count++;
+    if (isAiSuggested("trustedSources", (draft.trustedSources ?? []).length > 0)) count++;
+    return count;
+  }, [draft, userAnsweredFieldKeys, isAiSuggested]);
+
   return (
     <Dialog open={open} onOpenChange={(v) => !v && handleClose()}>
       <DialogContent className="max-w-2xl max-h-[90vh] flex flex-col gap-4 !grid-cols-none">
@@ -515,9 +529,11 @@ export function AeoProfileAssistant({ open, onClose, onSaved, prefill }: AeoProf
             {!currentMissing && (
               <div className="shrink-0 rounded-lg bg-emerald-50 dark:bg-emerald-950/20 p-3 text-sm text-emerald-900 dark:text-emerald-200">
                 <CheckCircle2 className="mr-1 inline-block h-4 w-4" />
-                {userAnsweredFieldKeys
-                  ? "노란 배경 칸은 AI가 추정한 부분입니다. 확인하고 수정 가능합니다."
-                  : "모든 추가 질문이 끝났어요. 아래 미리보기에서 직접 수정도 가능합니다."}
+                {aiSuggestedCount > 0
+                  ? `노란 배경 칸 ${aiSuggestedCount}개는 AI가 추정한 부분입니다. 확인하고 수정 가능합니다.`
+                  : userAnsweredFieldKeys
+                    ? "8칸 모두 직접 답하신 내용으로 채워졌어요. 검토 후 저장하세요."
+                    : "모든 추가 질문이 끝났어요. 아래 미리보기에서 직접 수정도 가능합니다."}
               </div>
             )}
 
