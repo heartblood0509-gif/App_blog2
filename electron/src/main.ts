@@ -2,12 +2,16 @@ import {
   app,
   BrowserWindow,
   WebContentsView,
+  clipboard,
   dialog,
   ipcMain,
+  nativeImage,
   powerMonitor,
   screen,
   shell,
+  type NativeImage,
   type Rectangle,
+  type WebFrameMain,
 } from "electron";
 import { spawnSync } from "node:child_process";
 import crypto from "node:crypto";
@@ -323,6 +327,751 @@ async function navigateBlogSplit(action: unknown, url?: unknown): Promise<{
   };
 }
 
+interface BlogSplitPasteProbeImage {
+  index: number;
+  base64: string;
+  mimeType?: string;
+}
+
+interface BlogSplitPasteProbeRequest {
+  title?: string;
+  content?: string;
+  images?: BlogSplitPasteProbeImage[];
+}
+
+interface BlogSplitPasteProbeStep {
+  name: string;
+  ok: boolean;
+  detail: string;
+  skipped?: boolean;
+}
+
+interface BlogSplitPasteProbeResult {
+  ok: boolean;
+  error?: string;
+  steps: BlogSplitPasteProbeStep[];
+  snapshot?: unknown;
+}
+
+interface BlogSplitAnchorResult {
+  ok: boolean;
+  reason: string;
+  trailingText: boolean;
+  cursorAtAppend: boolean;
+  componentOrder: string[];
+}
+
+type BlogSplitPasteBlock =
+  | { type: "text"; lines: string[] }
+  | { type: "quote"; text: string }
+  | { type: "image"; imageIndex: number; description: string };
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+function renderProbeInlineMarkdown(value: string): string {
+  return escapeHtml(value)
+    .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
+    .replace(/(^|[^*])\*([^*]+)\*(?!\*)/g, "$1<em>$2</em>");
+}
+
+function firstMeaningfulParagraph(content: string): string {
+  for (const raw of content.split("\n")) {
+    const line = raw.trim();
+    if (!line) continue;
+    if (/^\[이미지:\s*.+?\]$/.test(line)) continue;
+    if (/^#{2,3}(?:\{\w+\})?\s+/.test(line)) continue;
+    if (line.startsWith("#")) continue;
+    return line;
+  }
+  return "본문 paste 검증 문장입니다. **굵은 글자**와 *기울임* 보존 여부를 확인합니다.";
+}
+
+function firstHeading(content: string): string {
+  for (const raw of content.split("\n")) {
+    const line = raw.trim();
+    const match = line.match(/^#{2,3}(?:\{\w+\})?\s+(.+)$/);
+    if (match) return match[1].replace(/\[\[BR\]\]/g, "\n").trim();
+  }
+  return "인용구 paste 검증 소제목";
+}
+
+function getFirstProbeImage(images: BlogSplitPasteProbeImage[] | undefined): BlogSplitPasteProbeImage | null {
+  if (!images || images.length === 0) return null;
+  const sorted = [...images].sort((a, b) => a.index - b.index);
+  return sorted.find((img) => Boolean(img.base64)) ?? null;
+}
+
+function trimBlankLines(lines: string[]): string[] {
+  let start = 0;
+  let end = lines.length;
+  while (start < end && lines[start].trim().length === 0) start += 1;
+  while (end > start && lines[end - 1].trim().length === 0) end -= 1;
+  return lines.slice(start, end);
+}
+
+function parsePasteBlocks(content: string): BlogSplitPasteBlock[] {
+  const blocks: BlogSplitPasteBlock[] = [];
+  const textLines: string[] = [];
+  let markerIndex = -1;
+
+  const flushText = () => {
+    const lines = trimBlankLines(textLines.map((line) => line.trim()));
+    if (lines.length > 0) {
+      blocks.push({ type: "text", lines });
+    }
+    textLines.length = 0;
+  };
+
+  for (const raw of content.split("\n")) {
+    const line = raw.trim();
+    if (!line) {
+      textLines.push("");
+      continue;
+    }
+
+    const imageMatch = line.match(/^\[이미지:\s*(.+?)\]$/);
+    if (imageMatch) {
+      flushText();
+      markerIndex += 1;
+      blocks.push({
+        type: "image",
+        imageIndex: markerIndex,
+        description: imageMatch[1].trim(),
+      });
+      continue;
+    }
+
+    const headingMatch = line.match(/^#{2,3}(?:\{\w+\})?\s+(.+)$/);
+    if (headingMatch) {
+      flushText();
+      blocks.push({
+        type: "quote",
+        text: headingMatch[1].replace(/\[\[BR\]\]/g, "\n").trim(),
+      });
+      continue;
+    }
+
+    if (line.startsWith("> ")) {
+      flushText();
+      blocks.push({
+        type: "quote",
+        text: line.replace(/^>\s*/, "").replace(/\[\[BR\]\]/g, "\n").trim(),
+      });
+      continue;
+    }
+
+    textLines.push(line);
+  }
+
+  flushText();
+  return blocks;
+}
+
+function renderParagraphHtml(lines: string[]): string {
+  return lines
+    .map((line) => (line.trim() ? `<p>${renderProbeInlineMarkdown(line)}</p>` : "<p><br></p>"))
+    .join("");
+}
+
+function plainTextFromLines(lines: string[]): string {
+  return lines
+    .map((line) => line.replace(/\*\*/g, "").replace(/\*/g, ""))
+    .join("\n");
+}
+
+function normalizeComparableText(value: string): string {
+  return value.replace(/\s+/g, " ").trim();
+}
+
+function imageByIndex(
+  images: BlogSplitPasteProbeImage[] | undefined,
+  imageIndex: number,
+): BlogSplitPasteProbeImage | null {
+  return images?.find((image) => image.index === imageIndex && Boolean(image.base64)) ?? null;
+}
+
+function normalizeBase64Image(value: string): string {
+  const commaIndex = value.indexOf(",");
+  const raw = value.startsWith("data:") && commaIndex >= 0 ? value.slice(commaIndex + 1) : value;
+  return raw.replace(/\s/g, "");
+}
+
+function createNativeImageFromBase64(value: string, mimeType = "image/png"): NativeImage {
+  const normalized = normalizeBase64Image(value);
+  const fromBuffer = nativeImage.createFromBuffer(Buffer.from(normalized, "base64"));
+  if (!fromBuffer.isEmpty()) return fromBuffer;
+  return nativeImage.createFromDataURL(`data:${mimeType};base64,${normalized}`);
+}
+
+function findBlogEditorFrame(): WebFrameMain | null {
+  if (!isBlogSplitOpen()) return null;
+  const contents = blogSplitView!.webContents;
+  return (
+    contents.mainFrame.framesInSubtree.find((frame) => {
+      if (frame.isDestroyed() || frame.detached) return false;
+      const url = frame.url || "";
+      return frame.name === "mainFrame" || url.includes("PostWrite") || url.includes("SmartEditor");
+    }) ?? null
+  );
+}
+
+async function focusInEditor(frame: WebFrameMain, selectorMode: "title" | "body"): Promise<boolean> {
+  const script = `
+    (() => {
+      const focusTarget = (target) => {
+        target.focus();
+        const range = document.createRange();
+        range.selectNodeContents(target);
+        range.collapse(false);
+        const sel = window.getSelection();
+        sel.removeAllRanges();
+        sel.addRange(range);
+        target.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
+        target.dispatchEvent(new MouseEvent("mouseup", { bubbles: true }));
+        target.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+        return true;
+      };
+
+      if (${JSON.stringify(selectorMode)} === "title") {
+        const selectors = [
+          ".se-documentTitle [contenteditable='true']",
+          ".se-documentTitle .se-title-text",
+          ".se-title-text [contenteditable='true']",
+          ".se-title-text",
+        ];
+        for (const selector of selectors) {
+          const el = document.querySelector(selector);
+          if (!el) continue;
+          const target = el.closest("[contenteditable='true']") || el;
+          target.scrollIntoView({ block: "center", inline: "nearest" });
+          return focusTarget(target);
+        }
+        return false;
+      }
+
+      const root = document.querySelector(".se-content") || document.querySelector(".se-sections");
+      if (!root) return false;
+
+      const components = Array.from(root.querySelectorAll(".se-component"))
+        .filter((component) => !component.closest(".se-documentTitle"));
+      for (let i = components.length - 1; i >= 0; i -= 1) {
+        const component = components[i];
+        const target =
+          component.querySelector(".se-text-paragraph") ||
+          component.querySelector("[contenteditable='true']");
+        if (!target) continue;
+        if (component.closest(".se-component.se-quotation")) continue;
+        target.scrollIntoView({ block: "center", inline: "nearest" });
+        return focusTarget(target);
+      }
+
+      const emptyTarget =
+        root.querySelector(".se-text-paragraph") ||
+        root.querySelector("[contenteditable='true']");
+      if (emptyTarget) {
+        emptyTarget.scrollIntoView({ block: "center", inline: "nearest" });
+        return focusTarget(emptyTarget);
+      }
+      return false;
+    })()
+  `;
+  return Boolean(await frame.executeJavaScript(script, true));
+}
+
+async function pasteClipboardIntoFocusedBlogSplit(waitMs = 900): Promise<void> {
+  blogSplitView!.webContents.paste();
+  await sleep(waitMs);
+}
+
+async function getBlogEditorComponentOrder(frame: WebFrameMain): Promise<string[]> {
+  const result = await frame.executeJavaScript(`
+    (() => {
+      const root = document.querySelector(".se-content") || document.querySelector(".se-sections");
+      if (!root) return [];
+      return Array.from(root.querySelectorAll(".se-component"))
+        .filter((component) => !component.closest(".se-documentTitle"))
+        .map((component) => {
+          if (component.classList.contains("se-image")) return "image";
+          if (component.classList.contains("se-quotation")) return "quote";
+          if (component.classList.contains("se-text")) return "text";
+          return "other";
+        });
+    })()
+  `);
+  return Array.isArray(result) ? result.filter((item): item is string => typeof item === "string") : [];
+}
+
+async function placeCursorAtAppendTarget(frame: WebFrameMain): Promise<BlogSplitAnchorResult> {
+  const result = await frame.executeJavaScript(`
+    (() => {
+      const componentOrder = () => {
+        const root = document.querySelector(".se-content") || document.querySelector(".se-sections");
+        if (!root) return [];
+        return Array.from(root.querySelectorAll(".se-component"))
+          .filter((component) => !component.closest(".se-documentTitle"))
+          .map((component) => {
+            if (component.classList.contains("se-image")) return "image";
+            if (component.classList.contains("se-quotation")) return "quote";
+            if (component.classList.contains("se-text")) return "text";
+            return "other";
+          });
+      };
+
+      const placeAtEnd = (textComponent) => {
+        const para = textComponent.querySelector(".se-text-paragraph") ||
+          textComponent.querySelector("[contenteditable='true']");
+        if (!para) return { ok: false, reason: "no_paragraph" };
+        const focusNode = para.querySelector("span.__se-node") || para;
+        const range = document.createRange();
+        if (focusNode.childNodes.length > 0) {
+          range.setStartAfter(focusNode.lastChild);
+        } else {
+          range.setStart(focusNode, 0);
+        }
+        range.collapse(true);
+        const sel = window.getSelection();
+        sel.removeAllRanges();
+        sel.addRange(range);
+        const editable = para.closest("[contenteditable='true']") || para;
+        if (editable.focus) editable.focus();
+        para.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
+        para.dispatchEvent(new MouseEvent("mouseup", { bubbles: true }));
+        para.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+        para.scrollIntoView({ block: "center", inline: "nearest" });
+        return { ok: true, reason: "ok" };
+      };
+
+      const root = document.querySelector(".se-content") || document.querySelector(".se-sections");
+      if (!root) {
+        return { ok: false, reason: "no_root", trailingText: false, cursorAtAppend: false, componentOrder: [] };
+      }
+      const texts = Array.from(root.querySelectorAll(".se-component.se-text"))
+        .filter((component) => !component.closest(".se-documentTitle"));
+      const target = texts[texts.length - 1];
+      if (!target) {
+        return { ok: false, reason: "no_text_component", trailingText: false, cursorAtAppend: false, componentOrder: componentOrder() };
+      }
+      const placed = placeAtEnd(target);
+      const components = Array.from(root.querySelectorAll(".se-component"))
+        .filter((component) => !component.closest(".se-documentTitle"));
+      const idx = components.indexOf(target);
+      const cursorAtAppend = placed.ok && idx >= components.length - 2;
+      return {
+        ok: Boolean(placed.ok && cursorAtAppend),
+        reason: placed.ok ? "ok" : placed.reason,
+        trailingText: true,
+        cursorAtAppend,
+        componentOrder: componentOrder(),
+      };
+    })()
+  `, true);
+  return normalizeAnchorResult(result);
+}
+
+function normalizeAnchorResult(value: unknown): BlogSplitAnchorResult {
+  if (!value || typeof value !== "object") {
+    return { ok: false, reason: "invalid_result", trailingText: false, cursorAtAppend: false, componentOrder: [] };
+  }
+  const result = value as {
+    ok?: unknown;
+    reason?: unknown;
+    trailingText?: unknown;
+    cursorAtAppend?: unknown;
+    componentOrder?: unknown;
+  };
+  return {
+    ok: result.ok === true,
+    reason: typeof result.reason === "string" ? result.reason : "unknown",
+    trailingText: result.trailingText === true,
+    cursorAtAppend: result.cursorAtAppend === true,
+    componentOrder: Array.isArray(result.componentOrder)
+      ? result.componentOrder.filter((item): item is string => typeof item === "string")
+      : [],
+  };
+}
+
+async function placeCursorAfterComponent(
+  frame: WebFrameMain,
+  kind: "image" | "quote",
+  index: number,
+): Promise<BlogSplitAnchorResult> {
+  const selector = kind === "image" ? ".se-component.se-image" : ".se-component.se-quotation";
+  const result = await frame.executeJavaScript(`
+    ((selector, index) => {
+      const componentOrder = () => {
+        const root = document.querySelector(".se-content") || document.querySelector(".se-sections");
+        if (!root) return [];
+        return Array.from(root.querySelectorAll(".se-component"))
+          .filter((component) => !component.closest(".se-documentTitle"))
+          .map((component) => {
+            if (component.classList.contains("se-image")) return "image";
+            if (component.classList.contains("se-quotation")) return "quote";
+            if (component.classList.contains("se-text")) return "text";
+            return "other";
+          });
+      };
+
+      const root = document.querySelector(".se-content") || document.querySelector(".se-sections");
+      if (!root) {
+        return { ok: false, reason: "no_root", trailingText: false, cursorAtAppend: false, componentOrder: [] };
+      }
+      const elements = Array.from(root.querySelectorAll(selector));
+      const element = elements[index] || elements[elements.length - 1];
+      if (!element) {
+        return { ok: false, reason: "no_component", trailingText: false, cursorAtAppend: false, componentOrder: componentOrder() };
+      }
+
+      let next = element.nextElementSibling;
+      while (next && !(next.classList.contains("se-component") && next.classList.contains("se-text"))) {
+        next = next.nextElementSibling;
+      }
+      if (!next) {
+        return { ok: false, reason: "no_trailing_text", trailingText: false, cursorAtAppend: false, componentOrder: componentOrder() };
+      }
+
+      const para = next.querySelector(".se-text-paragraph") ||
+        next.querySelector("[contenteditable='true']");
+      if (!para) {
+        return { ok: false, reason: "no_paragraph", trailingText: true, cursorAtAppend: false, componentOrder: componentOrder() };
+      }
+      const focusNode = para.querySelector("span.__se-node") || para;
+      const range = document.createRange();
+      if (focusNode.childNodes.length > 0) {
+        range.setStartAfter(focusNode.lastChild);
+      } else {
+        range.setStart(focusNode, 0);
+      }
+      range.collapse(true);
+      const sel = window.getSelection();
+      sel.removeAllRanges();
+      sel.addRange(range);
+      const editable = para.closest("[contenteditable='true']") || para;
+      if (editable.focus) editable.focus();
+      para.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
+      para.dispatchEvent(new MouseEvent("mouseup", { bubbles: true }));
+      para.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      para.scrollIntoView({ block: "center", inline: "nearest" });
+
+      const components = Array.from(root.querySelectorAll(".se-component"))
+        .filter((component) => !component.closest(".se-documentTitle"));
+      const textIndex = components.indexOf(next);
+      const cursorAtAppend = textIndex >= components.length - 2;
+      return {
+        ok: cursorAtAppend,
+        reason: cursorAtAppend ? "ok" : "not_append_target",
+        trailingText: true,
+        cursorAtAppend,
+        componentOrder: componentOrder(),
+      };
+    })(${JSON.stringify(selector)}, ${JSON.stringify(index)})
+  `, true);
+  return normalizeAnchorResult(result);
+}
+
+async function waitForPastedComponentAndPlaceCursor(
+  frame: WebFrameMain,
+  kind: "image" | "quote",
+  beforeCount: number,
+  timeoutMs = 10000,
+): Promise<BlogSplitAnchorResult> {
+  const deadline = Date.now() + timeoutMs;
+  let lastResult: BlogSplitAnchorResult = {
+    ok: false,
+    reason: "timeout",
+    trailingText: false,
+    cursorAtAppend: false,
+    componentOrder: [],
+  };
+
+  while (Date.now() < deadline) {
+    const counts = await countEditorComponents(frame);
+    const count = kind === "image" ? counts.images : counts.quotes;
+    if (count > beforeCount) {
+      const placed = await placeCursorAfterComponent(frame, kind, beforeCount);
+      lastResult = placed;
+      if (placed.ok || placed.trailingText) return placed;
+    }
+    await sleep(200);
+  }
+
+  lastResult.componentOrder = await getBlogEditorComponentOrder(frame).catch(() => []);
+  return lastResult;
+}
+
+async function ensureAppendCursor(frame: WebFrameMain): Promise<BlogSplitAnchorResult> {
+  const placed = await placeCursorAtAppendTarget(frame);
+  if (placed.ok) return placed;
+
+  const focused = await focusInEditor(frame, "body");
+  if (!focused) {
+    return {
+      ...placed,
+      reason: placed.reason === "unknown" ? "body_focus_failed" : `${placed.reason}:body_focus_failed`,
+    };
+  }
+  return placeCursorAtAppendTarget(frame);
+}
+
+async function getBlogEditorSnapshot(frame: WebFrameMain): Promise<unknown> {
+  return frame.executeJavaScript(`
+    (() => {
+      const text = (el) => (el && el.textContent ? el.textContent.trim() : "");
+      const titleEl =
+        document.querySelector(".se-documentTitle .se-title-text") ||
+        document.querySelector(".se-documentTitle [contenteditable='true']") ||
+        document.querySelector(".se-title-text");
+      const title = text(titleEl);
+      const quotes = Array.from(document.querySelectorAll(".se-component.se-quotation")).map((q, index) => ({
+        index,
+        className: q.className,
+        text: text(q),
+      }));
+      const images = Array.from(document.querySelectorAll(".se-component.se-image")).map((img, index) => ({
+        index,
+        className: img.className,
+        hasImg: Boolean(img.querySelector("img")),
+        text: text(img).slice(0, 120),
+      }));
+      const bodyText = Array.from(document.querySelectorAll(".se-content .se-component"))
+        .map((el) => text(el))
+        .filter(Boolean)
+        .slice(0, 12);
+      const componentOrder = Array.from(document.querySelectorAll(".se-content .se-component"))
+        .filter((component) => !component.closest(".se-documentTitle"))
+        .map((component) => {
+          if (component.classList.contains("se-image")) return "image";
+          if (component.classList.contains("se-quotation")) return "quote";
+          if (component.classList.contains("se-text")) return "text";
+          return "other";
+        });
+      return { title, quoteCount: quotes.length, imageCount: images.length, quotes, images, bodyText, componentOrder };
+    })()
+  `);
+}
+
+async function countEditorComponents(frame: WebFrameMain): Promise<{ quotes: number; images: number }> {
+  const result = await frame.executeJavaScript(`
+    (() => ({
+      quotes: document.querySelectorAll(".se-component.se-quotation").length,
+      images: document.querySelectorAll(".se-component.se-image").length,
+    }))()
+  `);
+  if (!result || typeof result !== "object") return { quotes: 0, images: 0 };
+  const value = result as { quotes?: unknown; images?: unknown };
+  return {
+    quotes: typeof value.quotes === "number" ? value.quotes : 0,
+    images: typeof value.images === "number" ? value.images : 0,
+  };
+}
+
+async function clickQuotationToolbar(frame: WebFrameMain): Promise<boolean> {
+  return Boolean(await frame.executeJavaScript(`
+    (() => {
+      const selectors = [
+        'button[data-name="quotation"]',
+        'button.se-toolbar-button-quotation',
+        'button[aria-label*="인용"]',
+        'button[title*="인용"]'
+      ];
+      for (const selector of selectors) {
+        const btn = document.querySelector(selector);
+        if (!btn) continue;
+        btn.scrollIntoView({ block: "center", inline: "nearest" });
+        btn.click();
+        return true;
+      }
+      return false;
+    })()
+  `, true));
+}
+
+async function focusLastQuotation(frame: WebFrameMain): Promise<boolean> {
+  return Boolean(await frame.executeJavaScript(`
+    (() => {
+      const quotes = document.querySelectorAll(".se-component.se-quotation");
+      const q = quotes[quotes.length - 1];
+      if (!q) return false;
+      const target =
+        q.querySelector(".se-text-paragraph") ||
+        q.querySelector("[contenteditable='true']") ||
+        q;
+      target.scrollIntoView({ block: "center", inline: "nearest" });
+      target.focus();
+      const range = document.createRange();
+      range.selectNodeContents(target);
+      range.collapse(false);
+      const sel = window.getSelection();
+      sel.removeAllRanges();
+      sel.addRange(range);
+      target.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
+      target.dispatchEvent(new MouseEvent("mouseup", { bubbles: true }));
+      target.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      return true;
+    })()
+  `, true));
+}
+
+async function runBlogSplitPasteProbe(input: unknown): Promise<BlogSplitPasteProbeResult> {
+  const steps: BlogSplitPasteProbeStep[] = [];
+
+  if (process.env.NODE_ENV !== "development") {
+    return { ok: false, error: "paste-probe-dev-only", steps };
+  }
+  if (!isBlogSplitOpen()) {
+    return { ok: false, error: "blog-split-not-open", steps };
+  }
+
+  const url = getBlogSplitUrl();
+  const parsed = parseAllowedBlogSplitUrl(url);
+  if (!parsed || parsed.hostname !== "blog.naver.com") {
+    return { ok: false, error: "blog-editor-not-open", steps };
+  }
+
+  const frame = findBlogEditorFrame();
+  if (!frame) {
+    return { ok: false, error: "editor-frame-not-found", steps };
+  }
+
+  const req = (input && typeof input === "object" ? input : {}) as BlogSplitPasteProbeRequest;
+  const title = req.title?.trim() || "Paste PoC 제목";
+  const content = req.content || "";
+  const blocks = parsePasteBlocks(content);
+
+  const previousClipboard = {
+    text: clipboard.readText(),
+    html: clipboard.readHTML(),
+    image: clipboard.readImage(),
+  };
+
+  try {
+    const titleFocused = await focusInEditor(frame, "title");
+    clipboard.write({ text: title });
+    if (titleFocused) await pasteClipboardIntoFocusedBlogSplit();
+    const snapshotAfterTitle = (await getBlogEditorSnapshot(frame)) as { title?: string };
+    steps.push({
+      name: "title:text/plain",
+      ok:
+        titleFocused &&
+        normalizeComparableText(snapshotAfterTitle.title || "").includes(
+          normalizeComparableText(title),
+        ),
+      detail: titleFocused ? `title=${snapshotAfterTitle.title || ""}` : "title focus failed",
+    });
+
+    if (blocks.length === 0) {
+      const beforeCursor = await ensureAppendCursor(frame);
+      const fallbackLines = [firstMeaningfulParagraph(content)];
+      clipboard.write({
+        text: plainTextFromLines(fallbackLines),
+        html: renderParagraphHtml(fallbackLines),
+      });
+      if (beforeCursor.ok) await pasteClipboardIntoFocusedBlogSplit();
+      const afterCursor = beforeCursor.ok ? await placeCursorAtAppendTarget(frame) : beforeCursor;
+      steps.push({
+        name: "body:fallbackTextPaste",
+        ok: beforeCursor.ok && afterCursor.ok,
+        detail: `fallback paragraph pasted cursorAfter=${afterCursor.ok} reason=${afterCursor.reason}`,
+      });
+    }
+
+    for (const [blockIndex, block] of blocks.entries()) {
+      if (block.type === "text") {
+        const beforeCursor = await ensureAppendCursor(frame);
+        clipboard.write({
+          text: plainTextFromLines(block.lines),
+          html: renderParagraphHtml(block.lines),
+        });
+        if (beforeCursor.ok) await pasteClipboardIntoFocusedBlogSplit();
+        const afterCursor = beforeCursor.ok ? await placeCursorAtAppendTarget(frame) : beforeCursor;
+        steps.push({
+          name: `block:${blockIndex}:textHtmlPaste`,
+          ok: beforeCursor.ok && afterCursor.ok,
+          detail: `lines=${block.lines.length} cursorAfter=${afterCursor.ok} reason=${afterCursor.reason}`,
+        });
+        continue;
+      }
+
+      if (block.type === "quote") {
+        const before = await countEditorComponents(frame);
+        const quoteLines = block.text.split("\n").map((line) => line.trim()).filter(Boolean);
+        const quoteHtml = `<blockquote>${renderParagraphHtml(quoteLines.length ? quoteLines : [block.text])}</blockquote>`;
+        clipboard.write({ text: block.text, html: quoteHtml });
+        const beforeCursor = await ensureAppendCursor(frame);
+        if (beforeCursor.ok) await pasteClipboardIntoFocusedBlogSplit();
+        const afterCursor = beforeCursor.ok
+          ? await waitForPastedComponentAndPlaceCursor(frame, "quote", before.quotes, 5000)
+          : beforeCursor;
+        const after = await countEditorComponents(frame);
+        steps.push({
+          name: `block:${blockIndex}:quoteHtmlPaste`,
+          ok: beforeCursor.ok && after.quotes > before.quotes && afterCursor.ok,
+          detail: `quotes ${before.quotes}->${after.quotes} cursorAfter=${afterCursor.ok} trailingText=${afterCursor.trailingText} reason=${afterCursor.reason}`,
+        });
+        continue;
+      }
+
+      const before = await countEditorComponents(frame);
+      const imagePayload = imageByIndex(req.images, block.imageIndex);
+      if (!imagePayload) {
+        steps.push({
+          name: `block:${blockIndex}:imagePngPaste`,
+          ok: true,
+          skipped: true,
+          detail: `missing image payload index=${block.imageIndex} (${block.description})`,
+        });
+        continue;
+      }
+
+      const mimeType = imagePayload.mimeType || "image/png";
+      const image = createNativeImageFromBase64(imagePayload.base64, mimeType);
+      const imageSize = image.getSize();
+      clipboard.write({ image });
+      const beforeCursor = await ensureAppendCursor(frame);
+      if (beforeCursor.ok) await pasteClipboardIntoFocusedBlogSplit(3000);
+      const afterCursor = beforeCursor.ok
+        ? await waitForPastedComponentAndPlaceCursor(frame, "image", before.images)
+        : beforeCursor;
+      const after = await countEditorComponents(frame);
+      steps.push({
+        name: `block:${blockIndex}:imagePngPaste`,
+        ok: beforeCursor.ok && !image.isEmpty() && after.images > before.images && afterCursor.ok,
+        detail: `imageEmpty=${image.isEmpty()} size=${imageSize.width}x${imageSize.height} images ${before.images}->${after.images} cursorAfter=${afterCursor.ok} trailingText=${afterCursor.trailingText} reason=${afterCursor.reason}`,
+      });
+    }
+
+    const snapshot = await getBlogEditorSnapshot(frame);
+    return {
+      ok: steps.every((step) => step.ok),
+      steps,
+      snapshot,
+    };
+  } catch (e) {
+    return {
+      ok: false,
+      error: e instanceof Error ? e.message : String(e),
+      steps,
+      snapshot: await getBlogEditorSnapshot(frame).catch(() => undefined),
+    };
+  } finally {
+    const restoreImage = previousClipboard.image.isEmpty() ? undefined : previousClipboard.image;
+    clipboard.write({
+      text: previousClipboard.text,
+      html: previousClipboard.html,
+      ...(restoreImage ? { image: restoreImage } : {}),
+    });
+  }
+}
+
 // §A 보안 토큰. packaged 빌드에서는 ALLOW_INSECURE_DEV_* 플래그를 절대 set 하지 않음.
 const APP_TOKEN = crypto.randomBytes(32).toString("hex");
 const APP_SESSION_TOKEN = crypto.randomBytes(32).toString("hex");
@@ -630,6 +1379,7 @@ async function boot(): Promise<void> {
   ipcMain.handle("blogSplit:navigate", async (_e, action: unknown, url?: unknown) =>
     navigateBlogSplit(action, url),
   );
+  ipcMain.handle("blogSplit:pasteProbe", async (_e, input: unknown) => runBlogSplitPasteProbe(input));
 
   await mainWindow.loadURL(allowedOrigin);
   mainWindow.on("resize", layoutBlogSplitView);
