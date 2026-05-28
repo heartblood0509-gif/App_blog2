@@ -125,6 +125,16 @@ export function assertNeverCategory(_x: never): never {
   throw new Error(`Unhandled PostCategory: ${String(_x)}`);
 }
 
+// seoAeo 모드 내부의 글 의도(템플릿) 선택.
+// "auto" = 기존 동작 (AI가 의도 자동 추론, 회귀 보호용 기본값).
+// 그 외 4개 = 새 7단계 프롬프트 + 어휘 계약 오버레이.
+export type SeoAeoTemplateType =
+  | "auto"
+  | "informational"
+  | "comparison"
+  | "preBuy"
+  | "problemSolving";
+
 // 글자수 범위
 export interface CharCountRange {
   min: number;
@@ -317,6 +327,12 @@ export interface WizardState {
    * 브랜드 첨부와 별도 필드로 관리 — 모드 전환 시 상태 오염 방지.
    */
   selectedAeoProductId?: ProductId;
+  /**
+   * seoAeo 모드의 글 의도(템플릿) 선택. 기본값 "auto" = 기존 동작 유지.
+   * "auto"가 아닐 때만 새 7단계 프롬프트 + 어휘 계약 오버레이가 적용됨.
+   * intent 변경 시 step-narrative.tsx 에서 downstream(titleSuggestions/generatedContent 등) 초기화.
+   */
+  selectedTemplateType: SeoAeoTemplateType;
 
   /**
    * 정보성글 전용 — distill 결과 캐시.

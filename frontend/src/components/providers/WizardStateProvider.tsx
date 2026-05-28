@@ -37,6 +37,7 @@ const initialWizardState: WizardState = {
   selectedBrandProductId: undefined,
   selectedAeoProfileId: null,
   selectedAeoProductId: undefined,
+  selectedTemplateType: "auto",
   brandPropositions: null,
   brandPropositionsCacheKey: null,
   selectedAnalysisRecordId: null,

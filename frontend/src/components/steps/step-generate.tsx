@@ -81,6 +81,8 @@ interface StepGenerateProps {
   onTransformSlot: (slotId: string) => void;
   /** prompt === null 이면 해당 슬롯 커스텀 프롬프트 삭제(기본값 복원) */
   onCustomPromptChange: (slotId: string, prompt: string | null) => void;
+  /** seoAeo Intent Mode 활성 여부 — 활성 시 이미지 카운트 warn 임계치를 3~4장 정책으로 분기 */
+  isIntentMode?: boolean;
 }
 
 function MetricRow({
@@ -574,6 +576,7 @@ export function StepGenerate({
   onGenerateSlotAI,
   onTransformSlot,
   onCustomPromptChange,
+  isIntentMode = false,
 }: StepGenerateProps) {
   // 본문 직접 수정 모드 (로컬 state).
   // - draftContent: 편집창의 현재 값 (편집 모드 진입 시 content로 초기화)
@@ -879,11 +882,21 @@ export function StepGenerate({
                     label="이미지 마커 수"
                     value={`${qualityResult.imageMarkerCount ?? 0}개`}
                     status={
-                      (qualityResult.imageMarkerCount ?? 0) >= 8
-                        ? "pass"
-                        : (qualityResult.imageMarkerCount ?? 0) >= 4
-                          ? "warn"
-                          : "fail"
+                      isIntentMode
+                        ? // Intent 모드: AEO 미니멀 정책 (3장 기본 / 최대 4장).
+                          // 3~4장 pass, 2~5장 warn, 그 외 fail
+                          (qualityResult.imageMarkerCount ?? 0) >= 3 &&
+                            (qualityResult.imageMarkerCount ?? 0) <= 4
+                          ? "pass"
+                          : (qualityResult.imageMarkerCount ?? 0) >= 2 &&
+                              (qualityResult.imageMarkerCount ?? 0) <= 5
+                            ? "warn"
+                            : "fail"
+                        : (qualityResult.imageMarkerCount ?? 0) >= 8
+                          ? "pass"
+                          : (qualityResult.imageMarkerCount ?? 0) >= 4
+                            ? "warn"
+                            : "fail"
                     }
                   />
 
