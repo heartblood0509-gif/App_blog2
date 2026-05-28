@@ -65,6 +65,13 @@ export function StepPublish({
   const [isAdding, setIsAdding] = useState(false);
   const [isBlogSplitOpen, setIsBlogSplitOpen] = useState(false);
   const [isTogglingBlogSplit, setIsTogglingBlogSplit] = useState(false);
+  const [isRunningPasteProbe, setIsRunningPasteProbe] = useState(false);
+  const [pasteProbeResult, setPasteProbeResult] = useState<{
+    ok: boolean;
+    error?: string;
+    steps: Array<{ name: string; ok: boolean; detail: string; skipped?: boolean }>;
+    snapshot?: unknown;
+  } | null>(null);
   const [blogSplitUrl, setBlogSplitUrl] = useState("https://blog.naver.com");
   const [blogSplitAddress, setBlogSplitAddress] = useState("https://blog.naver.com");
   const [blogSplitNavState, setBlogSplitNavState] = useState({
@@ -485,7 +492,54 @@ export function StepPublish({
     }
   };
 
+  const handlePasteProbe = async () => {
+    const api = window.electronAPI?.blogSplit;
+    if (!api) {
+      toast.error("앱 실행 환경에서만 Paste PoC를 실행할 수 있습니다.");
+      return;
+    }
+
+    setIsRunningPasteProbe(true);
+    setPasteProbeResult(null);
+    try {
+      if (!(await api.isOpen())) {
+        const result = await api.open("https://blog.naver.com/GoBlogWrite.naver");
+        if (!result.ok) {
+          throw new Error("블로그 글쓰기 화면을 열 수 없습니다.");
+        }
+      }
+
+      const excludedSet = new Set(excludedSlotIds);
+      const images = imageSlots
+        .filter((slot) => !excludedSet.has(slot.id) && generatedImages[slot.id])
+        .map((slot) => ({
+          index: slot.index,
+          base64: generatedImages[slot.id],
+          mimeType: "image/png",
+        }));
+
+      const result = await api.pasteProbe({
+        title,
+        content,
+        images,
+      });
+      setPasteProbeResult(result);
+      if (result.ok) {
+        toast.success("Draft Paste PoC가 모두 통과했습니다.");
+      } else {
+        toast.warning(result.error || "Draft Paste PoC 일부 항목이 실패했습니다.");
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Paste PoC 실행 실패";
+      setPasteProbeResult({ ok: false, error: message, steps: [] });
+      toast.error(message);
+    } finally {
+      setIsRunningPasteProbe(false);
+    }
+  };
+
   const selectedAccount = accounts.find((a) => a.id === selectedAccountId);
+  const showPasteProbe = process.env.NODE_ENV === "development";
 
   return (
     <>
@@ -809,6 +863,23 @@ export function StepPublish({
               {isBlogSplitOpen ? "분할 닫기" : "블로그 홈 보기"}
             </Button>
 
+            {showPasteProbe && (
+              <Button
+                variant="outline"
+                size="lg"
+                onClick={handlePasteProbe}
+                disabled={isRunningPasteProbe}
+                className="gap-2 border-blue-500/40 hover:border-blue-500/70 hover:bg-blue-50 dark:hover:bg-blue-950/20"
+              >
+                {isRunningPasteProbe ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Copy className="h-4 w-4 text-blue-500" />
+                )}
+                Draft Paste PoC
+              </Button>
+            )}
+
             <Button
               variant="outline"
               size="lg"
@@ -831,6 +902,52 @@ export function StepPublish({
               마크다운 다운로드
             </Button>
           </div>
+
+          {showPasteProbe && pasteProbeResult && (
+            <div className="rounded-md border bg-muted/30 p-3 text-xs">
+              <div className="flex items-center justify-between gap-2">
+                <span className="font-medium">
+                  Draft Paste PoC 결과: {pasteProbeResult.ok ? "통과" : "확인 필요"}
+                </span>
+                {pasteProbeResult.error && (
+                  <span className="text-destructive">{pasteProbeResult.error}</span>
+                )}
+              </div>
+              {Array.isArray(
+                (pasteProbeResult.snapshot as { componentOrder?: unknown } | undefined)
+                  ?.componentOrder,
+              ) && (
+                <div className="mt-2 truncate text-muted-foreground">
+                  order:{" "}
+                  {(
+                    (pasteProbeResult.snapshot as { componentOrder: string[] })
+                      .componentOrder
+                  ).join(" > ")}
+                </div>
+              )}
+              <div className="mt-2 space-y-1">
+                {pasteProbeResult.steps.map((step) => (
+                  <div key={step.name} className="flex gap-2">
+                    <span
+                      className={
+                        step.skipped
+                          ? "text-muted-foreground"
+                          : step.ok
+                            ? "text-primary"
+                            : "text-destructive"
+                      }
+                    >
+                      {step.skipped ? "SKIP" : step.ok ? "OK" : "FAIL"}
+                    </span>
+                    <span className="font-mono">{step.name}</span>
+                    <span className="min-w-0 flex-1 truncate text-muted-foreground">
+                      {step.detail}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
 
         {/* 그룹 B: 다른 채널 변환 (보조, 선택 액션) */}
