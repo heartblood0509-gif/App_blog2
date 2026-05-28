@@ -365,7 +365,7 @@ export function AeoProfileAssistant({ open, onClose, onSaved, prefill }: AeoProf
 
   return (
     <Dialog open={open} onOpenChange={(v) => !v && handleClose()}>
-      <DialogContent className="max-w-2xl max-h-[90vh] flex flex-col gap-4 !grid-cols-none">
+      <DialogContent className="max-w-5xl max-h-[90vh] flex flex-col gap-4 !grid-cols-none">
         <DialogHeader className="shrink-0">
           <DialogTitle className="flex items-center gap-2">
             <Sparkles className="h-5 w-5 text-primary" />
@@ -538,72 +538,79 @@ export function AeoProfileAssistant({ open, onClose, onSaved, prefill }: AeoProf
             )}
 
             <div className="flex-1 min-h-0 overflow-y-auto pr-3">
-              <div className="space-y-3 text-sm">
-                <PreviewField
-                  label="[1] 프로필 이름"
-                  value={draft.name}
-                  onChange={(v) => updateDraft("name", v)}
-                  required
-                  aiSuggested={isAiSuggested("name", !!draft.name?.trim())}
-                />
-                <PreviewField
-                  label="[2] 카테고리"
-                  value={draft.category}
-                  onChange={(v) => updateDraft("category", v)}
-                  aiSuggested={isAiSuggested("category", !!draft.category?.trim())}
-                />
-                <PreviewField
-                  label="[3] 한 줄 소개"
-                  value={draft.oneLineIntro}
-                  onChange={(v) => updateDraft("oneLineIntro", v)}
-                  multiline
-                  aiSuggested={isAiSuggested("oneLineIntro", !!draft.oneLineIntro?.trim())}
-                />
-                <PreviewField
-                  label="[4-1] 직접 경험"
-                  value={draft.identity?.experience ?? ""}
-                  onChange={(v) =>
-                    updateDraft("identity", { ...draft.identity, experience: v })
-                  }
-                  aiSuggested={isAiSuggested("identity.experience", !!draft.identity?.experience?.trim())}
-                />
-                <PreviewListField
-                  label="[4-2] 자격·경력"
-                  values={draft.identity?.credentials ?? []}
-                  onChange={(arr) =>
-                    updateDraft("identity", { ...draft.identity, credentials: arr })
-                  }
-                  aiSuggested={isAiSuggested("identity.credentials", (draft.identity?.credentials ?? []).length > 0)}
-                />
-                <PreviewField
-                  label="[5] 누구에게 도움 주나"
-                  value={draft.audience}
-                  onChange={(v) => updateDraft("audience", v)}
-                  multiline
-                  aiSuggested={isAiSuggested("audience", !!draft.audience?.trim())}
-                />
-                <PreviewListField
-                  label="[6] 추천 기준 (위→아래 우선순위)"
-                  values={draft.recommendationCriteria ?? []}
-                  onChange={(arr) => updateDraft("recommendationCriteria", arr)}
-                  aiSuggested={isAiSuggested("recommendationCriteria", (draft.recommendationCriteria ?? []).length > 0)}
-                />
-                <PreviewListField
-                  label="[7] 자주 인용하는 출처"
-                  values={draft.trustedSources ?? []}
-                  onChange={(arr) => updateDraft("trustedSources", arr)}
-                  aiSuggested={isAiSuggested("trustedSources", (draft.trustedSources ?? []).length > 0)}
-                />
-                <PreviewField
-                  label="[8] 절대 쓰지 않는 말 (쉼표로 구분)"
-                  value={(draft.forbidden?.words ?? []).join(", ")}
-                  onChange={(v) =>
-                    updateDraft("forbidden", {
-                      enabled: true,
-                      words: v.split(",").map((s) => s.trim()).filter(Boolean),
-                    })
-                  }
-                />
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
+                {/* ───────── 좌측: 신원·정체성 ───────── */}
+                <div className="space-y-3">
+                  <PreviewField
+                    label="[1] 프로필 이름"
+                    value={draft.name}
+                    onChange={(v) => updateDraft("name", v)}
+                    required
+                    aiSuggested={isAiSuggested("name", !!draft.name?.trim())}
+                  />
+                  <PreviewField
+                    label="[2] 카테고리"
+                    value={draft.category}
+                    onChange={(v) => updateDraft("category", v)}
+                    aiSuggested={isAiSuggested("category", !!draft.category?.trim())}
+                  />
+                  <PreviewField
+                    label="[3] 한 줄 소개"
+                    value={draft.oneLineIntro}
+                    onChange={(v) => updateDraft("oneLineIntro", v)}
+                    multiline
+                    aiSuggested={isAiSuggested("oneLineIntro", !!draft.oneLineIntro?.trim())}
+                  />
+                  <PreviewField
+                    label="[4-1] 직접 경험"
+                    value={draft.identity?.experience ?? ""}
+                    onChange={(v) =>
+                      updateDraft("identity", { ...draft.identity, experience: v })
+                    }
+                    aiSuggested={isAiSuggested("identity.experience", !!draft.identity?.experience?.trim())}
+                  />
+                  <PreviewListField
+                    label="[4-2] 자격·경력"
+                    values={draft.identity?.credentials ?? []}
+                    onChange={(arr) =>
+                      updateDraft("identity", { ...draft.identity, credentials: arr })
+                    }
+                    aiSuggested={isAiSuggested("identity.credentials", (draft.identity?.credentials ?? []).length > 0)}
+                  />
+                </div>
+
+                {/* ───────── 우측: 활동·정책 ───────── */}
+                <div className="space-y-3">
+                  <PreviewField
+                    label="[5] 누구에게 도움 주나"
+                    value={draft.audience}
+                    onChange={(v) => updateDraft("audience", v)}
+                    multiline
+                    aiSuggested={isAiSuggested("audience", !!draft.audience?.trim())}
+                  />
+                  <PreviewListField
+                    label="[6] 추천 기준 (위→아래 우선순위)"
+                    values={draft.recommendationCriteria ?? []}
+                    onChange={(arr) => updateDraft("recommendationCriteria", arr)}
+                    aiSuggested={isAiSuggested("recommendationCriteria", (draft.recommendationCriteria ?? []).length > 0)}
+                  />
+                  <PreviewListField
+                    label="[7] 자주 인용하는 출처"
+                    values={draft.trustedSources ?? []}
+                    onChange={(arr) => updateDraft("trustedSources", arr)}
+                    aiSuggested={isAiSuggested("trustedSources", (draft.trustedSources ?? []).length > 0)}
+                  />
+                  <PreviewField
+                    label="[8] 절대 쓰지 않는 말 (쉼표로 구분)"
+                    value={(draft.forbidden?.words ?? []).join(", ")}
+                    onChange={(v) =>
+                      updateDraft("forbidden", {
+                        enabled: true,
+                        words: v.split(",").map((s) => s.trim()).filter(Boolean),
+                      })
+                    }
+                  />
+                </div>
               </div>
             </div>
 
