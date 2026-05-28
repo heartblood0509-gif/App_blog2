@@ -21,8 +21,9 @@ import random
 import re
 import signal
 import subprocess
-from datetime import date
+from datetime import date, datetime
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 from playwright.async_api import async_playwright, Frame, Page, Browser
 from playwright_stealth import Stealth
@@ -256,17 +257,34 @@ async def teardown_all_detached_contexts(timeout_sec: float = 5.0) -> None:
             pass
 
 
+_KST = ZoneInfo("Asia/Seoul")
+
+
+def _cooldown_sec() -> int:
+    """발행 쿨다운 길이(초). 기본 1시간, 테스트용으로 PUBLISH_COOLDOWN_SEC 환경변수로 override."""
+    try:
+        return int(os.environ.get("PUBLISH_COOLDOWN_SEC", "3600"))
+    except (TypeError, ValueError):
+        return 3600
+
+
 def _load_counter() -> dict:
     today = str(date.today())
     if not PUBLISH_COUNTER_FILE.exists():
-        return {"date": today, "count": 0}
+        return {"date": today, "count": 0, "last_publish_at": None}
     try:
         data = json.loads(PUBLISH_COUNTER_FILE.read_text())
         if data.get("date") != today:
-            return {"date": today, "count": 0}
+            # 날짜가 바뀌어도 last_publish_at은 보존 — 자정 직후 발행 제한 유지.
+            return {
+                "date": today,
+                "count": 0,
+                "last_publish_at": data.get("last_publish_at"),
+            }
+        data.setdefault("last_publish_at", None)
         return data
     except Exception:
-        return {"date": today, "count": 0}
+        return {"date": today, "count": 0, "last_publish_at": None}
 
 
 def _save_counter(data: dict):
@@ -275,8 +293,24 @@ def _save_counter(data: dict):
 
 def _increment_counter(data: dict):
     data["count"] = data.get("count", 0) + 1
+    data["last_publish_at"] = datetime.now(_KST).isoformat()
     _save_counter(data)
     return data
+
+
+def _get_cooldown_remaining_sec() -> int:
+    """현재 쿨다운 남은 시간(초). 0이면 발행 가능."""
+    data = _load_counter()
+    last = data.get("last_publish_at")
+    if not last:
+        return 0
+    try:
+        last_dt = datetime.fromisoformat(last)
+    except (TypeError, ValueError):
+        return 0
+    elapsed = (datetime.now(_KST) - last_dt).total_seconds()
+    remaining = _cooldown_sec() - elapsed
+    return max(0, int(remaining))
 
 
 class NaverBlogPublisher:
@@ -3203,6 +3237,7 @@ class NaverBlogPublisher:
         image_slots: list[dict] | None = None,
         auto_publish: bool = False,
         on_manual_close=None,
+        on_manual_publish_detected=None,
     ) -> dict:
         """네이버 블로그 발행.
 
@@ -3306,5 +3341,24 @@ class NaverBlogPublisher:
                     if on_manual_close is not None:
                         try:
                             self.browser.on("close", lambda _ctx: on_manual_close())
+                        except Exception:
+                            pass
+                    # 수동 발행 "실제 발행됨" 감지 — URL 변경 패턴으로만 판정.
+                    # 발행 성공 시 네이버는 PostView 또는 blog.naver.com/{id}/{logNo} 로 이동.
+                    # 임시저장은 PostWriteForm 그대로 머무름. framenavigated 는 iframe 도 커버.
+                    if on_manual_publish_detected is not None and self.page is not None:
+                        published_url_re = re.compile(
+                            r"(PostView\.naver\?[^#]*\blogNo=\d+|blog\.naver\.com/[^/?#]+/\d+(?:[/?#]|$))"
+                        )
+
+                        def _on_frame_nav(frame):
+                            try:
+                                if published_url_re.search(frame.url or ""):
+                                    on_manual_publish_detected()
+                            except Exception:
+                                pass
+
+                        try:
+                            self.page.on("framenavigated", _on_frame_nav)
                         except Exception:
                             pass
