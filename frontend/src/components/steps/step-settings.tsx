@@ -262,7 +262,7 @@ export function StepSettings({ state, onChange, customProductInfoById }: StepSet
                 </CardHeader>
                 <CardContent>
                   <Textarea
-                    placeholder="예: 미르엔 욕실 리모델링 후기를 신뢰감 있게 풀어주세요&#10;&#10;비워두면 키워드만 보고 AI가 알아서 글을 구성합니다.&#10;채워두면 입력한 내용에 맞춰 제목과 본문이 만들어집니다."
+                    placeholder={"상세하게 작성할수록 글 품질이 올라갑니다.\n\n비워두면 등록한 브랜드 프로필과 키워드를 기반으로 AI가 알아서 글을 구성합니다."}
                     value={state.topic}
                     onChange={(e) => onChange({ topic: e.target.value })}
                     className="min-h-[100px]"

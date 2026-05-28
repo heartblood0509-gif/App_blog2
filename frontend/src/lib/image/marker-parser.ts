@@ -879,10 +879,19 @@ const SUBTITLE_LINE_RE = /^#{2,3}(\{[^}]+\})?\s+.+$/;
  *
  * @param content 현재 본문 마크다운 (ensure 함수들 다 돈 직후 상태)
  * @param maxCount 허용 상한 (후기성·브랜드 12, AEO 8)
+ * @param options.hardCap true면 보호 슬롯이 maxCount 초과할 때도 강제로 컷 (lineIndex 가장 빠른 maxCount개만 유지).
+ *                        기본 false — 기존 동작(보호 우선, 컷 포기) 보존.
+ *                        seoAeo Intent 모드(3~4장 미니멀 정책)처럼 보호 슬롯이 maxCount보다 많아질 때 사용.
  * @returns 컷이 반영된 본문 (변경 없으면 원본 그대로)
  */
-export function enforceImageMarkerCap(content: string, maxCount: number): string {
+export function enforceImageMarkerCap(
+  content: string,
+  maxCount: number,
+  options?: { hardCap?: boolean },
+): string {
   if (!content) return content;
+
+  const hardCap = options?.hardCap ?? false;
 
   const slots = parseImageMarkers(content);
   if (slots.length <= maxCount) return content;
@@ -917,8 +926,22 @@ export function enforceImageMarkerCap(content: string, maxCount: number): string
     }
   }
 
-  // 보존만으로 이미 maxCount 초과 → 소제목 보존 최우선, 강제 컷 없음
-  if (protectedIds.size >= maxCount) return content;
+  // 보존만으로 이미 maxCount 초과
+  // - hardCap=false (기본): 소제목 보존 최우선, 강제 컷 없음 (기존 동작 그대로)
+  // - hardCap=true: 보호 슬롯 중에서도 lineIndex 가장 빠른 maxCount 개만 유지하고 나머지 컷
+  if (protectedIds.size >= maxCount) {
+    if (!hardCap) return content;
+
+    const sortedProtected = [...protectedIds]
+      .map((id) => slots.find((s) => s.id === id))
+      .filter((s): s is ImageSlot => Boolean(s))
+      .sort((a, b) => a.lineIndex - b.lineIndex);
+
+    const keepIds = new Set(sortedProtected.slice(0, maxCount).map((s) => s.id));
+    const cutIds = new Set(slots.map((s) => s.id).filter((id) => !keepIds.has(id)));
+
+    return pruneExcludedMarkers(content, slots, cutIds);
+  }
 
   // 후보 풀
   const candidates = slots.filter((s) => !protectedIds.has(s.id));

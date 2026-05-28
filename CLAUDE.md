@@ -10,3 +10,40 @@
 ## 보안
 
 - `ALLOW_INSECURE_DEV_AUTH=1`, `ALLOW_INSECURE_DEV_PW=1` 은 **dev 전용**. 프로덕션 코드/설정에 절대 금지.
+
+## 개발 워크플로우
+
+수정 후 Claude는 사용자가 따로 지시하지 않아도 아래 순서를 따른다.
+"이번엔 생략"이라고 명시한 경우만 건너뛴다. 실패 시 즉시 보고하고 다음 단계로 넘어가지 않는다.
+
+```sh
+# 1. 코드 수정 (Edit / Write)
+
+# 2. 타입체크 (빠름, 10~30초)
+npm --prefix frontend run typecheck
+
+# 3. 린트
+npm --prefix frontend run lint
+
+# 4. 테스트 (변경 영역에 테스트가 있을 때만)
+npm --prefix frontend test
+
+# 5. UI 컴포넌트 / CSS 수정 시 — 사용자에게 dev 서버 실행 여부 확인
+#    실행 요청 시 워크트리: `npm run dev:worktree`, 메인 체크아웃: `./start.sh` 또는 `npm run dev`
+
+# 6. 커밋 / PR 직전 게이트
+#    기본: 린트만 (typecheck는 2번에서 끝남)
+npm --prefix frontend run lint
+
+#    아래 중 하나라도 해당하면 추가로 풀 빌드:
+#      · 서버/클라이언트 경계 변경 ("use client" 추가/제거, API route, proxy)
+#      · `next.config.ts`, `tsconfig.json`, 의존성(`package.json`) 변경
+#      · 여러 폴더에 걸친 큰 수정
+#      · 머지 직후 패키징/배포 예정
+npm --prefix frontend run build
+```
+
+- `next build`가 자체적으로 타입체크 + ESLint를 포함하므로 2~3번은 "빠른 사전 점검",
+  6번 풀 빌드는 "출시 형태로 조립 가능한지 최종 확인". 매번 돌릴 필요는 없음.
+- Electron(`electron/`) 코드를 건드린 경우엔 추가로 `npm run build:electron`.
+- `/commit-push-pr` 명령은 자체적으로 검증을 돌리지 않으므로, 명령을 호출하기 *전* 단계에서 위 게이트를 통과시킨다.

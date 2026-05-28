@@ -5,10 +5,15 @@
  * - 출력: 마크다운 스트리밍 (후기성·브랜드·AEO와 동일한 인터페이스)
  * - 후처리: 생성 후 마커/표 금지 자동 검증 → 누락 시 콘솔 경고만 (UX 차단 X)
  */
-import { buildSeoAeoGenerationPrompt } from "@/lib/seo-aeo/prompts/generation";
+import {
+  buildSeoAeoGenerationPrompt,
+  buildSeoAeoIntentGenerationPrompt,
+} from "@/lib/seo-aeo/prompts/generation";
+import { isIntentMode } from "@/lib/seo-aeo/templates";
 import { generateStream } from "@/lib/gemini";
 import { CONFIG } from "@/lib/config";
 import type { AeoProfile } from "@/types/aeo";
+import type { SeoAeoTemplateType } from "@/types";
 
 export const maxDuration = 60;
 
@@ -24,6 +29,8 @@ export async function POST(request: Request) {
       requirements,
       charCount,
       apiKey,
+      templateType,
+      attachedProductName,
     } = body as {
       profile: AeoProfile;
       selectedTitle: string;
@@ -33,6 +40,8 @@ export async function POST(request: Request) {
       requirements?: string;
       charCount: { min: number; max: number };
       apiKey?: string;
+      templateType?: SeoAeoTemplateType;
+      attachedProductName?: string | null;
     };
 
     if (!profile) {
@@ -48,22 +57,39 @@ export async function POST(request: Request) {
       );
     }
 
-    const prompt = buildSeoAeoGenerationPrompt({
-      profile,
-      selectedTitle,
-      topic,
-      mainKeyword,
-      subKeywords,
-      requirements,
-      charCount,
-    });
+    const effectiveTemplate: SeoAeoTemplateType = templateType ?? "auto";
+    const intentMode = isIntentMode(effectiveTemplate);
+
+    // 회귀 보호 — templateType이 "auto" 또는 undefined면 기존 함수 그대로.
+    // intent 4종일 때만 새 함수 경로 (기존 buildSeoAeoGenerationPrompt 호출 0).
+    const prompt = intentMode
+      ? buildSeoAeoIntentGenerationPrompt({
+          profile,
+          selectedTitle,
+          topic,
+          mainKeyword,
+          subKeywords,
+          requirements,
+          charCount,
+          intent: effectiveTemplate,
+          attachedProductName,
+        })
+      : buildSeoAeoGenerationPrompt({
+          profile,
+          selectedTitle,
+          topic,
+          mainKeyword,
+          subKeywords,
+          requirements,
+          charCount,
+        });
 
     const firstContent = await collectStream(prompt, apiKey);
     if (!firstContent) {
       throw new Error("생성된 내용이 없습니다. 다시 시도해주세요.");
     }
 
-    logQualityChecks(firstContent);
+    logQualityChecks(firstContent, intentMode);
 
     const encoder = new TextEncoder();
     const stream = new ReadableStream({
@@ -101,22 +127,28 @@ async function collectStream(prompt: string, apiKey?: string): Promise<string> {
 
 /**
  * 생성 결과의 품질을 콘솔로만 로깅 (사용자에게 강제 차단 X).
- * - FAQ 4개 이상 포함되었는지
- * - ##{postit} / ##{underline} 마커가 ## 헤딩에 빠지지 않았는지
+ * - FAQ 4개 이상 포함되었는지 (auto는 Q[.:], intent는 Q\s+ 형식까지 추가 감지)
+ * - 마커가 ## 헤딩에 빠지지 않았는지 (auto는 postit|underline, intent는 4종 모두 허용)
  * - 마크다운 표(파이프 헤더+구분선)가 들어가지는 않았는지
  */
-function logQualityChecks(content: string): void {
+function logQualityChecks(content: string, intentMode: boolean): void {
   const warnings: string[] = [];
 
-  const faqMatches = content.match(/\*\*Q\.|^Q[.:]\s|^##\s.*FAQ|##\{[^}]+\}\s.*FAQ/gim) ?? [];
+  // FAQ 감지 — intent 모드는 새 프롬프트가 "Q "(공백) 형식 의무화. 정규식에 추가.
+  const faqRegex = intentMode
+    ? /\*\*Q\.|^Q[.:]\s|^Q\s+|^##\s.*FAQ|##\{[^}]+\}\s.*FAQ/gim
+    : /\*\*Q\.|^Q[.:]\s|^##\s.*FAQ|##\{[^}]+\}\s.*FAQ/gim;
+  const faqMatches = content.match(faqRegex) ?? [];
   if (faqMatches.length < 4) {
     warnings.push(`FAQ 항목 수가 4개 미만으로 보임 (감지: ${faqMatches.length})`);
   }
 
+  // 마커 검증 — intent 모드일 때만 bubble/corner도 정상 인정.
   const headings = content.match(/^##\s.+$/gm) ?? [];
-  const headingsWithoutMarker = headings.filter(
-    (h) => !/^##\{(postit|underline)\}/.test(h)
-  );
+  const markerRegex = intentMode
+    ? /^##\{(postit|underline|bubble|corner)\}/
+    : /^##\{(postit|underline)\}/;
+  const headingsWithoutMarker = headings.filter((h) => !markerRegex.test(h));
   if (headingsWithoutMarker.length > 0) {
     warnings.push(
       `마커 없는 ## 헤딩 ${headingsWithoutMarker.length}개: ${headingsWithoutMarker.slice(0, 3).join(" | ")}`

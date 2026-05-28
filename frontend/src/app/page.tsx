@@ -101,8 +101,15 @@ const MAX_BY_CATEGORY: Record<string, number> = {
   review: 12,
   seoAeo: 12, // SEO·AEO 통합형은 브랜드와 동일한 후처리 파이프라인을 사용하므로 캡도 12장으로 일치
 };
-function resolveMaxCount(postCategory: PostCategory | null): number {
+function resolveMaxCount(
+  postCategory: PostCategory | null,
+  templateType?: import("@/types").SeoAeoTemplateType,
+): number {
   if (!postCategory) return 12;
+  // seoAeo + 의도 4종 선택 시 AEO 미니멀 정책으로 4장 캡 (auto는 기존 12장).
+  if (postCategory === "seoAeo" && templateType && templateType !== "auto") {
+    return 4;
+  }
   return MAX_BY_CATEGORY[postCategory] ?? 12;
 }
 
@@ -116,10 +123,11 @@ function applyImagePostProcessing(
   postCategory: PostCategory | null,
   selectedTitle: string,
   mainKeyword: string,
+  templateType?: import("@/types").SeoAeoTemplateType,
 ): string {
   // stripBrTags가 `<br>` 폭주를 개행으로 치환해 빈 줄이 거대 누적되는 사고 차단
   const cleaned = collapseBlankLines(stripBrTags(raw));
-  const maxCount = resolveMaxCount(postCategory);
+  const maxCount = resolveMaxCount(postCategory, templateType);
   if (postCategory === "brand" || postCategory === "seoAeo") {
     const sanitized = sanitizeBrandBodyText(cleaned);
     const hooked = ensureHookImage(sanitized, selectedTitle, mainKeyword);
@@ -128,8 +136,13 @@ function applyImagePostProcessing(
     const subtitled = ensureBrandSubtitleCoverage(enumerated);
     const introCovered = ensureBrandIntroImage(subtitled, mainKeyword);
     const filled = ensureBrandBodyFillerImages(introCovered);
-    // 캡은 pruneEmptyIntroHook 이전에 — HOOK이 살아있는 상태에서 보호 가능하도록
-    const capped = enforceImageMarkerCap(filled, maxCount);
+    // 캡은 pruneEmptyIntroHook 이전에 — HOOK이 살아있는 상태에서 보호 가능하도록.
+    // seoAeo Intent 모드(3~4장 미니멀 정책)는 hardCap=true 로 강제 컷.
+    // 그렇지 않으면 enforceImageMarkerCap의 "보호 슬롯이 maxCount 초과 시 컷 포기" 정책 때문에
+    // 본문 1·2·3 + FAQ + 정리 = 5개 소제목 보호로 인해 캡 4가 무효화됨.
+    const isSeoAeoIntent =
+      postCategory === "seoAeo" && templateType !== undefined && templateType !== "auto";
+    const capped = enforceImageMarkerCap(filled, maxCount, { hardCap: isSeoAeoIntent });
     // 소제목 콤마 뒤 자동 줄바꿈은 가장 마지막에 (이미지 마커 처리 완료된 안정 상태)
     return applySubtitleLineBreaks(pruneEmptyIntroHook(capped));
   }
@@ -336,6 +349,7 @@ export default function Home() {
       state.postCategory,
       state.selectedTitle,
       getEffectiveMainKeyword(state),
+      state.selectedTemplateType,
     );
 
     // 처리 완료된 결과와 비교 — 원본이 같아도 아직 후킹/소제목 주입이 안 된 상태면 진행
@@ -752,6 +766,8 @@ export default function Home() {
             subKeywords: state.subKeywords || undefined,
             requirements: state.requirements || undefined,
             count: 5,
+            // 의도 4종 선택 시 후보 5개를 그 각도 안에서만 변주. "auto"면 기존 동작.
+            templateType: state.selectedTemplateType,
           }),
         });
         if (!res.ok) {
@@ -812,6 +828,10 @@ export default function Home() {
             text,
             keyword: getEffectiveMainKeyword(state),
             charRange: state.charCountRange,
+            // Intent Mode 활성 시 validator 물음표 reject 완화 (질문형 소제목·FAQ 의무화에 맞춤)
+            intentMode:
+              state.postCategory === "seoAeo" &&
+              state.selectedTemplateType !== "auto",
           }),
         });
         if (!res.ok) return;
@@ -970,6 +990,11 @@ export default function Home() {
             charCount: state.charCountRange,
             // V1 첨부 제품 (선택) — undefined면 라우트에서 격리 패턴으로 기존 경로 유지
             attachedProduct: resolveAttachedProduct(state.selectedAeoProductId, userProducts),
+            // Intent 모드 전용 필드. "auto" 또는 undefined면 기존 함수 경로(회귀 0).
+            // attachedProductName은 intent 모드 본문 2 자연 연결에 사용.
+            templateType: state.selectedTemplateType,
+            attachedProductName:
+              resolveAttachedProduct(state.selectedAeoProductId, userProducts)?.name ?? null,
           }),
         });
       } else {
@@ -1034,6 +1059,7 @@ export default function Home() {
         state.postCategory,
         state.selectedTitle,
         getEffectiveMainKeyword(state),
+        state.selectedTemplateType,
       );
       if (finalized !== content) {
         content = finalized;
@@ -1728,6 +1754,30 @@ export default function Home() {
     [updateState]
   );
 
+  // Intent Mode — 글 의도 변경 시 downstream 상태 초기화.
+  // titleSuggestions/selectedTitle/generatedContent/qualityResult/contentDirty/generatedImages/customPromptsBySlot
+  // 를 비워야 이전 의도로 만들어진 결과가 새 의도와 섞이는 사고를 막을 수 있다.
+  // setState 함수형 업데이트로 prev 와 동일한 값이면 no-op (re-render 회피).
+  const handleTemplateTypeChange = useCallback(
+    (templateType: import("@/types").SeoAeoTemplateType) => {
+      setState((prev) => {
+        if (prev.selectedTemplateType === templateType) return prev;
+        return {
+          ...prev,
+          selectedTemplateType: templateType,
+          titleSuggestions: [],
+          selectedTitle: "",
+          generatedContent: "",
+          qualityResult: null,
+          contentDirty: false,
+          generatedImages: {},
+          customPromptsBySlot: {},
+        };
+      });
+    },
+    [setState]
+  );
+
   const handleNarrativeSourceChange = useCallback(
     (source: NarrativeSource) => {
       // narrativeType 파생: custom-reference면 null, 나머지는 동일한 값
@@ -1962,6 +2012,8 @@ export default function Home() {
             onBrandCustomReferenceModeChange={handleBrandCustomReferenceModeChange}
             selectedAeoProfileId={state.selectedAeoProfileId}
             onAeoProfileChange={handleAeoProfileChange}
+            selectedTemplateType={state.selectedTemplateType}
+            onTemplateTypeChange={handleTemplateTypeChange}
             onAnalysisRecordSelect={handleAnalysisRecordSelect}
             userProducts={userProducts}
             onUserProductsChange={refetchUserProducts}
@@ -1998,6 +2050,11 @@ export default function Home() {
             qualityResult={state.qualityResult}
             keyword={getEffectiveMainKeyword(state)}
             isLoading={state.isLoading}
+            // 이미지 마커 수 warn 임계치를 Intent Mode일 때 3~4장 정책으로 분기
+            isIntentMode={
+              state.postCategory === "seoAeo" &&
+              state.selectedTemplateType !== "auto"
+            }
             onRegenerate={handleContentRegenerate}
             onCopy={handleContentCopy}
             onContentEdit={handleContentEdit}

@@ -4,10 +4,15 @@
  * - 입력: profile, topic, mainKeyword, subKeywords, requirements, count, apiKey
  * - 출력: { suggestions: [{ title }, ...] } JSON
  */
-import { buildSeoAeoTitlePrompt } from "@/lib/seo-aeo/prompts/title";
+import {
+  buildSeoAeoTitlePrompt,
+  buildSeoAeoIntentTitlePrompt,
+} from "@/lib/seo-aeo/prompts/title";
+import { isIntentMode } from "@/lib/seo-aeo/templates";
 import { generateText } from "@/lib/gemini";
 import { CONFIG } from "@/lib/config";
 import type { AeoProfile } from "@/types/aeo";
+import type { SeoAeoTemplateType } from "@/types";
 
 export async function POST(request: Request) {
   try {
@@ -20,6 +25,7 @@ export async function POST(request: Request) {
       requirements,
       count,
       apiKey,
+      templateType,
     } = body as {
       profile: AeoProfile;
       topic?: string | null;
@@ -28,6 +34,7 @@ export async function POST(request: Request) {
       requirements?: string;
       count?: number;
       apiKey?: string;
+      templateType?: SeoAeoTemplateType;
     };
 
     if (!profile) {
@@ -43,14 +50,26 @@ export async function POST(request: Request) {
       );
     }
 
-    const prompt = buildSeoAeoTitlePrompt({
-      profile,
-      topic,
-      mainKeyword,
-      subKeywords,
-      requirements,
-      count: count ?? 5,
-    });
+    const effectiveTemplate: SeoAeoTemplateType = templateType ?? "auto";
+
+    const prompt = isIntentMode(effectiveTemplate)
+      ? buildSeoAeoIntentTitlePrompt({
+          profile,
+          topic,
+          mainKeyword,
+          subKeywords,
+          requirements,
+          count: count ?? 5,
+          intent: effectiveTemplate,
+        })
+      : buildSeoAeoTitlePrompt({
+          profile,
+          topic,
+          mainKeyword,
+          subKeywords,
+          requirements,
+          count: count ?? 5,
+        });
 
     const result = await generateText(prompt, CONFIG.GENERATION_MODEL, apiKey);
 

@@ -320,3 +320,76 @@ describe("enforceImageMarkerCap — 회귀: 극단 케이스", () => {
     expect(result).toBe(content);
   });
 });
+
+describe("enforceImageMarkerCap — hardCap (seoAeo Intent 모드)", () => {
+  // AEO Intent 모드 가정: 본문 1·2·3 + FAQ + 정리 = 5개 소제목 직후 이미지가 모두 보호되어
+  // 기본 동작에서는 maxCount=4가 무효화됨. hardCap=true 로 강제 컷 가능해야 함.
+  it("5개 소제목 + HOOK = 6개 보호 → hardCap=false 면 그대로", () => {
+    const parts: string[] = [HOOK, blank(), paragraph("도입부."), blank()];
+    const titles = ["본문 1", "본문 2", "본문 3", "FAQ", "정리"];
+    for (const t of titles) {
+      parts.push(subtitle(t, "postit"), blank());
+      parts.push(marker(`${t} 직후 이미지`), blank());
+      parts.push(paragraph(`${t} 본문.`), blank());
+    }
+    const content = buildContent(parts);
+    expect(countMarkers(content)).toBe(6);
+    // 기존 동작: 보호 슬롯 6개 ≥ maxCount 4 → 그대로 return
+    const result = enforceImageMarkerCap(content, 4);
+    expect(countMarkers(result)).toBe(6);
+  });
+
+  it("5개 소제목 + HOOK = 6개 보호 → hardCap=true 면 lineIndex 빠른 4개만 유지", () => {
+    const parts: string[] = [HOOK, blank(), paragraph("도입부."), blank()];
+    const titles = ["본문 1", "본문 2", "본문 3", "FAQ", "정리"];
+    for (const t of titles) {
+      parts.push(subtitle(t, "postit"), blank());
+      parts.push(marker(`${t} 직후 이미지`), blank());
+      parts.push(paragraph(`${t} 본문.`), blank());
+    }
+    const content = buildContent(parts);
+    expect(countMarkers(content)).toBe(6);
+    const result = enforceImageMarkerCap(content, 4, { hardCap: true });
+    expect(countMarkers(result)).toBe(4);
+    // HOOK + 본문 1·2·3 직후 4개가 살아남고 FAQ·정리 직후는 제거
+    expect(hasSubtitleImage(result, "본문 1")).toBe(true);
+    expect(hasSubtitleImage(result, "본문 2")).toBe(true);
+    expect(hasSubtitleImage(result, "본문 3")).toBe(true);
+    expect(hasSubtitleImage(result, "FAQ")).toBe(false);
+    expect(hasSubtitleImage(result, "정리")).toBe(false);
+  });
+
+  it("실전 시나리오: 16장(소제목 직후 + 본문 중간 채움) → hardCap=true + maxCount=4 → 4장", () => {
+    const parts: string[] = [HOOK, blank(), paragraph("도입부."), blank()];
+    parts.push(marker("도입부 중간 채움"), blank());
+    const titles = ["본문 1", "본문 2", "본문 3", "FAQ", "정리"];
+    for (const t of titles) {
+      parts.push(subtitle(t, "postit"), blank());
+      parts.push(marker(`${t} 직후 이미지`), blank());
+      parts.push(paragraph(`${t} 본문.`), blank());
+      parts.push(marker(`${t} 본문 중간 채움`), blank());
+      parts.push(paragraph(`${t} 추가 본문.`), blank());
+    }
+    const content = buildContent(parts);
+    expect(countMarkers(content)).toBe(12);
+    const result = enforceImageMarkerCap(content, 4, { hardCap: true });
+    expect(countMarkers(result)).toBe(4);
+  });
+
+  it("회귀 보호: hardCap 옵션 미지정 시 기존 동작과 byte-identical", () => {
+    const parts: string[] = [HOOK, blank()];
+    parts.push(paragraph("도입."), blank());
+    for (let i = 1; i <= 13; i++) {
+      parts.push(subtitle(`소제목${i}`), blank());
+      parts.push(marker(`소제목${i} 직후`), blank());
+      parts.push(paragraph(`본문${i}.`), blank());
+    }
+    const content = buildContent(parts);
+    const resultNoOpt = enforceImageMarkerCap(content, 12);
+    const resultDefault = enforceImageMarkerCap(content, 12, {});
+    const resultFalse = enforceImageMarkerCap(content, 12, { hardCap: false });
+    expect(resultNoOpt).toBe(content); // 기존 회귀 테스트와 동일
+    expect(resultDefault).toBe(resultNoOpt);
+    expect(resultFalse).toBe(resultNoOpt);
+  });
+});

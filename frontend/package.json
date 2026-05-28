@@ -1,6 +1,6 @@
 {
   "name": "frontend",
-  "version": "0.2.3",
+  "version": "0.2.5",
   "private": true,
   "scripts": {
     "predev": "node scripts/check-whats-new-version.mjs",
@@ -8,6 +8,7 @@
     "prebuild": "node scripts/check-whats-new-version.mjs",
     "build": "next build",
     "start": "next start",
+    "typecheck": "tsc --noEmit",
     "lint": "eslint",
     "test": "vitest run",
     "check:whats-new": "node scripts/check-whats-new-version.mjs"

@@ -130,28 +130,32 @@
   body {
     @apply bg-background text-foreground;
   }
-  body.blog-split-open {
-    overflow: hidden;
-  }
-  body.blog-split-open [data-blog-pick-root] {
-    position: fixed;
-    inset: 0 auto 0 0;
-    width: 50vw;
-    height: 100dvh;
-    min-width: 0;
-    overflow: auto;
-    background: var(--background);
-  }
-  body.blog-split-open [data-blog-pick-shell] {
-    width: 100%;
-    max-width: none;
-    margin-left: 0;
-    margin-right: 0;
-    padding-left: 1rem;
-    padding-right: 1rem;
-  }
   html {
     @apply font-sans;
     font-size: 17px; /* 기본 16px 대비 약 +6.25%, 전체 rem 비례 확대 */
   }
+}
+
+body.blog-split-open {
+  overflow: hidden;
+}
+
+body.blog-split-open [data-blog-pick-root] {
+  position: fixed;
+  inset: 0 auto 0 0;
+  width: 50vw;
+  height: 100dvh;
+  min-width: 0;
+  overflow: scroll;
+  overscroll-behavior: contain;
+  background: var(--background);
+}
+
+body.blog-split-open [data-blog-pick-shell] {
+  width: 100%;
+  max-width: none !important;
+  margin-left: 0 !important;
+  margin-right: 0 !important;
+  padding-left: 1rem !important;
+  padding-right: 1rem !important;
 }

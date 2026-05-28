@@ -53,6 +53,16 @@ interface ElectronBlogSplitApi {
     canGoBack: boolean;
     canGoForward: boolean;
   }>;
+  pasteProbe: (input: {
+    title?: string;
+    content?: string;
+    images?: Array<{ index: number; base64: string; mimeType?: string }>;
+  }) => Promise<{
+    ok: boolean;
+    error?: string;
+    steps: Array<{ name: string; ok: boolean; detail: string; skipped?: boolean }>;
+    snapshot?: unknown;
+  }>;
   onState: (cb: (open: boolean) => void) => () => void;
   onNavigation: (
     cb: (state: {

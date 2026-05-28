@@ -18,6 +18,17 @@ interface BlogSplitNavigationEvent {
   canGoBack: boolean;
   canGoForward: boolean;
 }
+interface BlogSplitPasteProbeImage {
+  index: number;
+  base64: string;
+  mimeType?: string;
+}
+interface BlogSplitPasteProbeResult {
+  ok: boolean;
+  error?: string;
+  steps: Array<{ name: string; ok: boolean; detail: string; skipped?: boolean }>;
+  snapshot?: unknown;
+}
 
 contextBridge.exposeInMainWorld("electronAPI", {
   platform: process.platform,
@@ -79,6 +90,12 @@ contextBridge.exposeInMainWorld("electronAPI", {
       url?: string,
     ): Promise<{ ok: boolean; url: string; canGoBack: boolean; canGoForward: boolean }> =>
       ipcRenderer.invoke("blogSplit:navigate", action, url),
+    pasteProbe: (input: {
+      title?: string;
+      content?: string;
+      images?: BlogSplitPasteProbeImage[];
+    }): Promise<BlogSplitPasteProbeResult> =>
+      ipcRenderer.invoke("blogSplit:pasteProbe", input),
     onState: (cb: (open: boolean) => void) => {
       const handler = (_: IpcRendererEvent, open: boolean) => cb(open);
       ipcRenderer.on("blogSplit:state", handler);

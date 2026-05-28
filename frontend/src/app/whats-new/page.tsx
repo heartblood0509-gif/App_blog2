@@ -47,7 +47,7 @@ export default function WhatsNewPage() {
           </p>
         )}
 
-        <div className="mt-8 flex flex-col gap-4">
+        <div className="mt-8 flex flex-col gap-6">
           {entries.map((entry) => {
             const grouped = TYPE_ORDER.map((type) => ({
               type,
@@ -55,29 +55,40 @@ export default function WhatsNewPage() {
             })).filter((g) => g.items.length > 0);
 
             return (
-              <Card key={entry.version}>
-                <CardHeader>
-                  <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1 text-xs text-muted-foreground">
-                    <span className="font-mono">v{entry.version}</span>
-                    <span aria-hidden>·</span>
-                    <span>{formatDate(entry.date)}</span>
+              <Card
+                key={entry.version}
+                className="border-border/40 bg-muted/40 transition-shadow hover:shadow-sm"
+              >
+                <CardHeader className="space-y-3">
+                  {/* 버전·날짜 — 카드 배경이 회색이라 pill 색 강도를 한 단계 올려 가시성 확보 */}
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="inline-flex items-center rounded-md bg-foreground/10 px-2 py-0.5 font-mono text-xs font-medium text-foreground/80">
+                      v{entry.version}
+                    </span>
+                    <span className="inline-flex items-center rounded-md bg-foreground/5 px-2 py-0.5 text-xs text-muted-foreground">
+                      {formatDate(entry.date)}
+                    </span>
                   </div>
-                  <CardTitle className="mt-1 text-lg">{entry.title}</CardTitle>
+                  <CardTitle className="text-xl leading-snug">
+                    {entry.title}
+                  </CardTitle>
                 </CardHeader>
-                <CardContent className="flex flex-col gap-4">
+                <CardContent className="flex flex-col gap-6">
                   {grouped.map(({ type, items }) => (
                     <section key={type}>
-                      <h3 className="mb-2 text-sm font-semibold">
-                        <span className="mr-1.5" aria-hidden>
-                          {TYPE_META[type].emoji}
+                      {/* 타입 라벨 — 회색 카드 위에서 떠 보이도록 흰색 chip + 옅은 ring */}
+                      <h3 className="mb-3">
+                        <span className="inline-flex items-center gap-1.5 rounded-md bg-background px-2.5 py-1 text-sm font-semibold text-foreground/85 ring-1 ring-border/60">
+                          <span aria-hidden>{TYPE_META[type].emoji}</span>
+                          {TYPE_META[type].label}
                         </span>
-                        {TYPE_META[type].label}
                       </h3>
-                      <ul className="flex flex-col gap-1.5 pl-1 text-sm leading-relaxed text-foreground/90">
+                      {/* 항목 묶음 — 왼쪽 회색 막대로 시각적 그룹화, 본문은 한 단계 키워 가독성 */}
+                      <ul className="flex flex-col gap-2.5 border-l border-border/60 pl-4 text-base leading-7 text-foreground/90">
                         {items.map((item, idx) => (
                           <li
                             key={idx}
-                            className="before:mr-2 before:text-muted-foreground before:content-['•']"
+                            className="relative pl-4 before:absolute before:left-0 before:top-[0.7em] before:h-1.5 before:w-1.5 before:rounded-full before:bg-muted-foreground/60 before:content-['']"
                           >
                             {item.text}
                           </li>
