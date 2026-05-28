@@ -135,7 +135,15 @@ export function BrandProfileForm({ open, initial, onClose, onSave }: BrandProfil
   };
 
   return (
-    <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
+    <Dialog
+      open={open}
+      onOpenChange={(v, details) => {
+        if (!v) {
+          if (details.reason === "outside-press" || details.reason === "escape-key") return;
+          onClose();
+        }
+      }}
+    >
       <DialogContent className="max-w-5xl">
         <DialogHeader>
           <DialogTitle>{initial ? "브랜드 프로필 수정" : "새 브랜드 프로필 등록"}</DialogTitle>
@@ -180,7 +188,7 @@ export function BrandProfileForm({ open, initial, onClose, onSave }: BrandProfil
                       id="brand-category"
                       value={payload.category}
                       onChange={(e) => update("category", e.target.value)}
-                      placeholder="예: 민감 피부 전문 화장품"
+                      placeholder="예: 바디/헤어케어"
                     />
                   </div>
                   <div className="col-span-2">
@@ -191,7 +199,7 @@ export function BrandProfileForm({ open, initial, onClose, onSave }: BrandProfil
                       id="brand-oneLine"
                       value={payload.oneLine}
                       onChange={(e) => update("oneLine", e.target.value)}
-                      placeholder="예: 민감 피부에 딱 맞는 자체 임상 화장품 브랜드"
+                      placeholder="예: 올바른 성분의 힘, 민감성 피부 종착지 미르엔"
                     />
                   </div>
                   <div>
@@ -213,7 +221,7 @@ export function BrandProfileForm({ open, initial, onClose, onSave }: BrandProfil
                       onChange={(e) =>
                         update("narrator", { ...payload.narrator, role: e.target.value })
                       }
-                      placeholder="예: 대표 / 이사"
+                      placeholder="예: 이사"
                     />
                   </div>
                   <div className="col-span-2">
@@ -229,7 +237,7 @@ export function BrandProfileForm({ open, initial, onClose, onSave }: BrandProfil
                       onChange={(e) =>
                         update("narrator", { ...payload.narrator, authority: e.target.value })
                       }
-                      placeholder="예:&#10;미르엔 8년 운영&#10;누적 판매 1만 개&#10;자체 임상 6개월&#10;재구매율 35%"
+                      placeholder={"예:\n미르엔 8년 운영\n누적 판매 50만 개\n자체 임상 6개월 운영\n재구매율 35%"}
                     />
                   </div>
                 </div>
@@ -246,7 +254,7 @@ export function BrandProfileForm({ open, initial, onClose, onSave }: BrandProfil
                       rows={2}
                       value={payload.story.origin}
                       onChange={(e) => update("story", { ...payload.story, origin: e.target.value })}
-                      placeholder="예: 예민한 피부에 맞는 제품이 없어 직접 만들어보자 시작…"
+                      placeholder="예: 시중에 좋다고 광고하는 제품은 많았지만 난 특별한 효과를 보지 못했기 때문에 안전한 성분으로 꼭 효과를 볼수 있는 제품을 만들고 싶었음"
                     />
                   </div>
                   <div>
@@ -255,7 +263,7 @@ export function BrandProfileForm({ open, initial, onClose, onSave }: BrandProfil
                       rows={2}
                       value={payload.story.crisis}
                       onChange={(e) => update("story", { ...payload.story, crisis: e.target.value })}
-                      placeholder="예: 첫 제품이 시장에서 외면받았을 때…"
+                      placeholder="예: 진정으로 안전하고 효과적인 제품을 개발하려고 성분 공부해가며 제조사 연구원분들이랑 함량·비율을 치열하게 소통. 성분은 만족스럽게 나왔는데 사용감이랑 안정화가 안돼서 수개월 고생…"
                     />
                   </div>
                   <div>
@@ -264,7 +272,7 @@ export function BrandProfileForm({ open, initial, onClose, onSave }: BrandProfil
                       rows={2}
                       value={payload.story.revival}
                       onChange={(e) => update("story", { ...payload.story, revival: e.target.value })}
-                      placeholder="예: OEM 공장을 바꾸고 처방을 다시 잡으면서…"
+                      placeholder="예: '적당히 타협하고 출시할까' 유혹도 있었지만 오기로 버팀. 될 때까지 샘플링·테스트, 밤낮으로 매달린 끝에 성분과 사용감 다 잡은 첫 자식 같은 '샴푸' 탄생…"
                     />
                   </div>
                   <div>
@@ -273,7 +281,7 @@ export function BrandProfileForm({ open, initial, onClose, onSave }: BrandProfil
                       rows={2}
                       value={payload.story.encounter}
                       onChange={(e) => update("story", { ...payload.story, encounter: e.target.value })}
-                      placeholder="예: 한 고객의 후기를 보고 방향을 다시 잡았던 순간…"
+                      placeholder={"예: 출시 후 고객 피드백 들으면서 계속 업그레이드. 큰 광고 없이 입소문만으로 사용자들이 먼저 알아채고 다시 사러 오심. '좋은 성분 쓰고 진심으로 대하면 결국 통하는구나'를 깨달은 순간…"}
                     />
                   </div>
                 </div>
@@ -295,7 +303,7 @@ export function BrandProfileForm({ open, initial, onClose, onSave }: BrandProfil
                       setListText((prev) => ({ ...prev, differentiators: e.target.value }));
                       update("differentiators", linesToArray(e.target.value));
                     }}
-                    placeholder="한 줄에 하나씩&#10;예: 전 일정 관광 포함&#10;추가 비용 0원"
+                    placeholder={"한 줄에 하나씩\n\n예:\n대충 만든 제품은 없다, 그리고 높은 재구매율!\n올바른성분: 우리아이도 안심하고 바를 수 있는 제품\n지속적인 업그레이드: 고객 의견 들으면 무조건 또 발전\n입소문과 재구매: 화려한 광고 없이도 인정받는 재구매율"}
                   />
                 </div>
                 <div>
@@ -307,7 +315,7 @@ export function BrandProfileForm({ open, initial, onClose, onSave }: BrandProfil
                       setListText((prev) => ({ ...prev, villains: e.target.value }));
                       update("villains", linesToArray(e.target.value));
                     }}
-                    placeholder="한 줄에 하나씩&#10;예:&#10;미끼 가격으로 유인하는 여행사&#10;추가 옵션비 폭탄 업체&#10;다단계 모객 사기"
+                    placeholder={"한 줄에 하나씩\n\n예:\n성분 표기 속임\n과장 광고\n자연유래 소량 첨가 후 주성분처럼 광고\n'원료 자체의 효능'을 마치 '화장품의 효능'인 것처럼 눈속임"}
                   />
                   <p className="text-[11px] text-muted-foreground mt-1">
                     ※ 1개만 적으면 정보성글이 매번 비슷하게 나옵니다. 3~5개 적어주세요.
@@ -322,7 +330,7 @@ export function BrandProfileForm({ open, initial, onClose, onSave }: BrandProfil
                 <Input
                   value={payload.targets.primary}
                   onChange={(e) => update("targets", { ...payload.targets, primary: e.target.value })}
-                  placeholder="예: 첫 크루즈를 꿈꾸는 40~60대 부부"
+                  placeholder="예: 민감 피부(두피)로 제품 선택에 어려움 겪는 분들"
                 />
               </Section>
 
@@ -337,7 +345,7 @@ export function BrandProfileForm({ open, initial, onClose, onSave }: BrandProfil
                     setListText((prev) => ({ ...prev, coreValues: e.target.value }));
                     update("coreValues", linesToArray(e.target.value));
                   }}
-                  placeholder="한 줄에 하나씩&#10;예:&#10;정직 / 투명 가격&#10;전문가 동행&#10;공동구매로 거품 제거"
+                  placeholder={"한 줄에 하나씩\n\n예:\n올바른성분\n검증된 안전성\n민감 피부 전문성\n고객 공감\n지속적인 연구\n우리아이도 안심하고 쓸수있는 제품"}
                 />
               </Section>
 
@@ -355,7 +363,7 @@ export function BrandProfileForm({ open, initial, onClose, onSave }: BrandProfil
                       forbiddenWords: linesToArray(e.target.value),
                     });
                   }}
-                  placeholder="한 줄에 하나씩&#10;예: 협력사 실명, 제외 표현"
+                  placeholder={"한 줄에 하나씩\n\n예:\n완치\n치료\n독점"}
                 />
                 <p className="text-[11px] text-muted-foreground">
                   ※ 경쟁사 실명 자동 검출 / 광고 직접 표현 금지는 기본 활성됩니다.
