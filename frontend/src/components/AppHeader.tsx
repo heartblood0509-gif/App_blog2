@@ -11,11 +11,10 @@ import { usePathname } from "next/navigation";
 import {
   ArrowLeft,
   HelpCircle,
-  KeyRound,
   LogOut,
   Megaphone,
-  MonitorSmartphone,
   RotateCcw,
+  UserCircle2,
 } from "lucide-react";
 import { Button, buttonVariants } from "@/components/ui/button";
 import {
@@ -51,8 +50,13 @@ export function AppHeader({
 }: AppHeaderProps) {
   const pathname = usePathname();
   const isMain = pathname === "/";
-  const isApiKey = pathname?.startsWith("/settings/api-key") ?? false;
-  const isDevices = pathname?.startsWith("/settings/devices") ?? false;
+  const isMyInfo = pathname?.startsWith("/settings/my-info") ?? false;
+  // 옛 경로(/settings/api-key, /settings/devices)는 my-info 내부 탭으로 흡수됨.
+  // 북마크 등으로 들어오면 백워드 호환 위해 그 경로 자체는 살려두지만 헤더는 "내 정보" 활성 표시.
+  const isLegacySettings =
+    (pathname?.startsWith("/settings/api-key") ?? false) ||
+    (pathname?.startsWith("/settings/devices") ?? false);
+  const isMyInfoActive = isMyInfo || isLegacySettings;
   const isWhatsNew = pathname?.startsWith("/whats-new") ?? false;
   const isHelp = pathname?.startsWith("/help") ?? false;
   const { hasUnseen } = useWhatsNew();
@@ -180,39 +184,23 @@ export function AppHeader({
           </Tooltip>
           <AdminEntryButton />
           <ThemeToggle />
+          {/* API 키 설정·기기 관리는 /settings/my-info 안으로 통합됨 (단일 진입점) */}
           <Tooltip>
             <TooltipTrigger
               render={
                 <Link
-                  href="/settings/api-key"
-                  aria-label="API 키 설정"
+                  href="/settings/my-info"
+                  aria-label="내 정보"
                   className={buttonVariants({
-                    variant: isApiKey ? "secondary" : "ghost",
+                    variant: isMyInfoActive ? "secondary" : "ghost",
                     size: "icon",
                   })}
                 >
-                  <KeyRound className="h-4 w-4" />
+                  <UserCircle2 className="h-4 w-4" />
                 </Link>
               }
             />
-            <TooltipContent>API 키 설정</TooltipContent>
-          </Tooltip>
-          <Tooltip>
-            <TooltipTrigger
-              render={
-                <Link
-                  href="/settings/devices"
-                  aria-label="기기 관리"
-                  className={buttonVariants({
-                    variant: isDevices ? "secondary" : "ghost",
-                    size: "icon",
-                  })}
-                >
-                  <MonitorSmartphone className="h-4 w-4" />
-                </Link>
-              }
-            />
-            <TooltipContent>기기 관리</TooltipContent>
+            <TooltipContent>내 정보</TooltipContent>
           </Tooltip>
         </div>
       </div>
