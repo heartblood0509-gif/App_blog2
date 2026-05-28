@@ -10,7 +10,7 @@
 //   3. 입력칸      — 새 API 키 입력 + 저장 버튼
 
 import { useEffect, useState } from "react";
-import { ChevronDown, ChevronRight } from "lucide-react";
+import { ChevronDown, ChevronRight, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -20,11 +20,16 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 
 const AISTUDIO_URL = "https://aistudio.google.com/";
 
-export function ApiKeyPanel() {
+interface ApiKeyPanelProps {
+  className?: string;
+}
+
+export function ApiKeyPanel({ className }: ApiKeyPanelProps) {
   const [hasKey, setHasKey] = useState(false);
   const [masked, setMasked] = useState<string | null>(null);
   const [encryptionAvailable, setEncryptionAvailable] = useState(true);
@@ -146,15 +151,19 @@ export function ApiKeyPanel() {
   };
 
   return (
-    <Card className="mx-auto max-w-lg">
-      <CardHeader>
-        <CardTitle>Gemini API 키</CardTitle>
-        <CardDescription>
-          글과 이미지는 Google Gemini가 만들어요. 본인 키를 한 번만 등록하면 바로 시작할 수 있고,
-          등록은 간단해서 1분이면 끝납니다 — 아래 안내를 따라가세요.
+    <Card className={cn("mx-auto max-w-lg border-l-4 border-l-primary bg-card shadow-sm", className)}>
+      <CardHeader className="border-b bg-primary/[0.045] px-5 py-4">
+        <CardTitle className="flex items-center gap-2">
+          <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/10 text-primary">
+            <Sparkles className="h-4 w-4" />
+          </span>
+          Gemini API 키
+        </CardTitle>
+        <CardDescription className="pl-10">
+          글과 이미지 생성을 위한 설정입니다. 한 번 등록해두면 이후 생성 단계에서 자동으로 사용됩니다.
         </CardDescription>
       </CardHeader>
-      <CardContent className="space-y-4">
+      <CardContent className="space-y-4 px-5 pt-1">
         {!encryptionAvailable && (
           <div className="rounded-md border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">
             이 PC 에서 암호화 기능을 사용할 수 없어 키를 안전하게 저장할 수 없습니다. Windows

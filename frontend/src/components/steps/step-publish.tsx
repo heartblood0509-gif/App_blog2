@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { motion } from "framer-motion";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -10,22 +10,15 @@ import {
   Copy,
   Download,
   ExternalLink,
-  ArrowLeft,
-  ArrowRight,
   CheckCircle2,
   FileText,
   Loader2,
-  Link,
   Plus,
-  User,
-  X,
   MessageCircle,
-  PanelRightClose,
-  PanelRightOpen,
   RefreshCw,
-  RotateCw,
 } from "lucide-react";
 import { toast } from "sonner";
+import { BlogAccountManager } from "@/components/accounts/BlogAccountManager";
 import { BlogContentRenderer } from "@/components/blog-content-renderer";
 import { ThreadsContentPreview } from "@/components/steps-threads/threads-content-preview";
 import { YoutubeScriptResult } from "@/components/steps-youtube/youtube-script-result";
@@ -58,78 +51,17 @@ export function StepPublish({
   const [publishedUrl, setPublishedUrl] = useState<string | null>(null);
   const [accounts, setAccounts] = useState<BlogAccount[]>([]);
   const [selectedAccountId, setSelectedAccountId] = useState<string>("");
-  const [showAddModal, setShowAddModal] = useState(false);
-  const [newLabel, setNewLabel] = useState("");
-  const [newNaverId, setNewNaverId] = useState("");
-  const [newNaverPw, setNewNaverPw] = useState("");
-  const [isAdding, setIsAdding] = useState(false);
-  const [isBlogSplitOpen, setIsBlogSplitOpen] = useState(false);
-  const [isTogglingBlogSplit, setIsTogglingBlogSplit] = useState(false);
-  const [isRunningPasteProbe, setIsRunningPasteProbe] = useState(false);
-  const [pasteProbeResult, setPasteProbeResult] = useState<{
-    ok: boolean;
-    error?: string;
-    steps: Array<{ name: string; ok: boolean; detail: string; skipped?: boolean }>;
-    snapshot?: unknown;
-  } | null>(null);
-  const [blogSplitUrl, setBlogSplitUrl] = useState("https://blog.naver.com");
-  const [blogSplitAddress, setBlogSplitAddress] = useState("https://blog.naver.com");
-  const [blogSplitNavState, setBlogSplitNavState] = useState({
-    canGoBack: false,
-    canGoForward: false,
-  });
+  const [autoPublish] = useState(false); // 기본: 검토 후 수동 발행
   // §D 수동 발행 세션 — Chrome 창이 살아있는 동안 busy 유지.
   const [manualSessionId, setManualSessionId] = useState<string | null>(null);
 
-  // 글 작성 중 + 수동 발행 Chrome 창 살아있는 동안 둘 다 busy.
-  useBusy("publish:compose", isPublishing);
+  // 자동 발행 중 + 수동 발행 Chrome 창 살아있는 동안 둘 다 busy.
+  useBusy("publish:auto", isPublishing);
   useBusy(`publish:manual:${manualSessionId ?? "none"}`, manualSessionId !== null);
 
   // §H 발행 진행 상태 — 종료 모달 가드용 (busy 와 별도 Set). 같은 opId 공유.
-  usePublishing("publish:compose", isPublishing);
+  usePublishing("publish:auto", isPublishing);
   usePublishing(`publish:manual:${manualSessionId ?? "none"}`, manualSessionId !== null);
-
-  useEffect(() => {
-    const api = window.electronAPI?.blogSplit;
-    if (!api) return;
-    let mounted = true;
-
-    api.isOpen().then((open) => {
-      if (mounted) setIsBlogSplitOpen(open);
-      if (open) {
-        api.getUrl().then((url) => {
-          if (!mounted || !url) return;
-          setBlogSplitUrl(url);
-          setBlogSplitAddress(url);
-        }).catch(() => {});
-      }
-    }).catch(() => {});
-    const unsubscribeState = api.onState((open) => {
-      setIsBlogSplitOpen(open);
-    });
-    const unsubscribeNavigation = api.onNavigation((state) => {
-      setBlogSplitUrl(state.url);
-      setBlogSplitAddress(state.url);
-      setBlogSplitNavState({
-        canGoBack: state.canGoBack,
-        canGoForward: state.canGoForward,
-      });
-    });
-
-    return () => {
-      mounted = false;
-      unsubscribeState();
-      unsubscribeNavigation();
-      api.close().catch(() => {});
-    };
-  }, []);
-
-  useEffect(() => {
-    document.body.classList.toggle("blog-split-open", isBlogSplitOpen);
-    return () => {
-      document.body.classList.remove("blog-split-open");
-    };
-  }, [isBlogSplitOpen]);
 
   // ─────────────────────────────────────────────
   // 블로그 본문 → 쓰레드 변환 (1소스 멀티유즈)
@@ -237,87 +169,6 @@ export function StepPublish({
     };
   }, [manualSessionId]);
 
-  // 계정 목록 가져오기
-  const fetchAccounts = useCallback(async () => {
-    try {
-      const res = await fetch("/api/accounts");
-      const data = await res.json();
-      setAccounts(data);
-      if (data.length > 0 && !selectedAccountId) {
-        setSelectedAccountId(data[0].id);
-      }
-    } catch {
-      // 백엔드 미연결 시 빈 배열
-    }
-  }, [selectedAccountId]);
-
-  useEffect(() => {
-    fetchAccounts();
-  }, [fetchAccounts]);
-
-  // 계정 추가
-  const handleAddAccount = async () => {
-    if (!newLabel || !newNaverId || !newNaverPw) {
-      toast.error("모든 항목을 입력해주세요.");
-      return;
-    }
-    setIsAdding(true);
-    try {
-      const res = await fetch("/api/accounts", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          label: newLabel,
-          naver_id: newNaverId,
-          naver_pw: newNaverPw,
-        }),
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        throw new Error(data.error || "계정 추가 실패");
-      }
-      toast.success(`계정 "${data.label}"이 추가되었습니다.`);
-      setShowAddModal(false);
-      setNewLabel("");
-      setNewNaverId("");
-      setNewNaverPw("");
-      await fetchAccounts();
-      setSelectedAccountId(data.id);
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "계정 추가 실패");
-    } finally {
-      setIsAdding(false);
-    }
-  };
-
-  // 계정 삭제
-  const handleDeleteAccount = async (accountId: string) => {
-    const account = accounts.find((a) => a.id === accountId);
-    if (
-      !confirm(
-        `"${account?.label}" 계정을 삭제하시겠습니까?\n저장된 로그인 세션도 함께 삭제됩니다.`
-      )
-    )
-      return;
-
-    try {
-      const res = await fetch(`/api/accounts?id=${accountId}`, {
-        method: "DELETE",
-      });
-      if (!res.ok) {
-        const data = await res.json();
-        throw new Error(data.error || "삭제 실패");
-      }
-      toast.success("계정이 삭제되었습니다.");
-      await fetchAccounts();
-      if (selectedAccountId === accountId) {
-        setSelectedAccountId(accounts[0]?.id || "");
-      }
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "삭제 실패");
-    }
-  };
-
   // 복사
   const handleCopy = useCallback(async () => {
     try {
@@ -390,7 +241,7 @@ export function StepPublish({
           content: cleanedContent,
           account_id: selectedAccountId,
           images,
-          auto_publish: false,
+          auto_publish: autoPublish,
         }),
       });
       const data = await res.json();
@@ -428,200 +279,9 @@ export function StepPublish({
     }
   };
 
-  const handleToggleBlogSplit = async () => {
-    const api = window.electronAPI?.blogSplit;
-    if (!api) {
-      toast.error("앱 실행 환경에서만 블로그 홈 화면을 함께 열 수 있습니다.");
-      return;
-    }
-
-    setIsTogglingBlogSplit(true);
-    try {
-      if (isBlogSplitOpen) {
-        await api.close();
-        setIsBlogSplitOpen(false);
-        return;
-      }
-      const result = await api.open("http://blog.naver.com");
-      if (!result.ok) {
-        throw new Error("블로그 홈 화면을 열 수 없습니다.");
-      }
-      const url = await api.getUrl().catch(() => "https://blog.naver.com");
-      setBlogSplitUrl(url);
-      setBlogSplitAddress(url);
-      setIsBlogSplitOpen(true);
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "블로그 홈 화면을 열 수 없습니다.");
-    } finally {
-      setIsTogglingBlogSplit(false);
-    }
-  };
-
-  const handleBlogSplitNavigate = async (
-    action: "back" | "forward" | "reload" | "home" | "go",
-    url?: string,
-  ) => {
-    const api = window.electronAPI?.blogSplit;
-    if (!api) return;
-    try {
-      const result = await api.navigate(action, url);
-      if (result.url) {
-        setBlogSplitUrl(result.url);
-        setBlogSplitAddress(result.url);
-      }
-      setBlogSplitNavState({
-        canGoBack: result.canGoBack,
-        canGoForward: result.canGoForward,
-      });
-    } catch {
-      toast.error("블로그 화면 이동에 실패했습니다.");
-    }
-  };
-
-  const handleBlogSplitAddressSubmit = (e: FormEvent<HTMLFormElement>) => {
-    e.preventDefault();
-    handleBlogSplitNavigate("go", blogSplitAddress);
-  };
-
-  const handleCopyBlogSplitUrl = async () => {
-    try {
-      await navigator.clipboard.writeText(blogSplitUrl);
-      toast.success("블로그 화면 주소를 복사했습니다.");
-    } catch {
-      toast.error("주소 복사에 실패했습니다.");
-    }
-  };
-
-  const handlePasteProbe = async () => {
-    const api = window.electronAPI?.blogSplit;
-    if (!api) {
-      toast.error("앱 실행 환경에서만 Paste PoC를 실행할 수 있습니다.");
-      return;
-    }
-
-    setIsRunningPasteProbe(true);
-    setPasteProbeResult(null);
-    try {
-      if (!(await api.isOpen())) {
-        const result = await api.open("https://blog.naver.com/GoBlogWrite.naver");
-        if (!result.ok) {
-          throw new Error("블로그 글쓰기 화면을 열 수 없습니다.");
-        }
-      }
-
-      const excludedSet = new Set(excludedSlotIds);
-      const images = imageSlots
-        .filter((slot) => !excludedSet.has(slot.id) && generatedImages[slot.id])
-        .map((slot) => ({
-          index: slot.index,
-          base64: generatedImages[slot.id],
-          mimeType: "image/png",
-        }));
-
-      const result = await api.pasteProbe({
-        title,
-        content,
-        images,
-      });
-      setPasteProbeResult(result);
-      if (result.ok) {
-        toast.success("Draft Paste PoC가 모두 통과했습니다.");
-      } else {
-        toast.warning(result.error || "Draft Paste PoC 일부 항목이 실패했습니다.");
-      }
-    } catch (err) {
-      const message = err instanceof Error ? err.message : "Paste PoC 실행 실패";
-      setPasteProbeResult({ ok: false, error: message, steps: [] });
-      toast.error(message);
-    } finally {
-      setIsRunningPasteProbe(false);
-    }
-  };
-
   const selectedAccount = accounts.find((a) => a.id === selectedAccountId);
-  const showPasteProbe = process.env.NODE_ENV === "development";
 
   return (
-    <>
-      {isBlogSplitOpen && (
-        <div
-          className="fixed top-0 z-50 flex h-11 items-center gap-2 border-b border-border bg-background px-3 shadow-sm"
-          style={{ left: "50vw", width: "50vw" }}
-        >
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon"
-            className="h-8 w-8 shrink-0"
-            disabled={!blogSplitNavState.canGoBack}
-            onClick={() => handleBlogSplitNavigate("back")}
-            title="뒤로가기"
-            aria-label="뒤로가기"
-          >
-            <ArrowLeft className="h-4 w-4" />
-          </Button>
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon"
-            className="h-8 w-8 shrink-0"
-            disabled={!blogSplitNavState.canGoForward}
-            onClick={() => handleBlogSplitNavigate("forward")}
-            title="앞으로가기"
-            aria-label="앞으로가기"
-          >
-            <ArrowRight className="h-4 w-4" />
-          </Button>
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon"
-            className="h-8 w-8 shrink-0"
-            onClick={() => handleBlogSplitNavigate("reload")}
-            title="새로고침"
-            aria-label="새로고침"
-          >
-            <RotateCw className="h-4 w-4" />
-          </Button>
-
-          <form
-            className="flex min-w-0 flex-1 items-center gap-2 rounded-md border border-input bg-muted/30 px-2"
-            onSubmit={handleBlogSplitAddressSubmit}
-            title={blogSplitUrl}
-          >
-            <Link className="h-4 w-4 shrink-0 text-muted-foreground" />
-            <input
-              value={blogSplitAddress}
-              onChange={(e) => setBlogSplitAddress(e.target.value)}
-              className="h-8 min-w-0 flex-1 bg-transparent text-sm outline-none"
-              aria-label="블로그 화면 주소"
-              spellCheck={false}
-            />
-          </form>
-
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon"
-            className="h-8 w-8 shrink-0"
-            onClick={handleCopyBlogSplitUrl}
-            title="링크 복사"
-            aria-label="링크 복사"
-          >
-            <Link className="h-4 w-4" />
-          </Button>
-          <Button
-            type="button"
-            className="h-8 shrink-0 bg-[#03c75a] px-3 text-sm font-semibold text-white hover:bg-[#02b351]"
-            onClick={() => handleBlogSplitNavigate("home")}
-            title="네이버 홈"
-            aria-label="네이버 홈"
-          >
-            N 홈
-          </Button>
-        </div>
-      )}
-
     <div className="space-y-6">
       <div className="mb-6">
         <h2 className="text-2xl font-semibold">발행</h2>
@@ -665,157 +325,13 @@ export function StepPublish({
         </div>
       )}
 
-      {/* 계정 선택 영역 */}
-      <Card>
-        <CardHeader className="pb-3">
-          <CardTitle className="flex items-center gap-2 text-sm">
-            <User className="h-4 w-4" />
-            발행할 블로그 선택
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="flex flex-wrap gap-3">
-            {accounts.map((account) => (
-              <div
-                key={account.id}
-                className={`relative flex cursor-pointer items-center gap-3 rounded-lg border-2 px-4 py-3 transition-all ${
-                  selectedAccountId === account.id
-                    ? "border-primary bg-primary/5"
-                    : "border-border hover:border-primary/40"
-                }`}
-                onClick={() => setSelectedAccountId(account.id)}
-              >
-                <div className="flex h-8 w-8 items-center justify-center rounded-full bg-primary/10">
-                  <User className="h-4 w-4 text-primary" />
-                </div>
-                <div>
-                  <p className="text-sm font-medium">{account.label}</p>
-                  <p className="text-xs text-muted-foreground">
-                    {account.naver_id}
-                  </p>
-                </div>
-                {selectedAccountId === account.id && (
-                  <CheckCircle2 className="ml-2 h-4 w-4 text-primary" />
-                )}
-                <button
-                  className="absolute -right-1 -top-1 flex h-5 w-5 items-center justify-center rounded-full bg-destructive text-destructive-foreground opacity-0 transition-opacity hover:opacity-100 group-hover:opacity-100"
-                  style={{ opacity: undefined }}
-                  onMouseEnter={(e) =>
-                    (e.currentTarget.style.opacity = "1")
-                  }
-                  onMouseLeave={(e) =>
-                    (e.currentTarget.style.opacity = "0")
-                  }
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    handleDeleteAccount(account.id);
-                  }}
-                >
-                  <X className="h-3 w-3" />
-                </button>
-              </div>
-            ))}
-
-            {/* 계정 추가 버튼 */}
-            <div
-              className="flex cursor-pointer items-center gap-2 rounded-lg border-2 border-dashed border-border px-4 py-3 transition-colors hover:border-primary/40 hover:bg-primary/5"
-              onClick={() => setShowAddModal(true)}
-            >
-              <Plus className="h-4 w-4 text-muted-foreground" />
-              <span className="text-sm text-muted-foreground">계정 추가</span>
-            </div>
-          </div>
-
-          {accounts.length === 0 && (
-            <p className="mt-2 text-sm text-muted-foreground">
-              등록된 계정이 없습니다. &quot;계정 추가&quot;를 눌러 블로그
-              계정을 등록하세요.
-            </p>
-          )}
-        </CardContent>
-      </Card>
-
-      {/* 계정 추가 모달 */}
-      {showAddModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-          <motion.div
-            initial={{ opacity: 0, scale: 0.95 }}
-            animate={{ opacity: 1, scale: 1 }}
-            className="w-full max-w-md rounded-lg bg-background p-6 shadow-xl"
-          >
-            <h3 className="mb-4 text-lg font-semibold">
-              새 블로그 계정 추가
-            </h3>
-
-            <div className="space-y-4">
-              <div>
-                <label className="mb-1 block text-sm font-medium">
-                  별명 (구분용)
-                </label>
-                <input
-                  type="text"
-                  className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                  placeholder="예: 메인 블로그"
-                  value={newLabel}
-                  onChange={(e) => setNewLabel(e.target.value)}
-                />
-              </div>
-
-              <div>
-                <label className="mb-1 block text-sm font-medium">
-                  네이버 ID
-                </label>
-                <input
-                  type="text"
-                  className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                  placeholder="네이버 아이디"
-                  value={newNaverId}
-                  onChange={(e) => setNewNaverId(e.target.value)}
-                />
-              </div>
-
-              <div>
-                <label className="mb-1 block text-sm font-medium">
-                  비밀번호
-                </label>
-                <input
-                  type="password"
-                  className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                  placeholder="네이버 비밀번호"
-                  value={newNaverPw}
-                  onChange={(e) => setNewNaverPw(e.target.value)}
-                />
-                <p className="mt-1 text-xs text-muted-foreground">
-                  비밀번호는 이 컴퓨터에만 저장되며, 외부로 전송되지
-                  않습니다.
-                </p>
-              </div>
-            </div>
-
-            <div className="mt-6 flex justify-end gap-3">
-              <Button
-                variant="outline"
-                onClick={() => {
-                  setShowAddModal(false);
-                  setNewLabel("");
-                  setNewNaverId("");
-                  setNewNaverPw("");
-                }}
-              >
-                취소
-              </Button>
-              <Button onClick={handleAddAccount} disabled={isAdding}>
-                {isAdding ? (
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                ) : (
-                  <Plus className="mr-2 h-4 w-4" />
-                )}
-                추가
-              </Button>
-            </div>
-          </motion.div>
-        </div>
-      )}
+      <BlogAccountManager
+        mode="select"
+        selectedAccountId={selectedAccountId}
+        onSelectAccount={setSelectedAccountId}
+        onAccountsChange={setAccounts}
+        className="max-w-none"
+      />
 
       {/* 액션 영역 — 두 그룹 박스 분리:
           (A) 블로그 그대로 내보내기 = 발행 / 복사 / 마크다운 (메인 카테고리, 실선 박스)
@@ -840,45 +356,15 @@ export function StepPublish({
                 <ExternalLink className="h-4 w-4" />
               )}
               {isPublishing
-                ? "글 작성 중..."
+                ? autoPublish
+                  ? "발행 중..."
+                  : "글 작성 중..."
                 : selectedAccount
-                  ? `"${selectedAccount.label}"에 글 작성 (수동 발행)`
+                  ? autoPublish
+                    ? `"${selectedAccount.label}"에 자동 발행`
+                    : `"${selectedAccount.label}"에 글 작성 (수동 발행)`
                   : "계정을 선택하세요"}
             </Button>
-
-            <Button
-              variant="outline"
-              size="lg"
-              onClick={handleToggleBlogSplit}
-              disabled={isTogglingBlogSplit}
-              className="gap-2"
-            >
-              {isTogglingBlogSplit ? (
-                <Loader2 className="h-4 w-4 animate-spin" />
-              ) : isBlogSplitOpen ? (
-                <PanelRightClose className="h-4 w-4" />
-              ) : (
-                <PanelRightOpen className="h-4 w-4" />
-              )}
-              {isBlogSplitOpen ? "분할 닫기" : "블로그 홈 보기"}
-            </Button>
-
-            {showPasteProbe && (
-              <Button
-                variant="outline"
-                size="lg"
-                onClick={handlePasteProbe}
-                disabled={isRunningPasteProbe}
-                className="gap-2 border-blue-500/40 hover:border-blue-500/70 hover:bg-blue-50 dark:hover:bg-blue-950/20"
-              >
-                {isRunningPasteProbe ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                ) : (
-                  <Copy className="h-4 w-4 text-blue-500" />
-                )}
-                Draft Paste PoC
-              </Button>
-            )}
 
             <Button
               variant="outline"
@@ -902,52 +388,6 @@ export function StepPublish({
               마크다운 다운로드
             </Button>
           </div>
-
-          {showPasteProbe && pasteProbeResult && (
-            <div className="rounded-md border bg-muted/30 p-3 text-xs">
-              <div className="flex items-center justify-between gap-2">
-                <span className="font-medium">
-                  Draft Paste PoC 결과: {pasteProbeResult.ok ? "통과" : "확인 필요"}
-                </span>
-                {pasteProbeResult.error && (
-                  <span className="text-destructive">{pasteProbeResult.error}</span>
-                )}
-              </div>
-              {Array.isArray(
-                (pasteProbeResult.snapshot as { componentOrder?: unknown } | undefined)
-                  ?.componentOrder,
-              ) && (
-                <div className="mt-2 truncate text-muted-foreground">
-                  order:{" "}
-                  {(
-                    (pasteProbeResult.snapshot as { componentOrder: string[] })
-                      .componentOrder
-                  ).join(" > ")}
-                </div>
-              )}
-              <div className="mt-2 space-y-1">
-                {pasteProbeResult.steps.map((step) => (
-                  <div key={step.name} className="flex gap-2">
-                    <span
-                      className={
-                        step.skipped
-                          ? "text-muted-foreground"
-                          : step.ok
-                            ? "text-primary"
-                            : "text-destructive"
-                      }
-                    >
-                      {step.skipped ? "SKIP" : step.ok ? "OK" : "FAIL"}
-                    </span>
-                    <span className="font-mono">{step.name}</span>
-                    <span className="min-w-0 flex-1 truncate text-muted-foreground">
-                      {step.detail}
-                    </span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
         </div>
 
         {/* 그룹 B: 다른 채널 변환 (보조, 선택 액션) */}
@@ -1146,6 +586,5 @@ export function StepPublish({
         </Button>
       )}
     </div>
-    </>
   );
 }

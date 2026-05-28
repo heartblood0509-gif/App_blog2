@@ -454,4 +454,5 @@ export interface BlogAccount {
   id: string;
   label: string;
   naver_id: string;
+  disabled?: boolean;
 }
