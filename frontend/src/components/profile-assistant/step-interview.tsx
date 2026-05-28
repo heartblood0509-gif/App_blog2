@@ -112,18 +112,19 @@ export function StepInterview({
 
   const handleSkip = () => {
     // 잘 모르겠음 → 비우고 다음
-    setAnswers((prev) => ({
-      ...prev,
+    const nextAnswers = {
+      ...answers,
       [q.id]: { answered: false, value: EMPTY_VALUE(q.kind) },
-    }));
-    advance();
+    };
+    setAnswers(nextAnswers);
+    advance(nextAnswers);
   };
 
-  const advance = () => {
+  const advance = (nextAnswers: InterviewAnswers = answers) => {
     if (stepIdx + 1 < total) {
       setStepIdx(stepIdx + 1);
     } else {
-      onComplete(answers);
+      onComplete(nextAnswers);
     }
   };
 
