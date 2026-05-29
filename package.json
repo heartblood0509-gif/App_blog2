@@ -5,7 +5,7 @@
   "description": "App Blog Publisher — Electron desktop wrapper for App_blog2",
   "main": "electron/dist/main.js",
   "scripts": {
-    "dev": "cross-env NODE_ENV=development tsc -p electron && cross-env NODE_ENV=development BLOG_PICK_DEV_PORT=3030 electron electron/dist/main.js",
+    "dev": "cross-env NODE_ENV=development tsc -p electron && cross-env NODE_ENV=development electron electron/dist/main.js",
     "dev:worktree": "node scripts/dev-worktree.js",
     "dev:worktree:electron": "node scripts/dev-worktree.js --electron",
     "build:electron": "tsc -p electron",
