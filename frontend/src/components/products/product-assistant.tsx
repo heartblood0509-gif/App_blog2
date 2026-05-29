@@ -187,15 +187,7 @@ export function ProductAssistant({
     hasReviews !== null ? getProductInterviewQuestions(hasReviews) : [];
 
   return (
-    <Dialog
-      open={open}
-      onOpenChange={(v, details) => {
-        if (!v) {
-          if (details.reason === "outside-press" || details.reason === "escape-key") return;
-          handleClose();
-        }
-      }}
-    >
+    <Dialog open={open} onOpenChange={(v) => !v && handleClose()}>
       <DialogContent className="max-w-2xl max-h-[90vh] flex flex-col gap-4 !grid-cols-none">
         <DialogHeader className="shrink-0">
           <DialogTitle className="flex items-center gap-2">

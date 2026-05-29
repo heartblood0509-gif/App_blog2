@@ -72,44 +72,41 @@ const linesToArray = (s: string): string[] =>
 
 const arrayToLines = (a: string[] | undefined): string => (a ?? []).join("\n");
 
-// 미르엔 탈모샴푸 placeholder (실제 등록 데이터 기반)
+// 탈모샴푸 placeholder
 const PH = {
-  name: "미르엔 탈모샴푸",
+  name: "탈모샴푸",
   category: "헤어케어",
-  efficacy: `두피 열감 진정
-빠짐 환경 개선
-머리 감고 나서 두피 컨디션 안정화`,
-  ingredients: `맥주효모수
-무실리콘
-단백질 레시피`,
-  usability: `기존 탈모샴푸 특유의 뻣뻣함이 덜함
-성분 대비 거품량이 많은 편`,
-  differentiator: `모발을 자라나게 하는 게 아니라, 더 빠지지 않게 도와주는 방향`,
-  usage: `2회 푸시. 거품 충분히 낸 뒤 두피에 2분 마사지 후 헹굼`,
-  relatedSymptoms: `머리카락 빠짐
+  efficacy: `두피 열감 진정, 빠짐 환경 개선
+머리 감고 나서 두피 컨디션이 안정됨`,
+  ingredients: `비오틴, 살리실산
+무실리콘`,
+  usability: `개운하지만 건조하지 않음
+기존 탈모샴푸 특유의 뻣뻣함이 덜함`,
+  differentiator: `탈모를 잡는다보다 빠질 환경을 줄이는 방향으로 접근`,
+  usage: `2회 푸시, 거품 충분히 낸 뒤 두피에 2분 마사지 후 헹굼`,
+  relatedSymptoms: `탈모
+머리카락 빠짐
 두피 가려움
 두피 각질
 두피 냄새
-머리숱 감소
-지루성 두피`,
-  naturalMentionPatterns: `요즘 정착해서 쓰는 샴푸
-두피 관리를 위해 바꿔본
-사용해보고 만족한 탈모샴푸
-우연히 서칭으로 써보게 된`,
-  keyInsight: "머리를 나게 하는 샴푸는 이세상에 없어요. 덜 빠지게 도와드려요.",
-  sensoryDetails: `개운하지만 건조하지 않고 보송한 느낌
-두피 열감이 줄면서 전체적인 두피 컨디션 안정
-자극 없고 깔끔한 세정력`,
-  realReviews: `탈모샴푸인데 순한 느낌이 많이 듦
-시원하고 두피가 진정되는 느낌이에요
-쓸수록 가려움이랑 비듬 줄어듦
-머리 빠지는 건 바로 줄진 않는데 두피가 덜 자극받으니까 덜 빠지는 느낌`,
-  productUrl: "https://smartstore.naver.com/mirr-n/products/7872684016",
+머리숱 감소`,
+  naturalMentionPatterns: `요즘 쓰고 있는 샴푸
+지인 추천으로 써보기 시작한
+우연히 바꿔보게 된
+맘카페에서 후기 보고 바꿔본`,
+  keyInsight: "탈모를 잡는다보다 빠질 환경을 줄이는 방향으로 접근하는 타입",
+  sensoryDetails: `개운함은 있는데 건조하지 않음
+두피 열감 간지러움이 줄면서 전체적인 두피 컨디션 안정
+기존 탈모샴푸 특유의 뻣뻣함이 덜함`,
+  realReviews: `머리 빠지는 건 바로 줄진 않는데 두피가 덜 자극받으니까 덜 빠지는 느낌
+기존 탈모샴푸처럼 뻣뻣하거나 떡지는 느낌 없음
+꾸준히 썼을 때 차이가 나는 쪽`,
+  productUrl: "https://example.com/products/hair-shampoo",
   expectedReactions: `처음 써본 사람은 "확 잡아주는 느낌"보다 "두피가 편해지는 흐름"이라고 느낄 듯
 꾸준히 쓸수록 차이가 나는 타입이라 단기 체감보다 1~2주 후가 핵심`,
   // 사이클 3 — precautions만 유지 (신뢰도 단락의 핵심)
-  precautions: `제형이 좀 물처럼 흐름
-극건성 두피에는 다소 가벼울 수 있음`,
+  precautions: `극건성 두피에는 다소 가벼울 수 있음
+향에 민감한 분은 무향 제품 추천`,
 };
 
 /** 평면 펼침 섹션 — 카드형 구획. aiSuggested=true면 옅은 노란 배경 + 배지 */
@@ -319,16 +316,7 @@ export function ProductForm({
   const isEditMode = !!(initial && "id" in initial && initial.id);
 
   return (
-    <Dialog
-      open={open}
-      onOpenChange={(v, details) => {
-        if (!v) {
-          // 외부 클릭·ESC 로는 닫히지 않도록 (작성 내용 보호). X 버튼·취소 버튼은 그대로 동작.
-          if (details.reason === "outside-press" || details.reason === "escape-key") return;
-          onClose();
-        }
-      }}
-    >
+    <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
       <DialogContent className="max-w-5xl">
         <DialogHeader>
           <DialogTitle>{isEditMode ? "제품 수정" : "새 제품 등록"}</DialogTitle>

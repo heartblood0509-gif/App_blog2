@@ -87,15 +87,7 @@ export function AnalysisRecordForm({
     : "분석 레코드 저장";
 
   return (
-    <Dialog
-      open={open}
-      onOpenChange={(v, details) => {
-        if (!v) {
-          if (details.reason === "outside-press" || details.reason === "escape-key") return;
-          onClose();
-        }
-      }}
-    >
+    <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
       <DialogContent className="max-w-2xl">
         <DialogHeader>
           <DialogTitle>{title}</DialogTitle>

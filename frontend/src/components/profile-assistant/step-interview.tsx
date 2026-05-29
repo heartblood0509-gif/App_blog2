@@ -94,10 +94,6 @@ export function StepInterview({
     }
     return init;
   });
-  // list 질문 전용 — 입력 중 raw 텍스트를 그대로 보관해서 Enter 로 빈 줄을 추가해도
-  // filter(Boolean) 에 즉시 잘리지 않도록 한다. 저장(advance/serialize)은 기존대로
-  // string[] 사용. 즉 외부 인터페이스 변경 없음.
-  const [listRawText, setListRawText] = useState<Record<string, string>>({});
 
   const total = questions.length;
   const q = questions[stepIdx];
@@ -116,21 +112,19 @@ export function StepInterview({
 
   const handleSkip = () => {
     // 잘 모르겠음 → 비우고 다음
-    setAnswers((prev) => ({
-      ...prev,
+    const nextAnswers = {
+      ...answers,
       [q.id]: { answered: false, value: EMPTY_VALUE(q.kind) },
-    }));
-    if (q.kind === "list") {
-      setListRawText((prev) => ({ ...prev, [q.id]: "" }));
-    }
-    advance();
+    };
+    setAnswers(nextAnswers);
+    advance(nextAnswers);
   };
 
-  const advance = () => {
+  const advance = (nextAnswers: InterviewAnswers = answers) => {
     if (stepIdx + 1 < total) {
       setStepIdx(stepIdx + 1);
     } else {
-      onComplete(answers);
+      onComplete(nextAnswers);
     }
   };
 
@@ -191,22 +185,16 @@ export function StepInterview({
       );
     }
     if (q.kind === "list") {
-      // 입력 중인 raw 텍스트 우선. 없으면 기존 array → string 복원 (이전 단계로 돌아왔을 때).
       const lines = current.value as string[];
-      const rawText = listRawText[q.id] ?? lines.join("\n");
       return (
         <>
           <Textarea
             autoFocus
             rows={5}
-            value={rawText}
-            onChange={(e) => {
-              const raw = e.target.value;
-              // raw 그대로 보관 — 빈 줄·줄 끝 공백 등 사용자 입력 보존.
-              setListRawText((prev) => ({ ...prev, [q.id]: raw }));
-              // 저장용 array 도 동시에 갱신 (validation/serialize 는 이쪽 사용).
-              updateValue(raw.split("\n").map((s) => s.trim()).filter(Boolean));
-            }}
+            value={lines.join("\n")}
+            onChange={(e) =>
+              updateValue(e.target.value.split("\n").map((s) => s.trim()).filter(Boolean))
+            }
             onKeyDown={handleEnterKey}
             placeholder="한 줄에 하나씩 (Shift+Enter로 줄 추가)"
           />

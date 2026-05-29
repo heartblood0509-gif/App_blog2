@@ -337,10 +337,6 @@ interface BlogSplitPasteProbeRequest {
   title?: string;
   content?: string;
   images?: BlogSplitPasteProbeImage[];
-  // dev-only: 좌측 BlogContentRenderer 와 동일 규칙으로 frontend 에서 계산한 블록 스냅샷.
-  // main 의 parsePasteBlocks 결과와 옆에 놓고 비교해 두 파서가 다르게 쪼개는 지점을 즉시 발견.
-  // text block 은 lineCount/first/last 만 담아 log 폭증을 피한다.
-  frontendBlocks?: Array<{ type: string; detail?: string }>;
 }
 
 interface BlogSplitPasteProbeStep {
@@ -995,8 +991,6 @@ async function getSelectionDiagnostics(frame: WebFrameMain, label: string): Prom
         ? focusNode.textContent.length
         : null;
       const focusOffset = sel && sel.rangeCount > 0 ? sel.focusOffset : null;
-      const anchorOffset = sel && sel.rangeCount > 0 ? sel.anchorOffset : null;
-      const isCollapsed = sel && sel.rangeCount > 0 ? sel.isCollapsed : null;
       const componentType = component
         ? component.classList.contains("se-image")
           ? "image"
@@ -1006,110 +1000,6 @@ async function getSelectionDiagnostics(frame: WebFrameMain, label: string): Prom
               ? "text"
               : "other"
         : "none";
-      const focusNodePath = (() => {
-        if (!focusNode) return null;
-        const parts = [];
-        let node = focusNode;
-        let depth = 0;
-        while (node && depth < 8) {
-          if (node.nodeType === Node.TEXT_NODE) {
-            parts.unshift("#text");
-          } else if (node.nodeType === Node.ELEMENT_NODE) {
-            const el = node;
-            const tag = el.tagName;
-            const cls = typeof el.className === "string"
-              ? el.className.split(/\\s+/).filter(Boolean).slice(0, 3).join(".")
-              : "";
-            parts.unshift(tag + (cls ? "." + cls : ""));
-          }
-          node = node.parentNode;
-          depth += 1;
-        }
-        return parts.join(" > ");
-      })();
-      const focusNodeTextSnippet = (() => {
-        if (!focusNode || typeof focusNode.textContent !== "string") return null;
-        const txt = focusNode.textContent;
-        const o = typeof focusOffset === "number" ? focusOffset : 0;
-        const start = Math.max(0, o - 10);
-        const end = Math.min(txt.length, o + 10);
-        return txt.slice(start, o) + "|" + txt.slice(o, end);
-      })();
-      const paragraphsPreview = (() => {
-        if (!paragraphs.length) return [];
-        const picked = new Set();
-        const out = [];
-        const pick = (i) => {
-          if (i < 0 || i >= paragraphs.length || picked.has(i)) return;
-          picked.add(i);
-          out.push({ i, t: text(paragraphs[i]).slice(0, 40) });
-        };
-        pick(0); pick(1); pick(2);
-        pick(paragraphs.length - 2); pick(paragraphs.length - 1);
-        return out.sort((a, b) => a.i - b.i);
-      })();
-      const caretRect = (() => {
-        if (!sel || sel.rangeCount === 0) return null;
-        try {
-          const r = sel.getRangeAt(0).getBoundingClientRect();
-          return {
-            top: Math.round(r.top),
-            left: Math.round(r.left),
-            w: Math.round(r.width),
-            h: Math.round(r.height),
-          };
-        } catch (_) {
-          return null;
-        }
-      })();
-      // Step 1 진단 보강: 마지막 text component 안의 drop-indicator 정체 추적.
-      // outerHTML 같은 raw 덤프는 노이즈/개인정보 위험이 있어 구조화된 짧은 snapshot 만 수집.
-      const lastTextComp = (() => {
-        const texts = components.filter((c) => c.classList.contains("se-text"));
-        return texts[texts.length - 1] || null;
-      })();
-      const allParas = lastTextComp
-        ? Array.from(lastTextComp.querySelectorAll(".se-text-paragraph"))
-        : [];
-      const safeParas = allParas.filter((p) => !p.closest(".se-drop-indicator"));
-      const dropIndicators = lastTextComp
-        ? Array.from(lastTextComp.querySelectorAll(".se-drop-indicator"))
-        : [];
-      const dropIndicator0 = dropIndicators[0] || null;
-      const dropIndicatorRect = (() => {
-        if (!dropIndicator0) return null;
-        try {
-          const r = dropIndicator0.getBoundingClientRect();
-          return {
-            top: Math.round(r.top),
-            left: Math.round(r.left),
-            w: Math.round(r.width),
-            h: Math.round(r.height),
-          };
-        } catch (_) {
-          return null;
-        }
-      })();
-      const dropIndicatorParentTag = (() => {
-        if (!dropIndicator0 || !dropIndicator0.parentElement) return null;
-        const p = dropIndicator0.parentElement;
-        const cls = typeof p.className === "string"
-          ? p.className.split(/\\s+/).filter(Boolean).slice(0, 1).join(".")
-          : "";
-        return p.tagName + (cls ? "." + cls : "");
-      })();
-      const paragraphsDropFlags = allParas.slice(0, 5).map((p, i) => {
-        let rectTop = null;
-        try {
-          rectTop = Math.round(p.getBoundingClientRect().top);
-        } catch (_) {}
-        return {
-          i,
-          inDrop: Boolean(p.closest(".se-drop-indicator")),
-          textPreview: (p.textContent || "").trim().slice(0, 20),
-          rectTop,
-        };
-      });
       return {
         label,
         componentOrder,
@@ -1119,8 +1009,6 @@ async function getSelectionDiagnostics(frame: WebFrameMain, label: string): Prom
           paragraphIndex,
           paragraphCount: paragraphs.length,
           focusOffset,
-          anchorOffset,
-          isCollapsed,
           focusTextLength,
           atLastParagraph: paragraphIndex >= 0 && paragraphIndex === paragraphs.length - 1,
           nearNodeEnd: typeof focusOffset === "number" && typeof focusTextLength === "number"
@@ -1129,18 +1017,6 @@ async function getSelectionDiagnostics(frame: WebFrameMain, label: string): Prom
           firstText: text(paragraphs[0]).slice(0, 60),
           currentText: text(para).slice(0, 60),
           lastText: text(paragraphs[paragraphs.length - 1]).slice(0, 60),
-          focusNodePath,
-          focusNodeTextSnippet,
-          paragraphsPreview,
-          caretRect,
-        },
-        lastComp: {
-          allParagraphsLen: allParas.length,
-          safeParagraphsLen: safeParas.length,
-          dropIndicatorCount: dropIndicators.length,
-          dropIndicatorRect,
-          dropIndicatorParentTag,
-          paragraphsDropFlags,
         },
         textComponents: components
           .filter((component) => component.classList.contains("se-text"))
@@ -1262,300 +1138,6 @@ async function focusLastQuotation(frame: WebFrameMain): Promise<boolean> {
   `, true));
 }
 
-// ── 텍스트 paste 전용 안정화 helper ─────────────────────────────────
-// 본문 paste 직후 SmartEditor 의 drop-indicator/normalization 이 끝날 때까지 기다린 뒤,
-// 마지막 text component 의 마지막 paragraph 의 *진짜* 마지막 textNode 끝으로 caret 을 강제 설정.
-// 기존 placeCursorAtAppendTarget 은 paragraph 의 첫 SPAN 만 잡아서 caret 이 첫 글자 뒤에 박히는
-// 버그가 있으므로, 이 helper 는 TreeWalker 로 마지막 textNode 까지 walk 한 뒤 setRange 함.
-// 폴백 순서: JS primary → JS retry → End 키 → (최후) click.
-
-interface TextStabilizeResult {
-  ok: boolean;
-  method: string;
-  settled: boolean;
-  dropIndicators: number;
-  lastTextParagraphCount: number;
-  elapsedMs: number;
-  reason: string;
-}
-
-async function waitForTextPasteSettled(
-  frame: WebFrameMain,
-  beforeParagraphCount: number,
-  maxWaitMs: number,
-): Promise<{ settled: boolean; dropIndicators: number; lastTextParagraphCount: number; elapsedMs: number }> {
-  const result = await frame.executeJavaScript(`
-    (async () => {
-      const start = Date.now();
-      const deadline = start + ${maxWaitMs};
-      const snapshot = () => {
-        const root = document.querySelector(".se-content");
-        const dropIndicators = root ? root.querySelectorAll(".se-drop-indicator").length : 0;
-        const components = root
-          ? Array.from(root.querySelectorAll(".se-component.se-text"))
-              .filter((c) => !c.closest(".se-documentTitle"))
-          : [];
-        const lastComp = components[components.length - 1];
-        const lastTextParagraphCount = lastComp
-          ? lastComp.querySelectorAll(".se-text-paragraph").length
-          : 0;
-        return { dropIndicators, lastTextParagraphCount };
-      };
-      while (Date.now() < deadline) {
-        const s = snapshot();
-        if (s.dropIndicators === 0 && s.lastTextParagraphCount > ${beforeParagraphCount}) {
-          return { settled: true, dropIndicators: s.dropIndicators, lastTextParagraphCount: s.lastTextParagraphCount, elapsedMs: Date.now() - start };
-        }
-        await new Promise((r) => setTimeout(r, 50));
-      }
-      const s = snapshot();
-      return {
-        settled: s.dropIndicators === 0 && s.lastTextParagraphCount > ${beforeParagraphCount},
-        dropIndicators: s.dropIndicators,
-        lastTextParagraphCount: s.lastTextParagraphCount,
-        elapsedMs: Date.now() - start,
-      };
-    })()
-  `, true);
-  const r = result as { settled?: unknown; dropIndicators?: unknown; lastTextParagraphCount?: unknown; elapsedMs?: unknown };
-  return {
-    settled: Boolean(r.settled),
-    dropIndicators: typeof r.dropIndicators === "number" ? r.dropIndicators : -1,
-    lastTextParagraphCount: typeof r.lastTextParagraphCount === "number" ? r.lastTextParagraphCount : -1,
-    elapsedMs: typeof r.elapsedMs === "number" ? r.elapsedMs : -1,
-  };
-}
-
-async function placeAndVerifyAtLastParagraphEnd(
-  frame: WebFrameMain,
-): Promise<{ placed: boolean; verified: boolean; reason: string; usedDropFallback: boolean }> {
-  // 핵심: SmartEditor 의 .se-drop-indicator 안 paragraph 는 임시 컨테이너라
-  // 그 안에 selection 을 둔 채 Enter 를 치면 본문 첫 paragraph 자리에 빈 줄이 끼어든다.
-  // 따라서 drop-indicator 바깥의 진짜 component paragraph 만 후보로 선별한다.
-  const result = await frame.executeJavaScript(`
-    (() => {
-      const root = document.querySelector(".se-content");
-      if (!root) return { placed: false, verified: false, reason: "no_root", usedDropFallback: false };
-      const components = Array.from(root.querySelectorAll(".se-component.se-text"))
-        .filter((c) => !c.closest(".se-documentTitle"));
-      const lastComp = components[components.length - 1];
-      if (!lastComp) return { placed: false, verified: false, reason: "no_text_component", usedDropFallback: false };
-      const allParagraphs = Array.from(lastComp.querySelectorAll(".se-text-paragraph"));
-      const safeParagraphs = allParagraphs.filter((p) => !p.closest(".se-drop-indicator"));
-      const usedDropFallback = safeParagraphs.length === 0;
-      const paragraphs = usedDropFallback ? allParagraphs : safeParagraphs;
-      const lastPara = paragraphs[paragraphs.length - 1];
-      if (!lastPara) return { placed: false, verified: false, reason: "no_paragraph", usedDropFallback };
-      const editable = lastPara.closest("[contenteditable='true']");
-      if (editable && editable.focus) editable.focus();
-      const walker = document.createTreeWalker(lastPara, NodeFilter.SHOW_TEXT);
-      let lastTextNode = null;
-      let n;
-      while ((n = walker.nextNode())) lastTextNode = n;
-      try {
-        const range = document.createRange();
-        if (lastTextNode) {
-          range.setStart(lastTextNode, lastTextNode.textContent.length);
-        } else {
-          range.setStart(lastPara, lastPara.childNodes.length);
-        }
-        range.collapse(true);
-        const sel = window.getSelection();
-        sel.removeAllRanges();
-        sel.addRange(range);
-      } catch (e) {
-        return { placed: false, verified: false, reason: "exception:" + (e && e.message ? e.message : String(e)), usedDropFallback };
-      }
-      const sel = window.getSelection();
-      if (!sel || sel.rangeCount === 0) return { placed: true, verified: false, reason: "no_range_after_set", usedDropFallback };
-      const focusNode = sel.focusNode;
-      const focusEl = focusNode
-        ? (focusNode.nodeType === Node.ELEMENT_NODE ? focusNode : focusNode.parentElement)
-        : null;
-      const focusPara = focusEl ? focusEl.closest(".se-text-paragraph") : null;
-      const isLastPara = focusPara === lastPara;
-      const inDrop = focusEl ? Boolean(focusEl.closest(".se-drop-indicator")) : false;
-      const focusOffset = sel.focusOffset;
-      const focusTextLength = focusNode && typeof focusNode.textContent === "string"
-        ? focusNode.textContent.length
-        : 0;
-      const atEnd = focusOffset >= focusTextLength;
-      // verify 강화: drop-indicator 회피 + 마지막 paragraph + textNode 끝
-      const verified = isLastPara && atEnd && !inDrop;
-      const reason = !isLastPara
-        ? "not_last_para"
-        : inDrop
-          ? "in_drop_indicator"
-          : !atEnd
-            ? "not_at_end"
-            : "ok";
-      return { placed: true, verified, reason, usedDropFallback };
-    })()
-  `, true);
-  const r = result as { placed?: unknown; verified?: unknown; reason?: unknown; usedDropFallback?: unknown };
-  return {
-    placed: Boolean(r.placed),
-    verified: Boolean(r.verified),
-    reason: typeof r.reason === "string" ? r.reason : "unknown",
-    usedDropFallback: Boolean(r.usedDropFallback),
-  };
-}
-
-async function verifyAtLastParagraphEnd(
-  frame: WebFrameMain,
-): Promise<{ verified: boolean; reason: string }> {
-  const result = await frame.executeJavaScript(`
-    (() => {
-      const root = document.querySelector(".se-content");
-      if (!root) return { verified: false, reason: "no_root" };
-      const components = Array.from(root.querySelectorAll(".se-component.se-text"))
-        .filter((c) => !c.closest(".se-documentTitle"));
-      const lastComp = components[components.length - 1];
-      if (!lastComp) return { verified: false, reason: "no_text_component" };
-      const allParagraphs = Array.from(lastComp.querySelectorAll(".se-text-paragraph"));
-      const safeParagraphs = allParagraphs.filter((p) => !p.closest(".se-drop-indicator"));
-      const paragraphs = safeParagraphs.length > 0 ? safeParagraphs : allParagraphs;
-      const lastPara = paragraphs[paragraphs.length - 1];
-      if (!lastPara) return { verified: false, reason: "no_paragraph" };
-      const sel = window.getSelection();
-      if (!sel || sel.rangeCount === 0) return { verified: false, reason: "no_selection" };
-      const focusNode = sel.focusNode;
-      const focusEl = focusNode
-        ? (focusNode.nodeType === Node.ELEMENT_NODE ? focusNode : focusNode.parentElement)
-        : null;
-      const focusPara = focusEl ? focusEl.closest(".se-text-paragraph") : null;
-      const inDrop = focusEl ? Boolean(focusEl.closest(".se-drop-indicator")) : false;
-      const isLastPara = focusPara === lastPara;
-      const focusOffset = sel.focusOffset;
-      const focusTextLength = focusNode && typeof focusNode.textContent === "string"
-        ? focusNode.textContent.length
-        : 0;
-      const atEnd = focusOffset >= focusTextLength;
-      const verified = isLastPara && atEnd && !inDrop;
-      const reason = !isLastPara
-        ? "not_last_para"
-        : inDrop
-          ? "in_drop_indicator"
-          : !atEnd
-            ? "not_at_end"
-            : "ok";
-      return { verified, reason };
-    })()
-  `, true);
-  const r = result as { verified?: unknown; reason?: unknown };
-  return {
-    verified: Boolean(r.verified),
-    reason: typeof r.reason === "string" ? r.reason : "unknown",
-  };
-}
-
-async function getLastParagraphClickPoint(
-  frame: WebFrameMain,
-): Promise<{ x: number; y: number } | null> {
-  const result = await frame.executeJavaScript(`
-    (() => {
-      const root = document.querySelector(".se-content");
-      if (!root) return null;
-      const components = Array.from(root.querySelectorAll(".se-component.se-text"))
-        .filter((c) => !c.closest(".se-documentTitle"));
-      const lastComp = components[components.length - 1];
-      if (!lastComp) return null;
-      const allParagraphs = Array.from(lastComp.querySelectorAll(".se-text-paragraph"));
-      const safeParagraphs = allParagraphs.filter((p) => !p.closest(".se-drop-indicator"));
-      const paragraphs = safeParagraphs.length > 0 ? safeParagraphs : allParagraphs;
-      const lastPara = paragraphs[paragraphs.length - 1];
-      if (!lastPara) return null;
-      lastPara.scrollIntoView({ block: "center", inline: "nearest" });
-      // 가장 정확한 좌표: lastTextNode 의 마지막 글자 뒤 (Range 의 boundingClientRect)
-      const walker = document.createTreeWalker(lastPara, NodeFilter.SHOW_TEXT);
-      let lastTextNode = null;
-      let n;
-      while ((n = walker.nextNode())) lastTextNode = n;
-      let target = null;
-      if (lastTextNode && lastTextNode.textContent && lastTextNode.textContent.length > 0) {
-        try {
-          const tnRange = document.createRange();
-          tnRange.setStart(lastTextNode, lastTextNode.textContent.length);
-          tnRange.collapse(true);
-          const tnRect = tnRange.getBoundingClientRect();
-          if (tnRect.height > 0) target = { right: tnRect.left, top: tnRect.top, bottom: tnRect.bottom };
-        } catch (_) {}
-      }
-      if (!target) {
-        const r = lastPara.getBoundingClientRect();
-        if (r.width === 0 && r.height === 0) return null;
-        target = { right: r.right - 6, top: r.top, bottom: r.bottom };
-      }
-      const y = Math.round((target.top + target.bottom) / 2);
-      const x = Math.max(1, Math.round(target.right));
-      return { x, y };
-    })()
-  `, true);
-  if (!result || typeof result !== "object") return null;
-  const r = result as { x?: unknown; y?: unknown };
-  if (typeof r.x !== "number" || typeof r.y !== "number") return null;
-  return { x: r.x, y: r.y };
-}
-
-async function stabilizeTextPasteCursor(
-  frame: WebFrameMain,
-  beforeParagraphCount: number,
-): Promise<TextStabilizeResult> {
-  const wait = await waitForTextPasteSettled(frame, beforeParagraphCount, 1500);
-
-  // 1. JS primary (drop-indicator 회피 selector 적용된 placeAndVerify)
-  let placed = await placeAndVerifyAtLastParagraphEnd(frame);
-  if (placed.verified) {
-    return { ok: true, method: "js_primary", reason: placed.reason, ...wait };
-  }
-
-  // 2. JS retry — drop-indicator 가 1~2 tick 안에 사라지는 경우를 위한 짧은 재시도
-  await sleep(150);
-  placed = await placeAndVerifyAtLastParagraphEnd(frame);
-  if (placed.verified) {
-    return { ok: true, method: "js_retry", reason: placed.reason, ...wait };
-  }
-
-  // 3. sendInputEvent OS-level click — JS DOM event 는 isTrusted=false 라
-  //    SmartEditor 의 ProseMirror 류 selection 핸들러가 무시할 수 있음.
-  //    OS 입력은 isTrusted=true 라 SmartEditor 가 자체 selection model 갱신.
-  //    좌표는 drop-indicator 회피한 lastTextNode 의 진짜 끝 (Range bounding rect).
-  if (blogSplitView && !blogSplitView.webContents.isDestroyed()) {
-    const point = await getLastParagraphClickPoint(frame);
-    if (point) {
-      const contents = blogSplitView.webContents;
-      contents.sendInputEvent({ type: "mouseDown", x: point.x, y: point.y, button: "left", clickCount: 1 });
-      contents.sendInputEvent({ type: "mouseUp", x: point.x, y: point.y, button: "left", clickCount: 1 });
-      await sleep(180);
-      // click 후 한 번 더 JS 끝 보정 — click 이 caret 을 좌표 부근에 두지만 정확한 끝 위치는 setRange 로 확정.
-      const after = await placeAndVerifyAtLastParagraphEnd(frame);
-      if (after.verified) {
-        return { ok: true, method: "os_click_then_js", reason: after.reason, ...wait };
-      }
-      const v = await verifyAtLastParagraphEnd(frame);
-      if (v.verified) {
-        return { ok: true, method: "os_click_only", reason: v.reason, ...wait };
-      }
-    }
-  }
-
-  // 4. End 키 (최후 폴백) — SmartEditor 의 keyboard handler 가 selection 을
-  //    현재 paragraph 의 끝으로 옮긴다. drop-indicator 안에 있으면 그 안에서
-  //    이동만 하므로 효과가 제한적이지만, 마지막 수단으로 남겨둠.
-  if (blogSplitView && !blogSplitView.webContents.isDestroyed()) {
-    const contents = blogSplitView.webContents;
-    contents.sendInputEvent({ type: "keyDown", keyCode: "End" });
-    contents.sendInputEvent({ type: "keyUp", keyCode: "End" });
-    await sleep(150);
-    const v = await verifyAtLastParagraphEnd(frame);
-    if (v.verified) {
-      return { ok: true, method: "end_key", reason: v.reason, ...wait };
-    }
-  }
-
-  return { ok: false, method: "all_failed", reason: placed.reason, ...wait };
-}
-
 async function runBlogSplitPasteProbe(input: unknown): Promise<BlogSplitPasteProbeResult> {
   const steps: BlogSplitPasteProbeStep[] = [];
 
@@ -1581,37 +1163,6 @@ async function runBlogSplitPasteProbe(input: unknown): Promise<BlogSplitPastePro
   const title = req.title?.trim() || "Paste PoC 제목";
   const content = req.content || "";
   const blocks = parsePasteBlocks(content);
-
-  // dev-only 진단: PoC 입력 + parsePasteBlocks 결과 + frontend 블록 스냅샷을 main.log 에 dump.
-  // 좌측 미리보기 (BlogContentRenderer) 와 우측 paste 순서를 비교해 분기 차이를 즉시 발견하기 위함.
-  try {
-    const imagesMeta = Array.isArray(req.images)
-      ? req.images.map((img) => ({
-          index: img.index,
-          mime: img.mimeType ?? null,
-          base64Length: typeof img.base64 === "string" ? img.base64.length : 0,
-        }))
-      : [];
-    const parsedBlocksSummary = blocks.map((b, i) => {
-      if (b.type === "text") return { i, type: "text", lines: b.lines.length, preview: b.lines.slice(0, 2) };
-      if (b.type === "quote") return { i, type: "quote", text: b.text.slice(0, 50) };
-      return { i, type: "image", imageIndex: b.imageIndex, description: b.description.slice(0, 50) };
-    });
-    const frontendBlocksSummary = Array.isArray(req.frontendBlocks)
-      ? req.frontendBlocks.map((b, i) => ({ i, ...b }))
-      : null;
-    log.info(
-      `[pasteProbe input] title=${JSON.stringify(title.slice(0, 80))} contentLen=${content.length} contentPreview=${JSON.stringify(content.slice(0, 200))} images=${JSON.stringify(imagesMeta)}`,
-    );
-    log.info(`[pasteProbe parsed] count=${blocks.length} blocks=${JSON.stringify(parsedBlocksSummary)}`);
-    if (frontendBlocksSummary) {
-      log.info(`[pasteProbe frontendBlocks] count=${frontendBlocksSummary.length} blocks=${JSON.stringify(frontendBlocksSummary)}`);
-    } else {
-      log.info(`[pasteProbe frontendBlocks] (none provided)`);
-    }
-  } catch (e) {
-    log.warn(`[pasteProbe input] dump failed: ${e instanceof Error ? e.message : String(e)}`);
-  }
 
   const previousClipboard = {
     text: clipboard.readText(),
@@ -1691,28 +1242,12 @@ async function runBlogSplitPasteProbe(input: unknown): Promise<BlogSplitPastePro
     };
 
     for (const [blockIndex, block] of blocks.entries()) {
-      // dev-only 진단: block 진입 시 cursor 추적 상태를 매번 dump.
-      // SKIP image 이후에도 다음 block 이 어떤 cursor 상태로 시작하는지 추적 가능.
-      log.info(
-        `[pasteProbe state] block=${blockIndex} type=${block.type} cursorTrusted=${cursorTrusted} lastStructuralAnchor=${JSON.stringify(lastStructuralAnchor)}`,
-      );
       if (block.type === "text") {
         const before = await cursorForPaste();
         const beforeCursor = before.cursor;
         const beforeCursorSource = before.source;
         const textAnchor = lastStructuralAnchor;
         const shouldEnterAfterText = blockIndex < blocks.length - 1;
-        // paste 전 마지막 text component 의 paragraph 수 스냅샷 (stabilize wait 의 기준값)
-        const paragraphCountBeforePaste = await frame.executeJavaScript(`
-          (() => {
-            const root = document.querySelector(".se-content");
-            if (!root) return 0;
-            const texts = Array.from(root.querySelectorAll(".se-component.se-text"))
-              .filter((c) => !c.closest(".se-documentTitle"));
-            const last = texts[texts.length - 1];
-            return last ? last.querySelectorAll(".se-text-paragraph").length : 0;
-          })()
-        `, true).then((v: unknown) => (typeof v === "number" ? v : 0));
         clipboard.write({
           text: plainTextFromLines(block.lines),
           html: renderParagraphHtml(block.lines),
@@ -1724,13 +1259,8 @@ async function runBlogSplitPasteProbe(input: unknown): Promise<BlogSplitPastePro
             : await placeCursorAtAppendTarget(frame)
           : beforeCursor;
         const afterCursorSource = textAnchor ? "anchor" : "append";
-        const afterPasteDiag = await logSelectionDiagnostics(frame, `after block:${blockIndex}:textPaste`);
-        // ★ 텍스트 paste 안정화: drop-indicator wait + 마지막 paragraph 끝으로 caret 강제 + 폴백
-        const stabilize = beforeCursor.ok && afterCursor.ok
-          ? await stabilizeTextPasteCursor(frame, paragraphCountBeforePaste)
-          : null;
-        const afterStabilizeDiag = stabilize
-          ? await logSelectionDiagnostics(frame, `after block:${blockIndex}:textStabilize`)
+        const afterPasteDiag = blockIndex === 1
+          ? await logSelectionDiagnostics(frame, `after block:${blockIndex}:textPaste`)
           : "";
         let enteredAfterText = false;
         let enterReason = "not_needed";
@@ -1743,17 +1273,16 @@ async function runBlogSplitPasteProbe(input: unknown): Promise<BlogSplitPastePro
             : await placeCursorAtAppendTarget(frame);
           enteredAfterText = enterCursor.ok;
           enterReason = enterCursor.reason;
-          afterEnterDiag = await logSelectionDiagnostics(frame, `after block:${blockIndex}:textEnter`);
+          afterEnterDiag = blockIndex === 1
+            ? await logSelectionDiagnostics(frame, `after block:${blockIndex}:textEnter`)
+            : "";
         }
         cursorTrusted = shouldEnterAfterText ? enteredAfterText : afterCursor.ok;
         lastStructuralAnchor = null;
-        const stabilizeDetail = stabilize
-          ? ` stabilize=${stabilize.ok ? "ok" : "fail"}:${stabilize.method}:${stabilize.reason} settled=${stabilize.settled} drop=${stabilize.dropIndicators} paragraphs=${paragraphCountBeforePaste}->${stabilize.lastTextParagraphCount} waitMs=${stabilize.elapsedMs}`
-          : "";
         steps.push({
           name: `block:${blockIndex}:textHtmlPaste`,
           ok: beforeCursor.ok && afterCursor.ok && (!shouldEnterAfterText || enteredAfterText),
-          detail: `lines=${block.lines.length} beforeCursorSource=${beforeCursorSource} cursorAfter=${afterCursor.ok} afterCursorSource=${afterCursorSource} reason=${afterCursor.reason} enteredAfterText=${enteredAfterText} enterReason=${enterReason}${stabilizeDetail}${afterPasteDiag ? ` afterPasteDiag=[${afterPasteDiag}]` : ""}${afterStabilizeDiag ? ` afterStabilizeDiag=[${afterStabilizeDiag}]` : ""}${afterEnterDiag ? ` afterEnterDiag=[${afterEnterDiag}]` : ""}`,
+          detail: `lines=${block.lines.length} beforeCursorSource=${beforeCursorSource} cursorAfter=${afterCursor.ok} afterCursorSource=${afterCursorSource} reason=${afterCursor.reason} enteredAfterText=${enteredAfterText} enterReason=${enterReason}${afterPasteDiag ? ` afterPasteDiag=[${afterPasteDiag}]` : ""}${afterEnterDiag ? ` afterEnterDiag=[${afterEnterDiag}]` : ""}`,
         });
         continue;
       }
@@ -1783,17 +1312,11 @@ async function runBlogSplitPasteProbe(input: unknown): Promise<BlogSplitPastePro
       const before = await countEditorComponents(frame);
       const imagePayload = imageByIndex(req.images, block.imageIndex);
       if (!imagePayload) {
-        // dev-only 진단: SKIP 시점의 caret/componentOrder/lastComp 를 잡아둠.
-        // 동작 수정 (Step 2) 은 별도 단계에서. 현재는 진단만.
-        const skipDiag = await logSelectionDiagnostics(
-          frame,
-          `block:${blockIndex}:imageSkip idx=${block.imageIndex} desc=${JSON.stringify(block.description.slice(0, 50))}`,
-        );
         steps.push({
           name: `block:${blockIndex}:imagePngPaste`,
           ok: true,
           skipped: true,
-          detail: `missing image payload index=${block.imageIndex} (${block.description})${skipDiag ? ` skipDiag=[${skipDiag}]` : ""}`,
+          detail: `missing image payload index=${block.imageIndex} (${block.description})`,
         });
         continue;
       }
@@ -1804,7 +1327,9 @@ async function runBlogSplitPasteProbe(input: unknown): Promise<BlogSplitPastePro
       clipboard.write({ image });
       const beforePlacement = await cursorForPaste();
       const beforeCursor = beforePlacement.cursor;
-      const beforeImageDiag = await logSelectionDiagnostics(frame, `before block:${blockIndex}:imagePaste`);
+      const beforeImageDiag = blockIndex === 2
+        ? await logSelectionDiagnostics(frame, `before block:${blockIndex}:imagePaste`)
+        : "";
       if (beforeCursor.ok) await pasteClipboardIntoFocusedBlogSplit(3000);
       const afterCursor = beforeCursor.ok
         ? await waitForPastedComponentAndPlaceCursor(frame, "image", before.images)
@@ -1812,7 +1337,9 @@ async function runBlogSplitPasteProbe(input: unknown): Promise<BlogSplitPastePro
       if (afterCursor.ok && blockIndex < blocks.length - 1) {
         await sleep(700);
       }
-      const afterImageDiag = await logSelectionDiagnostics(frame, `after block:${blockIndex}:imagePaste`);
+      const afterImageDiag = blockIndex === 0
+        ? await logSelectionDiagnostics(frame, `after block:${blockIndex}:imagePaste`)
+        : "";
       const after = await countEditorComponents(frame);
       cursorTrusted = afterCursor.ok;
       lastStructuralAnchor = after.images > before.images ? { kind: "image", index: before.images } : null;
@@ -2022,18 +1549,89 @@ async function boot(): Promise<void> {
   // 좀비 안전망. Job Object 초기화는 자식 spawn 이전에 끝나야 함.
   initJobObject();
 
+  // ── 시작 속도: 창을 먼저 만들어 로딩 화면을 즉시 보여주고, 백엔드(파이썬)·Next 서버는
+  // 뒤에서 데운 뒤 준비되면 실제 앱으로 전환한다. (이전엔 둘 다 뜬 뒤에야 창을 만들어 ~5.5초 깜깜)
+  const fixedTitle = `Blog Pick v${getAppVersion()}`;
+  const initialBounds = getInitialWindowBounds();
+  mainWindow = new BrowserWindow({
+    width: initialBounds.width,
+    height: initialBounds.height,
+    backgroundColor: "#1a1a1a",
+    title: fixedTitle,
+    icon: paths.iconPng,
+    show: false,
+    webPreferences: {
+      contextIsolation: true,
+      sandbox: true,
+      nodeIntegration: false,
+      webSecurity: true,
+      allowRunningInsecureContent: false,
+      preload: paths.preload,
+    },
+  });
+  const win = mainWindow;
+
+  // 스플래시가 그려질 준비가 되면 창 표시. ready-to-show 가 안 와도 1.5s fallback 으로 보장.
+  let mainWindowShown = false;
+  let resolveSplashShown!: () => void;
+  const splashShownPromise = new Promise<void>((r) => {
+    resolveSplashShown = r;
+  });
+  const showMainWindow = (): void => {
+    if (!win.isDestroyed() && !mainWindowShown) {
+      mainWindowShown = true;
+      win.show();
+      resolveSplashShown();
+    }
+  };
+  const showFallback = setTimeout(() => {
+    showMainWindow();
+  }, 1500);
+  win.once("ready-to-show", () => {
+    clearTimeout(showFallback);
+    showMainWindow();
+  });
+
+  // HTML <title> 이 BrowserWindow.title 을 덮어쓰는 기본 동작 차단 (버전 표시 유지).
+  win.on("page-title-updated", (event) => {
+    event.preventDefault();
+    if (!win.isDestroyed() && win.getTitle() !== fixedTitle) {
+      win.setTitle(fixedTitle);
+    }
+  });
+  win.on("resize", layoutBlogSplitView);
+  win.on("maximize", layoutBlogSplitView);
+  win.on("unmaximize", layoutBlogSplitView);
+  win.on("enter-full-screen", layoutBlogSplitView);
+  win.on("leave-full-screen", layoutBlogSplitView);
+  win.on("close", (event) => {
+    if (process.platform === "darwin" && !isQuitting) {
+      event.preventDefault();
+      win.hide();
+    }
+  });
+  win.on("closed", () => {
+    closeBlogSplitView();
+    mainWindow = null;
+  });
+
+  // macOS dock 아이콘은 dev 모드에서 Electron 기본 아이콘이 떠서 명시 지정.
+  // prod 빌드에선 .app 번들 아이콘을 OS 가 직접 쓰므로 setIcon 은 dev 한정 보정 용도.
+  if (process.platform === "darwin" && app.dock) {
+    try {
+      app.dock.setIcon(paths.iconPng);
+    } catch {
+      /* 아이콘 파일 누락 등은 무시 — 기본 아이콘 유지 */
+    }
+  }
+
+  // 로딩 화면 먼저 표시 (정적 파일이라 수백 ms 안에 뜸).
+  await win.loadFile(paths.splashHtml);
+
   // §C credential broker 시작. safeStorage 미사용 환경에서도 broker 자체는 떠 있고,
   // 실제 /encrypt 호출 시 503 반환. 사용자에게는 UI 단에서 안내.
   broker = new CredentialBroker({ appToken: APP_TOKEN });
   await broker.start();
-  if (!broker.isEncryptionAvailable()) {
-    dialog.showErrorBox(
-      "Blog Pick",
-      "이 PC 에서 비밀번호 암호화 기능을 사용할 수 없습니다.\n" +
-        "Windows 사용자 프로필에 문제가 있을 수 있습니다.\n" +
-        "기존 계정의 비밀번호는 다시 입력해야 동작합니다.",
-    );
-  }
 
   const backendPort = await getFreePort();
   // §J — Supabase 세션 영속성을 위해 매 부팅마다 같은 포트(=같은 origin)를 시도한다.
@@ -2047,11 +1645,25 @@ async function boot(): Promise<void> {
     frontendOrigin,
     credentialBrokerUrl: broker.url,
   });
-  await python.start();
+  // 파이썬 자식을 먼저 spawn 해 백그라운드에서 부팅시킨다(spawn 은 즉시 pid 확보).
+  // 그 사이 splash 가 화면에 그려질 때까지 기다린 뒤에야 safeStorage(Keychain)에 접근한다.
+  // 미서명 앱에선 첫 safeStorage 호출이 동기로 수 초 블로킹돼 splash 렌더까지 막으므로,
+  // 반드시 splash 가 보인 뒤(=loop 가 한 번 비워진 뒤)에 호출해야 로딩 화면이 즉시 뜬다.
+  const pythonReady = python.start();
   assignToJob(python.pid);
 
+  // splash 가 실제로 표시될 때까지 대기 (ready-to-show 또는 1.5s fallback).
+  await splashShownPromise;
+
+  // 첫 safeStorage 호출 — Keychain 비용(미서명 앱 수 초)을 splash 뒤로 숨긴다.
+  // 결과는 아래 앱 로드 후 에러 다이얼로그 표시 여부에만 쓴다.
+  const encryptionAvailable = broker.isEncryptionAvailable();
+
   // §F 설정에서 Gemini key 복호화. 없으면 SettingsModal 이 사용자에게 입력 요청.
+  // (위에서 safeStorage 가 이미 준비됐으므로 여기선 빠름)
   const geminiApiKey = loadGeminiApiKey();
+
+  await pythonReady;
 
   nextSrv = new NextServerManager(frontendPort, python.baseUrl, {
     appToken: APP_TOKEN,
@@ -2062,42 +1674,8 @@ async function boot(): Promise<void> {
   assignToJob(nextSrv.pid);
 
   const allowedOrigin = nextSrv.url;
-  // macOS dock 아이콘은 dev 모드에서 Electron 기본 아이콘이 떠서 명시 지정.
-  // prod 빌드에선 .app 번들 아이콘을 OS 가 직접 쓰므로 setIcon 은 dev 한정 보정 용도.
-  if (process.platform === "darwin" && app.dock) {
-    try {
-      app.dock.setIcon(paths.iconPng);
-    } catch {
-      /* 아이콘 파일 누락 등은 무시 — 기본 아이콘 유지 */
-    }
-  }
 
-  const fixedTitle = `Blog Pick v${getAppVersion()}`;
-  const initialBounds = getInitialWindowBounds();
-  mainWindow = new BrowserWindow({
-    width: initialBounds.width,
-    height: initialBounds.height,
-    backgroundColor: "#1a1a1a",
-    title: fixedTitle,
-    icon: paths.iconPng,
-    webPreferences: {
-      contextIsolation: true,
-      sandbox: true,
-      nodeIntegration: false,
-      webSecurity: true,
-      allowRunningInsecureContent: false,
-      preload: paths.preload,
-    },
-  });
-  // Electron 기본 동작: 페이지가 로드되면 HTML <title> 이 BrowserWindow.title 을 덮어쓴다.
-  // 그러면 "Blog Pick v0.2.3" 가 "Blog Pick" 으로 바뀌어 버전 표시가 사라지므로 차단.
-  mainWindow.on("page-title-updated", (event) => {
-    event.preventDefault();
-    if (mainWindow && !mainWindow.isDestroyed() && mainWindow.getTitle() !== fixedTitle) {
-      mainWindow.setTitle(fixedTitle);
-    }
-  });
-  applyWindowSecurity(mainWindow, allowedOrigin);
+  applyWindowSecurity(win, allowedOrigin);
 
   // §F 설정 IPC.
   registerSettingsIpc();
@@ -2155,25 +1733,19 @@ async function boot(): Promise<void> {
   );
   ipcMain.handle("blogSplit:pasteProbe", async (_e, input: unknown) => runBlogSplitPasteProbe(input));
 
-  await mainWindow.loadURL(allowedOrigin);
-  mainWindow.on("resize", layoutBlogSplitView);
-  mainWindow.on("maximize", layoutBlogSplitView);
-  mainWindow.on("unmaximize", layoutBlogSplitView);
-  mainWindow.on("enter-full-screen", layoutBlogSplitView);
-  mainWindow.on("leave-full-screen", layoutBlogSplitView);
-
-  mainWindow.on("close", (event) => {
-    if (process.platform === "darwin" && !isQuitting) {
-      event.preventDefault();
-      mainWindow?.hide();
-    }
-  });
-
-  mainWindow.on("closed", () => {
-    closeBlogSplitView();
-    mainWindow = null;
-  });
+  // 스플래시 → 실제 앱 화면으로 전환. (프로그램적 loadURL 은 will-navigate 가드를 거치지 않음)
+  await win.loadURL(allowedOrigin);
 
   // 업데이트 모듈은 메인 윈도우가 살아있을 때 init.
-  initUpdater(mainWindow);
+  initUpdater(win);
+
+  // 비밀번호 암호화 불가 안내는 앱이 보인 뒤에 표시 (부팅 경로를 막지 않도록 지연).
+  if (!encryptionAvailable) {
+    dialog.showErrorBox(
+      "Blog Pick",
+      "이 PC 에서 비밀번호 암호화 기능을 사용할 수 없습니다.\n" +
+        "Windows 사용자 프로필에 문제가 있을 수 있습니다.\n" +
+        "기존 계정의 비밀번호는 다시 입력해야 동작합니다.",
+    );
+  }
 }

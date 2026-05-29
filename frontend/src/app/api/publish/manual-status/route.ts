@@ -17,14 +17,11 @@ export async function GET(request: Request) {
     });
     if (!res.ok) {
       // 백엔드가 못 답하면 disconnected 로 간주해 busy 해제 (보수적 안전).
-      return Response.json({ disconnected: true, published: false });
+      return Response.json({ disconnected: true });
     }
     const data = await res.json();
-    return Response.json({
-      disconnected: Boolean(data.disconnected),
-      published: Boolean(data.published),
-    });
+    return Response.json({ disconnected: Boolean(data.disconnected) });
   } catch {
-    return Response.json({ disconnected: true, published: false });
+    return Response.json({ disconnected: true });
   }
 }

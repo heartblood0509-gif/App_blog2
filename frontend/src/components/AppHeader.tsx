@@ -6,15 +6,17 @@
 // 이 프로젝트의 Button은 base-ui 래퍼라 asChild를 지원하지 않으므로,
 // 링크 요소에는 buttonVariants로 직접 클래스만 적용한다.
 
+import { useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
   ArrowLeft,
   HelpCircle,
+  KeyRound,
   LogOut,
   Megaphone,
+  MonitorSmartphone,
   RotateCcw,
-  UserCircle2,
 } from "lucide-react";
 import { Button, buttonVariants } from "@/components/ui/button";
 import {
@@ -26,6 +28,7 @@ import { AdminEntryButton } from "@/components/providers/AdminEntryButton";
 import { useAuthSession } from "@/components/providers/AuthSessionProvider";
 import { Logo } from "@/components/Logo";
 import { ThemeToggle } from "@/components/ThemeToggle";
+import { HelpModal } from "@/components/HelpModal";
 import { useWhatsNew } from "@/hooks/use-whats-new";
 
 interface AppHeaderProps {
@@ -50,17 +53,12 @@ export function AppHeader({
 }: AppHeaderProps) {
   const pathname = usePathname();
   const isMain = pathname === "/";
-  const isMyInfo = pathname?.startsWith("/settings/my-info") ?? false;
-  // 옛 경로(/settings/api-key, /settings/devices)는 my-info 내부 탭으로 흡수됨.
-  // 북마크 등으로 들어오면 백워드 호환 위해 그 경로 자체는 살려두지만 헤더는 "내 정보" 활성 표시.
-  const isLegacySettings =
-    (pathname?.startsWith("/settings/api-key") ?? false) ||
-    (pathname?.startsWith("/settings/devices") ?? false);
-  const isMyInfoActive = isMyInfo || isLegacySettings;
+  const isApiKey = pathname?.startsWith("/settings/api-key") ?? false;
+  const isDevices = pathname?.startsWith("/settings/devices") ?? false;
   const isWhatsNew = pathname?.startsWith("/whats-new") ?? false;
-  const isHelp = pathname?.startsWith("/help") ?? false;
   const { hasUnseen } = useWhatsNew();
   const { session, logout } = useAuthSession();
+  const [helpOpen, setHelpOpen] = useState(false);
   // dev 환경에선 session이 비어 있어 칩이 안 보이므로 placeholder 노출 — 시각 검수용.
   const userEmail =
     session?.user.email ??
@@ -143,19 +141,17 @@ export function AppHeader({
           <Tooltip>
             <TooltipTrigger
               render={
-                <Link
-                  href="/help"
-                  aria-label="사용 매뉴얼"
-                  className={buttonVariants({
-                    variant: isHelp ? "secondary" : "ghost",
-                    size: "icon",
-                  })}
-                >
-                  <HelpCircle className="h-4 w-4" />
-                </Link>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  aria-label="도움말"
+                  onClick={() => setHelpOpen(true)}
+                />
               }
-            />
-            <TooltipContent>사용 매뉴얼</TooltipContent>
+            >
+              <HelpCircle className="h-4 w-4" />
+            </TooltipTrigger>
+            <TooltipContent>도움말</TooltipContent>
           </Tooltip>
           <Tooltip>
             <TooltipTrigger
@@ -184,23 +180,39 @@ export function AppHeader({
           </Tooltip>
           <AdminEntryButton />
           <ThemeToggle />
-          {/* API 키 설정·기기 관리는 /settings/my-info 안으로 통합됨 (단일 진입점) */}
           <Tooltip>
             <TooltipTrigger
               render={
                 <Link
-                  href="/settings/my-info"
-                  aria-label="내 정보"
+                  href="/settings/api-key"
+                  aria-label="API 키 설정"
                   className={buttonVariants({
-                    variant: isMyInfoActive ? "secondary" : "ghost",
+                    variant: isApiKey ? "secondary" : "ghost",
                     size: "icon",
                   })}
                 >
-                  <UserCircle2 className="h-4 w-4" />
+                  <KeyRound className="h-4 w-4" />
                 </Link>
               }
             />
-            <TooltipContent>내 정보</TooltipContent>
+            <TooltipContent>API 키 설정</TooltipContent>
+          </Tooltip>
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <Link
+                  href="/settings/devices"
+                  aria-label="기기 관리"
+                  className={buttonVariants({
+                    variant: isDevices ? "secondary" : "ghost",
+                    size: "icon",
+                  })}
+                >
+                  <MonitorSmartphone className="h-4 w-4" />
+                </Link>
+              }
+            />
+            <TooltipContent>기기 관리</TooltipContent>
           </Tooltip>
         </div>
       </div>
@@ -228,6 +240,8 @@ export function AppHeader({
       {!isMain && !pageTitle && subtitle && (
         <p className="mt-3 text-sm text-muted-foreground">{subtitle}</p>
       )}
+
+      <HelpModal open={helpOpen} onOpenChange={setHelpOpen} />
     </div>
   );
 }

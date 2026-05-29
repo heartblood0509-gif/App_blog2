@@ -94,7 +94,6 @@ contextBridge.exposeInMainWorld("electronAPI", {
       title?: string;
       content?: string;
       images?: BlogSplitPasteProbeImage[];
-      frontendBlocks?: Array<{ type: string; detail?: string }>;
     }): Promise<BlogSplitPasteProbeResult> =>
       ipcRenderer.invoke("blogSplit:pasteProbe", input),
     onState: (cb: (open: boolean) => void) => {

@@ -103,9 +103,11 @@ function mapAnsweredInterviewIdsToFieldKeys(
         set.add("oneLineIntro");
         break;
       case "experience":
+        set.add("identity");
         set.add("identity.experience");
         break;
       case "credentials":
+        set.add("identity");
         set.add("identity.credentials");
         break;
       case "audience":
@@ -332,11 +334,11 @@ export function AeoProfileAssistant({ open, onClose, onSaved, prefill }: AeoProf
     if (draft.name?.trim()) filled++;
     if (draft.category?.trim()) filled++;
     if (draft.oneLineIntro?.trim()) filled++;
-    if (draft.identity?.experience?.trim()) filled++;
-    if (draft.identity?.credentials?.length) filled++;
+    if (draft.identity?.experience?.trim() || draft.identity?.credentials?.length) filled++;
     if (draft.audience?.trim()) filled++;
     if (draft.recommendationCriteria?.length) filled++;
     if (draft.trustedSources?.length) filled++;
+    if (draft.forbidden?.words?.length) filled++;
     return { filled, total: 8 };
   }, [draft]);
 
@@ -360,19 +362,27 @@ export function AeoProfileAssistant({ open, onClose, onSaved, prefill }: AeoProf
     if (isAiSuggested("audience", !!draft.audience?.trim())) count++;
     if (isAiSuggested("recommendationCriteria", (draft.recommendationCriteria ?? []).length > 0)) count++;
     if (isAiSuggested("trustedSources", (draft.trustedSources ?? []).length > 0)) count++;
+    if (isAiSuggested("forbidden", (draft.forbidden?.words ?? []).length > 0)) count++;
     return count;
   }, [draft, userAnsweredFieldKeys, isAiSuggested]);
 
+  const reviewNotice = useMemo(() => {
+    if (!draft) return "";
+    const emptyCount = stats.total - stats.filled;
+    if (emptyCount > 0) {
+      return `아직 빈 칸이 ${emptyCount}개 있어요. 아래에서 직접 채워주세요.`;
+    }
+    if (userAnsweredFieldKeys && aiSuggestedCount > 0) {
+      return `노란 배경 항목 ${aiSuggestedCount}개는 AI가 추정한 부분입니다. 확인하고 수정 가능합니다.`;
+    }
+    if (userAnsweredFieldKeys) {
+      return "8칸 모두 직접 답하신 내용으로 채워졌어요. 검토 후 저장하세요.";
+    }
+    return "모든 추가 질문이 끝났어요. 아래 미리보기에서 직접 수정도 가능합니다.";
+  }, [aiSuggestedCount, draft, stats.filled, stats.total, userAnsweredFieldKeys]);
+
   return (
-    <Dialog
-      open={open}
-      onOpenChange={(v, details) => {
-        if (!v) {
-          if (details.reason === "outside-press" || details.reason === "escape-key") return;
-          handleClose();
-        }
-      }}
-    >
+    <Dialog open={open} onOpenChange={(v) => !v && handleClose()}>
       <DialogContent className="max-w-5xl max-h-[90vh] flex flex-col gap-4 !grid-cols-none">
         <DialogHeader className="shrink-0">
           <DialogTitle className="flex items-center gap-2">
@@ -537,11 +547,7 @@ export function AeoProfileAssistant({ open, onClose, onSaved, prefill }: AeoProf
             {!currentMissing && (
               <div className="shrink-0 rounded-lg bg-emerald-50 dark:bg-emerald-950/20 p-3 text-sm text-emerald-900 dark:text-emerald-200">
                 <CheckCircle2 className="mr-1 inline-block h-4 w-4" />
-                {aiSuggestedCount > 0
-                  ? `노란 배경 칸 ${aiSuggestedCount}개는 AI가 추정한 부분입니다. 확인하고 수정 가능합니다.`
-                  : userAnsweredFieldKeys
-                    ? "8칸 모두 직접 답하신 내용으로 채워졌어요. 검토 후 저장하세요."
-                    : "모든 추가 질문이 끝났어요. 아래 미리보기에서 직접 수정도 가능합니다."}
+                {reviewNotice}
               </div>
             )}
 
@@ -617,6 +623,7 @@ export function AeoProfileAssistant({ open, onClose, onSaved, prefill }: AeoProf
                         words: v.split(",").map((s) => s.trim()).filter(Boolean),
                       })
                     }
+                    aiSuggested={isAiSuggested("forbidden", (draft.forbidden?.words ?? []).length > 0)}
                   />
                 </div>
               </div>
