@@ -13,7 +13,7 @@ datas = [("default-data", "default-data")]
 binaries = []
 hiddenimports = []
 
-for pkg in ("playwright", "fastapi", "uvicorn", "pydantic", "starlette", "dotenv"):
+for pkg in ("playwright", "playwright_stealth", "fastapi", "uvicorn", "pydantic", "starlette", "dotenv"):
     pkg_datas, pkg_binaries, pkg_hidden = collect_all(pkg)
     datas += pkg_datas
     binaries += pkg_binaries

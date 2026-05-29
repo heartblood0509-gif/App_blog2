@@ -22,9 +22,9 @@ import { detectLabelLeak } from "@/lib/prompts/attached-product-context";
 
 export const maxDuration = 60;
 
-// V1 feature flag (A9) — 미설정 또는 "1"이 아니면 attachedProduct 무시
+// V1 feature flag (A9) — 기본 ON (v0.2.7부터). 끌 때만 NEXT_PUBLIC_ENABLE_PRODUCT_ATTACH=0
 const PRODUCT_ATTACH_ENABLED =
-  process.env.NEXT_PUBLIC_ENABLE_PRODUCT_ATTACH === "1";
+  process.env.NEXT_PUBLIC_ENABLE_PRODUCT_ATTACH !== "0";
 
 export async function POST(request: Request) {
   try {
