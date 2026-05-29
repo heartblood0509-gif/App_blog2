@@ -6,7 +6,6 @@
 // 이 프로젝트의 Button은 base-ui 래퍼라 asChild를 지원하지 않으므로,
 // 링크 요소에는 buttonVariants로 직접 클래스만 적용한다.
 
-import { useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
@@ -28,7 +27,6 @@ import { AdminEntryButton } from "@/components/providers/AdminEntryButton";
 import { useAuthSession } from "@/components/providers/AuthSessionProvider";
 import { Logo } from "@/components/Logo";
 import { ThemeToggle } from "@/components/ThemeToggle";
-import { HelpModal } from "@/components/HelpModal";
 import { useWhatsNew } from "@/hooks/use-whats-new";
 
 interface AppHeaderProps {
@@ -56,9 +54,9 @@ export function AppHeader({
   const isApiKey = pathname?.startsWith("/settings/api-key") ?? false;
   const isDevices = pathname?.startsWith("/settings/devices") ?? false;
   const isWhatsNew = pathname?.startsWith("/whats-new") ?? false;
+  const isHelp = pathname?.startsWith("/help") ?? false;
   const { hasUnseen } = useWhatsNew();
   const { session, logout } = useAuthSession();
-  const [helpOpen, setHelpOpen] = useState(false);
   // dev 환경에선 session이 비어 있어 칩이 안 보이므로 placeholder 노출 — 시각 검수용.
   const userEmail =
     session?.user.email ??
@@ -141,17 +139,19 @@ export function AppHeader({
           <Tooltip>
             <TooltipTrigger
               render={
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  aria-label="도움말"
-                  onClick={() => setHelpOpen(true)}
-                />
+                <Link
+                  href="/help"
+                  aria-label="사용 매뉴얼"
+                  className={buttonVariants({
+                    variant: isHelp ? "secondary" : "ghost",
+                    size: "icon",
+                  })}
+                >
+                  <HelpCircle className="h-4 w-4" />
+                </Link>
               }
-            >
-              <HelpCircle className="h-4 w-4" />
-            </TooltipTrigger>
-            <TooltipContent>도움말</TooltipContent>
+            />
+            <TooltipContent>사용 매뉴얼</TooltipContent>
           </Tooltip>
           <Tooltip>
             <TooltipTrigger
@@ -240,8 +240,6 @@ export function AppHeader({
       {!isMain && !pageTitle && subtitle && (
         <p className="mt-3 text-sm text-muted-foreground">{subtitle}</p>
       )}
-
-      <HelpModal open={helpOpen} onOpenChange={setHelpOpen} />
     </div>
   );
 }
