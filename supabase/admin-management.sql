@@ -443,6 +443,39 @@ begin
 end;
 $$;
 
+-- 아직 로그인하지 않은(=profiles 행이 없는) 사전 등록 이메일 목록.
+-- 로그인하면 profiles 행이 생겨 일반 사용자 목록(admin_list_users)으로 넘어간다.
+create or replace function public.admin_list_preauth()
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_rows jsonb;
+begin
+  perform public._admin_require();
+
+  select coalesce(jsonb_agg(row order by row->>'created_at' desc), '[]'::jsonb)
+  into v_rows
+  from (
+    select jsonb_build_object(
+      'email', e.email,
+      'status', e.status,
+      'note', e.note,
+      'created_at', e.created_at,
+      'updated_at', e.updated_at
+    ) as row
+    from public.email_entitlements e
+    where not exists (
+      select 1 from public.profiles p where lower(p.email) = lower(e.email)
+    )
+  ) sub;
+
+  return jsonb_build_object('ok', true, 'entries', v_rows);
+end;
+$$;
+
 create or replace function public.admin_list_audit_log(p_limit integer default 200)
 returns jsonb
 language plpgsql
@@ -499,6 +532,7 @@ revoke all on function public.admin_set_user_role(uuid, text) from public, anon;
 revoke all on function public.admin_list_user_devices(uuid) from public, anon;
 revoke all on function public.admin_reset_user_devices(uuid) from public, anon;
 revoke all on function public.admin_preauth_email(text, text) from public, anon;
+revoke all on function public.admin_list_preauth() from public, anon;
 revoke all on function public.admin_list_audit_log(integer) from public, anon;
 revoke all on function public.get_my_role() from public, anon;
 
@@ -509,6 +543,7 @@ grant execute on function public.admin_set_user_role(uuid, text) to authenticate
 grant execute on function public.admin_list_user_devices(uuid) to authenticated;
 grant execute on function public.admin_reset_user_devices(uuid) to authenticated;
 grant execute on function public.admin_preauth_email(text, text) to authenticated;
+grant execute on function public.admin_list_preauth() to authenticated;
 grant execute on function public.admin_list_audit_log(integer) to authenticated;
 grant execute on function public.get_my_role() to authenticated;
 
