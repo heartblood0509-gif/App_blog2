@@ -620,22 +620,18 @@ export function StepPublish({
             <Button
               size="lg"
               disabled={!content || isPublishing || !selectedAccountId}
-              className="gap-2"
+              className="gap-2 px-6 py-6 text-base font-semibold"
               onClick={handlePublish}
             >
               {isPublishing ? (
-                <Loader2 className="h-4 w-4 animate-spin" />
+                <Loader2 className="h-5 w-5 animate-spin" />
               ) : (
-                <ExternalLink className="h-4 w-4" />
+                <ExternalLink className="h-5 w-5" />
               )}
               {isPublishing
-                ? autoPublish
-                  ? "발행 중..."
-                  : "글 작성 중..."
+                ? "글 작성 중..."
                 : selectedAccount
-                  ? autoPublish
-                    ? `"${selectedAccount.label}"에 자동 발행`
-                    : `"${selectedAccount.label}"에 글 작성 (수동 발행)`
+                  ? `"${selectedAccount.label}"에 자동발행하기`
                   : "계정을 선택하세요"}
             </Button>
 
