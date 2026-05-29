@@ -44,6 +44,66 @@ interface StepPublishProps {
   onStartNew?: () => void;
 }
 
+// dev-only PoC 진단용: BlogContentRenderer 의 line-by-line 분기와 동일 규칙으로
+// content 를 블록 배열로 분해. main 의 parsePasteBlocks 결과와 옆에 두고 비교해서
+// 두 파서가 다르게 쪼개는 지점을 즉시 발견할 수 있게 함.
+// 본문 전체를 로그에 싣지 않도록 text block 은 lineCount+first+last 만 detail 로 보고.
+type FrontendBlockSummary = { type: string; detail?: string };
+function computeFrontendPasteBlocks(content: string): FrontendBlockSummary[] {
+  const MARKER_RE = /^\s*\[이미지:\s*(.+?)\]\s*$/;
+  const QUOTE_HEAD_RE = /^(#{2,3})(\{[^}]+\})?\s+(.+)$/;
+  const out: FrontendBlockSummary[] = [];
+  const buf: string[] = [];
+  let markerIdx = -1;
+  const flushText = () => {
+    if (buf.length === 0) return;
+    const nonEmpty = buf.filter((s) => s.trim() !== "");
+    const first = (nonEmpty[0] ?? buf[0] ?? "").slice(0, 50);
+    const last = (nonEmpty[nonEmpty.length - 1] ?? buf[buf.length - 1] ?? "").slice(0, 50);
+    out.push({
+      type: "text",
+      detail: `lineCount=${buf.length} nonEmpty=${nonEmpty.length} first=${JSON.stringify(first)} last=${JSON.stringify(last)}`,
+    });
+    buf.length = 0;
+  };
+  for (const raw of content.split("\n")) {
+    const line = raw;
+    const markerMatch = line.match(MARKER_RE);
+    if (markerMatch) {
+      flushText();
+      markerIdx += 1;
+      out.push({ type: "image", detail: `idx=${markerIdx} desc=${markerMatch[1].trim().slice(0, 60)}` });
+      continue;
+    }
+    const headingMatch = line.match(QUOTE_HEAD_RE);
+    if (headingMatch) {
+      flushText();
+      out.push({ type: "quote(heading)", detail: headingMatch[3].slice(0, 80) });
+      continue;
+    }
+    if (line.startsWith("> ")) {
+      flushText();
+      out.push({ type: "quote(>)", detail: line.replace(/^>\s*/, "").slice(0, 80) });
+      continue;
+    }
+    if (line.startsWith("#") && !line.startsWith("##")) {
+      const tags = line.split(/\s+/).filter((t) => t.startsWith("#"));
+      if (tags.length > 1) {
+        flushText();
+        out.push({ type: "hashtag", detail: tags.slice(0, 5).join(" ") });
+        continue;
+      }
+    }
+    if (line.trim() === "") {
+      buf.push("");
+      continue;
+    }
+    buf.push(line);
+  }
+  flushText();
+  return out;
+}
+
 export function StepPublish({
   content,
   title,
@@ -452,10 +512,14 @@ export function StepPublish({
           mimeType: "image/png",
         }));
 
+      // dev-only 진단: 좌측 렌더러와 같은 규칙의 frontend 블록 스냅샷도 함께 전달.
+      // main 측이 parsePasteBlocks 결과와 옆에 두고 main.log 에 dump 해 비교한다.
+      const frontendBlocks = computeFrontendPasteBlocks(content);
       const result = await api.pasteProbe({
         title,
         content,
         images,
+        frontendBlocks,
       });
       setPasteProbeResult(result);
       if (result.ok) {
