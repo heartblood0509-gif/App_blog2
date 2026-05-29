@@ -103,9 +103,11 @@ function mapAnsweredInterviewIdsToFieldKeys(
         set.add("oneLineIntro");
         break;
       case "experience":
+        set.add("identity");
         set.add("identity.experience");
         break;
       case "credentials":
+        set.add("identity");
         set.add("identity.credentials");
         break;
       case "audience":
@@ -332,11 +334,11 @@ export function AeoProfileAssistant({ open, onClose, onSaved, prefill }: AeoProf
     if (draft.name?.trim()) filled++;
     if (draft.category?.trim()) filled++;
     if (draft.oneLineIntro?.trim()) filled++;
-    if (draft.identity?.experience?.trim()) filled++;
-    if (draft.identity?.credentials?.length) filled++;
+    if (draft.identity?.experience?.trim() || draft.identity?.credentials?.length) filled++;
     if (draft.audience?.trim()) filled++;
     if (draft.recommendationCriteria?.length) filled++;
     if (draft.trustedSources?.length) filled++;
+    if (draft.forbidden?.words?.length) filled++;
     return { filled, total: 8 };
   }, [draft]);
 
@@ -349,9 +351,39 @@ export function AeoProfileAssistant({ open, onClose, onSaved, prefill }: AeoProf
     [userAnsweredFieldKeys]
   );
 
+  const aiSuggestedCount = useMemo(() => {
+    if (!draft || !userAnsweredFieldKeys) return 0;
+    let count = 0;
+    if (isAiSuggested("name", !!draft.name?.trim())) count++;
+    if (isAiSuggested("category", !!draft.category?.trim())) count++;
+    if (isAiSuggested("oneLineIntro", !!draft.oneLineIntro?.trim())) count++;
+    if (isAiSuggested("identity.experience", !!draft.identity?.experience?.trim())) count++;
+    if (isAiSuggested("identity.credentials", (draft.identity?.credentials ?? []).length > 0)) count++;
+    if (isAiSuggested("audience", !!draft.audience?.trim())) count++;
+    if (isAiSuggested("recommendationCriteria", (draft.recommendationCriteria ?? []).length > 0)) count++;
+    if (isAiSuggested("trustedSources", (draft.trustedSources ?? []).length > 0)) count++;
+    if (isAiSuggested("forbidden", (draft.forbidden?.words ?? []).length > 0)) count++;
+    return count;
+  }, [draft, userAnsweredFieldKeys, isAiSuggested]);
+
+  const reviewNotice = useMemo(() => {
+    if (!draft) return "";
+    const emptyCount = stats.total - stats.filled;
+    if (emptyCount > 0) {
+      return `아직 빈 칸이 ${emptyCount}개 있어요. 아래에서 직접 채워주세요.`;
+    }
+    if (userAnsweredFieldKeys && aiSuggestedCount > 0) {
+      return `노란 배경 항목 ${aiSuggestedCount}개는 AI가 추정한 부분입니다. 확인하고 수정 가능합니다.`;
+    }
+    if (userAnsweredFieldKeys) {
+      return "8칸 모두 직접 답하신 내용으로 채워졌어요. 검토 후 저장하세요.";
+    }
+    return "모든 추가 질문이 끝났어요. 아래 미리보기에서 직접 수정도 가능합니다.";
+  }, [aiSuggestedCount, draft, stats.filled, stats.total, userAnsweredFieldKeys]);
+
   return (
     <Dialog open={open} onOpenChange={(v) => !v && handleClose()}>
-      <DialogContent className="max-w-2xl max-h-[90vh] flex flex-col gap-4 !grid-cols-none">
+      <DialogContent className="max-w-5xl max-h-[90vh] flex flex-col gap-4 !grid-cols-none">
         <DialogHeader className="shrink-0">
           <DialogTitle className="flex items-center gap-2">
             <Sparkles className="h-5 w-5 text-primary" />
@@ -515,79 +547,85 @@ export function AeoProfileAssistant({ open, onClose, onSaved, prefill }: AeoProf
             {!currentMissing && (
               <div className="shrink-0 rounded-lg bg-emerald-50 dark:bg-emerald-950/20 p-3 text-sm text-emerald-900 dark:text-emerald-200">
                 <CheckCircle2 className="mr-1 inline-block h-4 w-4" />
-                {userAnsweredFieldKeys
-                  ? "노란 배경 칸은 AI가 추정한 부분입니다. 확인하고 수정 가능합니다."
-                  : "모든 추가 질문이 끝났어요. 아래 미리보기에서 직접 수정도 가능합니다."}
+                {reviewNotice}
               </div>
             )}
 
             <div className="flex-1 min-h-0 overflow-y-auto pr-3">
-              <div className="space-y-3 text-sm">
-                <PreviewField
-                  label="[1] 프로필 이름"
-                  value={draft.name}
-                  onChange={(v) => updateDraft("name", v)}
-                  required
-                  aiSuggested={isAiSuggested("name", !!draft.name?.trim())}
-                />
-                <PreviewField
-                  label="[2] 카테고리"
-                  value={draft.category}
-                  onChange={(v) => updateDraft("category", v)}
-                  aiSuggested={isAiSuggested("category", !!draft.category?.trim())}
-                />
-                <PreviewField
-                  label="[3] 한 줄 소개"
-                  value={draft.oneLineIntro}
-                  onChange={(v) => updateDraft("oneLineIntro", v)}
-                  multiline
-                  aiSuggested={isAiSuggested("oneLineIntro", !!draft.oneLineIntro?.trim())}
-                />
-                <PreviewField
-                  label="[4-1] 직접 경험"
-                  value={draft.identity?.experience ?? ""}
-                  onChange={(v) =>
-                    updateDraft("identity", { ...draft.identity, experience: v })
-                  }
-                  aiSuggested={isAiSuggested("identity.experience", !!draft.identity?.experience?.trim())}
-                />
-                <PreviewListField
-                  label="[4-2] 자격·경력"
-                  values={draft.identity?.credentials ?? []}
-                  onChange={(arr) =>
-                    updateDraft("identity", { ...draft.identity, credentials: arr })
-                  }
-                  aiSuggested={isAiSuggested("identity.credentials", (draft.identity?.credentials ?? []).length > 0)}
-                />
-                <PreviewField
-                  label="[5] 누구에게 도움 주나"
-                  value={draft.audience}
-                  onChange={(v) => updateDraft("audience", v)}
-                  multiline
-                  aiSuggested={isAiSuggested("audience", !!draft.audience?.trim())}
-                />
-                <PreviewListField
-                  label="[6] 추천 기준 (위→아래 우선순위)"
-                  values={draft.recommendationCriteria ?? []}
-                  onChange={(arr) => updateDraft("recommendationCriteria", arr)}
-                  aiSuggested={isAiSuggested("recommendationCriteria", (draft.recommendationCriteria ?? []).length > 0)}
-                />
-                <PreviewListField
-                  label="[7] 자주 인용하는 출처"
-                  values={draft.trustedSources ?? []}
-                  onChange={(arr) => updateDraft("trustedSources", arr)}
-                  aiSuggested={isAiSuggested("trustedSources", (draft.trustedSources ?? []).length > 0)}
-                />
-                <PreviewField
-                  label="[8] 절대 쓰지 않는 말 (쉼표로 구분)"
-                  value={(draft.forbidden?.words ?? []).join(", ")}
-                  onChange={(v) =>
-                    updateDraft("forbidden", {
-                      enabled: true,
-                      words: v.split(",").map((s) => s.trim()).filter(Boolean),
-                    })
-                  }
-                />
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
+                {/* ───────── 좌측: 신원·정체성 ───────── */}
+                <div className="space-y-3">
+                  <PreviewField
+                    label="[1] 프로필 이름"
+                    value={draft.name}
+                    onChange={(v) => updateDraft("name", v)}
+                    required
+                    aiSuggested={isAiSuggested("name", !!draft.name?.trim())}
+                  />
+                  <PreviewField
+                    label="[2] 카테고리"
+                    value={draft.category}
+                    onChange={(v) => updateDraft("category", v)}
+                    aiSuggested={isAiSuggested("category", !!draft.category?.trim())}
+                  />
+                  <PreviewField
+                    label="[3] 한 줄 소개"
+                    value={draft.oneLineIntro}
+                    onChange={(v) => updateDraft("oneLineIntro", v)}
+                    multiline
+                    aiSuggested={isAiSuggested("oneLineIntro", !!draft.oneLineIntro?.trim())}
+                  />
+                  <PreviewField
+                    label="[4-1] 직접 경험"
+                    value={draft.identity?.experience ?? ""}
+                    onChange={(v) =>
+                      updateDraft("identity", { ...draft.identity, experience: v })
+                    }
+                    aiSuggested={isAiSuggested("identity.experience", !!draft.identity?.experience?.trim())}
+                  />
+                  <PreviewListField
+                    label="[4-2] 자격·경력"
+                    values={draft.identity?.credentials ?? []}
+                    onChange={(arr) =>
+                      updateDraft("identity", { ...draft.identity, credentials: arr })
+                    }
+                    aiSuggested={isAiSuggested("identity.credentials", (draft.identity?.credentials ?? []).length > 0)}
+                  />
+                </div>
+
+                {/* ───────── 우측: 활동·정책 ───────── */}
+                <div className="space-y-3">
+                  <PreviewField
+                    label="[5] 누구에게 도움 주나"
+                    value={draft.audience}
+                    onChange={(v) => updateDraft("audience", v)}
+                    multiline
+                    aiSuggested={isAiSuggested("audience", !!draft.audience?.trim())}
+                  />
+                  <PreviewListField
+                    label="[6] 추천 기준 (위→아래 우선순위)"
+                    values={draft.recommendationCriteria ?? []}
+                    onChange={(arr) => updateDraft("recommendationCriteria", arr)}
+                    aiSuggested={isAiSuggested("recommendationCriteria", (draft.recommendationCriteria ?? []).length > 0)}
+                  />
+                  <PreviewListField
+                    label="[7] 자주 인용하는 출처"
+                    values={draft.trustedSources ?? []}
+                    onChange={(arr) => updateDraft("trustedSources", arr)}
+                    aiSuggested={isAiSuggested("trustedSources", (draft.trustedSources ?? []).length > 0)}
+                  />
+                  <PreviewField
+                    label="[8] 절대 쓰지 않는 말 (쉼표로 구분)"
+                    value={(draft.forbidden?.words ?? []).join(", ")}
+                    onChange={(v) =>
+                      updateDraft("forbidden", {
+                        enabled: true,
+                        words: v.split(",").map((s) => s.trim()).filter(Boolean),
+                      })
+                    }
+                    aiSuggested={isAiSuggested("forbidden", (draft.forbidden?.words ?? []).length > 0)}
+                  />
+                </div>
               </div>
             </div>
 
