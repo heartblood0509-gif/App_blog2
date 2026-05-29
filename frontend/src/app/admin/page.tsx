@@ -476,7 +476,7 @@ export default function AdminPage() {
                 </Button>
               </CardHeader>
               <CardContent className="p-0">
-                <ScrollArea className="max-h-[480px]">
+                <ScrollArea className="h-[480px]">
                   <div className="divide-y">
                     {loadingPreauth && preauthList.length === 0 && (
                       <div className="px-4 py-8 text-center text-sm text-muted-foreground">
@@ -661,7 +661,7 @@ function UserTable({
   return (
     <Card>
       <CardContent className="p-0">
-        <ScrollArea className="max-h-[600px]">
+        <ScrollArea className="h-[600px]">
           <div className="divide-y">
             {users.map((u) => {
               const busy = busyId === u.id;
