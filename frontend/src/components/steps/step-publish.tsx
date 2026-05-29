@@ -1,21 +1,27 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { motion } from "framer-motion";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 import {
+  ArrowLeft,
+  ArrowRight,
   Copy,
   Download,
   ExternalLink,
   CheckCircle2,
   FileText,
+  Link,
   Loader2,
+  PanelRightClose,
+  PanelRightOpen,
   Plus,
   MessageCircle,
   RefreshCw,
+  RotateCw,
 } from "lucide-react";
 import { toast } from "sonner";
 import { BlogAccountManager } from "@/components/accounts/BlogAccountManager";
@@ -38,6 +44,66 @@ interface StepPublishProps {
   onStartNew?: () => void;
 }
 
+// dev-only PoC 진단용: BlogContentRenderer 의 line-by-line 분기와 동일 규칙으로
+// content 를 블록 배열로 분해. main 의 parsePasteBlocks 결과와 옆에 두고 비교해서
+// 두 파서가 다르게 쪼개는 지점을 즉시 발견할 수 있게 함.
+// 본문 전체를 로그에 싣지 않도록 text block 은 lineCount+first+last 만 detail 로 보고.
+type FrontendBlockSummary = { type: string; detail?: string };
+function computeFrontendPasteBlocks(content: string): FrontendBlockSummary[] {
+  const MARKER_RE = /^\s*\[이미지:\s*(.+?)\]\s*$/;
+  const QUOTE_HEAD_RE = /^(#{2,3})(\{[^}]+\})?\s+(.+)$/;
+  const out: FrontendBlockSummary[] = [];
+  const buf: string[] = [];
+  let markerIdx = -1;
+  const flushText = () => {
+    if (buf.length === 0) return;
+    const nonEmpty = buf.filter((s) => s.trim() !== "");
+    const first = (nonEmpty[0] ?? buf[0] ?? "").slice(0, 50);
+    const last = (nonEmpty[nonEmpty.length - 1] ?? buf[buf.length - 1] ?? "").slice(0, 50);
+    out.push({
+      type: "text",
+      detail: `lineCount=${buf.length} nonEmpty=${nonEmpty.length} first=${JSON.stringify(first)} last=${JSON.stringify(last)}`,
+    });
+    buf.length = 0;
+  };
+  for (const raw of content.split("\n")) {
+    const line = raw;
+    const markerMatch = line.match(MARKER_RE);
+    if (markerMatch) {
+      flushText();
+      markerIdx += 1;
+      out.push({ type: "image", detail: `idx=${markerIdx} desc=${markerMatch[1].trim().slice(0, 60)}` });
+      continue;
+    }
+    const headingMatch = line.match(QUOTE_HEAD_RE);
+    if (headingMatch) {
+      flushText();
+      out.push({ type: "quote(heading)", detail: headingMatch[3].slice(0, 80) });
+      continue;
+    }
+    if (line.startsWith("> ")) {
+      flushText();
+      out.push({ type: "quote(>)", detail: line.replace(/^>\s*/, "").slice(0, 80) });
+      continue;
+    }
+    if (line.startsWith("#") && !line.startsWith("##")) {
+      const tags = line.split(/\s+/).filter((t) => t.startsWith("#"));
+      if (tags.length > 1) {
+        flushText();
+        out.push({ type: "hashtag", detail: tags.slice(0, 5).join(" ") });
+        continue;
+      }
+    }
+    if (line.trim() === "") {
+      buf.push("");
+      continue;
+    }
+    buf.push(line);
+  }
+  flushText();
+  return out;
+}
+
 export function StepPublish({
   content,
   title,
@@ -54,6 +120,23 @@ export function StepPublish({
   const [autoPublish] = useState(false); // 기본: 검토 후 수동 발행
   // §D 수동 발행 세션 — Chrome 창이 살아있는 동안 busy 유지.
   const [manualSessionId, setManualSessionId] = useState<string | null>(null);
+  // dev-only: SmartEditor native paste PoC + 분할뷰
+  const [isRunningPasteProbe, setIsRunningPasteProbe] = useState(false);
+  const [pasteProbeResult, setPasteProbeResult] = useState<{
+    ok: boolean;
+    error?: string;
+    steps: Array<{ name: string; ok: boolean; detail: string; skipped?: boolean }>;
+    snapshot?: unknown;
+  } | null>(null);
+  const [isBlogSplitOpen, setIsBlogSplitOpen] = useState(false);
+  const [isTogglingBlogSplit, setIsTogglingBlogSplit] = useState(false);
+  const [blogSplitUrl, setBlogSplitUrl] = useState("https://blog.naver.com");
+  const [blogSplitAddress, setBlogSplitAddress] = useState("https://blog.naver.com");
+  const [blogSplitNavState, setBlogSplitNavState] = useState({
+    canGoBack: false,
+    canGoForward: false,
+  });
+  const showPasteProbe = process.env.NODE_ENV === "development";
 
   // 자동 발행 중 + 수동 발행 Chrome 창 살아있는 동안 둘 다 busy.
   useBusy("publish:auto", isPublishing);
@@ -62,6 +145,59 @@ export function StepPublish({
   // §H 발행 진행 상태 — 종료 모달 가드용 (busy 와 별도 Set). 같은 opId 공유.
   usePublishing("publish:auto", isPublishing);
   usePublishing(`publish:manual:${manualSessionId ?? "none"}`, manualSessionId !== null);
+
+  // dev-only: 분할뷰 상태 동기화 + 언마운트 시 정리
+  useEffect(() => {
+    if (!showPasteProbe) return;
+    const api = window.electronAPI?.blogSplit;
+    if (!api) return;
+    let mounted = true;
+
+    api
+      .isOpen()
+      .then((open) => {
+        if (mounted) setIsBlogSplitOpen(open);
+        if (open) {
+          api
+            .getUrl()
+            .then((url) => {
+              if (!mounted || !url) return;
+              setBlogSplitUrl(url);
+              setBlogSplitAddress(url);
+            })
+            .catch(() => {});
+        }
+      })
+      .catch(() => {});
+
+    const unsubscribeState = api.onState((open) => {
+      setIsBlogSplitOpen(open);
+    });
+    const unsubscribeNavigation = api.onNavigation((state) => {
+      setBlogSplitUrl(state.url);
+      setBlogSplitAddress(state.url);
+      setBlogSplitNavState({
+        canGoBack: state.canGoBack,
+        canGoForward: state.canGoForward,
+      });
+    });
+
+    return () => {
+      mounted = false;
+      unsubscribeState();
+      unsubscribeNavigation();
+      api.close().catch(() => {});
+    };
+  }, [showPasteProbe]);
+
+  // dev-only: 분할뷰 열려 있는 동안 body 클래스로 좌측 영역 50vw 축소
+  useEffect(() => {
+    if (!showPasteProbe) return;
+    document.body.classList.toggle("blog-split-open", isBlogSplitOpen);
+    return () => {
+      document.body.classList.remove("blog-split-open");
+    };
+  }, [isBlogSplitOpen, showPasteProbe]);
 
   // ─────────────────────────────────────────────
   // 블로그 본문 → 쓰레드 변환 (1소스 멀티유즈)
@@ -279,10 +415,211 @@ export function StepPublish({
     }
   };
 
+  const handleToggleBlogSplit = async () => {
+    const api = window.electronAPI?.blogSplit;
+    if (!api) {
+      toast.error("앱 실행 환경에서만 블로그 홈 화면을 함께 열 수 있습니다.");
+      return;
+    }
+
+    setIsTogglingBlogSplit(true);
+    try {
+      if (isBlogSplitOpen) {
+        await api.close();
+        setIsBlogSplitOpen(false);
+        return;
+      }
+      const result = await api.open("http://blog.naver.com");
+      if (!result.ok) {
+        throw new Error("블로그 홈 화면을 열 수 없습니다.");
+      }
+      const url = await api.getUrl().catch(() => "https://blog.naver.com");
+      setBlogSplitUrl(url);
+      setBlogSplitAddress(url);
+      setIsBlogSplitOpen(true);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "블로그 홈 화면을 열 수 없습니다.");
+    } finally {
+      setIsTogglingBlogSplit(false);
+    }
+  };
+
+  const handleBlogSplitNavigate = async (
+    action: "back" | "forward" | "reload" | "home" | "go",
+    url?: string,
+  ) => {
+    const api = window.electronAPI?.blogSplit;
+    if (!api) return;
+    try {
+      const result = await api.navigate(action, url);
+      if (result.url) {
+        setBlogSplitUrl(result.url);
+        setBlogSplitAddress(result.url);
+      }
+      setBlogSplitNavState({
+        canGoBack: result.canGoBack,
+        canGoForward: result.canGoForward,
+      });
+    } catch {
+      toast.error("블로그 화면 이동에 실패했습니다.");
+    }
+  };
+
+  const handleBlogSplitAddressSubmit = (e: FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    handleBlogSplitNavigate("go", blogSplitAddress);
+  };
+
+  const handleCopyBlogSplitUrl = async () => {
+    try {
+      await navigator.clipboard.writeText(blogSplitUrl);
+      toast.success("블로그 화면 주소를 복사했습니다.");
+    } catch {
+      toast.error("주소 복사에 실패했습니다.");
+    }
+  };
+
+  const handlePasteProbe = async () => {
+    const api = window.electronAPI?.blogSplit;
+    if (!api) {
+      toast.error("앱 실행 환경에서만 Paste PoC를 실행할 수 있습니다.");
+      return;
+    }
+
+    setIsRunningPasteProbe(true);
+    setPasteProbeResult(null);
+    try {
+      if (!(await api.isOpen())) {
+        const result = await api.open("https://blog.naver.com/GoBlogWrite.naver");
+        if (!result.ok) {
+          throw new Error("블로그 글쓰기 화면을 열 수 없습니다.");
+        }
+        // PoC 자동 open 시 onState/onNavigation 이벤트 도착 전이라도 토글 버튼/주소바가 즉시 반응하도록 동기 갱신.
+        setIsBlogSplitOpen(true);
+        const openedUrl = await api
+          .getUrl()
+          .catch(() => "https://blog.naver.com/GoBlogWrite.naver");
+        setBlogSplitUrl(openedUrl);
+        setBlogSplitAddress(openedUrl);
+      }
+
+      const excludedSet = new Set(excludedSlotIds);
+      const images = imageSlots
+        .filter((slot) => !excludedSet.has(slot.id) && generatedImages[slot.id])
+        .map((slot) => ({
+          index: slot.index,
+          base64: generatedImages[slot.id],
+          mimeType: "image/png",
+        }));
+
+      // dev-only 진단: 좌측 렌더러와 같은 규칙의 frontend 블록 스냅샷도 함께 전달.
+      // main 측이 parsePasteBlocks 결과와 옆에 두고 main.log 에 dump 해 비교한다.
+      const frontendBlocks = computeFrontendPasteBlocks(content);
+      const result = await api.pasteProbe({
+        title,
+        content,
+        images,
+        frontendBlocks,
+      });
+      setPasteProbeResult(result);
+      if (result.ok) {
+        toast.success("Draft Paste PoC가 모두 통과했습니다.");
+      } else {
+        toast.warning(result.error || "Draft Paste PoC 일부 항목이 실패했습니다.");
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Paste PoC 실행 실패";
+      setPasteProbeResult({ ok: false, error: message, steps: [] });
+      toast.error(message);
+    } finally {
+      setIsRunningPasteProbe(false);
+    }
+  };
+
   const selectedAccount = accounts.find((a) => a.id === selectedAccountId);
 
   return (
-    <div className="space-y-6">
+    <>
+      {showPasteProbe && isBlogSplitOpen && (
+        <div
+          className="fixed top-0 z-50 flex h-11 items-center gap-2 border-b border-border bg-background px-3 shadow-sm"
+          style={{ left: "50vw", width: "50vw" }}
+        >
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            className="h-8 w-8 shrink-0"
+            disabled={!blogSplitNavState.canGoBack}
+            onClick={() => handleBlogSplitNavigate("back")}
+            title="뒤로가기"
+            aria-label="뒤로가기"
+          >
+            <ArrowLeft className="h-4 w-4" />
+          </Button>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            className="h-8 w-8 shrink-0"
+            disabled={!blogSplitNavState.canGoForward}
+            onClick={() => handleBlogSplitNavigate("forward")}
+            title="앞으로가기"
+            aria-label="앞으로가기"
+          >
+            <ArrowRight className="h-4 w-4" />
+          </Button>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            className="h-8 w-8 shrink-0"
+            onClick={() => handleBlogSplitNavigate("reload")}
+            title="새로고침"
+            aria-label="새로고침"
+          >
+            <RotateCw className="h-4 w-4" />
+          </Button>
+
+          <form
+            className="flex min-w-0 flex-1 items-center gap-2 rounded-md border border-input bg-muted/30 px-2"
+            onSubmit={handleBlogSplitAddressSubmit}
+            title={blogSplitUrl}
+          >
+            <Link className="h-4 w-4 shrink-0 text-muted-foreground" />
+            <input
+              value={blogSplitAddress}
+              onChange={(e) => setBlogSplitAddress(e.target.value)}
+              className="h-8 min-w-0 flex-1 bg-transparent text-sm outline-none"
+              aria-label="블로그 화면 주소"
+              spellCheck={false}
+            />
+          </form>
+
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            className="h-8 w-8 shrink-0"
+            onClick={handleCopyBlogSplitUrl}
+            title="링크 복사"
+            aria-label="링크 복사"
+          >
+            <Link className="h-4 w-4" />
+          </Button>
+          <Button
+            type="button"
+            className="h-8 shrink-0 bg-[#03c75a] px-3 text-sm font-semibold text-white hover:bg-[#02b351]"
+            onClick={() => handleBlogSplitNavigate("home")}
+            title="네이버 홈"
+            aria-label="네이버 홈"
+          >
+            N 홈
+          </Button>
+        </div>
+      )}
+
+      <div className="space-y-6">
       <div className="mb-6">
         <h2 className="text-2xl font-semibold">발행</h2>
         <p className="mt-2 text-sm text-muted-foreground">
@@ -383,7 +720,89 @@ export function StepPublish({
               <Download className="h-4 w-4" />
               마크다운 다운로드
             </Button>
+
+            {showPasteProbe && (
+              <Button
+                variant="outline"
+                size="lg"
+                onClick={handleToggleBlogSplit}
+                disabled={isTogglingBlogSplit}
+                className="gap-2"
+              >
+                {isTogglingBlogSplit ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : isBlogSplitOpen ? (
+                  <PanelRightClose className="h-4 w-4" />
+                ) : (
+                  <PanelRightOpen className="h-4 w-4" />
+                )}
+                {isBlogSplitOpen ? "분할 닫기" : "블로그 홈 보기"}
+              </Button>
+            )}
+
+            {showPasteProbe && (
+              <Button
+                variant="outline"
+                size="lg"
+                onClick={handlePasteProbe}
+                disabled={isRunningPasteProbe}
+                className="gap-2 border-blue-500/40 hover:border-blue-500/70 hover:bg-blue-50 dark:hover:bg-blue-950/20"
+              >
+                {isRunningPasteProbe ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Copy className="h-4 w-4 text-blue-500" />
+                )}
+                Draft Paste PoC
+              </Button>
+            )}
           </div>
+
+          {showPasteProbe && pasteProbeResult && (
+            <div className="rounded-md border bg-muted/30 p-3 text-xs">
+              <div className="flex items-center justify-between gap-2">
+                <span className="font-medium">
+                  Draft Paste PoC 결과: {pasteProbeResult.ok ? "통과" : "확인 필요"}
+                </span>
+                {pasteProbeResult.error && (
+                  <span className="text-destructive">{pasteProbeResult.error}</span>
+                )}
+              </div>
+              {Array.isArray(
+                (pasteProbeResult.snapshot as { componentOrder?: unknown } | undefined)
+                  ?.componentOrder,
+              ) && (
+                <div className="mt-2 truncate text-muted-foreground">
+                  order:{" "}
+                  {(
+                    (pasteProbeResult.snapshot as { componentOrder: string[] })
+                      .componentOrder
+                  ).join(" > ")}
+                </div>
+              )}
+              <div className="mt-2 space-y-1">
+                {pasteProbeResult.steps.map((step) => (
+                  <div key={step.name} className="flex gap-2">
+                    <span
+                      className={
+                        step.skipped
+                          ? "text-muted-foreground"
+                          : step.ok
+                            ? "text-primary"
+                            : "text-destructive"
+                      }
+                    >
+                      {step.skipped ? "SKIP" : step.ok ? "OK" : "FAIL"}
+                    </span>
+                    <span className="font-mono">{step.name}</span>
+                    <span className="min-w-0 flex-1 truncate text-muted-foreground">
+                      {step.detail}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
 
         {/* 그룹 B: 다른 채널 변환 (보조, 선택 액션) */}
@@ -581,6 +1000,7 @@ export function StepPublish({
           새 글 만들기
         </Button>
       )}
-    </div>
+      </div>
+    </>
   );
 }
