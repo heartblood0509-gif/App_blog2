@@ -99,6 +99,15 @@ export function getOrCreateDeviceId(): string {
 }
 
 export function loadFrontendPort(): number | undefined {
+  // dev 모드에서 BLOG_PICK_DEV_PORT 가 지정돼 있으면 그 포트를 우선 — 매 dev 재시작마다
+  // Next/Electron 포트가 바뀌어 brower localStorage(=wizard 상태) 가 새 origin 으로
+  // 격리되는 사고를 막기 위함. production 빌드에서는 무시되므로 영향 없음.
+  if (process.env.NODE_ENV === "development" && process.env.BLOG_PICK_DEV_PORT) {
+    const envPort = Number(process.env.BLOG_PICK_DEV_PORT);
+    if (Number.isInteger(envPort) && envPort > 0 && envPort < 65536) {
+      return envPort;
+    }
+  }
   const data = readRaw();
   const port = data.frontend_port;
   if (typeof port === "number" && Number.isInteger(port) && port > 0 && port < 65536) {
