@@ -240,13 +240,15 @@ export default function Home() {
   const bulkAbortRef = useRef<AbortController | null>(null);
   const bulkRoundIdRef = useRef<string | null>(null);
 
-  // 첫 부팅: API 키가 아직 없으면 설정 페이지로 안내. 메인 진입 시 한 번만 확인한다.
+  // 첫 부팅: API 키가 아직 없으면 통합 설정 페이지(/settings/my-info)로 안내.
+  // 사용자가 거기서 API 키 + 블로그 계정 + 첫 프로필을 자연스럽게 둘러보도록 함.
+  // 메인 진입 시 한 번만 확인.
   useEffect(() => {
     const api = window.electronAPI?.settings;
     if (!api) return;
     api.getMasked().then((r) => {
       if (!r.hasKey) {
-        router.replace("/settings/api-key");
+        router.replace("/settings/my-info?tab=api-generation");
       }
     }).catch(() => {});
   }, [router]);

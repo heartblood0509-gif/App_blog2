@@ -28,6 +28,7 @@ import { ProductManager } from "@/components/settings/ProductManager";
 import { BrandProfileManager } from "@/components/settings/BrandProfileManager";
 import { AeoProfileManager } from "@/components/settings/AeoProfileManager";
 import { ImportExportPanel } from "@/components/settings/ImportExportPanel";
+import { SetupChecklist } from "@/components/settings/SetupChecklist";
 
 type TabId =
   | "api-generation"
@@ -80,7 +81,11 @@ export function MyInfoLayout() {
   );
 
   return (
-    <div className="mt-8 grid grid-cols-1 gap-6 lg:grid-cols-[220px_1fr]">
+    <div className="mt-8 space-y-6">
+      {/* 상단: 시작 가이드 (미완료 항목 있을 때만 자동 표시) */}
+      <SetupChecklist onGoToTab={(id) => handleTabClick(id as TabId)} />
+
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-[220px_1fr]">
       {/* ───── 좌측 사이드바 (모바일: 상단 가로 스크롤) ───── */}
       <aside className="lg:sticky lg:top-8 lg:self-start">
         <nav
@@ -130,6 +135,7 @@ export function MyInfoLayout() {
         {activeTab === "aeo-profiles" && <AeoProfilesPlaceholderSection />}
         {activeTab === "import-export" && <ImportExportPlaceholderSection />}
       </section>
+      </div>
     </div>
   );
 }

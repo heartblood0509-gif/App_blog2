@@ -7,14 +7,6 @@ import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
-import {
   Copy,
   Download,
   ExternalLink,
@@ -62,10 +54,6 @@ export function StepPublish({
   const [autoPublish] = useState(false); // 기본: 검토 후 수동 발행
   // §D 수동 발행 세션 — Chrome 창이 살아있는 동안 busy 유지.
   const [manualSessionId, setManualSessionId] = useState<string | null>(null);
-  // 자동발행 1시간 쿨다운 — 마지막 실제 발행 후 남은 초.
-  const [cooldownRemaining, setCooldownRemaining] = useState<number>(0);
-  // 쿨다운 우회 확인 모달.
-  const [showForceConfirm, setShowForceConfirm] = useState(false);
 
   // 자동 발행 중 + 수동 발행 Chrome 창 살아있는 동안 둘 다 busy.
   useBusy("publish:auto", isPublishing);
@@ -152,34 +140,7 @@ export function StepPublish({
     setYoutubeExcludedKeys(new Set());
   };
 
-  // 쿨다운 상태 동기화 — 마운트 시 + 30초 서버 폴링, 1초 클라이언트 카운트다운.
-  // 서버 fetch 는 같은 핸들러로 묶어, 다른 곳(수동발행 published=true 감지 등)에서도 호출 가능.
-  const fetchCooldown = useCallback(async () => {
-    try {
-      const res = await fetch("/api/publish/cooldown-status", { cache: "no-store" });
-      if (!res.ok) return;
-      const data = await res.json();
-      setCooldownRemaining(Number(data.remaining_sec ?? 0));
-    } catch {
-      // 폴링 실패 무시.
-    }
-  }, []);
-
-  useEffect(() => {
-    fetchCooldown();
-    const poll = setInterval(fetchCooldown, 30_000);
-    const tick = setInterval(
-      () => setCooldownRemaining((s) => Math.max(0, s - 1)),
-      1000,
-    );
-    return () => {
-      clearInterval(poll);
-      clearInterval(tick);
-    };
-  }, [fetchCooldown]);
-
   // 수동 발행 시 5초 폴링으로 Chrome 닫힘 감지 → manualSessionId 해제 (busy 자동 풀림).
-  // 응답의 published 필드로 "진짜 발행됨" vs "그냥 창 닫음" 구분.
   useEffect(() => {
     if (!manualSessionId) return;
     let cancelled = false;
@@ -193,12 +154,7 @@ export function StepPublish({
         const data = await res.json();
         if (!cancelled && data.disconnected) {
           setManualSessionId(null);
-          if (data.published) {
-            toast.success("발행 완료! 1시간 쿨다운이 시작됩니다.");
-            fetchCooldown(); // 서버에서 최신 쿨다운 즉시 반영
-          } else {
-            toast.info("발행이 취소되었습니다 (쿨다운 시작 안 함).");
-          }
+          toast.info("수동 발행 세션이 종료되었습니다.");
           return;
         }
       } catch {
@@ -211,15 +167,7 @@ export function StepPublish({
       cancelled = true;
       clearTimeout(timer);
     };
-  }, [manualSessionId, fetchCooldown]);
-
-  // mm분 ss초 포맷.
-  const formatCooldown = (sec: number): string => {
-    const m = Math.floor(sec / 60);
-    const s = sec % 60;
-    if (m > 0) return `${m}분 ${s}초`;
-    return `${s}초`;
-  };
+  }, [manualSessionId]);
 
   // 복사
   const handleCopy = useCallback(async () => {
@@ -250,7 +198,7 @@ export function StepPublish({
   }, [content, title]);
 
   // 발행
-  const handlePublish = async (opts: { force?: boolean } = {}) => {
+  const handlePublish = async () => {
     if (!selectedAccountId) {
       toast.error("발행할 블로그 계정을 선택해주세요.");
       return;
@@ -294,19 +242,8 @@ export function StepPublish({
           account_id: selectedAccountId,
           images,
           auto_publish: autoPublish,
-          force: opts.force ?? false,
         }),
       });
-      // 백엔드 쿨다운 가드(429) — frontend 상태가 stale 했을 가능성. 즉시 동기화.
-      if (res.status === 429) {
-        const data = await res.json().catch(() => ({}));
-        const remaining = Number(data?.detail?.remaining_sec ?? 0);
-        if (remaining > 0) setCooldownRemaining(remaining);
-        toast.error(
-          `다른 곳에서 방금 발행한 것 같아요. ${formatCooldown(remaining)} 후 다시 시도해주세요.`,
-        );
-        return;
-      }
       const data = await res.json();
       if (!res.ok) {
         throw new Error(data.error || "발행에 실패했습니다.");
@@ -324,7 +261,6 @@ export function StepPublish({
         if (data.post_url) {
           setPublishedUrl(data.post_url);
         }
-        fetchCooldown(); // 자동발행 성공 → 쿨다운 즉시 반영
       }
       if (data.warning) {
         toast.warning(data.warning);
@@ -347,38 +283,6 @@ export function StepPublish({
 
   return (
     <div className="space-y-6">
-      {/* 쿨다운 우회 확인 모달 — 의식적 2단계 마찰. */}
-      <Dialog open={showForceConfirm} onOpenChange={setShowForceConfirm}>
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle>⚠️ 정말 지금 발행하시겠어요?</DialogTitle>
-            <DialogDescription className="space-y-2 pt-2">
-              <span className="block">
-                마지막 발행 후 {formatCooldown(cooldownRemaining)}밖에 지나지 않았습니다.
-              </span>
-              <span className="block">
-                네이버는 짧은 간격의 연속 발행을 어뷰징으로 의심할 수 있으며,
-                계정 노출이 떨어지거나 제재를 받을 위험이 있어요.
-              </span>
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setShowForceConfirm(false)}>
-              취소
-            </Button>
-            <Button
-              variant="destructive"
-              onClick={() => {
-                setShowForceConfirm(false);
-                handlePublish({ force: true });
-              }}
-            >
-              그래도 발행
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
       <div className="mb-6">
         <h2 className="text-2xl font-semibold">발행</h2>
         <p className="mt-2 text-sm text-muted-foreground">
@@ -440,43 +344,23 @@ export function StepPublish({
             📤 이 글 그대로 내보내기
           </h3>
           <div className="flex flex-wrap gap-3">
-            <div className="flex flex-col gap-1">
-              <Button
-                size="lg"
-                disabled={
-                  !content || isPublishing || !selectedAccountId || cooldownRemaining > 0
-                }
-                className="gap-2"
-                onClick={() => handlePublish()}
-              >
-                {isPublishing ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                ) : (
-                  <ExternalLink className="h-4 w-4" />
-                )}
-                {isPublishing
-                  ? autoPublish
-                    ? "발행 중..."
-                    : "글 작성 중..."
-                  : cooldownRemaining > 0
-                    ? `${formatCooldown(cooldownRemaining)} 후 발행 가능`
-                    : selectedAccount
-                      ? autoPublish
-                        ? `"${selectedAccount.label}"에 자동 발행`
-                        : `"${selectedAccount.label}"에 글 작성 (수동 발행)`
-                      : "계정을 선택하세요"}
-              </Button>
-              {/* 쿨다운 우회 링크 — 작은 회색 글씨, 의식적 우회만 허용. */}
-              {cooldownRemaining > 0 && !isPublishing && (
-                <button
-                  type="button"
-                  onClick={() => setShowForceConfirm(true)}
-                  className="self-start text-xs text-muted-foreground/70 underline hover:text-muted-foreground"
-                >
-                  위험을 감수하고 지금 발행
-                </button>
+            <Button
+              size="lg"
+              disabled={!content || isPublishing || !selectedAccountId}
+              className="gap-2 px-6 py-6 text-base font-semibold"
+              onClick={handlePublish}
+            >
+              {isPublishing ? (
+                <Loader2 className="h-5 w-5 animate-spin" />
+              ) : (
+                <ExternalLink className="h-5 w-5" />
               )}
-            </div>
+              {isPublishing
+                ? "글 작성 중..."
+                : selectedAccount
+                  ? `"${selectedAccount.label}"에 자동발행하기`
+                  : "계정을 선택하세요"}
+            </Button>
 
             <Button
               variant="outline"
