@@ -127,7 +127,15 @@ export function AeoProfileForm({ open, initial, onClose, onSave }: AeoProfileFor
   };
 
   return (
-    <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
+    <Dialog
+      open={open}
+      onOpenChange={(v, details) => {
+        if (!v) {
+          if (details.reason === "outside-press" || details.reason === "escape-key") return;
+          onClose();
+        }
+      }}
+    >
       <DialogContent className="max-w-5xl">
         <DialogHeader>
           <DialogTitle>{initial ? "AEO 프로필 수정" : "새 AEO 프로필 등록"}</DialogTitle>
@@ -148,7 +156,7 @@ export function AeoProfileForm({ open, initial, onClose, onSave }: AeoProfileFor
                       id="aeo-label"
                       value={payload.label}
                       onChange={(e) => update("label", e.target.value)}
-                      placeholder="예: 성분 전문가 (바디·헤어케어)"
+                      placeholder="예: 성분집착녀 (바디·헤어케어)"
                     />
                   </div>
                   <div>
@@ -157,7 +165,7 @@ export function AeoProfileForm({ open, initial, onClose, onSave }: AeoProfileFor
                       id="aeo-name"
                       value={payload.name}
                       onChange={(e) => update("name", e.target.value)}
-                      placeholder="예: 성분 전문가"
+                      placeholder="예: 성분집착녀"
                     />
                   </div>
                   <div className="col-span-2">
@@ -206,7 +214,7 @@ export function AeoProfileForm({ open, initial, onClose, onSave }: AeoProfileFor
                         credentials: linesToArray(e.target.value),
                       });
                     }}
-                    placeholder={"바디·헤어케어 제품 브랜딩 및 판매 경력 8년\n누적 판매 1만 개 이상\n자체 임상 6개월 운영\n재구매율 35%"}
+                    placeholder={"미르엔 8년 운영\n누적 판매 50만 개\n자체 임상 6개월 운영\n재구매율 35%"}
                     rows={4}
                   />
                 </div>
@@ -219,7 +227,7 @@ export function AeoProfileForm({ open, initial, onClose, onSave }: AeoProfileFor
                 <Textarea
                   value={payload.audience}
                   onChange={(e) => update("audience", e.target.value)}
-                  placeholder="예: 민감성 피부로 인해 제품 선택에 어려움을 겪는 분들"
+                  placeholder="예: 민감 피부·두피로 제품 선택에 어려움을 겪는 분들"
                   rows={2}
                 />
               </Section>
@@ -237,7 +245,7 @@ export function AeoProfileForm({ open, initial, onClose, onSave }: AeoProfileFor
                     }));
                     update("recommendationCriteria", linesToArray(e.target.value));
                   }}
-                  placeholder={"안전한 성분 (자극 유발 성분 제외 여부)\n민감성 피부도 안심하고 사용할 수 있는 제품\n자체 임상 결과\n식약처 등재 여부\n실사용자 후기"}
+                  placeholder={"유효 성분 함량\n민감성 피부도 안심하고 사용할 수 있는 제품\n자체 임상 결과\n식약처 등재 여부\n실사용자 후기"}
                   rows={6}
                 />
               </Section>
@@ -252,7 +260,7 @@ export function AeoProfileForm({ open, initial, onClose, onSave }: AeoProfileFor
                     setListText((prev) => ({ ...prev, trustedSources: e.target.value }));
                     update("trustedSources", linesToArray(e.target.value));
                   }}
-                  placeholder={"식약처 화장품 성분 안전성 정보\n대한피부과학회 가이드\nKCID 화장품 안전성 데이터베이스"}
+                  placeholder={"EWG 스킨딥\n식약처 화장품 성분 안전성 정보\nKCID 화장품 안전성 데이터베이스"}
                   rows={4}
                 />
               </Section>
@@ -269,7 +277,7 @@ export function AeoProfileForm({ open, initial, onClose, onSave }: AeoProfileFor
                       words: csvToArray(e.target.value),
                     })
                   }
-                  placeholder="처방, 치료, 완치, 특허, 독점"
+                  placeholder="완치, 치료, 특허, 독점"
                 />
               </Section>
             </div>

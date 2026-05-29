@@ -57,6 +57,10 @@ interface ElectronBlogSplitApi {
     title?: string;
     content?: string;
     images?: Array<{ index: number; base64: string; mimeType?: string }>;
+    // dev-only: BlogContentRenderer 와 같은 규칙으로 frontend 에서 계산한 블록 스냅샷.
+    // main 의 parsePasteBlocks 결과와 비교해 분기 차이를 즉시 발견하는 진단용.
+    // text block 은 lineCount/first/last 만 담아 log 폭증을 피한다.
+    frontendBlocks?: Array<{ type: string; detail?: string }>;
   }) => Promise<{
     ok: boolean;
     error?: string;
