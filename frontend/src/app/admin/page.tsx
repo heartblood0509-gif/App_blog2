@@ -70,6 +70,14 @@ interface AdminAuditEntry {
   created_at: string;
 }
 
+interface PreauthEntry {
+  email: string;
+  status: string;
+  note: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
 function formatDate(value: string | null | undefined): string {
   if (!value) return "-";
   const d = new Date(value);
@@ -112,6 +120,8 @@ export default function AdminPage() {
   const [preauthEmail, setPreauthEmail] = useState("");
   const [preauthNote, setPreauthNote] = useState("");
   const [preauthBusy, setPreauthBusy] = useState(false);
+  const [preauthList, setPreauthList] = useState<PreauthEntry[]>([]);
+  const [loadingPreauth, setLoadingPreauth] = useState(false);
 
   const [auditEntries, setAuditEntries] = useState<AdminAuditEntry[]>([]);
   const [loadingAudit, setLoadingAudit] = useState(false);
@@ -157,13 +167,33 @@ export default function AdminPage() {
     }
   }, [authHeader]);
 
+  const refreshPreauth = useCallback(async () => {
+    if (!authHeader) return;
+    setLoadingPreauth(true);
+    try {
+      const res = await fetch("/api/admin/users/preauth", { headers: authHeader });
+      const data = await res.json();
+      if (!res.ok || !data?.ok) {
+        toast.error(data?.error ?? "사전 등록 목록을 불러오지 못했습니다.");
+        return;
+      }
+      setPreauthList(data.entries ?? []);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "사전 등록 목록 요청 실패");
+    } finally {
+      setLoadingPreauth(false);
+    }
+  }, [authHeader]);
+
   useEffect(() => {
     refreshUsers();
-  }, [refreshUsers]);
+    refreshPreauth();
+  }, [refreshUsers, refreshPreauth]);
 
   useEffect(() => {
     if (tab === "audit") refreshAudit();
-  }, [tab, refreshAudit]);
+    if (tab === "preauth") refreshPreauth();
+  }, [tab, refreshAudit, refreshPreauth]);
 
   const approveUser = useCallback(
     async (user: AdminUser) => {
@@ -304,11 +334,11 @@ export default function AdminPage() {
       toast.success(`${preauthEmail.trim()} 사전 등록 완료`);
       setPreauthEmail("");
       setPreauthNote("");
-      await refreshUsers();
+      await Promise.all([refreshUsers(), refreshPreauth()]);
     } finally {
       setPreauthBusy(false);
     }
-  }, [authHeader, preauthEmail, preauthNote, refreshUsers]);
+  }, [authHeader, preauthEmail, preauthNote, refreshUsers, refreshPreauth]);
 
   const pendingUsers = users.filter((u) => u.status === "pending");
 
@@ -345,7 +375,14 @@ export default function AdminPage() {
               )}
             </TabsTrigger>
             <TabsTrigger value="all">전체 사용자</TabsTrigger>
-            <TabsTrigger value="preauth">사전 등록</TabsTrigger>
+            <TabsTrigger value="preauth">
+              사전 등록
+              {preauthList.length > 0 && (
+                <Badge variant="secondary" className="ml-2">
+                  {preauthList.length}
+                </Badge>
+              )}
+            </TabsTrigger>
             <TabsTrigger value="audit">감사 로그</TabsTrigger>
           </TabsList>
 
@@ -375,7 +412,7 @@ export default function AdminPage() {
             />
           </TabsContent>
 
-          <TabsContent value="preauth" className="mt-4">
+          <TabsContent value="preauth" className="mt-4 space-y-4">
             <Card>
               <CardHeader>
                 <CardTitle>이메일 사전 등록</CardTitle>
@@ -416,6 +453,60 @@ export default function AdminPage() {
                   )}
                   사전 등록
                 </Button>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader className="flex flex-row items-center justify-between">
+                <div>
+                  <CardTitle>사전 등록 대기 목록</CardTitle>
+                  <CardDescription>
+                    아직 로그인하지 않은 사전 등록 이메일입니다. 첫 로그인 시 위쪽
+                    사용자 목록으로 이동합니다.
+                  </CardDescription>
+                </div>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={refreshPreauth}
+                  disabled={loadingPreauth}
+                >
+                  <RefreshCcw className={`mr-2 h-4 w-4 ${loadingPreauth ? "animate-spin" : ""}`} />
+                  새로고침
+                </Button>
+              </CardHeader>
+              <CardContent className="p-0">
+                <ScrollArea className="max-h-[480px]">
+                  <div className="divide-y">
+                    {loadingPreauth && preauthList.length === 0 && (
+                      <div className="px-4 py-8 text-center text-sm text-muted-foreground">
+                        <Loader2 className="mx-auto h-5 w-5 animate-spin" />
+                      </div>
+                    )}
+                    {!loadingPreauth && preauthList.length === 0 && (
+                      <div className="px-4 py-8 text-center text-sm text-muted-foreground">
+                        사전 등록 대기 중인 이메일이 없습니다.
+                      </div>
+                    )}
+                    {preauthList.map((entry) => (
+                      <div
+                        key={entry.email}
+                        className="flex flex-wrap items-center gap-3 px-4 py-3 text-sm"
+                      >
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center gap-2">
+                            <span className="font-medium">{entry.email}</span>
+                            <Badge variant="secondary">미로그인</Badge>
+                          </div>
+                          <div className="mt-1 text-xs text-muted-foreground">
+                            등록: {formatDate(entry.created_at)}
+                            {entry.note && ` · ${entry.note}`}
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </ScrollArea>
               </CardContent>
             </Card>
           </TabsContent>

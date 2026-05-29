@@ -3,6 +3,10 @@ import { callRpc, withAdminRpc } from "@/lib/server/auth/admin-api";
 
 export const dynamic = "force-dynamic";
 
+export async function GET(request: Request) {
+  return withAdminRpc(request, callRpc("admin_list_preauth", {}));
+}
+
 export async function POST(request: Request) {
   const body = await request.json().catch(() => null);
   const source = body && typeof body === "object" ? (body as Record<string, unknown>) : {};
