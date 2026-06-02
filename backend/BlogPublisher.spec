@@ -13,7 +13,9 @@ datas = [("default-data", "default-data")]
 binaries = []
 hiddenimports = []
 
-for pkg in ("playwright", "playwright_stealth", "fastapi", "uvicorn", "pydantic", "starlette", "dotenv"):
+# tzdata: 데이터-only 패키지. Windows zoneinfo 가 ZoneInfo("Asia/Seoul") 를 찾으려면
+# 이 데이터 파일들이 번들에 포함돼야 한다 (collect_all 로 datas 수집).
+for pkg in ("playwright", "playwright_stealth", "fastapi", "uvicorn", "pydantic", "starlette", "dotenv", "tzdata"):
     pkg_datas, pkg_binaries, pkg_hidden = collect_all(pkg)
     datas += pkg_datas
     binaries += pkg_binaries

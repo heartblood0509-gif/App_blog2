@@ -5,3 +5,6 @@ playwright-stealth==2.0.3
 python-dotenv>=1.0.0
 pydantic>=2.0.0
 eval-type-backport>=0.3.1; python_version < "3.10"
+# Windows 의 표준 zoneinfo 에는 IANA tz DB 가 없어 ZoneInfo("Asia/Seoul") 가 실패한다.
+# (macOS/Linux 는 OS 의 /usr/share/zoneinfo 로 동작) → Windows 패키지용으로 필수.
+tzdata>=2024.1
