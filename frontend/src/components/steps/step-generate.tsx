@@ -38,6 +38,7 @@ import type {
 } from "@/types";
 import { BlogContentRenderer } from "@/components/blog-content-renderer";
 import { ImageLightbox } from "@/components/image-lightbox";
+import { FindBar } from "@/components/shared/find-bar";
 import { buildTextToImagePrompt } from "@/lib/prompts/image";
 
 interface StepGenerateProps {
@@ -585,6 +586,9 @@ export function StepGenerate({
   const [isEditing, setIsEditing] = useState(false);
   const [draftContent, setDraftContent] = useState("");
 
+  // 본문 영역 안에서만 동작하는 Cmd+F 찾기 막대용 컨테이너 ref
+  const bodyRef = useRef<HTMLDivElement>(null);
+
   const handleEditStart = () => {
     setDraftContent(content);
     setIsEditing(true);
@@ -690,7 +694,12 @@ export function StepGenerate({
 
       <div className="flex flex-col gap-6 lg:flex-row">
         {/* Left: Content Preview (약 66%, 주) */}
-        <div className="flex-[2]">
+        <div ref={bodyRef} className="relative flex-[2]">
+          <FindBar
+            containerRef={bodyRef}
+            enabled={!!content}
+            revision={isEditing ? draftContent : content}
+          />
           <Card className="h-full">
             <CardHeader>
               <CardTitle className="flex items-center gap-2 text-base">

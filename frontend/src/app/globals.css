@@ -136,6 +136,16 @@
   }
 }
 
+/* Cmd+F 본문 찾기 하이라이트 (CSS Custom Highlight API) */
+::highlight(find-match) {
+  background-color: oklch(0.9 0.16 95 / 70%); /* 옅은 노랑 */
+  color: inherit;
+}
+::highlight(find-current) {
+  background-color: oklch(0.78 0.19 60 / 90%); /* 진한 주황 — 현재 결과 */
+  color: oklch(0.18 0 0);
+}
+
 body.blog-split-open {
   overflow: hidden;
 }
