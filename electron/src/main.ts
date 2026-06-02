@@ -1608,11 +1608,56 @@ async function boot(): Promise<void> {
     if (process.platform === "darwin" && !isQuitting) {
       event.preventDefault();
       win.hide();
+      return;
+    }
+    // Windows/Linux: 발행 진행 중이면 창이 파괴되기 *전에* 확인한다.
+    // before-quit 의 발행 가드는 창이 닫힌(window-all-closed) 뒤에야 실행되므로,
+    // 거기서 "계속 작업" 으로 취소되면 UI 없는 좀비 상태가 된다. 창이 살아있는
+    // 지금 물어보고, "종료" 면 forceQuit 로 before-quit 모달까지 우회한다.
+    if (publishingOps.size > 0 && !forceQuit && !isQuitting) {
+      event.preventDefault();
+      const choice = dialog.showMessageBoxSync(win, {
+        type: "warning" as const,
+        buttons: ["계속 작업", "종료"],
+        defaultId: 0,
+        cancelId: 0,
+        message: "발행 작업이 진행 중입니다.",
+        detail: "지금 종료하면 작성 중인 글이 손실될 수 있습니다.",
+      });
+      if (choice === 1) {
+        forceQuit = true;
+        // destroy 는 beforeunload(미저장 경고)를 건너뛴다 — 이미 종료를 택했으므로
+        // dirty 확인창을 또 띄우지 않고 바로 닫고 before-quit 정리 경로로 보낸다.
+        win.destroy();
+      }
     }
   });
   win.on("closed", () => {
     closeBlogSplitView();
     mainWindow = null;
+  });
+
+  // 입력값이 있으면 렌더러가 beforeunload 로 네이티브 창 닫기(X)를 막는다
+  // (WizardStateProvider 의 isDirty 가드). Electron 기본 동작은 "조용히 취소" 라
+  // X 버튼이 먹통이 된다(메뉴 File>Exit 는 app.quit→app.exit 로 우회되어 멀쩡).
+  // will-prevent-unload 를 받아 종료 확인 대화상자를 띄우고, 사용자가 "종료" 를
+  // 택하면 event.preventDefault() 로 unload 를 허용 → 창 닫기 진행.
+  win.webContents.on("will-prevent-unload", (event) => {
+    if (win.isDestroyed()) return;
+    // will-prevent-unload 는 창 닫기뿐 아니라 새로고침/내비게이션에도 발동한다.
+    // 발행 중이라면 unload 를 허용하지 않는다(허용 시 렌더러가 언마운트되며 publish:end 가
+    // 호출돼 추적을 잃지만 백엔드/수동 발행은 계속 살아있을 수 있음). 창 닫기 경로의 발행
+    // 확인은 win.on("close") 에서 처리되고 그쪽은 win.destroy() 라 여기로 오지 않는다.
+    if (publishingOps.size > 0) return; // preventDefault 안 함 → unload 취소(기존 동작 유지)
+    const choice = dialog.showMessageBoxSync(win, {
+      type: "question" as const,
+      buttons: ["종료", "취소"],
+      defaultId: 1,
+      cancelId: 1,
+      message: "저장하지 않은 변경사항이 있습니다.",
+      detail: "지금 종료하면 작성 중인 이미지 등 일부 입력이 사라질 수 있습니다.",
+    });
+    if (choice === 0) event.preventDefault(); // unload 허용 → 창이 닫힘
   });
 
   // macOS dock 아이콘은 dev 모드에서 Electron 기본 아이콘이 떠서 명시 지정.
