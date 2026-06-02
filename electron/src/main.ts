@@ -1571,6 +1571,29 @@ async function boot(): Promise<void> {
   });
   const win = mainWindow;
 
+  // 다운로드: 앱 내부에서 생성한 blob 다운로드(본문+이미지 ZIP 등)는 다이얼로그 없이
+  // 다운로드 폴더로 자동 저장한다. 핸들러가 없으면 Electron 기본 동작이 "다른 이름으로 저장"
+  // 창을 띄우므로 사용자가 고른 "폴더로 바로" 동작과 어긋난다.
+  // blob: URL 만 대상으로 한정 — 분할뷰(네이버 블로그) 등 외부 http(s) 다운로드는 기본 동작 유지.
+  win.webContents.session.on("will-download", (_event, item) => {
+    try {
+      if (!item.getURL().startsWith("blob:")) return;
+      const downloadsDir = app.getPath("downloads");
+      const original = item.getFilename();
+      const ext = path.extname(original);
+      const base = path.basename(original, ext);
+      let target = path.join(downloadsDir, original);
+      let i = 1;
+      while (fs.existsSync(target)) {
+        target = path.join(downloadsDir, `${base} (${i})${ext}`);
+        i++;
+      }
+      item.setSavePath(target);
+    } catch (err) {
+      log.warn("[download] setSavePath 실패, 기본 동작으로 진행", err);
+    }
+  });
+
   // 스플래시가 그려질 준비가 되면 창 표시. ready-to-show 가 안 와도 1.5s fallback 으로 보장.
   let mainWindowShown = false;
   let resolveSplashShown!: () => void;
