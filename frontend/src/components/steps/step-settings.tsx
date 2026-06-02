@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -138,6 +138,20 @@ export function StepSettings({ state, onChange, customProductInfoById }: StepSet
 
   const isReview = state.postCategory === "review";
 
+  // 선택한 제품 중에 판매 URL이 등록된 게 하나라도 있는지.
+  // "제품 링크 넣기"를 활성화할지 결정하는 안전장치 — URL이 없는데 링크 모드를
+  // 고르면 정작 본문 끝에 빈 결과가 나옴.
+  // v3에서 시드 풀(PRODUCTS)이 비워졌으므로 사용자 등록 메타(customProductInfoById)만 확인.
+  const hasAnyProductUrl = useMemo(() => {
+    if (!isReview) return false;
+    return state.selectedProducts.some((sp) => {
+      const info = customProductInfoById?.[sp.id];
+      return Boolean(info?.productUrl?.trim());
+    });
+  }, [isReview, state.selectedProducts, customProductInfoById]);
+
+  const placementMode = state.productPlacementMode ?? "mention";
+
   return (
     <div className="space-y-6">
       <div className="mb-6">
@@ -246,6 +260,16 @@ export function StepSettings({ state, onChange, customProductInfoById }: StepSet
                   />
                 </CardContent>
               </Card>
+
+              {/* 후기성 전용 — 3단계: 제품 노출 방식 (링크 vs 자연 언급).
+                  product-placement.ts 가 placementMode를 받아 프롬프트 가드를
+                  두 톤 중 하나로 주입. "mention"은 URL을 컨텍스트에서 아예 빼서
+                  LLM이 인지조차 못 하게 막는다. */}
+              <ProductPlacementCard
+                mode={placementMode}
+                onChange={(next) => onChange({ productPlacementMode: next })}
+                hasAnyProductUrl={hasAnyProductUrl}
+              />
             </>
           ) : (
             <>
@@ -494,5 +518,80 @@ function StepBadge({ n }: { n: number }) {
     <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-primary text-xs font-bold text-primary-foreground">
       {n}
     </div>
+  );
+}
+
+// 후기성 전용 — 제품 노출 방식 선택 카드.
+//
+// 두 모드:
+//   - "mention": 본문에 제품명만 1~2회 자연스럽게 언급, 링크/구매유도 없음 (기본값)
+//   - "link":    본문 마지막 줄에 판매 URL을 단독으로 박음
+//
+// 안전장치: 선택한 제품 중 등록된 판매 URL이 하나도 없으면 "링크 넣기"는
+// disabled. URL이 없는데 그 모드를 골라도 결과적으로 빈 결과가 나오므로 미리 차단.
+function ProductPlacementCard({
+  mode,
+  onChange,
+  hasAnyProductUrl,
+}: {
+  mode: "link" | "mention";
+  onChange: (next: "link" | "mention") => void;
+  hasAnyProductUrl: boolean;
+}) {
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2 text-sm">
+          <StepBadge n={3} />
+          <Sparkles className="h-4 w-4" />
+          제품 노출 방식
+          <Badge variant="secondary" className="text-[10px]">
+            선택
+          </Badge>
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-2">
+        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+          {/* 옵션 1 — 자연 언급 (기본) */}
+          <Button
+            type="button"
+            variant={mode === "mention" ? "default" : "outline"}
+            onClick={() => onChange("mention")}
+            className="h-auto min-h-[64px] flex-col items-start gap-1 px-3 py-3 text-left whitespace-normal"
+          >
+            <span className="text-sm font-semibold">제품명만 자연 언급</span>
+            <span className="text-[11px] leading-snug opacity-80">
+              본문에 제품명을 1~2회 자연스럽게 언급하고 끝. 링크·구매 유도 없음.
+            </span>
+          </Button>
+
+          {/* 옵션 2 — 링크 넣기 */}
+          <Button
+            type="button"
+            variant={mode === "link" ? "default" : "outline"}
+            onClick={() => onChange("link")}
+            disabled={!hasAnyProductUrl}
+            title={
+              !hasAnyProductUrl
+                ? "선택한 제품에 등록된 판매 링크가 없어요. '내 정보 → 제품 관리'에서 URL을 등록한 뒤 다시 시도해주세요."
+                : undefined
+            }
+            className="h-auto min-h-[64px] flex-col items-start gap-1 px-3 py-3 text-left whitespace-normal"
+          >
+            <span className="text-sm font-semibold">제품 링크 넣기</span>
+            <span className="text-[11px] leading-snug opacity-80">
+              본문 마지막 줄에 판매 링크가 단독으로 들어가요.
+            </span>
+          </Button>
+        </div>
+
+        {!hasAnyProductUrl && (
+          <p className="text-[11px] text-muted-foreground">
+            선택한 제품에 등록된 판매 링크가 없어 &lsquo;링크 넣기&rsquo;는 비활성 상태예요.
+            &lsquo;내 정보 → 제품 관리&rsquo;에서 URL을 채우면 활성됩니다.
+          </p>
+        )}
+      </CardContent>
+    </Card>
   );
 }

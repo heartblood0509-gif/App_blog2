@@ -52,7 +52,8 @@ export default function HelpToolsPage() {
                 <>
                   <strong>Windows는 자동</strong>으로 새 버전 알림 → 클릭 한
                   번. <strong>Mac은 수동</strong>: 배포처에서 새 .dmg를 받아
-                  재설치
+                  재설치. 자세한 방법은 <strong>「업데이트」</strong> 카테고리
+                  참고.
                 </>
               ),
             },

@@ -5,6 +5,7 @@ export type ProfileRole = "user" | "admin";
 export type DeviceAuthStatus =
   | "authorized"
   | "device_limit"
+  | "superseded"
   | ProfileStatus
   | "error";
 

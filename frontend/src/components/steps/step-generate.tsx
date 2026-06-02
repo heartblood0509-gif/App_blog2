@@ -6,11 +6,13 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import { Textarea } from "@/components/ui/textarea";
 import {
   RefreshCw,
   Copy,
+  Package,
+  Save,
+  FolderOpen,
   Loader2,
   AlertTriangle,
   FileText,
@@ -29,6 +31,7 @@ import {
   Pencil,
   Check,
   X,
+  Search,
 } from "lucide-react";
 import { toast } from "sonner";
 import type {
@@ -38,6 +41,7 @@ import type {
 } from "@/types";
 import { BlogContentRenderer } from "@/components/blog-content-renderer";
 import { ImageLightbox } from "@/components/image-lightbox";
+import { FindBar } from "@/components/shared/find-bar";
 import { buildTextToImagePrompt } from "@/lib/prompts/image";
 
 interface StepGenerateProps {
@@ -48,6 +52,14 @@ interface StepGenerateProps {
   isLoading: boolean;
   onRegenerate: () => void;
   onCopy: () => void;
+  /** 본문 + 이미지를 ZIP 한 묶음으로 다운로드 */
+  onExportZip: () => void;
+  /** ZIP 생성 중 (버튼 스피너용) */
+  isExporting?: boolean;
+  /** 보관함에 저장 요청 (기본 제목 조합 후 다이얼로그 오픈) */
+  onRequestSaveDraft: () => void;
+  /** 보관함 열기 */
+  onOpenLibrary: () => void;
   /**
    * 사용자가 textarea에서 본문을 수정하고 「✓ 수정 완료」를 눌렀을 때 호출.
    * page.tsx가 generatedContent + contentDirty 를 갱신하고, 마커 재파싱·자동 가공이 자동 트리거된다.
@@ -557,6 +569,10 @@ export function StepGenerate({
   isLoading,
   onRegenerate,
   onCopy,
+  onExportZip,
+  isExporting = false,
+  onRequestSaveDraft,
+  onOpenLibrary,
   onContentEdit,
   onReplaceForbidden,
   isReplacingForbidden = false,
@@ -584,6 +600,11 @@ export function StepGenerate({
   // - 「취소」: draft 버리고 미리보기로 복귀
   const [isEditing, setIsEditing] = useState(false);
   const [draftContent, setDraftContent] = useState("");
+
+  // 본문 영역 안에서만 동작하는 Cmd+F 찾기 막대용 컨테이너 ref
+  const bodyRef = useRef<HTMLDivElement>(null);
+  // 찾기 막대 열림 상태 (단축키 Cmd+F + 「찾기」 버튼 공용)
+  const [findOpen, setFindOpen] = useState(false);
 
   const handleEditStart = () => {
     setDraftContent(content);
@@ -628,6 +649,17 @@ export function StepGenerate({
           </p>
         </div>
         <div className="flex gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setFindOpen((v) => !v)}
+            disabled={!content || isLoading}
+            className="gap-2"
+            aria-pressed={findOpen}
+          >
+            <Search className="h-4 w-4" />
+            단어 찾기
+          </Button>
           {!isEditing ? (
             <Button
               variant="outline"
@@ -674,6 +706,42 @@ export function StepGenerate({
           <Button
             variant="outline"
             size="sm"
+            onClick={onExportZip}
+            disabled={!content || isLoading || isEditing || isExporting}
+            className="gap-2"
+            title="본문(.txt/.md)과 이미지를 ZIP 한 묶음으로 다운로드"
+          >
+            {isExporting ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <Package className="h-4 w-4" />
+            )}
+            ZIP 다운로드
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={onRequestSaveDraft}
+            disabled={!content || isLoading || isEditing}
+            className="gap-2"
+            title="작성 중인 글과 이미지를 보관함에 저장"
+          >
+            <Save className="h-4 w-4" />
+            보관함에 저장
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={onOpenLibrary}
+            className="gap-2"
+            title="저장해 둔 글 불러오기"
+          >
+            <FolderOpen className="h-4 w-4" />
+            보관함
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
             onClick={onRegenerate}
             disabled={isLoading || isEditing}
             className="gap-2"
@@ -690,7 +758,14 @@ export function StepGenerate({
 
       <div className="flex flex-col gap-6 lg:flex-row">
         {/* Left: Content Preview (약 66%, 주) */}
-        <div className="flex-[2]">
+        <div ref={bodyRef} className="relative flex-[2]">
+          <FindBar
+            containerRef={bodyRef}
+            enabled={!!content}
+            revision={isEditing ? draftContent : content}
+            open={findOpen}
+            onOpenChange={setFindOpen}
+          />
           <Card className="h-full">
             <CardHeader>
               <CardTitle className="flex items-center gap-2 text-base">
@@ -718,8 +793,7 @@ export function StepGenerate({
               )}
 
               {content && !isEditing && (
-                <ScrollArea className="h-[calc(100dvh-18rem)] min-h-[560px] max-h-[900px] pr-4">
-                  <div>
+                <div>
                     {isLoading && (
                       <div className="mb-3 flex items-center gap-2 text-xs font-medium text-primary">
                         <Loader2 className="h-3 w-3 animate-spin" />
@@ -756,7 +830,6 @@ export function StepGenerate({
                       }}
                     />
                   </div>
-                </ScrollArea>
               )}
 
               {content && isEditing && (
@@ -789,8 +862,10 @@ export function StepGenerate({
           </Card>
         </div>
 
-        {/* Right: Quality Panel (약 33%, 보조 사이드) */}
-        <div className={`flex-[1] ${isEditing ? "pointer-events-none opacity-60" : ""}`}>
+        {/* Right: Quality Panel (약 33%, 보조 사이드) — 글을 내려도 화면에 따라오도록 sticky */}
+        <div
+          className={`flex-[1] self-start lg:sticky lg:top-6 ${isEditing ? "pointer-events-none opacity-60" : ""}`}
+        >
           <Card className="h-full">
             <CardHeader>
               <CardTitle className="flex items-center gap-2 text-base">
@@ -1003,10 +1078,10 @@ export function StepGenerate({
         </div>
       </div>
 
-      {/* 이미지 슬롯 패널 */}
+      {/* 이미지 슬롯 패널 — 회색 배경으로 글 영역과 구분, 안의 슬롯 카드는 흰색 유지 */}
       {imageSlots.length > 0 && (
         <div className="mt-6">
-          <Card>
+          <Card className="bg-muted">
             <CardHeader>
               <div className="flex items-center justify-between">
                 <CardTitle className="flex items-center gap-2 text-base">

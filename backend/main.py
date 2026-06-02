@@ -12,8 +12,9 @@ for _stream in (sys.stdout, sys.stderr):
     except Exception:
         pass
 
-from fastapi import Depends, FastAPI
+from fastapi import Depends, FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 
 from routers.publish import router as publish_router
 from routers.accounts import router as accounts_router
@@ -24,7 +25,7 @@ from routers.products import router as products_router
 from routers.profile_bundle import router as profile_bundle_router
 from config import HOST, PORT
 from auth import verify_app_token
-from log_redactor import RedactingFilter
+from log_redactor import RedactingFilter, _redact
 from paths import LOG_DIR
 
 
@@ -148,6 +149,23 @@ app.include_router(aeo_profiles_router, prefix="/aeo-profiles", tags=["aeo-profi
 app.include_router(analysis_records_router, prefix="/analysis-records", tags=["analysis-records"], dependencies=_protected)
 app.include_router(products_router, prefix="/products", tags=["products"], dependencies=_protected)
 app.include_router(profile_bundle_router, prefix="/profile-bundle", tags=["profile-bundle"], dependencies=_protected)
+
+
+@app.exception_handler(Exception)
+async def _unhandled_exception_handler(request: Request, exc: Exception) -> JSONResponse:
+    """미처리 예외를 평문 500 대신 JSON 으로 직렬화하고 트레이스백을 backend.log 에 남긴다.
+
+    이게 없으면 (HTTPException 이 아닌) 예외가 핸들러 밖에서 터질 때 Starlette 가
+    평문 "Internal Server Error" 를 반환 → 프런트의 res.json() 이 실패 → 원인 불명의
+    "발행 서버 오류" 토스트로 뭉개진다. JSON 으로 내려주면 실제 메시지가 노출된다.
+
+    단, 응답에 들어가는 메시지는 로그와 동일한 redaction 을 한 번 거친다. 만에 하나
+    예외 문자열에 naver_pw·토큰 등이 섞여도 클라이언트(토스트)로 새지 않게 한다.
+    길이는 500자로 잘라 장황한 트레이스백 노출을 막는다.
+    """
+    logging.getLogger(__name__).exception("unhandled error on %s %s", request.method, request.url.path)
+    safe_detail = _redact(f"{type(exc).__name__}: {exc}")[:500]
+    return JSONResponse(status_code=500, content={"detail": safe_detail})
 
 
 @app.on_event("startup")

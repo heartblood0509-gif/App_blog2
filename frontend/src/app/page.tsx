@@ -38,10 +38,24 @@ import type {
   ThreadsState,
   UserProduct,
   ProductInfo,
+  BlogDraft,
 } from "@/types";
 import { initialThreadsState } from "@/types";
 import { fetchUserProducts, PRODUCTS } from "@/lib/products";
 import { buildCustomProductInfo } from "@/lib/prompts/brand-context";
+import { exportZip, detectImageMime } from "@/lib/export-zip";
+import {
+  saveDraft,
+  listDrafts,
+  getDraft,
+  renameDraft,
+  deleteDraft,
+  consumePendingDraft,
+} from "@/lib/draft-storage";
+import {
+  SaveDraftDialog,
+  DraftLibraryModal,
+} from "@/components/steps/draft-library-modal";
 
 // V1 첨부 제품: ID로 user 등록 풀 + 시드 풀에서 UserProduct 모양으로 lookup.
 // 시드 제품은 5분할 필드가 없으므로 defaultAdvantages만 활용됨 (빌더에서 자동 폴백).
@@ -76,6 +90,11 @@ import {
   loadImagesByRound,
   clearOldRounds,
   listRoundIds,
+  saveDraftImages,
+  loadDraftImages,
+  saveDraftUserPhotos,
+  loadDraftUserPhotos,
+  deleteDraftAssets,
 } from "@/lib/image-storage";
 import {
   parseImageMarkers,
@@ -222,6 +241,15 @@ export default function Home() {
 
   // 금지어 AI 부분 치환 — 본문 보존을 위해 단어 매핑만 받아 클라이언트가 surgical replace.
   const [isReplacingForbidden, setIsReplacingForbidden] = useState(false);
+  const [isExportingZip, setIsExportingZip] = useState(false);
+
+  // 보관함(드래프트)
+  const [drafts, setDrafts] = useState<BlogDraft[]>([]);
+  const [libraryOpen, setLibraryOpen] = useState(false);
+  const [saveDraftOpen, setSaveDraftOpen] = useState(false);
+  const [saveDraftDefaultName, setSaveDraftDefaultName] = useState("");
+  const [isSavingDraft, setIsSavingDraft] = useState(false);
+  const [draftStorageWarning, setDraftStorageWarning] = useState(false);
   const [replacementPreview, setReplacementPreview] = useState<{
     replacements: Record<string, string>;
     skipped: string[];
@@ -1036,6 +1064,7 @@ export default function Home() {
             referenceExcerpts: state.referenceExcerpts.length > 0 ? state.referenceExcerpts : undefined,
             topic: effectiveTopic || undefined,
             customProductInfoById,
+            productPlacementMode: state.productPlacementMode,
           }),
         });
       }
@@ -1858,6 +1887,251 @@ export default function Home() {
     navigator.clipboard.writeText(state.generatedContent);
   }, [state.generatedContent]);
 
+  // 본문 + 이미지를 ZIP 한 묶음으로 다운로드.
+  // Electron 은 will-download 핸들러가 다운로드 폴더로 자동 저장(다이얼로그 없음).
+  const handleExportZip = useCallback(async () => {
+    if (!state.generatedContent) return;
+    setIsExportingZip(true);
+    try {
+      await exportZip({
+        title: state.selectedTitle || "블로그 글",
+        content: state.generatedContent,
+        imageSlots: state.imageSlots,
+        generatedImages: state.generatedImages,
+      });
+      toast.success("ZIP 다운로드를 시작했습니다.");
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "ZIP 생성에 실패했습니다.";
+      toast.error(msg);
+    } finally {
+      setIsExportingZip(false);
+    }
+  }, [
+    state.generatedContent,
+    state.selectedTitle,
+    state.imageSlots,
+    state.generatedImages,
+  ]);
+
+  // ── 보관함(드래프트) ──────────────────────────────────────────────────────
+  // 스냅샷에서 제외할 키: 큰 이진(이미지/원본사진) + 진행 중 플래그 + IDB 관리 데이터.
+  // (WizardStateProvider 의 NON_PERSISTABLE_KEYS 와 동일 기준)
+  const buildDraftSnapshot = useCallback((): Partial<WizardState> => {
+    const clone: Partial<WizardState> = { ...state };
+    const exclude: (keyof WizardState)[] = [
+      "generatedImages",
+      "userPhotosBySlot",
+      "isGeneratingBySlot",
+      "isImageGenerating",
+      "slotFailures",
+      "slotVersionMap",
+      "currentRoundId",
+      "isLoading",
+    ];
+    for (const k of exclude) delete clone[k];
+    return clone;
+  }, [state]);
+
+  // 기본 제목 자동 조합: [모드·프로필/제품명] 글제목.
+  // 브랜드/AEO 프로필명은 state 에 없어 async 로 조회(fetchBrandProfile/fetchAeoProfile 재사용).
+  const buildDefaultDraftName = useCallback(async (): Promise<string> => {
+    const title = (state.selectedTitle || "").trim();
+    let prefix = "";
+    try {
+      if (state.postCategory === "review") {
+        const pid = state.selectedProducts[0]?.id;
+        const pname = pid ? customProductInfoById[pid]?.name : undefined;
+        if (pname) prefix = `[제품·${pname}] `;
+      } else if (state.postCategory === "brand") {
+        const profile = (await fetchBrandProfile()) as { name?: string } | null;
+        if (profile?.name) prefix = `[브랜드·${profile.name}] `;
+      } else if (state.postCategory === "seoAeo") {
+        const profile = (await fetchAeoProfile()) as
+          | { name?: string; label?: string }
+          | null;
+        const pname = profile?.name ?? profile?.label;
+        if (pname) prefix = `[AEO·${pname}] `;
+      }
+    } catch {
+      // 프로필 조회 실패 — 제목만으로 폴백
+    }
+    if (title) return `${prefix}${title}`;
+    if (prefix) return prefix.trim();
+    const now = new Date();
+    return `제목 없는 글 (${now.getMonth() + 1}.${now.getDate()})`;
+  }, [
+    state.selectedTitle,
+    state.postCategory,
+    state.selectedProducts,
+    customProductInfoById,
+    fetchBrandProfile,
+    fetchAeoProfile,
+  ]);
+
+  // 저장공간 사용량이 80% 이상이면 경고 배너 플래그 ON.
+  const refreshStorageWarning = useCallback(async () => {
+    try {
+      if (typeof navigator !== "undefined" && navigator.storage?.estimate) {
+        const { usage, quota } = await navigator.storage.estimate();
+        if (usage && quota && quota > 0) {
+          setDraftStorageWarning(usage / quota >= 0.8);
+        }
+      }
+    } catch {
+      // estimate 미지원 — 무시
+    }
+  }, []);
+
+  const handleRequestSaveDraft = useCallback(async () => {
+    if (!state.generatedContent) return;
+    const name = await buildDefaultDraftName();
+    setSaveDraftDefaultName(name);
+    setSaveDraftOpen(true);
+  }, [state.generatedContent, buildDefaultDraftName]);
+
+  const handleSaveDraft = useCallback(
+    async (name: string, memo: string) => {
+      setIsSavingDraft(true);
+      try {
+        const snapshot = buildDraftSnapshot();
+        const slotIds = Object.keys(state.generatedImages);
+        const userPhotoSlotIds = Object.keys(state.userPhotosBySlot);
+        const draft = saveDraft({ name, memo, snapshot, slotIds, userPhotoSlotIds });
+
+        // 완성 이미지 복사 (mimeType 은 매직바이트로 추정해 함께 보관)
+        const imgs: Record<string, { base64: string; mimeType: string }> = {};
+        for (const [sid, b64] of Object.entries(state.generatedImages)) {
+          imgs[sid] = { base64: b64, mimeType: detectImageMime(b64) };
+        }
+        await saveDraftImages(draft.id, imgs);
+        // 원본 사진(AI 변환용) 복사
+        await saveDraftUserPhotos(draft.id, state.userPhotosBySlot);
+
+        setDrafts(listDrafts());
+        await refreshStorageWarning();
+        toast.success("보관함에 저장했습니다.");
+        setSaveDraftOpen(false);
+      } catch (err) {
+        const msg =
+          err instanceof Error && /quota|exceeded/i.test(err.message)
+            ? "저장공간이 부족합니다. 보관함에서 오래된 글을 정리해 주세요."
+            : "보관함 저장에 실패했습니다.";
+        toast.error(msg);
+      } finally {
+        setIsSavingDraft(false);
+      }
+    },
+    [state.generatedImages, state.userPhotosBySlot, buildDraftSnapshot, refreshStorageWarning],
+  );
+
+  const handleOpenLibrary = useCallback(async () => {
+    setDrafts(listDrafts());
+    await refreshStorageWarning();
+    setLibraryOpen(true);
+  }, [refreshStorageWarning]);
+
+  const handleLoadDraft = useCallback(
+    async (id: string) => {
+      const draft = getDraft(id);
+      if (!draft) return;
+      // 현재 작성 중인(미저장) 글이 있으면 덮어쓰기 확인
+      if (state.generatedContent || state.channel !== null) {
+        const ok = window.confirm(
+          "현재 작성 중인 글을 덮어씁니다. 보관함의 글을 불러올까요?",
+        );
+        if (!ok) return;
+      }
+      const [imgs, photos] = await Promise.all([
+        loadDraftImages(id),
+        loadDraftUserPhotos(id),
+      ]);
+      const generatedImages: Record<string, string> = {};
+      for (const [sid, v] of Object.entries(imgs)) generatedImages[sid] = v.base64;
+      const userPhotosBySlot: Record<string, UserPhoto> = {};
+      for (const [sid, p] of Object.entries(photos)) {
+        userPhotosBySlot[sid] = {
+          base64: p.base64,
+          mimeType: p.mimeType,
+          instruction: p.instruction,
+          useProModel: p.useProModel,
+        };
+      }
+      // round 저장소와 네임스페이스 분리 — 복원 후 재생성 이미지는 새 roundId 로.
+      const newRoundId =
+        typeof crypto !== "undefined" && "randomUUID" in crypto
+          ? crypto.randomUUID()
+          : `r_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+
+      setState((prev) => ({
+        ...prev,
+        ...draft.snapshot,
+        generatedImages,
+        userPhotosBySlot,
+        currentRoundId: newRoundId,
+        isGeneratingBySlot: {},
+        isImageGenerating: false,
+        slotFailures: {},
+        isLoading: false,
+        currentStep: 4, // 글 생성 단계
+      }));
+      setLibraryOpen(false);
+      toast.success("보관함의 글을 불러왔습니다.");
+    },
+    [state.generatedContent, state.channel],
+  );
+
+  // "내 정보 → 글 보관함"에서 「이어서 작성하기」로 넘어온 경우, 마운트 시 1회 자동 복원.
+  const pendingDraftHandledRef = useRef(false);
+  useEffect(() => {
+    if (pendingDraftHandledRef.current) return;
+    pendingDraftHandledRef.current = true;
+    const id = consumePendingDraft();
+    if (id) void handleLoadDraft(id);
+    // 마운트 1회만 — handleLoadDraft 는 마운트 시점 클로저로 충분.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const handleDeleteDraft = useCallback(async (id: string) => {
+    const ok = window.confirm("이 글을 보관함에서 삭제할까요?");
+    if (!ok) return;
+    deleteDraft(id);
+    await deleteDraftAssets(id);
+    setDrafts(listDrafts());
+    toast.success("삭제했습니다.");
+  }, []);
+
+  const handleRenameDraft = useCallback(
+    (id: string, name: string, memo: string) => {
+      renameDraft(id, name, memo);
+      setDrafts(listDrafts());
+    },
+    [],
+  );
+
+  const handleExportDraftZip = useCallback(async (id: string) => {
+    const draft = getDraft(id);
+    if (!draft) return;
+    try {
+      const imgs = await loadDraftImages(id);
+      const generatedImages: Record<string, string> = {};
+      const mimeBySlot: Record<string, string> = {};
+      for (const [sid, v] of Object.entries(imgs)) {
+        generatedImages[sid] = v.base64;
+        mimeBySlot[sid] = v.mimeType;
+      }
+      await exportZip({
+        title: draft.name || draft.snapshot.selectedTitle || "블로그 글",
+        content: draft.snapshot.generatedContent ?? "",
+        imageSlots: draft.snapshot.imageSlots ?? [],
+        generatedImages,
+        mimeBySlot,
+      });
+      toast.success("ZIP 다운로드를 시작했습니다.");
+    } catch {
+      toast.error("ZIP 생성에 실패했습니다.");
+    }
+  }, []);
+
   // 사용자가 「✓ 수정 완료」를 누르면 호출됨.
   // 본문이 변하면 page.tsx의 useEffect가 자동으로 마커 재파싱·자동 가공을 다시 돌리고,
   // 슬롯은 description+index 매칭으로 보존된다.
@@ -2089,6 +2363,10 @@ export default function Home() {
             }
             onRegenerate={handleContentRegenerate}
             onCopy={handleContentCopy}
+            onExportZip={handleExportZip}
+            isExporting={isExportingZip}
+            onRequestSaveDraft={handleRequestSaveDraft}
+            onOpenLibrary={handleOpenLibrary}
             onContentEdit={handleContentEdit}
             onReplaceForbidden={handleReplaceForbiddenRequest}
             isReplacingForbidden={isReplacingForbidden}
@@ -2374,6 +2652,25 @@ export default function Home() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* 보관함 — 저장 다이얼로그 + 목록 모달 */}
+      <SaveDraftDialog
+        open={saveDraftOpen}
+        defaultName={saveDraftDefaultName}
+        saving={isSavingDraft}
+        onClose={() => setSaveDraftOpen(false)}
+        onSave={handleSaveDraft}
+      />
+      <DraftLibraryModal
+        open={libraryOpen}
+        drafts={drafts}
+        storageWarning={draftStorageWarning}
+        onClose={() => setLibraryOpen(false)}
+        onLoad={handleLoadDraft}
+        onDelete={handleDeleteDraft}
+        onRename={handleRenameDraft}
+        onExport={handleExportDraftZip}
+      />
     </div>
   );
 }

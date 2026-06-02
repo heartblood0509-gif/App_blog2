@@ -3,11 +3,8 @@ import { callRpc, withAdminRpc } from "@/lib/server/auth/admin-api";
 
 export const dynamic = "force-dynamic";
 
-export async function GET(request: Request) {
-  return withAdminRpc(request, callRpc("admin_list_preauth", {}));
-}
-
-export async function POST(request: Request) {
+// 사용자 이름(display_name)과 메모(memo)만 수정한다. 상태는 건드리지 않는다.
+export async function PATCH(request: Request) {
   const body = await request.json().catch(() => null);
   const source = body && typeof body === "object" ? (body as Record<string, unknown>) : {};
   const email = source.email;
@@ -18,19 +15,10 @@ export async function POST(request: Request) {
   }
   return withAdminRpc(
     request,
-    callRpc("admin_preauth_email", {
+    callRpc("admin_update_entitlement", {
       p_email: email,
       p_display_name: typeof displayName === "string" && displayName.trim() ? displayName : null,
       p_memo: typeof memo === "string" && memo.trim() ? memo : null,
     }),
   );
-}
-
-export async function DELETE(request: Request) {
-  const body = await request.json().catch(() => null);
-  const email = body && typeof body === "object" ? (body as { email?: unknown }).email : null;
-  if (typeof email !== "string" || !email.trim()) {
-    return NextResponse.json({ error: "invalid-email" }, { status: 400 });
-  }
-  return withAdminRpc(request, callRpc("admin_delete_preauth", { p_email: email }));
 }
