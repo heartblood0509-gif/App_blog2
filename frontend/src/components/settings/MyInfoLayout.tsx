@@ -18,6 +18,7 @@ import {
   Tag,
   Target,
   Download,
+  BookOpen,
   type LucideIcon,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -28,6 +29,7 @@ import { ProductManager } from "@/components/settings/ProductManager";
 import { BrandProfileManager } from "@/components/settings/BrandProfileManager";
 import { AeoProfileManager } from "@/components/settings/AeoProfileManager";
 import { ImportExportPanel } from "@/components/settings/ImportExportPanel";
+import { DraftLibraryPanel } from "@/components/settings/DraftLibraryPanel";
 import { SetupChecklist } from "@/components/settings/SetupChecklist";
 
 type TabId =
@@ -37,6 +39,7 @@ type TabId =
   | "products"
   | "brand-profiles"
   | "aeo-profiles"
+  | "draft-library"
   | "import-export";
 
 interface TabDef {
@@ -54,6 +57,7 @@ const TABS: TabDef[] = [
   { id: "products", label: "제품 프로필", icon: Package, group: "profile" },
   { id: "brand-profiles", label: "브랜드 프로필", icon: Tag, group: "profile" },
   { id: "aeo-profiles", label: "AEO 프로필", icon: Target, group: "profile" },
+  { id: "draft-library", label: "글 보관함", icon: BookOpen, group: "data" },
   { id: "import-export", label: "가져오기 / 내보내기", icon: Download, group: "data" },
 ];
 
@@ -133,6 +137,7 @@ export function MyInfoLayout() {
         {activeTab === "products" && <ProductsPlaceholderSection />}
         {activeTab === "brand-profiles" && <BrandProfilesPlaceholderSection />}
         {activeTab === "aeo-profiles" && <AeoProfilesPlaceholderSection />}
+        {activeTab === "draft-library" && <DraftLibrarySection />}
         {activeTab === "import-export" && <ImportExportPlaceholderSection />}
       </section>
       </div>
@@ -223,6 +228,15 @@ function AeoProfilesPlaceholderSection() {
     <div className="mx-auto max-w-3xl space-y-3">
       <SectionDivider label="AEO 프로필" />
       <AeoProfileManager />
+    </div>
+  );
+}
+
+function DraftLibrarySection() {
+  return (
+    <div className="mx-auto max-w-3xl space-y-3">
+      <SectionDivider label="글 보관함" />
+      <DraftLibraryPanel />
     </div>
   );
 }
