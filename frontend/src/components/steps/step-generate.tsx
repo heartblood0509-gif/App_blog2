@@ -29,6 +29,7 @@ import {
   Pencil,
   Check,
   X,
+  Search,
 } from "lucide-react";
 import { toast } from "sonner";
 import type {
@@ -588,6 +589,8 @@ export function StepGenerate({
 
   // 본문 영역 안에서만 동작하는 Cmd+F 찾기 막대용 컨테이너 ref
   const bodyRef = useRef<HTMLDivElement>(null);
+  // 찾기 막대 열림 상태 (단축키 Cmd+F + 「찾기」 버튼 공용)
+  const [findOpen, setFindOpen] = useState(false);
 
   const handleEditStart = () => {
     setDraftContent(content);
@@ -632,6 +635,17 @@ export function StepGenerate({
           </p>
         </div>
         <div className="flex gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setFindOpen((v) => !v)}
+            disabled={!content || isLoading}
+            className="gap-2"
+            aria-pressed={findOpen}
+          >
+            <Search className="h-4 w-4" />
+            단어 찾기
+          </Button>
           {!isEditing ? (
             <Button
               variant="outline"
@@ -699,6 +713,8 @@ export function StepGenerate({
             containerRef={bodyRef}
             enabled={!!content}
             revision={isEditing ? draftContent : content}
+            open={findOpen}
+            onOpenChange={setFindOpen}
           />
           <Card className="h-full">
             <CardHeader>
