@@ -53,6 +53,7 @@ type GateState =
   | "blocked"
   | "expired"
   | "device-limit"
+  | "superseded"
   | "error";
 
 interface AuthSessionContextValue {
@@ -164,7 +165,8 @@ export function AuthSessionProvider({ children }: { children: ReactNode }) {
           "Content-Type": "application/json",
           Authorization: `Bearer ${activeSession.access_token}`,
         },
-        body: JSON.stringify(activeDevice),
+        // 직접 인증(앱 켜기/로그인/재시도)=claim, 배경 폴링(silent)=확인만.
+        body: JSON.stringify({ ...activeDevice, claim: !opts?.silent }),
       });
       const payload = (await response.json().catch(() => null)) as DeviceAuthResponse | null;
       if (!payload) {
@@ -182,6 +184,11 @@ export function AuthSessionProvider({ children }: { children: ReactNode }) {
       if (payload.status === "device_limit") {
         setGateState("device-limit");
         setSelectedDeviceId(payload.devices?.[0]?.device_id ?? "");
+        return;
+      }
+
+      if (payload.status === "superseded") {
+        setGateState("superseded");
         return;
       }
 
@@ -428,6 +435,7 @@ export function AuthSessionProvider({ children }: { children: ReactNode }) {
     if (gateState === "blocked") return "계정 사용이 차단되었습니다";
     if (gateState === "expired") return "사용 기간이 만료되었습니다";
     if (gateState === "device-limit") return "등록 가능한 기기를 모두 사용 중입니다";
+    if (gateState === "superseded") return "다른 기기에서 접속되었습니다";
     return "사용 권한 확인 필요";
   }, [gateState]);
 
@@ -466,6 +474,7 @@ export function AuthSessionProvider({ children }: { children: ReactNode }) {
       case "device-limit":
         return "bg-primary/10 text-primary";
       case "pending":
+      case "superseded":
         return "bg-amber-100 text-amber-600 dark:bg-amber-950/40 dark:text-amber-300";
       case "blocked":
       case "expired":
@@ -493,7 +502,7 @@ export function AuthSessionProvider({ children }: { children: ReactNode }) {
             >
               {gateState === "signed-out" ? (
                 <ShieldCheck className="h-5 w-5" />
-              ) : gateState === "device-limit" ? (
+              ) : gateState === "device-limit" || gateState === "superseded" ? (
                 <Monitor className="h-5 w-5" />
               ) : gateState === "pending" ? (
                 <CheckCircle2 className="h-5 w-5" />
@@ -576,6 +585,12 @@ export function AuthSessionProvider({ children }: { children: ReactNode }) {
                 <Button onClick={retry} variant="outline" className="gap-2">
                   <RefreshCcw className="h-4 w-4" />
                   다시 확인
+                </Button>
+              )}
+              {gateState === "superseded" && (
+                <Button onClick={retry} className="gap-2">
+                  <RefreshCcw className="h-4 w-4" />
+                  이 PC에서 다시 사용하기
                 </Button>
               )}
               {session && gateState !== "checking" && (

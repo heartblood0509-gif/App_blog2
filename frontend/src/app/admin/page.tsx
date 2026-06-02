@@ -8,9 +8,11 @@ import {
   CheckCircle2,
   Loader2,
   Monitor,
+  Pencil,
   RefreshCcw,
   Shield,
   ShieldOff,
+  Trash2,
   UserPlus,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
@@ -33,6 +35,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { Textarea } from "@/components/ui/textarea";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useAuthContext } from "@/lib/auth/auth-context";
 import type { ProfileRole, ProfileStatus } from "@/lib/auth/types";
@@ -47,6 +50,8 @@ interface AdminUser {
   device_count: number;
   entitlement_status: string | null;
   entitlement_note: string | null;
+  display_name: string | null;
+  memo: string | null;
 }
 
 interface AdminDevice {
@@ -74,6 +79,8 @@ interface PreauthEntry {
   email: string;
   status: string;
   note: string | null;
+  display_name: string | null;
+  memo: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -118,10 +125,19 @@ export default function AdminPage() {
   const [loadingDevices, setLoadingDevices] = useState(false);
 
   const [preauthEmail, setPreauthEmail] = useState("");
-  const [preauthNote, setPreauthNote] = useState("");
+  const [preauthName, setPreauthName] = useState("");
+  const [preauthMemo, setPreauthMemo] = useState("");
   const [preauthBusy, setPreauthBusy] = useState(false);
   const [preauthList, setPreauthList] = useState<PreauthEntry[]>([]);
   const [loadingPreauth, setLoadingPreauth] = useState(false);
+
+  // 이름/메모 편집 다이얼로그 (사용자·사전등록 공용)
+  const [editTarget, setEditTarget] = useState<{
+    email: string;
+    display_name: string;
+    memo: string;
+  } | null>(null);
+  const [editBusy, setEditBusy] = useState(false);
 
   const [auditEntries, setAuditEntries] = useState<AdminAuditEntry[]>([]);
   const [loadingAudit, setLoadingAudit] = useState(false);
@@ -231,7 +247,13 @@ export default function AdminPage() {
         });
         const data = await res.json();
         if (!res.ok || !data?.ok) {
-          toast.error(data?.error ?? "상태 변경 실패");
+          const err = typeof data?.error === "string" ? data.error : "";
+          const msg = err.includes("cannot_block_self")
+            ? "관리자 본인 계정은 비활성으로 바꿀 수 없습니다."
+            : err.includes("last_admin")
+              ? "마지막 활성 관리자는 차단/만료할 수 없습니다."
+              : (err || "상태 변경 실패");
+          toast.error(msg);
           return;
         }
         toast.success(`${user.email} → ${STATUS_LABEL[status]}`);
@@ -323,7 +345,8 @@ export default function AdminPage() {
         headers: { ...authHeader, "Content-Type": "application/json" },
         body: JSON.stringify({
           email: preauthEmail.trim(),
-          note: preauthNote.trim() || null,
+          display_name: preauthName.trim() || null,
+          memo: preauthMemo.trim() || null,
         }),
       });
       const data = await res.json();
@@ -333,12 +356,73 @@ export default function AdminPage() {
       }
       toast.success(`${preauthEmail.trim()} 사전 등록 완료`);
       setPreauthEmail("");
-      setPreauthNote("");
+      setPreauthName("");
+      setPreauthMemo("");
       await Promise.all([refreshUsers(), refreshPreauth()]);
     } finally {
       setPreauthBusy(false);
     }
-  }, [authHeader, preauthEmail, preauthNote, refreshUsers, refreshPreauth]);
+  }, [authHeader, preauthEmail, preauthName, preauthMemo, refreshUsers, refreshPreauth]);
+
+  const deletePreauth = useCallback(
+    async (entry: PreauthEntry) => {
+      if (!authHeader) return;
+      if (
+        !window.confirm(
+          `${entry.email}의 사전 등록을 취소(삭제)할까요?\n아직 로그인하지 않은 이메일만 삭제됩니다.`,
+        )
+      ) {
+        return;
+      }
+      try {
+        const res = await fetch("/api/admin/users/preauth", {
+          method: "DELETE",
+          headers: { ...authHeader, "Content-Type": "application/json" },
+          body: JSON.stringify({ email: entry.email }),
+        });
+        const data = await res.json();
+        if (!res.ok || !data?.ok) {
+          const msg =
+            typeof data?.error === "string" && data.error.includes("already_logged_in")
+              ? "이미 로그인한 사용자입니다. 사용자 목록에서 차단/만료로 처리하세요."
+              : (data?.error ?? "사전 등록 취소 실패");
+          toast.error(msg);
+          return;
+        }
+        toast.success(`${entry.email} 사전 등록 취소 완료`);
+        await refreshPreauth();
+      } catch (e) {
+        toast.error(e instanceof Error ? e.message : "사전 등록 취소 실패");
+      }
+    },
+    [authHeader, refreshPreauth],
+  );
+
+  const submitEdit = useCallback(async () => {
+    if (!authHeader || !editTarget) return;
+    setEditBusy(true);
+    try {
+      const res = await fetch("/api/admin/users/entitlement", {
+        method: "PATCH",
+        headers: { ...authHeader, "Content-Type": "application/json" },
+        body: JSON.stringify({
+          email: editTarget.email,
+          display_name: editTarget.display_name.trim() || null,
+          memo: editTarget.memo.trim() || null,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data?.ok) {
+        toast.error(data?.error ?? "저장 실패");
+        return;
+      }
+      toast.success(`${editTarget.email} 정보 저장 완료`);
+      setEditTarget(null);
+      await Promise.all([refreshUsers(), refreshPreauth()]);
+    } finally {
+      setEditBusy(false);
+    }
+  }, [authHeader, editTarget, refreshUsers, refreshPreauth]);
 
   const pendingUsers = users.filter((u) => u.status === "pending");
 
@@ -395,6 +479,13 @@ export default function AdminPage() {
               onSetStatus={setStatus}
               onSetRole={setRole}
               onOpenDevices={openDevices}
+              onEdit={(u) =>
+                setEditTarget({
+                  email: u.email,
+                  display_name: u.display_name ?? "",
+                  memo: u.memo ?? "",
+                })
+              }
               emptyMessage="대기 중인 사용자가 없습니다."
             />
           </TabsContent>
@@ -408,6 +499,13 @@ export default function AdminPage() {
               onSetStatus={setStatus}
               onSetRole={setRole}
               onOpenDevices={openDevices}
+              onEdit={(u) =>
+                setEditTarget({
+                  email: u.email,
+                  display_name: u.display_name ?? "",
+                  memo: u.memo ?? "",
+                })
+              }
               emptyMessage="사용자가 없습니다."
             />
           </TabsContent>
@@ -433,12 +531,22 @@ export default function AdminPage() {
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="preauth-note">메모 (선택)</Label>
+                  <Label htmlFor="preauth-name">사용자 이름 (선택)</Label>
                   <Input
-                    id="preauth-note"
-                    placeholder="구매 채널, 주문번호 등"
-                    value={preauthNote}
-                    onChange={(e) => setPreauthNote(e.target.value)}
+                    id="preauth-name"
+                    placeholder="예: 홍길동"
+                    value={preauthName}
+                    onChange={(e) => setPreauthName(e.target.value)}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="preauth-memo">메모 (선택)</Label>
+                  <Textarea
+                    id="preauth-memo"
+                    rows={5}
+                    placeholder="구매 채널, 주문번호, 특이사항 등 자유롭게 기록"
+                    value={preauthMemo}
+                    onChange={(e) => setPreauthMemo(e.target.value)}
                   />
                 </div>
                 <Button
@@ -491,17 +599,50 @@ export default function AdminPage() {
                     {preauthList.map((entry) => (
                       <div
                         key={entry.email}
-                        className="flex flex-wrap items-center gap-3 px-4 py-3 text-sm"
+                        className="flex flex-wrap items-start gap-3 px-4 py-3 text-sm"
                       >
                         <div className="min-w-0 flex-1">
-                          <div className="flex items-center gap-2">
+                          <div className="flex flex-wrap items-center gap-2">
                             <span className="font-medium">{entry.email}</span>
+                            {entry.display_name && (
+                              <Badge variant="outline">{entry.display_name}</Badge>
+                            )}
                             <Badge variant="secondary">미로그인</Badge>
                           </div>
                           <div className="mt-1 text-xs text-muted-foreground">
                             등록: {formatDate(entry.created_at)}
-                            {entry.note && ` · ${entry.note}`}
                           </div>
+                          {entry.memo && (
+                            <div className="mt-1 whitespace-pre-wrap rounded-md bg-muted/40 px-2 py-1 text-xs text-muted-foreground">
+                              {entry.memo}
+                            </div>
+                          )}
+                        </div>
+                        <div className="flex gap-1">
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="gap-1"
+                            onClick={() =>
+                              setEditTarget({
+                                email: entry.email,
+                                display_name: entry.display_name ?? "",
+                                memo: entry.memo ?? "",
+                              })
+                            }
+                          >
+                            <Pencil className="h-3.5 w-3.5" />
+                            편집
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="gap-1 text-destructive hover:text-destructive"
+                            onClick={() => deletePreauth(entry)}
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                            삭제
+                          </Button>
                         </div>
                       </div>
                     ))}
@@ -615,6 +756,52 @@ export default function AdminPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <Dialog
+        open={editTarget !== null}
+        onOpenChange={(open) => !open && setEditTarget(null)}
+      >
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>이름·메모 편집</DialogTitle>
+            <DialogDescription>{editTarget?.email}</DialogDescription>
+          </DialogHeader>
+          {editTarget && (
+            <div className="space-y-3">
+              <div className="space-y-2">
+                <Label htmlFor="edit-name">사용자 이름</Label>
+                <Input
+                  id="edit-name"
+                  placeholder="예: 홍길동"
+                  value={editTarget.display_name}
+                  onChange={(e) =>
+                    setEditTarget({ ...editTarget, display_name: e.target.value })
+                  }
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="edit-memo">메모</Label>
+                <Textarea
+                  id="edit-memo"
+                  rows={5}
+                  placeholder="사용자 관련 특이사항을 자유롭게 기록"
+                  value={editTarget.memo}
+                  onChange={(e) => setEditTarget({ ...editTarget, memo: e.target.value })}
+                />
+              </div>
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setEditTarget(null)}>
+              취소
+            </Button>
+            <Button onClick={submitEdit} disabled={editBusy} className="gap-2">
+              {editBusy && <Loader2 className="h-4 w-4 animate-spin" />}
+              저장
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </main>
   );
 }
@@ -627,6 +814,7 @@ function UserTable({
   onSetStatus,
   onSetRole,
   onOpenDevices,
+  onEdit,
   emptyMessage,
 }: {
   users: AdminUser[];
@@ -636,6 +824,7 @@ function UserTable({
   onSetStatus: (u: AdminUser, s: ProfileStatus) => void;
   onSetRole: (u: AdminUser, r: ProfileRole) => void;
   onOpenDevices: (u: AdminUser) => void;
+  onEdit: (u: AdminUser) => void;
   emptyMessage: string;
 }) {
   if (loading && users.length === 0) {
@@ -666,10 +855,11 @@ function UserTable({
             {users.map((u) => {
               const busy = busyId === u.id;
               return (
-                <div key={u.id} className="flex flex-wrap items-center gap-3 px-4 py-3 text-sm">
+                <div key={u.id} className="flex flex-wrap items-start gap-3 px-4 py-3 text-sm">
                   <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-2">
+                    <div className="flex flex-wrap items-center gap-2">
                       <span className="font-medium">{u.email}</span>
+                      {u.display_name && <Badge variant="outline">{u.display_name}</Badge>}
                       <Badge variant={STATUS_BADGE[u.status]}>{STATUS_LABEL[u.status]}</Badge>
                       {u.role === "admin" && (
                         <Badge variant="default" className="gap-1">
@@ -684,11 +874,16 @@ function UserTable({
                     </div>
                     <div className="mt-1 text-xs text-muted-foreground">
                       가입: {formatDate(u.created_at)}
-                      {u.entitlement_note && ` · ${u.entitlement_note}`}
                     </div>
+                    {u.memo && (
+                      <div className="mt-1 whitespace-pre-wrap rounded-md bg-muted/40 px-2 py-1 text-xs text-muted-foreground">
+                        {u.memo}
+                      </div>
+                    )}
                   </div>
                   <div className="flex flex-wrap gap-1">
-                    {u.status !== "active" && (
+                    {/* 가입 대기(pending)만 승인. 차단/만료는 각자의 복구 버튼을 쓴다. */}
+                    {u.status === "pending" && (
                       <Button
                         size="sm"
                         onClick={() => onApprove(u)}
@@ -702,16 +897,6 @@ function UserTable({
                     {u.status === "active" && (
                       <Button
                         size="sm"
-                        variant="destructive"
-                        onClick={() => onSetStatus(u, "blocked")}
-                        disabled={busy}
-                      >
-                        차단
-                      </Button>
-                    )}
-                    {u.status === "active" && (
-                      <Button
-                        size="sm"
                         variant="outline"
                         onClick={() => onSetStatus(u, "expired")}
                         disabled={busy}
@@ -719,16 +904,57 @@ function UserTable({
                         만료
                       </Button>
                     )}
-                    {(u.status === "blocked" || u.status === "expired") && (
+                    {u.status === "active" && (
                       <Button
                         size="sm"
-                        variant="outline"
-                        onClick={() => onSetStatus(u, "active")}
+                        variant="destructive"
+                        onClick={() => onSetStatus(u, "blocked")}
                         disabled={busy}
                       >
+                        차단
+                      </Button>
+                    )}
+                    {/* 만료: 가볍게 1클릭 복구 */}
+                    {u.status === "expired" && (
+                      <Button
+                        size="sm"
+                        onClick={() => onSetStatus(u, "active")}
+                        disabled={busy}
+                        className="gap-1"
+                      >
+                        <CheckCircle2 className="h-3.5 w-3.5" />
                         활성화
                       </Button>
                     )}
+                    {/* 차단: 실수 방지를 위해 확인 한 단계 더 */}
+                    {u.status === "blocked" && (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => {
+                          if (
+                            window.confirm(
+                              `${u.email}의 차단을 해제하고 활성화할까요?\n차단은 문제가 있어 막은 계정입니다. 정말 해제하시겠습니까?`,
+                            )
+                          ) {
+                            onSetStatus(u, "active");
+                          }
+                        }}
+                        disabled={busy}
+                      >
+                        차단 해제
+                      </Button>
+                    )}
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => onEdit(u)}
+                      disabled={busy}
+                      className="gap-1"
+                    >
+                      <Pencil className="h-3.5 w-3.5" />
+                      편집
+                    </Button>
                     <Button
                       size="sm"
                       variant="outline"

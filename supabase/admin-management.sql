@@ -162,6 +162,14 @@ begin
       'entitlement_note', (
         select note from public.email_entitlements e
         where lower(e.email) = lower(p.email)
+      ),
+      'display_name', (
+        select display_name from public.email_entitlements e
+        where lower(e.email) = lower(p.email)
+      ),
+      'memo', (
+        select memo from public.email_entitlements e
+        where lower(e.email) = lower(p.email)
       )
     ) as row
     from public.profiles p
@@ -234,6 +242,8 @@ set search_path = public
 as $$
 declare
   v_email text;
+  v_target_role text;
+  v_other_active_admins integer;
   v_before jsonb;
   v_after jsonb;
 begin
@@ -243,9 +253,25 @@ begin
     raise exception 'invalid-status: %', p_status using errcode = '22023';
   end if;
 
-  select email into v_email from public.profiles where id = p_user_id;
+  select email, role into v_email, v_target_role
+  from public.profiles where id = p_user_id;
   if v_email is null then
     raise exception 'user-not-found' using errcode = 'P0002';
+  end if;
+
+  -- 안전장치 1: 관리자가 자기 자신을 비활성(차단/만료/대기)으로 바꿔 콘솔에서 잠기는 것을 막는다.
+  if p_user_id = auth.uid() and p_status <> 'active' then
+    raise exception 'cannot_block_self' using errcode = 'P0001';
+  end if;
+
+  -- 안전장치 2: 마지막 활성 관리자를 차단/만료시켜 아무도 관리 못 하는 상황을 막는다.
+  if v_target_role = 'admin' and p_status in ('blocked', 'expired') then
+    select count(*) into v_other_active_admins
+    from public.profiles
+    where role = 'admin' and status = 'active' and id <> p_user_id;
+    if v_other_active_admins = 0 then
+      raise exception 'last_admin' using errcode = 'P0001';
+    end if;
   end if;
 
   select jsonb_build_object(
@@ -404,9 +430,13 @@ begin
 end;
 $$;
 
+-- 인자가 (email, note) → (email, display_name, memo) 로 바뀌므로 옛 시그니처를 먼저 제거.
+drop function if exists public.admin_preauth_email(text, text);
+
 create or replace function public.admin_preauth_email(
   p_email text,
-  p_note text default null
+  p_display_name text default null,
+  p_memo text default null
 )
 returns jsonb
 language plpgsql
@@ -427,17 +457,124 @@ begin
   select to_jsonb(e) into v_before
   from public.email_entitlements e where lower(e.email) = v_email;
 
-  insert into public.email_entitlements (email, status, note)
-  values (v_email, 'active', coalesce(p_note, '사전 등록'))
+  insert into public.email_entitlements (email, status, note, display_name, memo)
+  values (v_email, 'active', '사전 등록', p_display_name, p_memo)
   on conflict (email) do update
     set status = 'active',
-        note = coalesce(excluded.note, public.email_entitlements.note),
+        display_name = coalesce(excluded.display_name, public.email_entitlements.display_name),
+        memo = coalesce(excluded.memo, public.email_entitlements.memo),
         updated_at = now();
 
   select to_jsonb(e) into v_after
   from public.email_entitlements e where lower(e.email) = v_email;
 
   perform public._admin_log('preauth_email', null, v_email, v_before, v_after);
+
+  return jsonb_build_object('ok', true, 'email', v_email);
+end;
+$$;
+
+-- 이름(display_name)·메모(memo)만 수정한다. status 는 절대 건드리지 않는다.
+-- (차단/만료 사용자가 메모 수정만으로 되살아나는 사고를 막기 위함.)
+create or replace function public.admin_update_entitlement(
+  p_email text,
+  p_display_name text default null,
+  p_memo text default null
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_email text := lower(trim(p_email));
+  v_profile_status text;
+  v_before jsonb;
+  v_after jsonb;
+begin
+  perform public._admin_require();
+
+  if v_email = '' then
+    raise exception 'invalid-email' using errcode = '22023';
+  end if;
+
+  select to_jsonb(e) into v_before
+  from public.email_entitlements e where lower(e.email) = v_email;
+
+  if v_before is null then
+    -- entitlement 행이 없으면 만들되, status 는 현재 프로필 상태를 그대로 미러링한다.
+    -- 프로필이 없으면 'pending'(권한 없음) 으로 둔다.
+    -- ⚠️ 절대 'active' 로 승격하지 않는다 — 이름/메모 저장이 곧 승인이 되어선 안 됨.
+    select status into v_profile_status
+    from public.profiles where lower(email) = v_email
+    order by created_at asc limit 1;
+
+    insert into public.email_entitlements (email, status, display_name, memo)
+    values (
+      v_email,
+      coalesce(v_profile_status, 'pending'),
+      p_display_name,
+      p_memo
+    )
+    on conflict (email) do update
+      set display_name = excluded.display_name,
+          memo = excluded.memo,
+          updated_at = now();
+  else
+    update public.email_entitlements
+    set display_name = p_display_name,
+        memo = p_memo,
+        updated_at = now()
+    where lower(email) = v_email;
+  end if;
+
+  select to_jsonb(e) into v_after
+  from public.email_entitlements e where lower(e.email) = v_email;
+
+  perform public._admin_log('update_entitlement', null, v_email, v_before, v_after);
+
+  return jsonb_build_object('ok', true, 'email', v_email);
+end;
+$$;
+
+-- 아직 로그인하지 않은(=profiles 행이 없는) 사전 등록 이메일만 삭제한다.
+-- 이미 로그인한 사용자는 일반 사용자 관리(차단/만료)로 처리해야 하므로 거부.
+create or replace function public.admin_delete_preauth(p_email text)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_email text := lower(trim(p_email));
+  v_before jsonb;
+  v_deleted integer;
+begin
+  perform public._admin_require();
+
+  if v_email = '' then
+    raise exception 'invalid-email' using errcode = '22023';
+  end if;
+
+  select to_jsonb(e) into v_before
+  from public.email_entitlements e where lower(e.email) = v_email;
+
+  -- 조회~삭제 사이 로그인 끼어듦 방지를 위해 단일 문장으로 처리.
+  with deleted as (
+    delete from public.email_entitlements
+    where lower(email) = v_email
+      and not exists (
+        select 1 from public.profiles p where lower(p.email) = v_email
+      )
+    returning 1
+  )
+  select count(*) into v_deleted from deleted;
+
+  if v_deleted = 0 then
+    raise exception 'already_logged_in_or_not_found' using errcode = 'P0001';
+  end if;
+
+  perform public._admin_log('delete_preauth', null, v_email, v_before, null);
 
   return jsonb_build_object('ok', true, 'email', v_email);
 end;
@@ -463,6 +600,8 @@ begin
       'email', e.email,
       'status', e.status,
       'note', e.note,
+      'display_name', e.display_name,
+      'memo', e.memo,
       'created_at', e.created_at,
       'updated_at', e.updated_at
     ) as row
@@ -531,7 +670,9 @@ revoke all on function public.admin_set_user_status(uuid, text) from public, ano
 revoke all on function public.admin_set_user_role(uuid, text) from public, anon;
 revoke all on function public.admin_list_user_devices(uuid) from public, anon;
 revoke all on function public.admin_reset_user_devices(uuid) from public, anon;
-revoke all on function public.admin_preauth_email(text, text) from public, anon;
+revoke all on function public.admin_preauth_email(text, text, text) from public, anon;
+revoke all on function public.admin_update_entitlement(text, text, text) from public, anon;
+revoke all on function public.admin_delete_preauth(text) from public, anon;
 revoke all on function public.admin_list_preauth() from public, anon;
 revoke all on function public.admin_list_audit_log(integer) from public, anon;
 revoke all on function public.get_my_role() from public, anon;
@@ -542,7 +683,9 @@ grant execute on function public.admin_set_user_status(uuid, text) to authentica
 grant execute on function public.admin_set_user_role(uuid, text) to authenticated;
 grant execute on function public.admin_list_user_devices(uuid) to authenticated;
 grant execute on function public.admin_reset_user_devices(uuid) to authenticated;
-grant execute on function public.admin_preauth_email(text, text) to authenticated;
+grant execute on function public.admin_preauth_email(text, text, text) to authenticated;
+grant execute on function public.admin_update_entitlement(text, text, text) to authenticated;
+grant execute on function public.admin_delete_preauth(text) to authenticated;
 grant execute on function public.admin_list_preauth() to authenticated;
 grant execute on function public.admin_list_audit_log(integer) to authenticated;
 grant execute on function public.get_my_role() to authenticated;
