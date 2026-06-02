@@ -25,6 +25,7 @@ import {
   FileText,
   Send,
   Check,
+  SquarePlay,
 } from "lucide-react";
 import type {
   WizardState,
@@ -155,6 +156,7 @@ function applyImagePostProcessing(
 }
 
 import { StepChannelSelect } from "@/components/steps/step-channel-select";
+import { StepYoutubeEmbed } from "@/components/steps/step-youtube-embed";
 import { StepNarrative } from "@/components/steps/step-narrative";
 import { StepSettings } from "@/components/steps/step-settings";
 import { StepTitleSelect } from "@/components/steps/step-title-select";
@@ -205,6 +207,11 @@ const THREADS_STEPS = [
   { label: "분석 방식", icon: BookOpen },
   { label: "글 설정", icon: Settings },
   { label: "쓰레드 생성", icon: FileText },
+];
+
+const YOUTUBE_STEPS = [
+  { label: "채널 선택", icon: Package },
+  { label: "쇼츠 생성", icon: SquarePlay },
 ];
 
 export default function Home() {
@@ -403,9 +410,19 @@ export default function Home() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [state.generatedContent]);
 
-  const STEPS = state.channel === "thread" ? THREADS_STEPS : BLOG_STEPS;
+  const STEPS =
+    state.channel === "youtube"
+      ? YOUTUBE_STEPS
+      : state.channel === "thread"
+        ? THREADS_STEPS
+        : BLOG_STEPS;
 
   const canAdvance = (): boolean => {
+    // 유튜브 채널: 채널만 고르면 통과(이후는 임베드 화면이라 마법사 진행 없음).
+    if (state.channel === "youtube") {
+      return true;
+    }
+
     // 쓰레드 채널 분기
     if (state.channel === "thread") {
       switch (state.currentStep) {
@@ -1926,6 +1943,19 @@ export default function Home() {
   }, [replacementPreview, state.generatedContent, updateState, runValidation]);
 
   const renderStep = () => {
+    // 유튜브 채널 분기 — step 0 은 채널 선택, 그 이후는 쇼츠 생성기 임베드.
+    if (state.channel === "youtube") {
+      if (state.currentStep === 0) {
+        return (
+          <StepChannelSelect
+            channel={state.channel}
+            onChannelChange={handleChannelChange}
+          />
+        );
+      }
+      return <StepYoutubeEmbed />;
+    }
+
     // 쓰레드 채널 분기
     if (state.channel === "thread") {
       switch (state.currentStep) {

@@ -1,0 +1,408 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>관리 - Shorts Pick</title>
+    <link rel="stylesheet" href="/static/css/style.css?v=30">
+    <script src="/static/js/icons.js?v=1" defer></script>
+</head>
+<body class="has-navbar">
+    <script>if(localStorage.getItem('theme')==='dark'||!localStorage.getItem('theme'))document.body.classList.add('dark');</script>
+    <nav class="navbar">
+        <a href="/" class="navbar-logo">
+            <i data-lucide="clapperboard" class="navbar-logo-icon"></i>
+            <span class="navbar-logo-text">Shorts Pick</span>
+        </a>
+        <div id="navbar-right" class="navbar-right"></div>
+    </nav>
+
+    <div class="container" style="padding-top: 56px; padding-bottom: 56px;">
+        <a href="/" class="page-back" onclick="goBackOrHome(event)">← 뒤로가기</a>
+        <h2 class="page-title">관리자 대시보드</h2>
+
+        <div class="admin-tabs">
+            <button class="admin-tab active" onclick="switchTab('users')">사용자 관리</button>
+            <button class="admin-tab" onclick="switchTab('jobs')">작업 이력</button>
+        </div>
+
+        <div id="tab-users" class="admin-panel">
+            <h2 class="section-title">사전 승인 이메일 <span id="preapprove-count" class="count-badge count-badge-info"></span></h2>
+            <p class="section-help">가입자 이메일을 미리 등록하면, 해당 사용자가 가입하는 순간 자동으로 승인 처리됩니다. 여러 개는 줄바꿈 또는 쉼표로 구분해 한 번에 입력할 수 있어요.</p>
+            <form id="preapprove-form" class="preapprove-form" onsubmit="addPreApprovedEmails(event)">
+                <textarea id="preapprove-input" rows="3"
+                          placeholder="example1@gmail.com, example2@gmail.com&#10;example3@gmail.com"></textarea>
+                <button type="submit" class="btn-preapprove-submit">등록</button>
+            </form>
+            <div id="preapprove-list"></div>
+
+            <h2 class="section-title" style="margin-top: 32px;">승인 대기 <span id="pending-count" class="count-badge"></span></h2>
+            <div id="pending-list"></div>
+
+            <h2 class="section-title" style="margin-top: 32px;">전체 사용자</h2>
+            <div id="all-users-list"></div>
+        </div>
+
+        <div id="tab-jobs" class="admin-panel" style="display:none;">
+            <div id="admin-job-list"></div>
+        </div>
+    </div>
+
+    <style>
+        .admin-tabs {
+            display: flex; gap: 0; margin-bottom: 24px;
+            border-bottom: 1px solid var(--border);
+        }
+        .admin-tab {
+            flex: 1; padding: 12px; background: none; border: none;
+            color: var(--text-dim); font-size: 15px; cursor: pointer;
+            border-bottom: 2px solid transparent; transition: color 0.2s, border-color 0.2s;
+        }
+        .admin-tab.active { color: var(--primary); border-bottom-color: var(--primary); }
+        .admin-tab:hover { color: var(--text); }
+        .section-title {
+            font-size: 18px; color: var(--text); margin-bottom: 16px;
+            font-weight: 700; letter-spacing: -0.01em;
+            display: flex; align-items: center;
+        }
+        .count-badge {
+            font-size: 14px; background: rgba(239,68,68,0.12); color: var(--error);
+            padding: 3px 10px; border-radius: 999px; margin-left: 8px; font-weight: 600;
+        }
+        .count-badge:empty { display: none; }
+        .count-badge-info { background: var(--primary-soft); color: var(--primary); }
+
+        .section-help {
+            color: var(--text-dim); font-size: 13px; line-height: 1.6;
+            margin: -8px 0 14px;
+        }
+        .preapprove-form {
+            display: flex; gap: 10px; margin-bottom: 14px; align-items: flex-start;
+        }
+        .preapprove-form textarea {
+            flex: 1; padding: 10px 12px; font-size: 14px;
+            background: var(--surface); color: var(--text);
+            border: 1px solid var(--border); border-radius: 8px;
+            resize: vertical; font-family: inherit; min-height: 72px;
+        }
+        .preapprove-form textarea:focus {
+            outline: none; border-color: var(--primary);
+            box-shadow: 0 0 0 3px var(--primary-soft);
+        }
+        .btn-preapprove-submit {
+            padding: 10px 20px; font-size: 14px; font-weight: 600;
+            background: var(--primary); color: var(--primary-fg);
+            border: none; border-radius: 8px; cursor: pointer;
+            white-space: nowrap;
+        }
+        .btn-preapprove-submit:hover { background: var(--primary-hover); }
+        .preapprove-row {
+            display: flex; align-items: center; gap: 12px;
+            padding: 10px 16px; background: var(--surface);
+            border: 1px solid var(--border); border-radius: 10px;
+            margin-bottom: 8px;
+        }
+        .preapprove-row .email { flex: 1; color: var(--text); font-size: 14px; font-weight: 500; }
+        .preapprove-row .date { color: var(--text-dim); font-size: 13px; }
+        .btn-preapprove-delete {
+            background: none; border: 1px solid var(--border);
+            color: var(--text-dim); border-radius: 6px;
+            padding: 4px 12px; font-size: 13px; cursor: pointer;
+        }
+        .btn-preapprove-delete:hover {
+            border-color: var(--error); color: var(--error);
+        }
+        @media (max-width: 768px) {
+            .preapprove-form { flex-direction: column; }
+            .btn-preapprove-submit { width: 100%; }
+        }
+
+        .user-row {
+            display: flex; align-items: center; gap: 14px; padding: 16px 20px;
+            background: var(--surface); border: 1px solid var(--border);
+            border-radius: 12px; margin-bottom: 10px; flex-wrap: wrap;
+            box-shadow: var(--shadow-sm);
+            transition: border-color 0.18s ease, box-shadow 0.18s ease, transform 0.18s ease;
+        }
+        .user-row:hover {
+            border-color: var(--primary);
+            box-shadow: var(--shadow-md);
+            transform: translateY(-1px);
+        }
+        .user-row .nickname { font-weight: 700; min-width: 80px; font-size: 15px; }
+        .user-row .email { color: var(--text-dim); font-size: 14px; flex: 1; }
+        .user-row .date { color: var(--text-dim); font-size: 13px; }
+        .role-badge {
+            font-size: 13px; padding: 2px 8px; border-radius: 4px;
+        }
+        .role-badge.admin { background: rgba(255,71,87,0.15); color: var(--error); }
+        .role-badge.user { background: rgba(136,136,136,0.15); color: var(--text-dim); }
+        .approved-badge {
+            font-size: 13px; padding: 2px 8px; border-radius: 4px;
+        }
+        .approved-badge.yes { background: rgba(46,213,115,0.15); color: var(--success); }
+        .approved-badge.no { background: rgba(255,71,87,0.15); color: var(--error); }
+
+        .btn-approve {
+            background: var(--success); color: #000; border: none; border-radius: 6px;
+            padding: 4px 12px; font-size: 14px; cursor: pointer; font-weight: 600;
+        }
+        .btn-reject {
+            background: var(--error); color: #fff; border: none; border-radius: 6px;
+            padding: 4px 12px; font-size: 14px; cursor: pointer; font-weight: 600;
+        }
+        .btn-approve:hover, .btn-reject:hover { opacity: 0.85; }
+        .btn-role {
+            background: none; border: 1px solid var(--border); color: var(--text-dim);
+            border-radius: 6px; padding: 4px 10px; font-size: 13px;
+            cursor: pointer; white-space: nowrap;
+        }
+        .btn-role:hover { border-color: var(--primary); color: var(--primary); }
+
+        .empty-notice { color: var(--text-dim); text-align: center; padding: 40px 20px; font-size: 14px; }
+
+        .job-owner-info { display: flex; align-items: center; gap: 8px; font-size: 14px; padding-top: 4px; flex-basis: 100%; }
+        .job-owner-badge { background: var(--primary-soft); color: var(--primary); padding: 3px 10px; border-radius: 999px; font-weight: 600; }
+        .job-owner-email { color: var(--text-dim); }
+        .job-topic { color: var(--text-dim); font-style: italic; max-width: 300px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    </style>
+
+    <script src="/static/js/auth.js?v=4"></script>
+    <script>
+    function escapeHtml(str) {
+        if (!str) return '';
+        const div = document.createElement('div');
+        div.textContent = str;
+        return div.innerHTML;
+    }
+
+    function formatKstDate(value) {
+        if (!value) return '';
+        const date = new Date(value);
+        if (Number.isNaN(date.getTime())) return '';
+        return new Intl.DateTimeFormat('ko-KR', {
+            timeZone: 'Asia/Seoul',
+            year: 'numeric',
+            month: 'numeric',
+            day: 'numeric',
+        }).format(date);
+    }
+
+    function formatKstDateTime(value) {
+        if (!value) return '';
+        const date = new Date(value);
+        if (Number.isNaN(date.getTime())) return '';
+        return new Intl.DateTimeFormat('ko-KR', {
+            timeZone: 'Asia/Seoul',
+            year: 'numeric',
+            month: 'numeric',
+            day: 'numeric',
+            hour: 'numeric',
+            minute: '2-digit',
+            second: '2-digit',
+        }).format(date);
+    }
+
+    authReady.then(user => {
+        if (user.role !== 'admin') {
+            window.location.href = '/';
+            return;
+        }
+        loadPreApprovedEmails();
+        loadPendingUsers();
+        loadAllUsers();
+    });
+
+    function switchTab(tab) {
+        document.querySelectorAll('.admin-tab').forEach(t => t.classList.remove('active'));
+        document.querySelectorAll('.admin-panel').forEach(p => p.style.display = 'none');
+        if (tab === 'users') {
+            document.querySelectorAll('.admin-tab')[0].classList.add('active');
+            document.getElementById('tab-users').style.display = '';
+        } else {
+            document.querySelectorAll('.admin-tab')[1].classList.add('active');
+            document.getElementById('tab-jobs').style.display = '';
+            loadAdminJobs();
+        }
+    }
+
+    async function loadPreApprovedEmails() {
+        const resp = await authFetch('/api/admin/pre-approved-emails');
+        if (!resp.ok) return;
+        const rows = await resp.json();
+        const el = document.getElementById('preapprove-list');
+        document.getElementById('preapprove-count').textContent = rows.length > 0 ? `${rows.length}건` : '';
+        if (rows.length === 0) {
+            el.innerHTML = '<p class="empty-notice">아직 등록된 사전 승인 이메일이 없습니다</p>';
+            return;
+        }
+        el.innerHTML = rows.map(r => `
+            <div class="preapprove-row">
+                <span class="email">${escapeHtml(r.email)}</span>
+                <span class="date">${formatKstDate(r.created_at)}</span>
+                <button class="btn-preapprove-delete" onclick="deletePreApprovedEmail('${escapeHtml(r.email)}')">삭제</button>
+            </div>
+        `).join('');
+    }
+
+    async function addPreApprovedEmails(event) {
+        event.preventDefault();
+        const input = document.getElementById('preapprove-input');
+        const value = input.value.trim();
+        if (!value) {
+            alert('등록할 이메일을 입력해 주세요.');
+            return;
+        }
+        const resp = await authFetch('/api/admin/pre-approved-emails', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ emails: value }),
+        });
+        if (!resp.ok) {
+            const err = await resp.json().catch(() => ({}));
+            alert(err.detail || '등록에 실패했습니다.');
+            return;
+        }
+        const result = await resp.json();
+        const lines = [];
+        if (result.added?.length) lines.push(`신규 등록: ${result.added.length}건`);
+        if (result.already_pre_approved?.length) lines.push(`이미 등록됨: ${result.already_pre_approved.length}건`);
+        if (result.auto_approved_existing?.length) lines.push(`즉시 승인 처리: ${result.auto_approved_existing.length}건 (이미 가입했던 미승인 사용자)`);
+        if (result.already_user_approved?.length) lines.push(`이미 승인된 사용자: ${result.already_user_approved.length}건`);
+        if (result.invalid?.length) lines.push(`형식 오류로 무시: ${result.invalid.length}건`);
+        alert(lines.length ? lines.join('\n') : '처리할 이메일이 없습니다.');
+
+        input.value = '';
+        loadPreApprovedEmails();
+        if (result.auto_approved_existing?.length) {
+            loadPendingUsers();
+            loadAllUsers();
+        }
+    }
+
+    async function deletePreApprovedEmail(email) {
+        if (!confirm(`${email} 을(를) 사전 승인 목록에서 삭제하시겠습니까?`)) return;
+        const resp = await authFetch(`/api/admin/pre-approved-emails/${encodeURIComponent(email)}`, { method: 'DELETE' });
+        if (resp.ok) {
+            loadPreApprovedEmails();
+        } else {
+            const err = await resp.json().catch(() => ({}));
+            alert(err.detail || '삭제에 실패했습니다.');
+        }
+    }
+
+    async function loadPendingUsers() {
+        const resp = await authFetch('/api/admin/pending-users');
+        if (!resp.ok) return;
+        const users = await resp.json();
+        const el = document.getElementById('pending-list');
+        document.getElementById('pending-count').textContent = users.length > 0 ? `${users.length}명` : '';
+
+        if (users.length === 0) {
+            el.innerHTML = '<p class="empty-notice">승인 대기 중인 사용자가 없습니다</p>';
+            return;
+        }
+        el.innerHTML = users.map(u => `
+            <div class="user-row" id="pending-${escapeHtml(u.id)}">
+                <span class="nickname">${escapeHtml(u.nickname || '-')}</span>
+                <span class="email">${escapeHtml(u.email)}</span>
+                <span class="date">${formatKstDate(u.created_at)}</span>
+                <button class="btn-approve" onclick="approveUser('${escapeHtml(u.id)}')">승인</button>
+                <button class="btn-reject" onclick="rejectUser('${escapeHtml(u.id)}')">거절</button>
+            </div>
+        `).join('');
+    }
+
+    async function loadAllUsers() {
+        const resp = await authFetch('/api/admin/users');
+        if (!resp.ok) return;
+        const users = await resp.json();
+        const el = document.getElementById('all-users-list');
+        el.innerHTML = users.map(u => `
+            <div class="user-row">
+                <span class="nickname">${escapeHtml(u.nickname || '-')}</span>
+                <span class="email">${escapeHtml(u.email)}</span>
+                <span class="role-badge ${u.role}">${u.role}</span>
+                <span class="approved-badge ${u.approved ? 'yes' : 'no'}">${u.approved ? '승인' : '미승인'}</span>
+                <span class="date">${formatKstDate(u.created_at)}</span>
+                <button class="btn-role" onclick="toggleRole('${escapeHtml(u.id)}', '${u.role}')">${u.role === 'admin' ? 'user로 변경' : 'admin으로 변경'}</button>
+            </div>
+        `).join('');
+    }
+
+    async function toggleRole(userId, currentRole) {
+        const newRole = currentRole === 'admin' ? 'user' : 'admin';
+        if (!confirm(`이 사용자를 ${newRole}(으)로 변경하시겠습니까?`)) return;
+        const resp = await authFetch(`/api/admin/users/${userId}/role`, { method: 'POST' });
+        if (resp.ok) { loadAllUsers(); }
+        else { const err = await resp.json(); alert(err.detail || '역할 변경 실패'); }
+    }
+
+    async function approveUser(userId) {
+        const resp = await authFetch(`/api/admin/users/${userId}/approve`, { method: 'POST' });
+        if (resp.ok) { loadPendingUsers(); loadAllUsers(); }
+    }
+
+    async function rejectUser(userId) {
+        if (!confirm('이 사용자를 거절(삭제)하시겠습니까?')) return;
+        const resp = await authFetch(`/api/admin/users/${userId}/reject`, { method: 'POST' });
+        if (resp.ok) { loadPendingUsers(); loadAllUsers(); }
+    }
+
+    async function loadAdminJobs() {
+        const resp = await authFetch('/api/admin/jobs');
+        if (!resp.ok) return;
+        const jobs = await resp.json();
+        const el = document.getElementById('admin-job-list');
+        if (jobs.length === 0) {
+            el.innerHTML = '<p class="empty-notice">작업 이력이 없습니다</p>';
+            return;
+        }
+        el.innerHTML = jobs.map(job => `
+            <div class="card job-card">
+                <div class="job-info">
+                    <span class="job-status status-${escapeHtml(job.status)}">${escapeHtml(statusLabel(job.status))}</span>
+                    <span class="job-id">${escapeHtml(job.job_id)}</span>
+                    <span class="job-date">${formatKstDateTime(job.created_at)}</span>
+                </div>
+                ${(job.owner_nickname || job.owner_email || job.topic) ? `
+                <div class="job-owner-info">
+                    ${job.owner_nickname ? `<span class="job-owner-badge">${escapeHtml(job.owner_nickname)}</span>` : ''}
+                    ${job.owner_email ? `<span class="job-owner-email">${escapeHtml(job.owner_email)}</span>` : ''}
+                    ${job.topic ? `<span class="job-topic">${escapeHtml(job.topic)}</span>` : ''}
+                </div>` : ''}
+                <p class="job-step">${escapeHtml(job.current_step || '')}</p>
+                ${jobActions(job)}
+            </div>
+        `).join('');
+    }
+
+    function jobActions(job) {
+        if (job.files_expired) {
+            return '<span class="text-dim" style="font-size:12px">파일이 삭제되었습니다 (30일 경과)</span>';
+        }
+        if (job.video_url) {
+            return `<a href="${escapeHtml(job.video_url)}" class="btn-small btn-primary" download>다운로드</a>`;
+        }
+        if (job.status === 'preview_ready' || job.status === 'awaiting_confirmation') {
+            return `<a href="/static/preview.html?job=${escapeHtml(job.job_id)}" class="btn-small btn-secondary">미리보기</a>`;
+        }
+        if (['pending', 'generating_images', 'generating_tts', 'assembling_video'].includes(job.status)) {
+            return `<a href="/static/status.html?job=${escapeHtml(job.job_id)}" class="btn-small btn-secondary">진행 상태</a>`;
+        }
+        return '';
+    }
+
+    function statusLabel(status) {
+        const labels = {
+            pending: '대기', generating_images: '이미지 생성', preview_ready: '미리보기',
+            regenerating_image: '이미지 재생성', awaiting_confirmation: '확인 대기',
+            generating_clips: '클립 생성', clips_ready: '클립 준비',
+            generating_tts: 'TTS 생성', assembling_video: '영상 조립',
+            completed: '완료', failed: '실패',
+        };
+        return labels[status] || status;
+    }
+    </script>
+</body>
+</html>

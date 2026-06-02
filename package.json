@@ -13,10 +13,10 @@
     "build:backend": "node scripts/build-backend.js",
     "build:backend:win": "cmd /c backend\\build-windows.bat",
     "build:backend:mac": "bash backend/build-macos.sh",
-    "dist": "npm run build:backend && npm run build:electron && npm run build:next && electron-builder",
-    "dist:win": "npm run build:backend:win && npm run build:electron && npm run build:next && electron-builder --win",
-    "dist:mac": "npm run build:backend:mac && npm run build:electron && npm run build:next && electron-builder --mac",
-    "publish": "npm run build:backend && npm run build:electron && npm run build:next && electron-builder --publish always",
+    "dist": "npm run build:backend && npm run build:electron && npm run build:next && node scripts/check-ffmpeg.js && electron-builder",
+    "dist:win": "npm run build:backend:win && npm run build:electron && npm run build:next && node scripts/check-ffmpeg.js && electron-builder --win",
+    "dist:mac": "npm run build:backend:mac && npm run build:electron && npm run build:next && node scripts/check-ffmpeg.js && electron-builder --mac",
+    "publish": "npm run build:backend && npm run build:electron && npm run build:next && node scripts/check-ffmpeg.js && electron-builder --publish always",
     "verify:orphans": "powershell -ExecutionPolicy Bypass -File scripts/verify-orphans.ps1",
     "verify:update": "powershell -ExecutionPolicy Bypass -File scripts/verify-update.ps1",
     "smoke:packaged": "powershell -ExecutionPolicy Bypass -File scripts/smoke-packaged.ps1",
@@ -89,6 +89,14 @@
       {
         "from": "backend/default-data",
         "to": "backend/default-data"
+      },
+      {
+        "from": "youtube-backend/dist/YoutubeGenerator",
+        "to": "youtube-backend"
+      },
+      {
+        "from": "build/ffmpeg",
+        "to": "ffmpeg"
       },
       {
         "from": "playwright-cache",

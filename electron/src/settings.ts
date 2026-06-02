@@ -23,6 +23,9 @@ interface SettingsFile {
   // 사용자가 로그인 화면 체크박스로 제어. false 이면 다음 부팅 시 Supabase 로컬
   // 세션을 비우고 로그인 화면을 다시 띄운다. 기본값 true.
   auto_login_enabled?: boolean;
+  // youtube-backend(쇼츠 생성기)의 JWT_SECRET. API 키 암호화(Fernet) 키를 여기서 파생하므로
+  // 재시작해도 동일해야 저장된 키를 복호화할 수 있다 → 1회 생성 후 영속.
+  youtube_jwt_secret?: string;
 }
 
 function settingsPath(): string {
@@ -112,6 +115,17 @@ export function saveFrontendPort(port: number): void {
   if (data.frontend_port === port) return;
   data.frontend_port = port;
   writeRawAtomic(data);
+}
+
+export function getOrCreateYoutubeJwtSecret(): string {
+  const data = readRaw();
+  if (data.youtube_jwt_secret && data.youtube_jwt_secret.length >= 32) {
+    return data.youtube_jwt_secret;
+  }
+  const secret = crypto.randomBytes(32).toString("hex");
+  data.youtube_jwt_secret = secret;
+  writeRawAtomic(data);
+  return secret;
 }
 
 export function getAutoLoginEnabled(): boolean {

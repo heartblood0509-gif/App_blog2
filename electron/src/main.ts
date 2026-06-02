@@ -22,6 +22,7 @@ import { paths } from "./paths";
 import { applyWindowSecurity } from "./security";
 import { getFreePort, getPreferredOrFreePort } from "./net-utils";
 import { PythonManager } from "./python-manager";
+import { YoutubeManager } from "./youtube-manager";
 import { NextServerManager } from "./next-server";
 import { initJobObject, assignToJob, closeJobObject } from "./job-object";
 import { initUpdater, tryInstallNow } from "./updater";
@@ -30,6 +31,7 @@ import { redactTransform } from "./log-redactor";
 import {
   getAutoLoginEnabled,
   getDeviceInfo,
+  getOrCreateYoutubeJwtSecret,
   loadFrontendPort,
   loadGeminiApiKey,
   registerSettingsIpc,
@@ -49,6 +51,7 @@ Object.assign(console, log.functions);
 let mainWindow: BrowserWindow | null = null;
 let blogSplitView: WebContentsView | null = null;
 let python: PythonManager | null = null;
+let youtube: YoutubeManager | null = null;
 let nextSrv: NextServerManager | null = null;
 let broker: CredentialBroker | null = null;
 let isQuitting = false;
@@ -1477,6 +1480,7 @@ if (!gotLock) {
     const overall = Promise.allSettled([
       withTimeout(nextSrv?.stop(), STOP_TIMEOUT_MS, "next"),
       withTimeout(python?.stop(), STOP_TIMEOUT_MS, "python"),
+      withTimeout(youtube?.stop(), STOP_TIMEOUT_MS, "youtube"),
       withTimeout(broker?.stop(), STOP_TIMEOUT_MS, "broker"),
     ]);
     const timer = new Promise<"shutdown-timeout">((resolve) =>
@@ -1634,11 +1638,13 @@ async function boot(): Promise<void> {
   await broker.start();
 
   const backendPort = await getFreePort();
+  const youtubePort = await getFreePort();
   // §J — Supabase 세션 영속성을 위해 매 부팅마다 같은 포트(=같은 origin)를 시도한다.
   // 마지막에 사용한 포트가 비어 있으면 재사용, 점유돼 있으면 빈 포트로 fallback.
   const frontendPort = await getPreferredOrFreePort(loadFrontendPort());
   saveFrontendPort(frontendPort);
   const frontendOrigin = `http://127.0.0.1:${frontendPort}`;
+  const youtubeOrigin = `http://127.0.0.1:${youtubePort}`;
 
   python = new PythonManager(backendPort, {
     appToken: APP_TOKEN,
@@ -1651,6 +1657,21 @@ async function boot(): Promise<void> {
   // 반드시 splash 가 보인 뒤(=loop 가 한 번 비워진 뒤)에 호출해야 로딩 화면이 즉시 뜬다.
   const pythonReady = python.start();
   assignToJob(python.pid);
+
+  // youtube-backend(쇼츠 생성기) — 백그라운드로 띄운다. 사용자가 "유튜브" 탭을 눌러
+  // iframe 이 로드될 때 준비돼 있으면 되고, 부팅을 막을 필요는 없으므로 await 하지 않는다.
+  youtube = new YoutubeManager(youtubePort, {
+    jwtSecret: getOrCreateYoutubeJwtSecret(),
+    storageDir: path.join(paths.userData, "youtube", "storage"),
+    bgmDir: path.join(paths.userData, "youtube", "bgm"),
+    geminiApiKey: loadGeminiApiKey(),
+    ffmpegBin: paths.ffmpegBin || undefined,
+    ffprobeBin: paths.ffprobeBin || undefined,
+  });
+  youtube.start().catch((err) => {
+    console.error("[yt] start failed:", err);
+  });
+  assignToJob(youtube.pid);
 
   // splash 가 실제로 표시될 때까지 대기 (ready-to-show 또는 1.5s fallback).
   await splashShownPromise;
@@ -1669,13 +1690,14 @@ async function boot(): Promise<void> {
     appToken: APP_TOKEN,
     sessionToken: APP_SESSION_TOKEN,
     geminiApiKey,
+    youtubeUrl: youtubeOrigin,
   });
   await nextSrv.start();
   assignToJob(nextSrv.pid);
 
   const allowedOrigin = nextSrv.url;
 
-  applyWindowSecurity(win, allowedOrigin);
+  applyWindowSecurity(win, allowedOrigin, [youtubeOrigin]);
 
   // §F 설정 IPC.
   registerSettingsIpc();

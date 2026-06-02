@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>작업 이력 - Shorts Pick</title>
+    <link rel="stylesheet" href="/static/css/style.css?v=27">
+    <script src="/static/js/icons.js?v=1" defer></script>
+</head>
+<body class="has-navbar">
+    <script>if(localStorage.getItem('theme')==='dark'||!localStorage.getItem('theme'))document.body.classList.add('dark');</script>
+    <nav class="navbar">
+        <a href="/" class="navbar-logo">
+            <i data-lucide="clapperboard" class="navbar-logo-icon"></i>
+            <span class="navbar-logo-text">Shorts Pick</span>
+        </a>
+        <div id="navbar-right" class="navbar-right"></div>
+    </nav>
+
+    <div class="container" style="padding-top: 56px; padding-bottom: 56px;">
+        <a href="/" class="page-back" onclick="goBackOrHome(event)">← 뒤로가기</a>
+        <h2 class="page-title">작업 이력</h2>
+
+        <p class="history-notice">생성된 파일은 30일간 보관 후 자동 삭제됩니다</p>
+
+        <div id="job-list"></div>
+    </div>
+
+    <style>
+        .history-notice {
+            text-align: center; color: var(--text-dim); font-size: 13px;
+            margin-bottom: 16px; padding: 8px; background: var(--surface);
+            border-radius: 8px; border: 1px solid var(--border);
+        }
+        .job-expire-badge {
+            font-size: 11px; padding: 2px 8px; border-radius: 4px; margin-left: 8px;
+        }
+        .job-expire-badge.active {
+            background: rgba(46,213,115,0.15); color: var(--success);
+        }
+        .job-expire-badge.warning {
+            background: rgba(255,193,7,0.15); color: #ffc107;
+        }
+        .job-expire-badge.expired {
+            background: rgba(255,71,87,0.1); color: var(--error);
+        }
+    </style>
+
+    <script src="/static/js/auth.js?v=4"></script>
+    <script>
+    function escapeHtml(str) {
+        const div = document.createElement('div');
+        div.textContent = str;
+        return div.innerHTML.replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+    }
+
+    function formatKstDateTime(value) {
+        if (!value) return '';
+        const date = new Date(value);
+        if (Number.isNaN(date.getTime())) return '';
+        return new Intl.DateTimeFormat('ko-KR', {
+            timeZone: 'Asia/Seoul',
+            year: 'numeric',
+            month: 'numeric',
+            day: 'numeric',
+            hour: 'numeric',
+            minute: '2-digit',
+            second: '2-digit',
+        }).format(date);
+    }
+
+    async function loadJobs() {
+        const resp = await authFetch('/api/jobs/');
+        if (!resp || !resp.ok) return;
+        const jobs = await resp.json();
+        const list = document.getElementById('job-list');
+
+        if (jobs.length === 0) {
+            list.innerHTML = '<p class="empty">아직 작업이 없습니다</p>';
+            return;
+        }
+
+        list.innerHTML = jobs.map(job => `
+            <div class="card job-card">
+                <div class="job-info">
+                    <span class="job-status status-${escapeHtml(job.status)}">${escapeHtml(statusLabel(job.status))}</span>
+                    <span class="job-id">${escapeHtml(job.job_id)}</span>
+                    <span class="job-date">${formatKstDateTime(job.created_at)}</span>
+                    ${expireBadge(job)}
+                </div>
+                <p class="job-step">${escapeHtml(job.current_step || '')}</p>
+                ${jobActions(job)}
+            </div>
+        `).join('');
+    }
+
+    function expireBadge(job) {
+        if (job.files_expired) {
+            return '<span class="job-expire-badge expired">파일 만료됨</span>';
+        }
+        if (job.days_remaining !== null && job.days_remaining !== undefined) {
+            if (job.days_remaining <= 7) {
+                return `<span class="job-expire-badge warning">D-${job.days_remaining}</span>`;
+            }
+            return `<span class="job-expire-badge active">D-${job.days_remaining}</span>`;
+        }
+        return '';
+    }
+
+    function jobActions(job) {
+        if (job.files_expired) {
+            return '<span class="text-dim" style="font-size:12px">파일이 삭제되었습니다 (30일 경과)</span>';
+        }
+        if (job.video_url) {
+            const buttons = [`<a href="${escapeHtml(job.video_url)}" class="btn-small btn-primary" download>다운로드</a>`];
+            // 카드 B 완료 + 편집 가능한 경우만 "편집 계속" 노출 — 백엔드 can_reopen이 단일 진실원.
+            // === true 엄격 비교로 옛날 row의 누락 필드 / null 모두 false 폴백.
+            if (job.can_reopen === true) {
+                const safeId = encodeURIComponent(job.job_id);
+                buttons.push(`<a href="/static/index.html?job_id=${safeId}&restore=1" class="btn-small btn-secondary">편집 계속</a>`);
+            }
+            return buttons.join(' ');
+        }
+        if (job.status === 'preview_ready' || job.status === 'awaiting_confirmation') {
+            return `<a href="/static/preview.html?job=${escapeHtml(job.job_id)}" class="btn-small btn-secondary">미리보기</a>`;
+        }
+        if (['pending', 'generating_images', 'generating_tts', 'assembling_video'].includes(job.status)) {
+            return `<a href="/static/status.html?job=${escapeHtml(job.job_id)}" class="btn-small btn-secondary">진행 상태</a>`;
+        }
+        return '';
+    }
+
+    function statusLabel(status) {
+        const labels = {
+            pending: '대기',
+            generating_images: '이미지 생성',
+            preview_ready: '미리보기',
+            awaiting_confirmation: '확인 대기',
+            generating_tts: 'TTS 생성',
+            assembling_video: '영상 조립',
+            completed: '완료',
+            failed: '실패',
+        };
+        return labels[status] || status;
+    }
+
+    authReady.then(() => loadJobs());
+    </script>
+</body>
+</html>

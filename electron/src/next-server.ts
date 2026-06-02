@@ -6,6 +6,8 @@ export interface NextServerOptions {
   appToken: string;
   sessionToken: string;
   geminiApiKey?: string;
+  // youtube-backend(쇼츠 생성기) origin — "유튜브" 탭 iframe src 로 클라이언트에 노출.
+  youtubeUrl?: string;
 }
 
 export class NextServerManager {
@@ -40,6 +42,11 @@ export class NextServerManager {
     // §F GEMINI_API_KEY — settings.json 에서 복호화한 평문이 있을 때만 주입.
     if (this.opts.geminiApiKey) {
       env.GEMINI_API_KEY = this.opts.geminiApiKey;
+    }
+
+    // "유튜브" 탭 iframe 이 가리킬 youtube-backend origin. /api/youtube-url 이 런타임에 반환.
+    if (this.opts.youtubeUrl) {
+      env.YOUTUBE_BACKEND_URL = this.opts.youtubeUrl;
     }
 
     if (paths.isDev) {

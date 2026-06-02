@@ -104,21 +104,36 @@ console.log(`[dev-worktree] mode    =${isElectron ? "electron" : "web"}`);
   const backend = spawnBackend(worktreeRoot, backendPort);
   await waitForPort(backendPort, 30_000).catch(() => die("백엔드가 30초 안에 LISTEN 하지 못함"));
 
+  // 3-2. youtube-backend(쇼츠 생성기) 기동. 웹 모드엔 Electron NextServer 가 없으므로
+  //      여기서 직접 띄우고 YOUTUBE_BACKEND_URL 을 프론트 env 로 주입한다.
+  let youtube = null;
+  let youtubeUrl = null;
+  if (fs.existsSync(path.join(worktreeRoot, "youtube-backend", "main.py"))) {
+    const youtubePort = await findFreePort(8101);
+    youtubeUrl = `http://127.0.0.1:${youtubePort}`;
+    console.log(`\n[dev-worktree] youtube-backend 기동 (PORT=${youtubePort})`);
+    youtube = spawnYoutubeBackend(worktreeRoot, youtubePort);
+    await waitForPort(youtubePort, 90_000).catch(() =>
+      die("youtube-backend 가 90초 안에 LISTEN 하지 못함 (의존성 설치/임포트 확인)")
+    );
+  }
+
   // 4. 새 소식 안전장치: package.json version 과 whats-new.json 최신 버전 일치 검사 (경고만)
   runWhatsNewCheck(worktreeRoot);
 
   // 5. 프론트 기동 (node_modules 가 symlink 면 webpack fallback, 진짜 dir 면 Turbopack)
   console.log(`\n[dev-worktree] 프론트 기동 (PORT=${frontendPort})`);
-  const frontend = spawnFrontend(worktreeRoot, frontendPort, backendPort);
+  const frontend = spawnFrontend(worktreeRoot, frontendPort, backendPort, youtubeUrl);
 
   // 5. 프론트 LISTEN 대기 + 안내
   await waitForPort(frontendPort, 60_000).catch(() => die("프론트가 60초 안에 LISTEN 하지 못함"));
   console.log("\n✓ dev-worktree READY");
   console.log(`   Backend  : http://localhost:${backendPort}`);
+  if (youtubeUrl) console.log(`   YouTube  : ${youtubeUrl}`);
   console.log(`   Frontend : http://localhost:${frontendPort}`);
   console.log("   브라우저로 위 Frontend URL 접속 후 테스트하세요. Ctrl+C 로 종료.");
 
-  wireExit(backend, frontend);
+  wireExit(backend, frontend, youtube);
 })().catch((e) => die(e.message || String(e)));
 
 // ─────────────────────────────────────────────────────── 헬퍼
@@ -178,6 +193,70 @@ async function prepareDeps(mainRoot, worktreeRoot) {
   if (r.status !== 0) {
     die(`pip install 실패 — 수동으로 \`${pythonCmd} -m pip install -r backend/requirements.txt\` 실행 후 다시 시도`);
   }
+
+  // youtube-backend(쇼츠 생성기) 전용 venv + 의존성.
+  // 블로그 백엔드와 패키지(google-genai 버전 등)가 충돌할 수 있어 격리한다.
+  setupYoutubeVenv(worktreeRoot);
+}
+
+// youtube-backend 는 Python >=3.10 필요 (fastapi>=0.135 등). 시스템 python3 가 3.9 처럼
+// 낮을 수 있으므로 적합한 인터프리터를 탐색한다. 없으면 null.
+function findYoutubePython() {
+  const candidates =
+    process.platform === "win32"
+      ? ["python3.13", "python3.12", "python3.11", "python3.10", "python"]
+      : ["python3.13", "python3.12", "python3.11", "python3.10", "python3"];
+  for (const cmd of candidates) {
+    const r = spawnSync(cmd, ["-c", "import sys;print(sys.version_info[0],sys.version_info[1])"], {
+      encoding: "utf8",
+      shell: process.platform === "win32",
+    });
+    if (r.status === 0 && r.stdout) {
+      const [maj, min] = r.stdout.trim().split(/\s+/).map(Number);
+      if (maj > 3 || (maj === 3 && min >= 10)) return cmd;
+    }
+  }
+  return null;
+}
+
+// youtube-backend/.venv 생성 + requirements 설치. 이미 있으면 빠르게 통과.
+function setupYoutubeVenv(worktreeRoot) {
+  const ytDir = path.join(worktreeRoot, "youtube-backend");
+  if (!fs.existsSync(path.join(ytDir, "requirements.txt"))) {
+    console.log("\n[dev-worktree] youtube-backend 없음 — 건너뜀");
+    return;
+  }
+  const venvPython = youtubeVenvPython(worktreeRoot);
+  if (!fs.existsSync(venvPython)) {
+    const pythonCmd = findYoutubePython();
+    if (!pythonCmd) {
+      die(
+        "youtube-backend 는 Python 3.10 이상이 필요합니다. python3.11/3.12/3.13 중 하나를 설치하세요.\n" +
+        "  macOS: brew install python@3.13"
+      );
+    }
+    console.log(`\n[dev-worktree] youtube-backend venv 생성 (.venv, ${pythonCmd})`);
+    const v = spawnSync(pythonCmd, ["-m", "venv", ".venv"], {
+      cwd: ytDir,
+      stdio: "inherit",
+      shell: process.platform === "win32",
+    });
+    if (v.status !== 0) die("youtube-backend venv 생성 실패");
+  }
+  console.log("[dev-worktree] youtube-backend 의존성 설치 (.venv, 최초 1~2분 소요)");
+  const r = spawnSync(venvPython, ["-m", "pip", "install", "-r", "requirements.txt"], {
+    cwd: ytDir,
+    stdio: "inherit",
+    shell: process.platform === "win32",
+  });
+  if (r.status !== 0) die("youtube-backend pip install 실패");
+}
+
+function youtubeVenvPython(worktreeRoot) {
+  const venvDir = path.join(worktreeRoot, "youtube-backend", ".venv");
+  return process.platform === "win32"
+    ? path.join(venvDir, "Scripts", "python.exe")
+    : path.join(venvDir, "bin", "python");
 }
 
 // OS 별 최적 빠른 복사. 진짜 디렉토리로 보이도록 (Turbopack 호환).
@@ -317,7 +396,7 @@ function spawnBackend(worktreeRoot, port) {
   });
 }
 
-function spawnFrontend(worktreeRoot, frontendPort, backendPort) {
+function spawnFrontend(worktreeRoot, frontendPort, backendPort, youtubeUrl) {
   const frontendDir = path.join(worktreeRoot, "frontend");
   // node_modules 가 symlink (= 메인을 상대경로로 가리키는 경우) 면 Turbopack 이 거부 →  webpack 으로 폴백
   const nm = path.join(frontendDir, "node_modules");
@@ -327,11 +406,49 @@ function spawnFrontend(worktreeRoot, frontendPort, backendPort) {
     args.push("--webpack");
     console.log("  (node_modules 가 symlink → Turbopack 호환을 위해 --webpack 모드)");
   }
+  const env = { ...process.env, BACKEND_URL: `http://localhost:${backendPort}` };
+  // "유튜브" 탭 iframe 이 /api/youtube-url 로 읽어가는 youtube-backend origin.
+  if (youtubeUrl) env.YOUTUBE_BACKEND_URL = youtubeUrl;
   return spawn(npxCmd(), args, {
     cwd: frontendDir,
-    env: { ...process.env, BACKEND_URL: `http://localhost:${backendPort}` },
+    env,
     stdio: "inherit",
     shell: process.platform === "win32",
+  });
+}
+
+// youtube-backend(쇼츠 생성기)를 로컬 단일 사용자 모드로 띄운다. 웹 dev 전용.
+function spawnYoutubeBackend(worktreeRoot, port) {
+  const ytDir = path.join(worktreeRoot, "youtube-backend");
+  const venvPython = youtubeVenvPython(worktreeRoot);
+  const hasVenv = fs.existsSync(venvPython);
+  const pythonCmd = hasVenv
+    ? venvPython
+    : process.platform === "win32"
+    ? "python"
+    : "python3";
+  // dev 데이터(SQLite/영상/BGM)는 워크트리 안 별도 폴더에 격리. (git 추적 제외)
+  const dataDir = path.join(worktreeRoot, "youtube-backend", ".dev-data");
+  const env = {
+    ...process.env,
+    PORT: String(port),
+    HOST: "127.0.0.1",
+    LOCAL_SINGLE_USER: "1",
+    // dev 고정 시크릿 — 재시작해도 동일해야 저장된 API 키를 복호화할 수 있다.
+    JWT_SECRET: "dev-youtube-jwt-secret-local-single-user-do-not-ship",
+    STORAGE_DIR: path.join(dataDir, "storage"),
+    BGM_DIR: path.join(dataDir, "bgm"),
+    BASE_URL: `http://127.0.0.1:${port}`,
+    R2_BUCKET_NAME: "",
+    PYTHONUNBUFFERED: "1",
+    PYTHONIOENCODING: "utf-8:replace",
+  };
+  // GEMINI/FAL/TYPECAST 키가 셸 env 에 있으면 시드. 없으면 임베드된 설정 화면에서 입력.
+  return spawn(pythonCmd, ["main.py"], {
+    cwd: ytDir,
+    env,
+    stdio: "inherit",
+    shell: !hasVenv && process.platform === "win32",
   });
 }
 
