@@ -1047,6 +1047,7 @@ export default function Home() {
             referenceExcerpts: state.referenceExcerpts.length > 0 ? state.referenceExcerpts : undefined,
             topic: effectiveTopic || undefined,
             customProductInfoById,
+            productPlacementMode: state.productPlacementMode,
           }),
         });
       }

@@ -83,6 +83,7 @@ export async function POST(request: Request) {
       referenceExcerpts,
       topic,
       customProductInfoById,
+      productPlacementMode,
       apiKey,
     } = body as {
       products: SelectedProduct[];
@@ -99,6 +100,7 @@ export async function POST(request: Request) {
       referenceExcerpts?: string[];
       topic?: string;
       customProductInfoById?: Record<string, ProductInfo>;
+      productPlacementMode?: "link" | "mention";
       apiKey?: string;
     };
 
@@ -117,6 +119,7 @@ export async function POST(request: Request) {
       referenceExcerpts,
       topic,
       customProductInfoById,
+      productPlacementMode,
     });
 
     // 1차 생성 (버퍼)
@@ -152,10 +155,15 @@ export async function POST(request: Request) {
       }
     }
 
-    finalContent = placeProductUrlsBeforeHashtags(
-      finalContent,
-      getSelectedProductUrls(products, customProductInfoById)
-    );
+    // 사용자가 글 설정에서 "link"를 고른 경우에만 후처리로 URL을 본문 끝에 박는다.
+    // "mention" (기본값)이면 프롬프트가 이미 자연 언급 톤을 강제했고, 여기서 URL을
+    // 자동 삽입하면 그 노력이 무력화된다.
+    if (productPlacementMode === "link") {
+      finalContent = placeProductUrlsBeforeHashtags(
+        finalContent,
+        getSelectedProductUrls(products, customProductInfoById)
+      );
+    }
 
     // 청크 단위로 클라이언트에 전송 (기존 스트리밍 인터페이스 유지)
     const encoder = new TextEncoder();

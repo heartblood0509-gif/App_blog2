@@ -48,6 +48,7 @@ const initialWizardState: WizardState = {
   persona: "",
   requirements: "",
   charCountRange: { min: 0, max: 0, label: "레퍼런스 맞춤" },
+  productPlacementMode: "mention",
   titleSuggestions: [],
   selectedTitle: "",
   generatedContent: "",
