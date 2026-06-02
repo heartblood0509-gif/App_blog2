@@ -6,7 +6,6 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import { Textarea } from "@/components/ui/textarea";
 import {
   RefreshCw,
@@ -794,8 +793,7 @@ export function StepGenerate({
               )}
 
               {content && !isEditing && (
-                <ScrollArea className="h-[calc(100dvh-18rem)] min-h-[560px] max-h-[900px] pr-4">
-                  <div>
+                <div>
                     {isLoading && (
                       <div className="mb-3 flex items-center gap-2 text-xs font-medium text-primary">
                         <Loader2 className="h-3 w-3 animate-spin" />
@@ -832,7 +830,6 @@ export function StepGenerate({
                       }}
                     />
                   </div>
-                </ScrollArea>
               )}
 
               {content && isEditing && (
@@ -865,8 +862,10 @@ export function StepGenerate({
           </Card>
         </div>
 
-        {/* Right: Quality Panel (약 33%, 보조 사이드) */}
-        <div className={`flex-[1] ${isEditing ? "pointer-events-none opacity-60" : ""}`}>
+        {/* Right: Quality Panel (약 33%, 보조 사이드) — 글을 내려도 화면에 따라오도록 sticky */}
+        <div
+          className={`flex-[1] self-start lg:sticky lg:top-6 ${isEditing ? "pointer-events-none opacity-60" : ""}`}
+        >
           <Card className="h-full">
             <CardHeader>
               <CardTitle className="flex items-center gap-2 text-base">
@@ -1079,10 +1078,10 @@ export function StepGenerate({
         </div>
       </div>
 
-      {/* 이미지 슬롯 패널 */}
+      {/* 이미지 슬롯 패널 — 회색 배경으로 글 영역과 구분, 안의 슬롯 카드는 흰색 유지 */}
       {imageSlots.length > 0 && (
         <div className="mt-6">
-          <Card>
+          <Card className="bg-muted">
             <CardHeader>
               <div className="flex items-center justify-between">
                 <CardTitle className="flex items-center gap-2 text-base">
