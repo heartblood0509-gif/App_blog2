@@ -38,9 +38,17 @@ export const PRODUCT_PLACEMENT_RULES = `## 제품 배치 규칙 (자연스러운
 
 export function buildProductContext(
   selectedProducts: SelectedProduct[],
-  customProductInfoById: Record<string, ProductInfo> = {}
+  customProductInfoById: Record<string, ProductInfo> = {},
+  options: { placementMode?: "link" | "mention" } = {}
 ): string {
   if (selectedProducts.length === 0) return "";
+
+  // 사용자가 글 설정에서 고른 모드.
+  // - "link": 본문 마지막 줄에 판매 URL을 단독으로 박는다 (기존 동작)
+  // - "mention": URL을 프롬프트 컨텍스트에서 아예 빼서 LLM이 인지조차 못 하게
+  //              하고, 제품명만 1~2회 자연스럽게 언급하는 톤을 강제한다
+  // 기본값 "mention" — 명시적으로 "link"를 골라야 링크가 들어감
+  const placementMode = options.placementMode ?? "mention";
 
   const lines = selectedProducts.map((sp) => {
     const product = BRAND_PRODUCTS[sp.id] ?? customProductInfoById[sp.id];
@@ -62,7 +70,9 @@ export function buildProductContext(
       section += `\n- 감각 표현 참고 (이 느낌을 자연스럽게 녹일 것): ${product.sensoryDetails.join(" / ")}`;
     }
 
-    if (product.productUrl?.trim()) {
+    // "mention" 모드면 URL을 프롬프트 컨텍스트에서 아예 제거 — LLM이
+    // 인지조차 못 하므로 본문에 슬쩍 끼워 넣을 위험이 원천 차단된다.
+    if (placementMode === "link" && product.productUrl?.trim()) {
       section += `\n- 판매 제품 URL: ${product.productUrl.trim()}`;
     }
 
@@ -101,8 +111,9 @@ ${lines.join("\n\n")}
 - 실제 후기 문장을 그대로 복사하지 말 것
 - 비슷한 톤과 감각으로 새로운 표현을 만들어서 자연스러운 경험 속에 녹일 것
 - 핵심 방향성을 이해하고 그 방향으로 글을 전개할 것
-- 판매 제품 URL이 없는 제품은 제품명을 전체 글에서 1~2회만 자연스럽게 언급하고 끝낼 것. 구매 유도 문장이나 링크 안내 문구를 만들지 말 것
-- 판매 제품 URL이 있는 제품은 본문 마지막 줄에 URL만 단독으로 배치할 것. 단, 해시태그는 그 URL 아래 최하단에 둔다${
+- ${placementMode === "mention"
+    ? "제품명을 전체 글에서 1~2회만 자연스럽게 언급하고 끝낼 것. 구매 유도 문장이나 링크 안내 문구를 만들지 말 것. URL·구매처·세일 정보 등 어떤 판매 정보도 추가하지 말 것"
+    : "판매 제품 URL이 있는 제품은 본문 마지막 줄에 URL만 단독으로 배치할 것. 단, 해시태그는 그 URL 아래 최하단에 둔다. URL 없는 제품은 제품명을 전체 글에서 1~2회만 자연스럽게 언급하고 끝낼 것 (구매 유도 문장·링크 안내 문구 금지)"}${
     hasAnyNewLaunch
       ? `
 - ⚠️ 신규 출시 제품이 포함되어 있음 — "예상되는 사용자 반응"은 실제 후기가 아니므로 "써봤더니 정말 좋았어요" 같은 단정적 표현 금지. "이런 흐름으로 느껴질 듯", "꾸준히 쓰면 차이가 보일 타입" 정도의 추정 톤으로`

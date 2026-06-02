@@ -26,6 +26,13 @@ interface GenerationParams {
   topic?: string;
   /** 사용자 등록 제품 메타데이터 (시드 6개에 없는 제품에 대한 fallback) */
   customProductInfoById?: Record<string, ProductInfo>;
+  /**
+   * 후기성 모드 — 제품 배치 방식.
+   * - "link": 본문 마지막 줄에 판매 URL 단독 배치 (기존 동작)
+   * - "mention": 제품명만 1~2회 자연 언급, URL 없음
+   * 생략 시 buildProductContext가 "mention"으로 기본 처리.
+   */
+  productPlacementMode?: "link" | "mention";
 }
 
 export function buildGenerationPrompt(params: GenerationParams): string {
@@ -43,6 +50,7 @@ export function buildGenerationPrompt(params: GenerationParams): string {
     referenceExcerpts,
     topic,
     customProductInfoById,
+    productPlacementMode,
   } = params;
 
   const sections: string[] = [];
@@ -257,7 +265,9 @@ ${referenceText}`);
   // ──────────────────────────────────────
   // 섹션 3: 제품 정보 + 실제 후기
   // ──────────────────────────────────────
-  const productContext = buildProductContext(products, customProductInfoById);
+  const productContext = buildProductContext(products, customProductInfoById, {
+    placementMode: productPlacementMode,
+  });
   if (productContext) {
     sections.push(productContext);
   }

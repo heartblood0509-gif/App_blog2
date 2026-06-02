@@ -352,6 +352,18 @@ export interface WizardState {
   requirements: string;
   charCountRange: CharCountRange;
 
+  /**
+   * 후기성 모드 전용 — 본문 마지막에 제품 링크를 박을지, 제품명만 1~2회
+   * 자연스럽게 언급하고 끝낼지.
+   * - "link": 본문 마지막 줄에 URL 단독 배치 (기존 동작)
+   * - "mention": 제품명만 1~2회 자연 언급, URL·구매 유도 문구 금지
+   *
+   * postCategory === "review"일 때만 의미. 브랜드/AEO 모드는 영향 없음.
+   * 기본값 "mention" — 사용자가 글 설정에서 "link"를 명시적으로 선택해야
+   * 본문 끝에 URL이 들어감.
+   */
+  productPlacementMode: "link" | "mention";
+
   // Step 4: 제목 선택
   titleSuggestions: TitleSuggestion[];
   selectedTitle: string;
