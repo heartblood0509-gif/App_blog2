@@ -70,6 +70,8 @@ export function FindBar({
   containerRef,
   enabled = true,
   revision,
+  open,
+  onOpenChange,
 }: {
   /** 검색 대상 영역 */
   containerRef: React.RefObject<HTMLElement | null>;
@@ -77,8 +79,11 @@ export function FindBar({
   enabled?: boolean;
   /** 본문 내용/모드가 바뀔 때 재검색을 트리거하기 위한 값 */
   revision?: unknown;
+  /** 열림 상태 (부모가 제어 — 단축키/버튼 공용) */
+  open: boolean;
+  /** 열림 상태 변경 요청 */
+  onOpenChange: (next: boolean) => void;
 }) {
-  const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [count, setCount] = useState(0);
   const [current, setCurrent] = useState(0); // 0-based
@@ -188,31 +193,37 @@ export function FindBar({
     return () => clearHighlights();
   }, [open]);
 
-  // Cmd/Ctrl+F → 열기 + 포커스
+  // 열릴 때 입력창 포커스 (단축키·버튼 어느 쪽으로 열어도 일원화)
+  useEffect(() => {
+    if (!open) return;
+    // 막대가 막 렌더된 경우 대비해 다음 프레임에 포커스
+    const id = requestAnimationFrame(() => {
+      inputRef.current?.focus();
+      inputRef.current?.select();
+    });
+    return () => cancelAnimationFrame(id);
+  }, [open]);
+
+  // Cmd/Ctrl+F → 열기
   useEffect(() => {
     if (!enabled) return;
     const onKey = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && (e.key === "f" || e.key === "F")) {
         e.preventDefault();
-        setOpen(true);
-        // 다음 틱에 포커스 (막대가 막 렌더된 경우 대비)
-        requestAnimationFrame(() => {
-          inputRef.current?.focus();
-          inputRef.current?.select();
-        });
+        onOpenChange(true);
       }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [enabled]);
+  }, [enabled, onOpenChange]);
 
   const close = useCallback(() => {
-    setOpen(false);
+    onOpenChange(false);
     setQuery("");
     setCount(0);
     setCurrent(0);
     clearHighlights();
-  }, []);
+  }, [onOpenChange]);
 
   const goNext = useCallback(() => {
     if (count === 0) return;
