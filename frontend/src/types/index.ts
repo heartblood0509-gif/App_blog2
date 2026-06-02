@@ -177,6 +177,27 @@ export interface UserPhoto {
   useProModel?: boolean;
 }
 
+/**
+ * 보관함(드래프트) — 작성 중인 글을 이름 붙여 로컬에 저장하고 나중에 이어서 작업.
+ * 글자/구조는 localStorage(blogpick-drafts), 이미지/원본사진은 IndexedDB(draft_* store)에 분리 저장.
+ */
+export interface BlogDraft {
+  /** `draft-${Date.now()}` */
+  id: string;
+  /** 제목 (기본값 자동 조합, 사용자 수정 가능) */
+  name: string;
+  /** 한 줄 메모 (선택) */
+  memo?: string;
+  createdAt: string;
+  updatedAt: string;
+  /** 본문/구조 스냅샷 (이미지·원본사진 base64는 제외 — IndexedDB로) */
+  snapshot: Partial<WizardState>;
+  /** 이 드래프트의 완성 이미지 슬롯 id 목록 */
+  slotIds: string[];
+  /** 이 드래프트의 원본 사진 슬롯 id 목록 */
+  userPhotoSlotIds: string[];
+}
+
 /** 이미지 생성 결과 (슬롯별) */
 export interface ImageGenerationResult {
   slotId: string;

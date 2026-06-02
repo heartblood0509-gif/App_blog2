@@ -10,6 +10,9 @@ import { Textarea } from "@/components/ui/textarea";
 import {
   RefreshCw,
   Copy,
+  Package,
+  Save,
+  FolderOpen,
   Loader2,
   AlertTriangle,
   FileText,
@@ -28,6 +31,7 @@ import {
   Pencil,
   Check,
   X,
+  Search,
 } from "lucide-react";
 import { toast } from "sonner";
 import type {
@@ -48,6 +52,14 @@ interface StepGenerateProps {
   isLoading: boolean;
   onRegenerate: () => void;
   onCopy: () => void;
+  /** 본문 + 이미지를 ZIP 한 묶음으로 다운로드 */
+  onExportZip: () => void;
+  /** ZIP 생성 중 (버튼 스피너용) */
+  isExporting?: boolean;
+  /** 보관함에 저장 요청 (기본 제목 조합 후 다이얼로그 오픈) */
+  onRequestSaveDraft: () => void;
+  /** 보관함 열기 */
+  onOpenLibrary: () => void;
   /**
    * 사용자가 textarea에서 본문을 수정하고 「✓ 수정 완료」를 눌렀을 때 호출.
    * page.tsx가 generatedContent + contentDirty 를 갱신하고, 마커 재파싱·자동 가공이 자동 트리거된다.
@@ -557,6 +569,10 @@ export function StepGenerate({
   isLoading,
   onRegenerate,
   onCopy,
+  onExportZip,
+  isExporting = false,
+  onRequestSaveDraft,
+  onOpenLibrary,
   onContentEdit,
   onReplaceForbidden,
   isReplacingForbidden = false,
@@ -587,6 +603,8 @@ export function StepGenerate({
 
   // 본문 영역 안에서만 동작하는 Cmd+F 찾기 막대용 컨테이너 ref
   const bodyRef = useRef<HTMLDivElement>(null);
+  // 찾기 막대 열림 상태 (단축키 Cmd+F + 「찾기」 버튼 공용)
+  const [findOpen, setFindOpen] = useState(false);
 
   const handleEditStart = () => {
     setDraftContent(content);
@@ -631,6 +649,17 @@ export function StepGenerate({
           </p>
         </div>
         <div className="flex gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setFindOpen((v) => !v)}
+            disabled={!content || isLoading}
+            className="gap-2"
+            aria-pressed={findOpen}
+          >
+            <Search className="h-4 w-4" />
+            단어 찾기
+          </Button>
           {!isEditing ? (
             <Button
               variant="outline"
@@ -677,6 +706,42 @@ export function StepGenerate({
           <Button
             variant="outline"
             size="sm"
+            onClick={onExportZip}
+            disabled={!content || isLoading || isEditing || isExporting}
+            className="gap-2"
+            title="본문(.txt/.md)과 이미지를 ZIP 한 묶음으로 다운로드"
+          >
+            {isExporting ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <Package className="h-4 w-4" />
+            )}
+            ZIP 다운로드
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={onRequestSaveDraft}
+            disabled={!content || isLoading || isEditing}
+            className="gap-2"
+            title="작성 중인 글과 이미지를 보관함에 저장"
+          >
+            <Save className="h-4 w-4" />
+            보관함에 저장
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={onOpenLibrary}
+            className="gap-2"
+            title="저장해 둔 글 불러오기"
+          >
+            <FolderOpen className="h-4 w-4" />
+            보관함
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
             onClick={onRegenerate}
             disabled={isLoading || isEditing}
             className="gap-2"
@@ -698,6 +763,8 @@ export function StepGenerate({
             containerRef={bodyRef}
             enabled={!!content}
             revision={isEditing ? draftContent : content}
+            open={findOpen}
+            onOpenChange={setFindOpen}
           />
           <Card className="h-full">
             <CardHeader>

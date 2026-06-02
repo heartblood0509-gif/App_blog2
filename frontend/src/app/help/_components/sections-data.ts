@@ -77,6 +77,35 @@ export const TOC_GROUPS: TocGroup[] = [
       { id: "backup", title: "데이터 백업 · PC 이전" },
     ],
   },
+  {
+    label: "업데이트",
+    page: "/help/update",
+    items: [
+      { id: "notify", title: "새 버전 알림 확인" },
+      {
+        id: "windows",
+        title: "Windows 업데이트",
+        children: [
+          { id: "windows-step-1", title: "1단계 · 알림에서 업데이트" },
+          { id: "windows-step-2", title: "2단계 · 잠시 기다리기" },
+          { id: "windows-step-3", title: "3단계 · 보안 경고 통과" },
+          { id: "windows-step-4", title: "4단계 · 완료" },
+        ],
+      },
+      {
+        id: "mac",
+        title: "Mac 업데이트",
+        children: [
+          { id: "mac-step-1", title: "1단계 · dmg 파일 받기" },
+          { id: "mac-step-2", title: "2단계 · 기존 앱 종료" },
+          { id: "mac-step-3", title: "3단계 · dmg로 설치" },
+          { id: "mac-step-4", title: "4단계 · 보안 경고 통과" },
+        ],
+      },
+      { id: "troubleshoot", title: "자주 겪는 문제" },
+      { id: "summary", title: "한눈에 요약" },
+    ],
+  },
 ];
 
 /** 페이지 경로로 그룹을 찾는 헬퍼 */

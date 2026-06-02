@@ -15,6 +15,8 @@ const GROUP_DESCRIPTIONS: Record<string, string> = {
     "후기성 · 브랜드 · AEO 세 가지 글쓰기 모드의 5단계 흐름과 자주 막히는 함정까지.",
   "/help/tools":
     "보관함·브랜드 프로필·제품 관리 같은 부가 도구, 그리고 데이터 백업·PC 이전 가이드.",
+  "/help/update":
+    "새 버전이 나왔을 때 Windows·Mac에서 받아 설치하는 법과 자주 겪는 문제 해결.",
 };
 
 export default function HelpLandingPage() {
