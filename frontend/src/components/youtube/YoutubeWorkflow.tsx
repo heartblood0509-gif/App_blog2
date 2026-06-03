@@ -14,6 +14,7 @@ import { Stepper } from "./Stepper";
 import { ModeSelect } from "./screens/ModeSelect";
 import { TopicInput } from "./screens/TopicInput";
 import { TitleSelect } from "./screens/TitleSelect";
+import { NarrationReview } from "./screens/NarrationReview";
 import { Placeholder } from "./screens/Placeholder";
 
 const noopSubscribe = () => () => {};
@@ -38,7 +39,7 @@ function ScreenSwitch() {
     case "titles":
       return <TitleSelect />;
     case "narration":
-      return <Placeholder label="나레이션 확인" />;
+      return <NarrationReview />;
     case "script":
       return <Placeholder label="제목·대본 입력" />;
     case "lines":

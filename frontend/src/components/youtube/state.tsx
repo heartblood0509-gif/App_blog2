@@ -11,7 +11,11 @@ import {
   useReducer,
   type ReactNode,
 } from "react";
-import type { TitleOption } from "@/lib/youtube/endpoints";
+import type {
+  NarrationLine,
+  ScriptLine,
+  TitleOption,
+} from "@/lib/youtube/endpoints";
 
 export type YtMode = "ai_full" | "user_assets";
 
@@ -48,6 +52,8 @@ export interface YtState {
   ingredient: string;
   keyword: string;
   productImageId: string | null;
+  // 제목 생성 시점의 키워드 스냅샷(info 타입에서 제목/나레이션 키워드 불일치 경고용).
+  keywordAtTitleGen: string;
 
   // 제목
   titleOptions: TitleOption[];
@@ -55,10 +61,13 @@ export interface YtState {
   titleLine1: string;
   titleLine2: string;
 
-  // 나레이션
-  narrationLines: string[];
+  // 나레이션 (줄마다 text + role)
+  narration: NarrationLine[];
+  // 확정 나레이션 → 이미지 프롬프트/모션이 채워진 줄(이후 job.lines). promo_comment 는 BGM 단계에서 지연 생성 → null.
+  scriptLines: ScriptLine[] | null;
 
   // 음성(TTS)
+  ttsEngine: string;
   voiceId: string;
   emotion: string;
   ttsSpeed: number;
@@ -85,11 +94,14 @@ export const initialYtState: YtState = {
   ingredient: "",
   keyword: "",
   productImageId: null,
+  keywordAtTitleGen: "",
   titleOptions: [],
   selectedTitle: "",
   titleLine1: "",
   titleLine2: "",
-  narrationLines: [],
+  narration: [],
+  scriptLines: null,
+  ttsEngine: "typecast",
   voiceId: "",
   emotion: "normal",
   ttsSpeed: 1.0,

@@ -47,6 +47,12 @@ export function TopicInput() {
         selectedTitle: "",
         titleLine1: "",
         titleLine2: "",
+        // 제목이 새로 생성됐으니 하위 단계 산출물은 모두 무효화.
+        narration: [],
+        scriptLines: null,
+        ttsSessionId: null,
+        // info 타입 키워드 불일치 경고용 스냅샷.
+        keywordAtTitleGen: isInfo ? state.keyword.trim() : "",
         screen: "titles",
       });
     } catch (e) {
