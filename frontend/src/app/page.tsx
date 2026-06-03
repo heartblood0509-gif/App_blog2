@@ -175,7 +175,7 @@ function applyImagePostProcessing(
 }
 
 import { StepChannelSelect } from "@/components/steps/step-channel-select";
-import { StepYoutubeEmbed } from "@/components/steps/step-youtube-embed";
+import { YoutubeWorkflow } from "@/components/youtube/YoutubeWorkflow";
 import { StepNarrative } from "@/components/steps/step-narrative";
 import { StepSettings } from "@/components/steps/step-settings";
 import { StepTitleSelect } from "@/components/steps/step-title-select";
@@ -2227,7 +2227,7 @@ export default function Home() {
           />
         );
       }
-      return <StepYoutubeEmbed />;
+      return <YoutubeWorkflow />;
     }
 
     // 쓰레드 채널 분기
@@ -2423,7 +2423,8 @@ export default function Home() {
           onResetClick={() => setResetConfirmOpen(true)}
         />
 
-        {/* Stepper */}
+        {/* Stepper — 유튜브 탭(채널 선택 이후)에선 네이티브 워크플로가 자체 스텝퍼를 그리므로 숨김 */}
+        {!(state.channel === "youtube" && state.currentStep > 0) && (
         <nav className="mb-16">
           <ol className="flex items-center justify-between">
             {STEPS.map((step, index) => {
@@ -2503,6 +2504,7 @@ export default function Home() {
             })}
           </ol>
         </nav>
+        )}
 
         {/* Step Content */}
         <div className="relative min-h-[500px]">
@@ -2519,7 +2521,8 @@ export default function Home() {
           </AnimatePresence>
         </div>
 
-        {/* Navigation Buttons */}
+        {/* Navigation Buttons — 유튜브 탭(채널 선택 이후)에선 네이티브 워크플로가 자체 운전하므로 숨김 */}
+        {!(state.channel === "youtube" && state.currentStep > 0) && (
         <div className="mt-8 flex items-center justify-between border-t border-border pt-6">
           <Button
             variant="outline"
@@ -2551,6 +2554,7 @@ export default function Home() {
           )}
           {state.currentStep === STEPS.length - 1 && <div className="w-20" />}
         </div>
+        )}
       </div>
 
       {/* Phase 1 검문소 모달 — 브랜드 모드 글 생성 직전 LLM 적합성 미스매치 알림 */}
