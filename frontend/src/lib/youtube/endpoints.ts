@@ -9,6 +9,7 @@ import {
   ytGetJson,
   ytPostForm,
   ytPostJson,
+  ytPutJson,
 } from "./api";
 
 // ── 콘텐츠 생성 ──────────────────────────────────────────────
@@ -235,4 +236,27 @@ export interface JobResponse {
 }
 export function createJob(input: JobCreateInput): Promise<JobResponse> {
   return ytPostJson<JobResponse>("/api/jobs/", input);
+}
+
+// ── API 키 (단일사용자 무인증, 백엔드 DB 직접 저장) ──────────
+
+/** 설정 여부/마스킹 상태. 값은 마스킹 문자열 또는 null. */
+export interface ApiKeysStatus {
+  gemini: string | null;
+  typecast: string | null;
+  fal: string | null;
+}
+export function getApiKeys(): Promise<ApiKeysStatus> {
+  return ytGetJson<ApiKeysStatus>("/api/auth/api-keys");
+}
+/** 보낸 키만 갱신. ""(빈문자)=삭제, 생략=변경 안 함. 비어있지 않으면 외부 검증 후 저장. */
+export interface ApiKeysUpdateInput {
+  gemini_api_key?: string;
+  typecast_api_key?: string;
+  fal_key?: string;
+}
+export function updateApiKeys(
+  input: ApiKeysUpdateInput,
+): Promise<{ message?: string }> {
+  return ytPutJson<{ message?: string }>("/api/auth/api-keys", input);
 }
