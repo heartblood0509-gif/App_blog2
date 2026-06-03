@@ -269,6 +269,56 @@ export function confirmRender(
   });
 }
 
+// ── 이미지 줄별 재생성 / 업로드 (preview_ready) ──────────────
+
+export interface RegenerateImageInput {
+  korean_request?: string; // 한글 요청어(생략 시 현재 대본 텍스트 기준)
+  english_prompt?: string; // 영어 프롬프트 직접 지정
+}
+export interface RegenerateImageResult {
+  message?: string;
+  task_id?: string;
+  already_running?: boolean;
+}
+/**
+ * 특정 줄 이미지를 AI 로 다시 생성. **비동기**(작업 큐) — 호출 직후 job.status 가
+ * 'regenerating_image' 로 바뀌고, 워커가 끝나면 'preview_ready'(성공)/'failed'(실패)로 돌아온다.
+ * 그래서 호출 측은 getJob 으로 상태가 'regenerating_image' 를 벗어날 때까지 폴링해야 한다.
+ * Card A 는 본문 없이 호출하면 현재 프롬프트로 재생성.
+ */
+export function regenerateImage(
+  jobId: string,
+  lineIndex: number,
+  body: RegenerateImageInput = {},
+): Promise<RegenerateImageResult> {
+  return ytPostJson<RegenerateImageResult>(
+    `/api/jobs/${jobId}/regenerate-image/${lineIndex}`,
+    body,
+  );
+}
+
+export interface UploadImageResult {
+  message?: string;
+  image_url: string; // /api/jobs/{id}/images/{i}
+  asset_version?: number | null; // Card A 는 null
+}
+/**
+ * 특정 줄 이미지를 사용자 파일로 교체. **동기**(즉시 저장 후 응답) — 백엔드가 9:16 으로
+ * cover-crop 한다. PNG/JPG/WebP, 10MB 이하만 허용(백엔드와 동일 검사를 호출 측에서도 선행).
+ */
+export function uploadImage(
+  jobId: string,
+  lineIndex: number,
+  file: File,
+): Promise<UploadImageResult> {
+  const form = new FormData();
+  form.append("file", file);
+  return ytPostForm<UploadImageResult>(
+    `/api/jobs/${jobId}/upload-image/${lineIndex}`,
+    form,
+  );
+}
+
 // ── API 키 (단일사용자 무인증, 백엔드 DB 직접 저장) ──────────
 
 /** 설정 여부/마스킹 상태. 값은 마스킹 문자열 또는 null. */
