@@ -15,6 +15,7 @@ import { ModeSelect } from "./screens/ModeSelect";
 import { TopicInput } from "./screens/TopicInput";
 import { TitleSelect } from "./screens/TitleSelect";
 import { NarrationReview } from "./screens/NarrationReview";
+import { TtsConfig } from "./screens/TtsConfig";
 import { Placeholder } from "./screens/Placeholder";
 
 const noopSubscribe = () => () => {};
@@ -45,7 +46,7 @@ function ScreenSwitch() {
     case "lines":
       return <Placeholder label="줄별 자산 편집" />;
     case "tts":
-      return <Placeholder label="음성 설정" />;
+      return <TtsConfig />;
     case "bgm":
       return <Placeholder label="BGM 설정" />;
     case "progress":

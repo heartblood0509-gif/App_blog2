@@ -38,6 +38,13 @@ export async function ytGetJson<T>(path: string): Promise<T> {
   return (await r.json()) as T;
 }
 
+/** 프록시 경유 GET → Blob(오디오/이미지 등 바이너리). */
+export async function ytGetBlob(path: string): Promise<Blob> {
+  const r = await ytFetch(path);
+  if (!r.ok) throw await asError(r);
+  return await r.blob();
+}
+
 /** 프록시 경유 POST(JSON 본문) → JSON. */
 export async function ytPostJson<T>(path: string, body: unknown): Promise<T> {
   const r = await ytFetch(path, {

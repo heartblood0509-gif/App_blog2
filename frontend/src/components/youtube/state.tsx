@@ -16,6 +16,7 @@ import type {
   ScriptLine,
   TitleOption,
 } from "@/lib/youtube/endpoints";
+import { VOICE_OPTIONS } from "@/lib/youtube/voices";
 
 export type YtMode = "ai_full" | "user_assets";
 
@@ -72,6 +73,8 @@ export interface YtState {
   emotion: string;
   ttsSpeed: number;
   ttsSessionId: string | null;
+  // promo_comment: TTS 가 6초 초과 줄을 분리한 결과(이후 이미지 프롬프트 생성에 사용). 그 외 null.
+  expandedSentences: string[] | null;
 
   // BGM
   bgmFilename: string | null;
@@ -102,10 +105,11 @@ export const initialYtState: YtState = {
   narration: [],
   scriptLines: null,
   ttsEngine: "typecast",
-  voiceId: "",
+  voiceId: VOICE_OPTIONS[0].value,
   emotion: "normal",
   ttsSpeed: 1.0,
   ttsSessionId: null,
+  expandedSentences: null,
   bgmFilename: null,
   bgmVolume: 12,
   bgmStartSec: 0,
