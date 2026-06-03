@@ -65,6 +65,8 @@ export interface YtState {
 
   // 나레이션 (줄마다 text + role)
   narration: NarrationLine[];
+  // 현재 narration 이 어떤 제목으로 생성됐는지. selectedTitle 과 다르면 stale → 재생성.
+  narrationTitle: string;
   // 확정 나레이션 → 이미지 프롬프트/모션이 채워진 줄(이후 job.lines). promo_comment 는 BGM 단계에서 지연 생성 → null.
   scriptLines: ScriptLine[] | null;
 
@@ -104,6 +106,7 @@ export const initialYtState: YtState = {
   titleLine1: "",
   titleLine2: "",
   narration: [],
+  narrationTitle: "",
   scriptLines: null,
   ttsEngine: "typecast",
   voiceId: VOICE_OPTIONS[0].value,

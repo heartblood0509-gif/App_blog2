@@ -49,13 +49,8 @@ export function categoryFields(o: CategoryFieldsInput): YtContentFields {
   return f;
 }
 
-export interface GenerateTitlesInput {
+export interface GenerateTitlesInput extends YtContentFields {
   topic: string;
-  category: string;
-  pain_point: string;
-  ingredient: string;
-  content_type: string;
-  keyword: string;
 }
 /** 백엔드 TitleResponse.titles 의 항목. (api/models.py TitleOption) */
 export interface TitleOption {
@@ -102,10 +97,13 @@ export interface ScriptLine {
   // 그 외 백엔드 부가 필드(fail_reason/asset_* 등)는 그대로 통과.
   [key: string]: unknown;
 }
-export interface GenerateImagePromptsInput extends YtContentFields {
+// 백엔드 ImagePromptRequest 는 category/content_type 만 받는다(pain_point 등은 계약 외).
+export interface GenerateImagePromptsInput {
   narration_lines: string[];
   style: string; // 'realistic'
   topic: string;
+  category: string;
+  content_type?: string;
 }
 export interface GenerateImagePromptsResult {
   lines: ScriptLine[];

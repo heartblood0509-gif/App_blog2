@@ -39,6 +39,15 @@ export function TtsConfig() {
   const [preview, setPreview] = useState<"idle" | "loading" | "playing">("idle");
   const [building, setBuilding] = useState(false);
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  const urlRef = useRef<string | null>(null);
+  const mountedRef = useRef(true);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
 
   // 성우가 바뀌면 그 성우의 감정 목록을 불러온다(typecast 전용). 키 없으면 빈 목록 → 기본 음색만.
   useEffect(() => {
@@ -60,11 +69,15 @@ export function TtsConfig() {
     };
   }, [state.voiceId]);
 
-  // 언마운트 시 미리듣기 오디오 정리.
+  // 언마운트 시 미리듣기 오디오 + objectURL 정리.
   useEffect(() => {
     return () => {
       audioRef.current?.pause();
       audioRef.current = null;
+      if (urlRef.current) {
+        URL.revokeObjectURL(urlRef.current);
+        urlRef.current = null;
+      }
     };
   }, []);
 
@@ -73,9 +86,17 @@ export function TtsConfig() {
     update({ ...patch, ttsSessionId: null, expandedSentences: null });
   }
 
+  function releaseUrl() {
+    if (urlRef.current) {
+      URL.revokeObjectURL(urlRef.current);
+      urlRef.current = null;
+    }
+  }
+
   function stopPreview() {
     audioRef.current?.pause();
     audioRef.current = null;
+    releaseUrl();
     setPreview("idle");
   }
 
@@ -93,19 +114,26 @@ export function TtsConfig() {
         speed: state.ttsSpeed,
         emotion: state.emotion,
       });
+      // 요청 중 화면을 떠났으면 재생하지 않고 정리.
+      if (!mountedRef.current) return;
+      releaseUrl();
       const url = URL.createObjectURL(blob);
+      urlRef.current = url;
       const audio = new Audio(url);
       audioRef.current = audio;
       audio.onended = () => {
-        URL.revokeObjectURL(url);
+        releaseUrl();
         audioRef.current = null;
-        setPreview("idle");
+        if (mountedRef.current) setPreview("idle");
       };
       await audio.play();
-      setPreview("playing");
+      if (mountedRef.current) setPreview("playing");
     } catch (e) {
-      toast.error(errMessage(e, "미리듣기에 실패했습니다. (Typecast 키 확인)"));
-      setPreview("idle");
+      releaseUrl();
+      if (mountedRef.current) {
+        toast.error(errMessage(e, "미리듣기에 실패했습니다. (Typecast 키 확인)"));
+        setPreview("idle");
+      }
     }
   }
 

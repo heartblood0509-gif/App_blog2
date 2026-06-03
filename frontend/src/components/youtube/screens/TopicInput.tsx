@@ -11,7 +11,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useYt } from "../state";
-import { generateTitles } from "@/lib/youtube/endpoints";
+import { categoryFields, generateTitles } from "@/lib/youtube/endpoints";
 
 const SELECT_CLS =
   "h-8 w-full rounded-lg border border-input bg-transparent px-2.5 text-sm outline-none transition-colors focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50";
@@ -21,9 +21,8 @@ export function TopicInput() {
   const [busy, setBusy] = useState(false);
 
   const isCosmetics = state.category === "cosmetics";
-  const isPromo =
-    isCosmetics &&
-    (state.contentType === "promo" || state.contentType === "promo_comment");
+  // promo(페인포인트/제품 연동)는 promo 만. promo_comment 는 주제만으로 생성하는 별도 경로.
+  const isPromo = isCosmetics && state.contentType === "promo";
   const isInfo = isCosmetics && state.contentType === "info";
 
   const canGenerate =
@@ -35,11 +34,13 @@ export function TopicInput() {
     try {
       const { titles } = await generateTitles({
         topic: state.topic.trim(),
-        category: state.category,
-        pain_point: state.painPoint.trim(),
-        ingredient: state.ingredient.trim(),
-        content_type: isCosmetics ? state.contentType : "info",
-        keyword: state.keyword.trim(),
+        ...categoryFields({
+          category: state.category,
+          contentType: state.contentType,
+          painPoint: state.painPoint,
+          ingredient: state.ingredient,
+          keyword: state.keyword,
+        }),
       });
       if (!titles?.length) throw new Error("제목을 생성하지 못했습니다.");
       update({
@@ -97,8 +98,8 @@ export function TopicInput() {
               }
             >
               <option value="info">정보성 (순수 정보 전달)</option>
-              <option value="promo">홍보성 (블로그 유입용)</option>
               <option value="promo_comment">홍보성 (고정댓글 유도형)</option>
+              {/* '홍보성(블로그 유입용)'은 제품 이미지 연동이 필요해 제품 등록 화면 구현 후 활성화 */}
             </select>
           </div>
         )}

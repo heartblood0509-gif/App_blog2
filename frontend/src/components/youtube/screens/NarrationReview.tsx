@@ -48,10 +48,22 @@ export function NarrationReview() {
   const isCosmetics = state.category === "cosmetics";
   const isPromoComment = isCosmetics && state.contentType === "promo_comment";
 
-  // 처음 들어왔을 때(나레이션 없음)만 자동 생성. 되돌아오면 기존 내용 유지.
-  const [loading, setLoading] = useState(() => state.narration.length === 0);
+  // narration 이 없거나, 이전과 다른 제목으로 생성된 경우(stale) 자동 재생성.
+  const stale =
+    state.narration.length === 0 ||
+    state.narrationTitle !== state.selectedTitle;
+  const [loading, setLoading] = useState(stale);
   const [approving, setApproving] = useState(false);
   const startedRef = useRef(false);
+  const mountedRef = useRef(true);
+  const reqRef = useRef(0); // 늦게 도착한 이전 요청이 새 상태를 덮어쓰지 않도록
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
 
   // info 타입에서 제목 생성 후 키워드가 달라졌는지(원본 confirm 경고를 비차단 배너로 이식).
   const keywordChanged =
@@ -70,6 +82,8 @@ export function NarrationReview() {
   }
 
   async function fetchNarration() {
+    const myReq = ++reqRef.current;
+    const titleAtReq = state.selectedTitle;
     setLoading(true);
     try {
       const { lines } = await generateNarration({
@@ -78,21 +92,31 @@ export function NarrationReview() {
         num_lines: isPromoComment ? 5 : 6,
         ...catFields(),
       });
+      // 언마운트됐거나, 더 새로운 요청이 떴으면 결과 버림(stale 응답 방지).
+      if (!mountedRef.current || myReq !== reqRef.current) return;
       if (!lines?.length) throw new Error("나레이션을 생성하지 못했습니다.");
-      // 나레이션이 새로 생기면 하위 산출물(이미지 프롬프트/TTS 세션) 무효화.
-      update({ narration: lines, scriptLines: null, ttsSessionId: null });
+      // 나레이션이 새로 생기면 하위 산출물(이미지/TTS/expanded) 무효화 + 생성 기준 제목 기록.
+      update({
+        narration: lines,
+        narrationTitle: titleAtReq,
+        scriptLines: null,
+        ttsSessionId: null,
+        expandedSentences: null,
+      });
     } catch (e) {
-      toast.error(errMessage(e, "나레이션 생성에 실패했습니다."));
+      if (mountedRef.current && myReq === reqRef.current) {
+        toast.error(errMessage(e, "나레이션 생성에 실패했습니다."));
+      }
     } finally {
-      setLoading(false);
+      if (mountedRef.current && myReq === reqRef.current) setLoading(false);
     }
   }
 
-  // 최초 진입 시 1회 자동 생성(StrictMode 이중 실행 방지).
+  // 진입 시(또는 stale 일 때) 1회 자동 생성(StrictMode 이중 실행 방지).
   useEffect(() => {
     if (startedRef.current) return;
     startedRef.current = true;
-    if (state.narration.length === 0) void fetchNarration();
+    if (stale) void fetchNarration();
     else setLoading(false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -137,19 +161,24 @@ export function NarrationReview() {
         narration_lines: texts,
         style: "realistic",
         topic: state.topic.trim(),
-        ...catFields(),
+        category: state.category,
+        content_type: isCosmetics ? state.contentType : undefined,
       });
+      if (!mountedRef.current) return;
       if (!lines?.length) throw new Error("이미지 프롬프트 생성에 실패했습니다.");
       update({
         narration: normalized,
         scriptLines: lines,
         ttsSessionId: null,
+        expandedSentences: null,
         screen: "tts",
       });
     } catch (e) {
-      toast.error(errMessage(e, "이미지 프롬프트 생성에 실패했습니다."));
+      if (mountedRef.current) {
+        toast.error(errMessage(e, "이미지 프롬프트 생성에 실패했습니다."));
+      }
     } finally {
-      setApproving(false);
+      if (mountedRef.current) setApproving(false);
     }
   }
 

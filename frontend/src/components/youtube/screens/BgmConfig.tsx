@@ -14,7 +14,6 @@ import { cn } from "@/lib/utils";
 import { useYt } from "../state";
 import { ytUrl } from "@/lib/youtube/api";
 import {
-  categoryFields,
   createJob,
   deleteBgm,
   generateImagePrompts,
@@ -129,18 +128,14 @@ export function BgmConfig() {
           narration_lines: narrationForPrompts,
           style: "realistic",
           topic: state.topic.trim(),
-          ...categoryFields({
-            category: state.category,
-            contentType: state.contentType,
-            painPoint: state.painPoint,
-            ingredient: state.ingredient,
-            keyword: state.keyword,
-          }),
+          category: state.category,
+          content_type: isCosmetics ? state.contentType : undefined,
         });
         lines = res.lines;
       }
       if (!lines || lines.length === 0) {
         toast.error("이미지 구성이 준비되지 않았습니다. 나레이션 단계부터 다시 진행해주세요.");
+        setCreating(false); // 막다른 분기에서 버튼 잠금 해제
         return;
       }
 

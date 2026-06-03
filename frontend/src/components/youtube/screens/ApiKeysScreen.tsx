@@ -71,6 +71,21 @@ export function ApiKeysScreen() {
     void load();
   }, []);
 
+  async function handleClear(field: FieldName) {
+    if (saving) return;
+    setSaving(true);
+    try {
+      await updateApiKeys({ [field]: "" });
+      toast.success("키를 지웠어요.");
+      setValues((v) => ({ ...v, [field]: "" }));
+      await load();
+    } catch (e) {
+      toast.error(errMessage(e, "삭제에 실패했습니다."));
+    } finally {
+      setSaving(false);
+    }
+  }
+
   async function handleSave() {
     const payload: Record<string, string> = {};
     for (const f of FIELDS) {
@@ -126,8 +141,18 @@ export function ApiKeysScreen() {
                 <div className="flex items-center justify-between">
                   <Label htmlFor={`yt-key-${f.key}`}>{f.label}</Label>
                   {set ? (
-                    <span className="flex items-center gap-1 text-xs text-emerald-600 dark:text-emerald-400">
-                      <Check className="h-3 w-3" /> 설정됨 ({set})
+                    <span className="flex items-center gap-2 text-xs">
+                      <span className="flex items-center gap-1 text-emerald-600 dark:text-emerald-400">
+                        <Check className="h-3 w-3" /> 설정됨 ({set})
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => handleClear(f.field)}
+                        disabled={saving}
+                        className="text-muted-foreground underline-offset-2 hover:text-destructive hover:underline disabled:opacity-50"
+                      >
+                        지우기
+                      </button>
                     </span>
                   ) : (
                     <span className="text-xs text-muted-foreground">미설정</span>
