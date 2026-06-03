@@ -13,6 +13,7 @@ import { YoutubeWorkflowProvider, useYt } from "./state";
 import { Stepper } from "./Stepper";
 import { ModeSelect } from "./screens/ModeSelect";
 import { TopicInput } from "./screens/TopicInput";
+import { TitleSelect } from "./screens/TitleSelect";
 import { Placeholder } from "./screens/Placeholder";
 
 const noopSubscribe = () => () => {};
@@ -35,7 +36,7 @@ function ScreenSwitch() {
     case "topic":
       return <TopicInput />;
     case "titles":
-      return <Placeholder label="제목 선택" />;
+      return <TitleSelect />;
     case "narration":
       return <Placeholder label="나레이션 확인" />;
     case "script":

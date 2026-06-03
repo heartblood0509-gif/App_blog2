@@ -15,8 +15,13 @@ export interface GenerateTitlesInput {
   content_type: string;
   keyword: string;
 }
+/** 백엔드 TitleResponse.titles 의 항목. (api/models.py TitleOption) */
+export interface TitleOption {
+  title: string;
+  hook: string;
+}
 export interface GenerateTitlesResult {
-  titles: string[];
+  titles: TitleOption[];
 }
 export function generateTitles(
   input: GenerateTitlesInput,

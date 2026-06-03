@@ -42,7 +42,13 @@ export function TopicInput() {
         keyword: state.keyword.trim(),
       });
       if (!titles?.length) throw new Error("제목을 생성하지 못했습니다.");
-      update({ titleOptions: titles, selectedTitle: "", screen: "titles" });
+      update({
+        titleOptions: titles,
+        selectedTitle: "",
+        titleLine1: "",
+        titleLine2: "",
+        screen: "titles",
+      });
     } catch (e) {
       const msg = e instanceof Error ? e.message : "제목 생성에 실패했습니다.";
       toast.error(msg);

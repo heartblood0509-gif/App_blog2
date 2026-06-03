@@ -11,6 +11,7 @@ import {
   useReducer,
   type ReactNode,
 } from "react";
+import type { TitleOption } from "@/lib/youtube/endpoints";
 
 export type YtMode = "ai_full" | "user_assets";
 
@@ -49,7 +50,7 @@ export interface YtState {
   productImageId: string | null;
 
   // 제목
-  titleOptions: string[];
+  titleOptions: TitleOption[];
   selectedTitle: string;
   titleLine1: string;
   titleLine2: string;
