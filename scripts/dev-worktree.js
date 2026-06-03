@@ -294,7 +294,20 @@ function ensureEnvLocal(mainRoot, worktreeRoot, backendPort) {
   // 2) frontend/.env.local — BACKEND_URL/ALLOW_INSECURE_DEV_AUTH 오버라이드 포함.
   const dst = path.join(worktreeRoot, "frontend", ".env.local");
   if (fs.existsSync(dst)) {
-    console.log(`\n[dev-worktree] frontend/.env.local 이미 존재 — 건너뜀`);
+    // 이미 존재해도 dev 필수 우회(ALLOW_INSECURE_DEV_AUTH)가 빠져 있으면 보강한다.
+    // 이게 없으면 proxy.ts 미들웨어가 fail-closed 라 웹 dev 의 /api/* 가 전부 401 (프론트엔드는
+    // spawn env 로 이 값을 안 받으므로 .env.local 이 유일한 주입 경로다).
+    const cur = fs.readFileSync(dst, "utf8");
+    if (!/^\s*ALLOW_INSECURE_DEV_AUTH\s*=/m.test(cur)) {
+      fs.writeFileSync(
+        dst,
+        `${cur.trimEnd()}\n\n# worktree dev 보강 (auto-added by scripts/dev-worktree.js)\nALLOW_INSECURE_DEV_AUTH=1\n`,
+        "utf8"
+      );
+      console.log(`\n[dev-worktree] frontend/.env.local 에 ALLOW_INSECURE_DEV_AUTH=1 보강`);
+    } else {
+      console.log(`\n[dev-worktree] frontend/.env.local 이미 존재 — 유지`);
+    }
     return;
   }
   const src = path.join(mainRoot, "frontend", ".env.local");
