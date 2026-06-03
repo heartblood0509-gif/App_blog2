@@ -236,6 +236,39 @@ export function createJob(input: JobCreateInput): Promise<JobResponse> {
   return ytPostJson<JobResponse>("/api/jobs/", input);
 }
 
+/** 단건 조회 — SSE 끊겼을 때 폴백 폴링용. */
+export function getJob(jobId: string): Promise<JobResponse> {
+  return ytGetJson<JobResponse>(`/api/jobs/${jobId}`);
+}
+
+// ── 미리보기 / 렌더 확정 ─────────────────────────────────────
+
+export interface PreviewResponse {
+  title: string;
+  lines: ScriptLine[];
+  image_urls: string[]; // 백엔드 root-relative (/api/jobs/{id}/images/{i}) — 렌더 시 ytUrl 로 감쌀 것
+}
+/** preview_ready/awaiting_confirmation 상태에서만 가능. 생성된 이미지+대본. */
+export function getPreview(jobId: string): Promise<PreviewResponse> {
+  return ytGetJson<PreviewResponse>(`/api/jobs/${jobId}/preview`);
+}
+
+export interface ConfirmRenderResult {
+  message?: string;
+  job_id?: string;
+  next?: string; // 'render' | 'clips'
+  task_id?: string;
+}
+/** 미리보기 확인 → 렌더(kenburns) 또는 클립생성(그 외) 시작. Card A 는 video_mode 만 보내면 됨. */
+export function confirmRender(
+  jobId: string,
+  videoMode = "kenburns",
+): Promise<ConfirmRenderResult> {
+  return ytPostJson<ConfirmRenderResult>(`/api/jobs/${jobId}/confirm`, {
+    video_mode: videoMode,
+  });
+}
+
 // ── API 키 (단일사용자 무인증, 백엔드 DB 직접 저장) ──────────
 
 /** 설정 여부/마스킹 상태. 값은 마스킹 문자열 또는 null. */

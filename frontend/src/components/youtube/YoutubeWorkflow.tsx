@@ -18,6 +18,9 @@ import { TitleSelect } from "./screens/TitleSelect";
 import { NarrationReview } from "./screens/NarrationReview";
 import { TtsConfig } from "./screens/TtsConfig";
 import { BgmConfig } from "./screens/BgmConfig";
+import { ProgressView } from "./screens/ProgressView";
+import { ImagePreview } from "./screens/ImagePreview";
+import { CompletedView } from "./screens/CompletedView";
 import { Placeholder } from "./screens/Placeholder";
 
 const noopSubscribe = () => () => {};
@@ -54,13 +57,13 @@ function ScreenSwitch() {
     case "bgm":
       return <BgmConfig />;
     case "progress":
-      return <Placeholder label="영상 생성 진행" />;
+      return <ProgressView />;
     case "preview":
-      return <Placeholder label="이미지 미리보기" />;
+      return <ImagePreview />;
     case "clips":
       return <Placeholder label="클립 미리보기" />;
     case "completed":
-      return <Placeholder label="완성" />;
+      return <CompletedView />;
     default:
       return <ModeSelect />;
   }
