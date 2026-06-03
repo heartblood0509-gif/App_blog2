@@ -24,6 +24,11 @@ const cspHeader = `
 
 const nextConfig: NextConfig = {
   output: "standalone",
+  // 끝 슬래시 자동 리다이렉트(308) 비활성화. 유튜브 프록시가 백엔드의 끝 슬래시 라우트
+  // (`/api/jobs/` 생성·목록 등)를 그대로 전달해야 하는데, Next 기본값은 인바운드에서
+  // `/api/youtube/api/jobs/` → `/api/youtube/api/jobs` 로 308 리다이렉트해 끝 슬래시를 잃는다.
+  // 끄면 프록시 핸들러가 원본 pathname(끝 슬래시 포함)을 받아 백엔드에 정확히 forward 한다.
+  skipTrailingSlashRedirect: true,
   // standalone tracing root 를 monorepo 루트(이 파일의 상위)로 고정.
   // 미설정 시 Next 가 lockfile 을 자동 탐색하다가 git 워크트리(.claude/worktrees/...)
   // 같은 비표준 위치에서 잘못된 상위 루트를 잡아 server.js 경로가 어그러진다.

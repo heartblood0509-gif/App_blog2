@@ -37,9 +37,17 @@ async function forward(
     );
   }
 
+  // 원본 요청 경로에서 프록시 prefix 만 떼어 그대로 forward 한다.
+  // catch-all params(path.join)은 끝 슬래시를 잃어 `/api/jobs/` → `/api/jobs` 가 되고,
+  // FastAPI 가 308 로 리다이렉트한다(작업 생성/목록이 끝 슬래시 라우트). pathname 을 쓰면
+  // 끝 슬래시와 URL 인코딩이 모두 보존된다.
+  const PROXY_PREFIX = "/api/youtube";
   const { path } = await ctx.params;
-  const search = new URL(req.url).search;
-  const target = `${base.replace(/\/$/, "")}/${path.join("/")}${search}`;
+  const url = new URL(req.url);
+  const rest = url.pathname.startsWith(PROXY_PREFIX)
+    ? url.pathname.slice(PROXY_PREFIX.length)
+    : `/${path.join("/")}`;
+  const target = `${base.replace(/\/$/, "")}${rest}${url.search}`;
 
   const headers = new Headers();
   req.headers.forEach((value, key) => {
