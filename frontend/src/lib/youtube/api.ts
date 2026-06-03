@@ -19,3 +19,32 @@ export function ytUrl(path: string): string {
 export function ytFetch(path: string, init: RequestInit = {}): Promise<Response> {
   return fetch(ytUrl(path), { credentials: "same-origin", ...init });
 }
+
+async function asError(r: Response): Promise<Error> {
+  let detail = "";
+  try {
+    const data = await r.clone().json();
+    detail = (data?.detail ?? data?.error ?? "").toString();
+  } catch {
+    detail = (await r.text().catch(() => "")).slice(0, 200);
+  }
+  return new Error(detail || `요청 실패 (${r.status})`);
+}
+
+/** 프록시 경유 GET → JSON. */
+export async function ytGetJson<T>(path: string): Promise<T> {
+  const r = await ytFetch(path);
+  if (!r.ok) throw await asError(r);
+  return (await r.json()) as T;
+}
+
+/** 프록시 경유 POST(JSON 본문) → JSON. */
+export async function ytPostJson<T>(path: string, body: unknown): Promise<T> {
+  const r = await ytFetch(path, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!r.ok) throw await asError(r);
+  return (await r.json()) as T;
+}
