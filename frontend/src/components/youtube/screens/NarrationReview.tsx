@@ -13,9 +13,9 @@ import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 import { useYt } from "../state";
 import {
+  categoryFields,
   generateImagePrompts,
   generateNarration,
-  type YtContentFields,
 } from "@/lib/youtube/endpoints";
 
 // 글자수: 구두점 제외(원본과 동일). 28자 초과 시 경고.
@@ -59,19 +59,14 @@ export function NarrationReview() {
     state.contentType === "info" &&
     state.keyword.trim() !== state.keywordAtTitleGen.trim();
 
-  function catFields(): YtContentFields {
-    if (!isCosmetics) return { category: state.category };
-    const f: YtContentFields = {
+  function catFields() {
+    return categoryFields({
       category: state.category,
-      content_type: state.contentType,
-    };
-    if (state.contentType === "promo") {
-      if (state.painPoint.trim()) f.pain_point = state.painPoint.trim();
-      if (state.ingredient.trim()) f.ingredient = state.ingredient.trim();
-    } else if (state.contentType === "info") {
-      if (state.keyword.trim()) f.keyword = state.keyword.trim();
-    }
-    return f;
+      contentType: state.contentType,
+      painPoint: state.painPoint,
+      ingredient: state.ingredient,
+      keyword: state.keyword,
+    });
   }
 
   async function fetchNarration() {

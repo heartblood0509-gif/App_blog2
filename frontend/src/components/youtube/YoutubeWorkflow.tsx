@@ -16,6 +16,7 @@ import { TopicInput } from "./screens/TopicInput";
 import { TitleSelect } from "./screens/TitleSelect";
 import { NarrationReview } from "./screens/NarrationReview";
 import { TtsConfig } from "./screens/TtsConfig";
+import { BgmConfig } from "./screens/BgmConfig";
 import { Placeholder } from "./screens/Placeholder";
 
 const noopSubscribe = () => () => {};
@@ -48,7 +49,7 @@ function ScreenSwitch() {
     case "tts":
       return <TtsConfig />;
     case "bgm":
-      return <Placeholder label="BGM 설정" />;
+      return <BgmConfig />;
     case "progress":
       return <Placeholder label="영상 생성 진행" />;
     case "preview":

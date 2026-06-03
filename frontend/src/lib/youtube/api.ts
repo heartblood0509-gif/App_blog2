@@ -55,3 +55,17 @@ export async function ytPostJson<T>(path: string, body: unknown): Promise<T> {
   if (!r.ok) throw await asError(r);
   return (await r.json()) as T;
 }
+
+/** 프록시 경유 multipart POST(FormData) → JSON. Content-Type 은 브라우저가 boundary 와 함께 설정. */
+export async function ytPostForm<T>(path: string, form: FormData): Promise<T> {
+  const r = await ytFetch(path, { method: "POST", body: form });
+  if (!r.ok) throw await asError(r);
+  return (await r.json()) as T;
+}
+
+/** 프록시 경유 DELETE → JSON. */
+export async function ytDelete<T>(path: string): Promise<T> {
+  const r = await ytFetch(path, { method: "DELETE" });
+  if (!r.ok) throw await asError(r);
+  return (await r.json()) as T;
+}

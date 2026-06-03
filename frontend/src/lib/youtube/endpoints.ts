@@ -3,7 +3,13 @@
 // 유튜브 백엔드 API 의 타입드 래퍼. 필드명은 백엔드 계약(api/routes/*)과 1:1 일치해야 한다.
 // 모든 호출은 same-origin 프록시(/api/youtube)를 경유한다.
 
-import { ytGetBlob, ytGetJson, ytPostJson } from "./api";
+import {
+  ytDelete,
+  ytGetBlob,
+  ytGetJson,
+  ytPostForm,
+  ytPostJson,
+} from "./api";
 
 // ── 콘텐츠 생성 ──────────────────────────────────────────────
 
@@ -17,6 +23,29 @@ export interface YtContentFields {
   pain_point?: string;
   ingredient?: string;
   keyword?: string;
+}
+
+/** 화면 상태(원시값) → 백엔드 카테고리 페이로드. 여러 화면(narration/image-prompts)이 공유. */
+export interface CategoryFieldsInput {
+  category: string;
+  contentType: string;
+  painPoint: string;
+  ingredient: string;
+  keyword: string;
+}
+export function categoryFields(o: CategoryFieldsInput): YtContentFields {
+  if (o.category !== "cosmetics") return { category: o.category };
+  const f: YtContentFields = {
+    category: o.category,
+    content_type: o.contentType,
+  };
+  if (o.contentType === "promo") {
+    if (o.painPoint.trim()) f.pain_point = o.painPoint.trim();
+    if (o.ingredient.trim()) f.ingredient = o.ingredient.trim();
+  } else if (o.contentType === "info") {
+    if (o.keyword.trim()) f.keyword = o.keyword.trim();
+  }
+  return f;
 }
 
 export interface GenerateTitlesInput {
@@ -145,4 +174,65 @@ export function ttsPreviewBuild(
   input: TtsPreviewBuildInput,
 ): Promise<TtsPreviewBuildResult> {
   return ytPostJson<TtsPreviewBuildResult>("/api/tts/preview-build", input);
+}
+
+// ── BGM ──────────────────────────────────────────────────────
+
+export interface BgmItem {
+  id?: string;
+  filename: string;
+  duration: number;
+  url: string; // 백엔드 root-relative (재생 시 ytUrl 로 감쌀 것)
+}
+export function listBgm(): Promise<BgmItem[]> {
+  return ytGetJson<BgmItem[]>("/api/assets/bgm");
+}
+export interface BgmUploadResult {
+  id?: string;
+  filename: string;
+  duration: number;
+}
+/** multipart 업로드(field=file). MP3/WAV/OGG ≤20MB, 최대 3개. */
+export function uploadBgm(file: File): Promise<BgmUploadResult> {
+  const fd = new FormData();
+  fd.append("file", file);
+  return ytPostForm<BgmUploadResult>("/api/assets/bgm", fd);
+}
+export function deleteBgm(idOrFilename: string): Promise<{ message?: string }> {
+  return ytDelete<{ message?: string }>(
+    `/api/assets/bgm/${encodeURIComponent(idOrFilename)}`,
+  );
+}
+
+// ── Job 생성(Card A 최종) ───────────────────────────────────
+
+export interface JobCreateInput {
+  topic: string;
+  style: string; // 'realistic'
+  video_mode: string; // 'kenburns'
+  tts_engine: string;
+  tts_speed: number;
+  voice_id: string | null;
+  emotion: string | null;
+  title: string;
+  title_line1: string;
+  title_line2: string;
+  lines: ScriptLine[];
+  bgm_volume: number; // 0~0.5
+  bgm_filename: string | null;
+  bgm_start_sec: number;
+  product_image_id: string | null;
+  tts_session_id: string | null;
+}
+export interface JobResponse {
+  job_id: string;
+  status: string;
+  progress: number;
+  current_step: string;
+  video_url?: string | null;
+  error?: string | null;
+  [key: string]: unknown;
+}
+export function createJob(input: JobCreateInput): Promise<JobResponse> {
+  return ytPostJson<JobResponse>("/api/jobs/", input);
 }
