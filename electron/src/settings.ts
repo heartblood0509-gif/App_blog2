@@ -14,6 +14,10 @@ import path from "node:path";
 
 interface SettingsFile {
   gemini_api_key_encrypted?: string; // base64 DPAPI
+  // 유튜브 쇼츠 전용 키. 부팅 시 YoutubeManager 가 env 로 시드(youtube-backend DB 가 비어있을 때만).
+  // 변경 즉시 적용은 설정 UI 가 youtube 백엔드에 PUT 으로 직접 갱신(여긴 다음 부팅용 보관).
+  typecast_api_key_encrypted?: string; // base64 DPAPI
+  fal_key_encrypted?: string; // base64 DPAPI
   device_id_encrypted?: string; // base64 DPAPI
   device_id_plain?: string; // fallback only when safeStorage is unavailable
   // §J — 자동 로그인 / 세션 영속성. 매 부팅마다 Next dev 포트가 바뀌면 Supabase 가
@@ -55,17 +59,49 @@ function mask(plain: string): string {
   return plain.slice(0, 4) + "•".repeat(8) + plain.slice(-4);
 }
 
-export function loadGeminiApiKey(): string | undefined {
-  const data = readRaw();
-  const ct = data.gemini_api_key_encrypted;
+// base64(DPAPI) 암호문 → 평문. 복호화 불가/미설정이면 undefined.
+function loadEncryptedKey(ct?: string): string | undefined {
   if (!ct) return undefined;
   try {
     if (!safeStorage.isEncryptionAvailable()) return undefined;
-    const buf = Buffer.from(ct, "base64");
-    return safeStorage.decryptString(buf);
+    return safeStorage.decryptString(Buffer.from(ct, "base64"));
   } catch {
     return undefined;
   }
+}
+
+export function loadGeminiApiKey(): string | undefined {
+  return loadEncryptedKey(readRaw().gemini_api_key_encrypted);
+}
+
+export function loadTypecastApiKey(): string | undefined {
+  return loadEncryptedKey(readRaw().typecast_api_key_encrypted);
+}
+
+export function loadFalKey(): string | undefined {
+  return loadEncryptedKey(readRaw().fal_key_encrypted);
+}
+
+// 유튜브 전용 키(typecast/fal) 저장. 빈 문자열이면 해당 필드를 지운다(설정 UI '지우기'와 정합).
+type YoutubeKeyField = "typecast_api_key_encrypted" | "fal_key_encrypted";
+function setEncryptedYoutubeKey(
+  field: YoutubeKeyField,
+  plaintext: string,
+): { ok: boolean; encryption_available: boolean } {
+  const encryption_available = safeStorage.isEncryptionAvailable();
+  const data = readRaw();
+  if (typeof plaintext === "string" && plaintext.length === 0) {
+    if (data[field] !== undefined) {
+      delete data[field];
+      writeRawAtomic(data);
+    }
+    return { ok: true, encryption_available };
+  }
+  if (!encryption_available) return { ok: false, encryption_available: false };
+  if (typeof plaintext !== "string") return { ok: false, encryption_available: true };
+  data[field] = safeStorage.encryptString(plaintext).toString("base64");
+  writeRawAtomic(data);
+  return { ok: true, encryption_available: true };
 }
 
 function encryptSetting(value: string): string | null {
@@ -174,6 +210,14 @@ export function registerSettingsIpc(): void {
     writeRawAtomic(data);
     return { ok: true, encryption_available: true };
   });
+
+  // 유튜브 전용 키(다음 부팅 시 youtube-backend 에 env 시드용). 빈 문자열=지우기.
+  ipcMain.handle("settings:setTypecastKey", async (_e, plaintext: string) =>
+    setEncryptedYoutubeKey("typecast_api_key_encrypted", plaintext),
+  );
+  ipcMain.handle("settings:setFalKey", async (_e, plaintext: string) =>
+    setEncryptedYoutubeKey("fal_key_encrypted", plaintext),
+  );
 
   ipcMain.handle("app:relaunch", () => {
     // app.quit() 으로 before-quit 경로 통과 → 자식(python/next/broker) 정상 정리.

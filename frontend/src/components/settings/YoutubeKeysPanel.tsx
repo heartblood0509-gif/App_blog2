@@ -62,6 +62,19 @@ function openKeyUrl(url: string) {
   else window.open(url, "_blank", "noopener,noreferrer");
 }
 
+// Electron 데스크톱이면 settings.json 에도 암호화 저장(다음 부팅 시 youtube-backend env 시드용).
+// 웹(dev) 모드엔 IPC 가 없어 건너뛴다 — 그 경우 youtube DB(PUT)만으로 충분. 빈 문자열=지우기.
+async function persistToElectron(field: FieldName, value: string): Promise<void> {
+  const api = window.electronAPI?.settings;
+  if (!api) return;
+  try {
+    if (field === "typecast_api_key") await api.setTypecastKey(value);
+    else if (field === "fal_key") await api.setFalKey(value);
+  } catch {
+    // 무시 — youtube DB 에는 이미 반영됨(부팅 시드 보관만 실패).
+  }
+}
+
 interface YoutubeKeysPanelProps {
   className?: string;
 }
@@ -94,6 +107,7 @@ export function YoutubeKeysPanel({ className }: YoutubeKeysPanelProps) {
     setSaving(true);
     try {
       await updateApiKeys({ [field]: "" });
+      await persistToElectron(field, "");
       toast.success("키를 지웠어요.");
       setValues((v) => ({ ...v, [field]: "" }));
       await load();
@@ -117,6 +131,11 @@ export function YoutubeKeysPanel({ className }: YoutubeKeysPanelProps) {
     setSaving(true);
     try {
       await updateApiKeys(payload);
+      // 데스크톱이면 settings.json 에도 보관(다음 부팅 시드용). 웹 모드엔 IPC 없어 자동 skip.
+      for (const f of FIELDS) {
+        const v = values[f.field].trim();
+        if (v) await persistToElectron(f.field, v);
+      }
       toast.success("저장되었습니다. 재시작 없이 바로 적용돼요.");
       setValues(EMPTY);
       await load();

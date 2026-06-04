@@ -87,6 +87,15 @@ interface ElectronSettingsApi {
     ok: boolean;
     encryption_available: boolean;
   }>;
+  // 유튜브 전용 키(다음 부팅 시 youtube-backend 에 env 시드용). 빈 문자열=지우기.
+  setTypecastKey: (plaintext: string) => Promise<{
+    ok: boolean;
+    encryption_available: boolean;
+  }>;
+  setFalKey: (plaintext: string) => Promise<{
+    ok: boolean;
+    encryption_available: boolean;
+  }>;
 }
 
 interface ElectronAuthDeviceInfo {
