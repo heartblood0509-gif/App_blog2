@@ -13,7 +13,9 @@
 import { useEffect, useRef, useState } from "react";
 import {
   AlertCircle,
+  ArrowUpToLine,
   CheckCircle2,
+  CornerDownLeft,
   ImageIcon,
   ImageUp,
   Loader2,
@@ -33,7 +35,9 @@ import {
   editLine,
   generateMissingImages,
   getDraftState,
+  mergeLine,
   regenerateImage,
+  splitLine,
   uploadImage,
   type LineSource,
   type ScriptLine,
@@ -74,6 +78,8 @@ export function LineAssetEditor() {
   const [drafts, setDrafts] = useState<Record<string, string>>({});
   const [savingText, setSavingText] = useState<Set<string>>(new Set());
   const [deleting, setDeleting] = useState<Set<string>>(new Set());
+  // 나누기/합치기(구조 변경) 진행 중인 줄. 끝나면 응답의 재정렬 전체로 교체.
+  const [structuring, setStructuring] = useState<Set<string>>(new Set());
 
   const mountedRef = useRef(true);
   const pollingRef = useRef(false);
@@ -253,6 +259,66 @@ export function LineAssetEditor() {
     }
   }
 
+  // Enter 로 줄 나누기. 커서 앞(before)/뒤(after) 텍스트는 화면 그대로 보냄(미저장 편집 포함).
+  async function doSplit(lineId: string, before: string, after: string) {
+    if (!jobId) return;
+    const idx = indexOfLine(lineId);
+    if (idx < 0) return;
+    setStructuring((s) => new Set(s).add(lineId));
+    try {
+      const res = await splitLine(jobId, idx, before, after);
+      if (!mountedRef.current) return;
+      setLines(res.lines);
+      setSources(res.sources);
+      clearDraft(lineId); // 서버 텍스트가 before 로 확정됨
+    } catch (e) {
+      if (mountedRef.current) {
+        toast.error(e instanceof Error ? e.message : "줄 나누기에 실패했어요.");
+      }
+    } finally {
+      if (mountedRef.current) {
+        setStructuring((s) => {
+          const n = new Set(s);
+          n.delete(lineId);
+          return n;
+        });
+      }
+    }
+  }
+
+  // 위 줄과 합치기. 서버가 두 줄의 '서버 텍스트'를 이어붙이므로 미저장 편집을 먼저 반영한다.
+  async function mergeUp(lineId: string) {
+    if (!jobId) return;
+    const idx = indexOfLine(lineId);
+    if (idx < 1) return; // 첫 줄은 위와 합칠 수 없음
+    const prevId = String(linesRef.current[idx - 1]?.line_id ?? "");
+    setStructuring((s) => new Set(s).add(lineId));
+    try {
+      if (prevId) await saveText(prevId);
+      await saveText(lineId);
+      const idx2 = indexOfLine(lineId);
+      if (idx2 < 1) return;
+      const res = await mergeLine(jobId, idx2);
+      if (!mountedRef.current) return;
+      setLines(res.lines);
+      setSources(res.sources);
+      clearDraft(lineId);
+      if (prevId) clearDraft(prevId);
+    } catch (e) {
+      if (mountedRef.current) {
+        toast.error(e instanceof Error ? e.message : "줄 합치기에 실패했어요.");
+      }
+    } finally {
+      if (mountedRef.current) {
+        setStructuring((s) => {
+          const n = new Set(s);
+          n.delete(lineId);
+          return n;
+        });
+      }
+    }
+  }
+
   function pickUpload(i: number) {
     if (!jobId) return;
     uploadTargetRef.current = i;
@@ -336,13 +402,17 @@ export function LineAssetEditor() {
     <div className="rounded-xl border border-border bg-card p-6 text-card-foreground">
       <div className="flex items-start justify-between gap-3">
         <div>
-          <h2 className="text-lg font-semibold">줄별 이미지</h2>
+          <h2 className="text-lg font-semibold">줄별 이미지·대본</h2>
           <p className="mt-1 text-sm text-muted-foreground">
             줄마다 AI 그림을 만들거나 내 사진을 올리세요.{" "}
             <b className="text-foreground">
               {readyCount}/{lines.length}
             </b>{" "}
             줄 준비됨.
+          </p>
+          <p className="mt-1 flex items-center gap-1 text-xs text-muted-foreground">
+            <CornerDownLeft className="size-3 shrink-0" />
+            글을 고친 뒤 다른 곳을 누르면 저장돼요. 문장 안에서 Enter를 누르면 그 자리에서 두 줄로 나뉘어요.
           </p>
         </div>
         <Button onClick={genAll} disabled={busyGlobal} variant="outline" className="shrink-0 gap-1.5">
@@ -373,7 +443,8 @@ export function LineAssetEditor() {
           const hasId = lineId !== "";
           const savingThis = savingText.has(lineId);
           const deletingThis = deleting.has(lineId);
-          const editLocked = working || deletingThis || !hasId;
+          const structuringThis = structuring.has(lineId);
+          const editLocked = working || deletingThis || structuringThis || !hasId;
           const textValue = drafts[lineId] ?? l.text;
           return (
             <li
@@ -452,6 +523,24 @@ export function LineAssetEditor() {
                     setDrafts((d) => ({ ...d, [lineId]: e.target.value }))
                   }
                   onBlur={() => saveText(lineId)}
+                  onKeyDown={(e) => {
+                    // Enter = 커서 위치에서 줄 나누기. Shift+Enter = 줄바꿈, IME 조합 중 Enter = 글자 확정(무시).
+                    if (
+                      e.key === "Enter" &&
+                      !e.shiftKey &&
+                      !e.nativeEvent.isComposing
+                    ) {
+                      e.preventDefault();
+                      const ta = e.currentTarget;
+                      const start = ta.selectionStart ?? ta.value.length;
+                      const end = ta.selectionEnd ?? start;
+                      void doSplit(
+                        lineId,
+                        ta.value.slice(0, start),
+                        ta.value.slice(end),
+                      );
+                    }
+                  }}
                   disabled={editLocked || savingThis}
                   rows={2}
                   className="mt-1 min-h-0 resize-y py-1.5 text-sm"
@@ -463,7 +552,7 @@ export function LineAssetEditor() {
                   </p>
                 )}
 
-                <div className="mt-2 flex gap-1.5">
+                <div className="mt-2 flex flex-wrap items-center gap-1.5">
                   <Button
                     variant="outline"
                     size="xs"
@@ -485,6 +574,23 @@ export function LineAssetEditor() {
                   >
                     <ImageUp className="size-3" /> 올리기
                   </Button>
+                  {i > 0 && (
+                    <Button
+                      variant="ghost"
+                      size="xs"
+                      className="text-muted-foreground"
+                      onClick={() => mergeUp(lineId)}
+                      disabled={editLocked}
+                      title="이 줄을 위 줄 끝에 이어 붙입니다"
+                    >
+                      {structuringThis ? (
+                        <Loader2 className="size-3 animate-spin" />
+                      ) : (
+                        <ArrowUpToLine className="size-3" />
+                      )}
+                      위와 합치기
+                    </Button>
+                  )}
                 </div>
               </div>
             </li>

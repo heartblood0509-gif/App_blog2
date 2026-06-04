@@ -437,6 +437,39 @@ export function editLine(
 }
 
 /**
+ * 줄을 커서 위치에서 둘로 나눔. before/after 는 클라가 보낸 텍스트 그대로 적용.
+ * 끝에서 Enter(after="") → 아래에 빈 AI줄, 맨앞에서 Enter(before="") → 위에 빈 AI줄,
+ * 가운데 → 첫 줄은 line_id·이미지·자산 보존(텍스트만 before), 둘째 줄은 새 AI줄(after).
+ * 응답으로 재정렬된 전체 줄/소스를 돌려준다.
+ */
+export function splitLine(
+  jobId: string,
+  lineIndex: number,
+  before: string,
+  after: string,
+): Promise<LineEditResult> {
+  return ytPostJson<LineEditResult>(`/api/jobs/${jobId}/split-line`, {
+    line_index: lineIndex,
+    before,
+    after,
+  });
+}
+
+/**
+ * lineIndex 줄을 바로 위(lineIndex-1) 줄 끝에 이어 붙이고 그 줄을 제거. lineIndex≥1.
+ * 위 줄의 line_id·이미지·자산은 보존, 사라지는 줄의 자산만 정리(이미지 보존 정책과 일관).
+ * 서버가 두 줄의 **서버 텍스트**를 이어 붙이므로, 미저장 편집은 호출 전 edit-line 으로 반영할 것.
+ */
+export function mergeLine(
+  jobId: string,
+  lineIndex: number,
+): Promise<LineEditResult> {
+  return ytPostJson<LineEditResult>(`/api/jobs/${jobId}/merge-line`, {
+    line_index: lineIndex,
+  });
+}
+
+/**
  * 줄 삭제. line_id 를 함께 보내면 백엔드가 현재 위치를 재확인(레이스 안전, 못 찾으면 무시).
  * 마지막 한 줄은 삭제 불가(400). 응답으로 재정렬된 전체 줄/소스를 돌려준다.
  */
