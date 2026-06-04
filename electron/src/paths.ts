@@ -8,6 +8,9 @@ app.setName("app-blog2-desktop");
 
 const isDev = !app.isPackaged;
 const backendExecutableName = process.platform === "win32" ? "BlogPublisher.exe" : "BlogPublisher";
+const youtubeBackendExecutableName = process.platform === "win32" ? "YoutubeGenerator.exe" : "YoutubeGenerator";
+const ffmpegName = process.platform === "win32" ? "ffmpeg.exe" : "ffmpeg";
+const ffprobeName = process.platform === "win32" ? "ffprobe.exe" : "ffprobe";
 
 export const paths = {
   isDev,
@@ -33,6 +36,20 @@ export const paths = {
     : path.join(process.resourcesPath, "backend", backendExecutableName),
 
   backendCwdDev: path.join(__dirname, "..", "..", "backend"),
+
+  // youtube-backend(쇼츠 생성기) — 두 번째 로컬 백엔드. packaged 는 별도 PyInstaller exe.
+  youtubeBackendExe: isDev
+    ? "" // dev 에선 youtubeBackendCwdDev 에서 python main.py 직접 실행
+    : path.join(process.resourcesPath, "youtube-backend", youtubeBackendExecutableName),
+  youtubeBackendCwdDev: path.join(__dirname, "..", "..", "youtube-backend"),
+  // dev 의 전용 venv (scripts/dev-worktree.js 가 생성). 없으면 시스템 python 으로 폴백.
+  youtubeVenvPython: process.platform === "win32"
+    ? path.join(__dirname, "..", "..", "youtube-backend", ".venv", "Scripts", "python.exe")
+    : path.join(__dirname, "..", "..", "youtube-backend", ".venv", "bin", "python"),
+
+  // 번들 ffmpeg/ffprobe (packaged). dev 는 시스템 PATH 사용(빈 문자열 → env 미주입).
+  ffmpegBin: isDev ? "" : path.join(process.resourcesPath, "ffmpeg", ffmpegName),
+  ffprobeBin: isDev ? "" : path.join(process.resourcesPath, "ffmpeg", ffprobeName),
 
   frontendCwdDev: path.join(__dirname, "..", "..", "frontend"),
 

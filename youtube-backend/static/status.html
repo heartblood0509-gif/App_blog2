@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>진행 상태 - Shorts Pick</title>
+    <link rel="stylesheet" href="/static/css/style.css?v=27">
+    <script src="/static/js/icons.js?v=1" defer></script>
+</head>
+<body class="has-navbar">
+    <script>if(localStorage.getItem('theme')==='dark'||!localStorage.getItem('theme'))document.body.classList.add('dark');</script>
+    <nav class="navbar">
+        <a href="/" class="navbar-logo">
+            <i data-lucide="clapperboard" class="navbar-logo-icon"></i>
+            <span class="navbar-logo-text">Shorts Pick</span>
+        </a>
+        <div id="navbar-right" class="navbar-right"></div>
+    </nav>
+
+    <!-- 5단계 스테퍼 (카드 B 전용. carrier 페이지 진입 시 status.js가 노출/숨김 결정) -->
+    <nav id="workflow-timeline" class="timeline container workflow-container hidden">
+        <ol class="timeline-track" id="timeline-track"></ol>
+    </nav>
+
+    <!-- 완료 후 안내문 (다운로드 정책) -->
+    <div id="finalize-hint" class="container hidden" style="margin-top: 8px; font-size: 13px; color: #888;">
+        다운로드 시 중간 작업 파일이 정리됩니다. 이후 같은 영상을 편집할 수 없습니다.
+        최종 영상은 작업이력에서 30일간 재다운로드할 수 있습니다.
+    </div>
+
+    <div class="container" style="padding-top: 56px; padding-bottom: 56px;">
+        <h2 class="page-title" id="page-title">준비 중...</h2>
+
+        <section class="card">
+            <!-- 이미지 생성 단계: 카드 그리드 (JS에서 skeleton 카드 삽입) -->
+            <div id="image-progress-grid" class="preview-grid hidden"></div>
+
+            <!-- 영상 제작 단계: 비디오 로딩 플레이스홀더 -->
+            <div id="video-loading-section" class="hidden">
+                <div class="video-placeholder">
+                    <div class="skeleton-shimmer"></div>
+                    <div class="video-loading-overlay">
+                        <div class="spinner"></div>
+                        <p class="video-loading-text">영상 제작 중...</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 프로그레스 바 -->
+            <div class="progress-container" id="progress-bar-section">
+                <div class="progress-bar">
+                    <div class="progress-fill" id="progress-fill" style="width: 0%"></div>
+                </div>
+            </div>
+
+            <!-- 진행 상태 텍스트 -->
+            <p class="progress-text">
+                <span id="progress-percent">0%</span>
+                <span id="progress-step">준비 중...</span>
+            </p>
+
+            <!-- 완료 시 표시 -->
+            <div id="completed-section" class="hidden">
+                <p class="success-text">영상이 완성되었습니다!</p>
+                <div class="btn-group center">
+                    <a id="download-link" class="btn-primary" download>영상 다운로드</a>
+                    <a href="/" class="btn-secondary">새 영상 만들기</a>
+                </div>
+                <video id="video-preview" controls class="video-preview"></video>
+            </div>
+
+            <!-- 에러 시 표시 -->
+            <div id="error-section" class="hidden">
+                <p class="error-text" id="error-message"></p>
+                <div class="btn-group center">
+                    <button class="btn-primary" id="retry-images-btn" onclick="retryImages()">이미지 생성 재시도</button>
+                    <a href="/" class="btn-secondary">처음으로 돌아가기</a>
+                </div>
+            </div>
+        </section>
+    </div>
+
+    <script src="/static/js/auth.js?v=4"></script>
+    <script src="/static/js/status.js"></script>
+</body>
+</html>

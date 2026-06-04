@@ -1,0 +1,360 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Shorts Pick</title>
+    <link rel="stylesheet" href="/static/css/style.css?v=27">
+    <script src="/static/js/icons.js?v=1" defer></script>
+</head>
+<body class="has-navbar">
+    <script>if(localStorage.getItem('theme')==='dark'||!localStorage.getItem('theme'))document.body.classList.add('dark');</script>
+    <nav class="navbar">
+        <a href="/" class="navbar-logo">
+            <i data-lucide="clapperboard" class="navbar-logo-icon"></i>
+            <span class="navbar-logo-text">Shorts Pick</span>
+        </a>
+        <div id="navbar-right" class="navbar-right"></div>
+    </nav>
+
+    <div class="workflow-shell">
+
+        <!-- 타임라인 (JS가 활성 모드 STEPS로 동적 렌더; 모드 선택 전엔 숨김) -->
+        <nav id="workflow-timeline" class="timeline container workflow-container hidden">
+            <ol class="timeline-track" id="timeline-track"></ol>
+        </nav>
+
+        <div class="container step-container">
+
+        <!-- Step 0: 모드 선택 (진입 화면) -->
+        <section id="step-mode-select" class="card step-section" data-step-id="step-mode-select">
+            <div class="step-body">
+                <h2>어떻게 만들까요?</h2>
+                <p class="subtitle">대본·이미지·영상을 AI에 맡길지,<br>직접 제공할지 골라주세요.</p>
+                <div class="mode-card-grid">
+                    <div class="mode-card" onclick="selectGenerationMode('ai_full')">
+                        <div class="mode-card-icon-wrap">
+                            <i data-lucide="sparkles" class="mode-card-icon"></i>
+                        </div>
+                        <h3>AI가 모두 생성</h3>
+                        <p>주제만 입력하면<br>제목·나레이션·이미지·영상까지<br>AI가 자동으로 만들어줍니다.</p>
+                    </div>
+                    <div class="mode-card" onclick="selectGenerationMode('user_assets')">
+                        <div class="mode-card-icon-wrap">
+                            <i data-lucide="pen-tool" class="mode-card-icon"></i>
+                        </div>
+                        <h3>내가 직접 제공</h3>
+                        <p>이미 가지고 있는 대본을 입력하고,<br>줄마다 이미지·영상을 올리거나<br>AI에 맡길 수 있어요.</p>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Step 1: 주제 설정 -->
+        <section id="step-input" class="card hidden step-section" data-step-id="step-input">
+            <div class="step-body">
+                <h2>1. 주제 설정</h2>
+
+                <div class="form-group">
+                    <label for="category">카테고리</label>
+                    <select id="category" onchange="toggleCategoryFields()">
+                        <option value="cosmetics">화장품</option>
+                        <option value="general">일반</option>
+                    </select>
+                </div>
+
+                <!-- 영상 목적 (화장품 카테고리일 때만 표시) -->
+                <div class="form-group" id="content-type-wrapper">
+                    <label for="content-type">영상 목적</label>
+                    <p class="field-help"><b>정보성</b>: 제품/브랜드 언급 없이 순수 정보 전달 (성분 설명은 가능, 구매 권유 금지)<br><b>홍보성</b>: 네이버 클립 쇼츠용 — 성분/역할 위주로 설명하고 마지막에 블로그 유입 유도<br><b>홍보성 (고정댓글 유도형)</b>: 본문은 문제·호기심만, 해답은 고정 댓글로 유도 (주제만 입력, 5줄 반말)</p>
+                    <select id="content-type" onchange="toggleContentType()">
+                        <option value="info">정보성 (순수 정보 전달)</option>
+                        <option value="promo">홍보성 (블로그 유입용)</option>
+                        <option value="promo_comment">홍보성 (고정댓글 유도형)</option>
+                    </select>
+                </div>
+
+                <div class="form-group">
+                    <label for="topic">주제</label>
+                    <p class="field-help" id="topic-help">내 화장품이 해결하는 피부 고민을 적어주세요.<br>예: 홍조 피부 진정 방법 / 건조 피부 보습 루틴 / 모공 축소 관리법</p>
+                    <input type="text" id="topic" placeholder="피부 고민 또는 관리 주제" maxlength="200">
+                </div>
+
+                <!-- 화장품 + 홍보성 전용 필드 (페인포인트 · 성분 · 제품 이미지) -->
+                <div id="cosmetics-fields">
+                    <div class="form-group" id="painpoint-field">
+                        <label for="pain-point">타겟 고민 / 페인포인트</label>
+                        <p class="field-help">내 화장품을 써야 하는 사람의 증상을 적어주세요.<br>예: 얼굴 빨개짐 / 울긋불긋 / 건조한 피부 / 화장이 들뜨고 각질 일어남</p>
+                        <input type="text" id="pain-point" placeholder="타겟의 피부 증상" maxlength="100">
+                    </div>
+                    <div class="form-group" id="ingredient-field">
+                        <label for="ingredient">핵심 성분 또는 제품 역할 (선택)</label>
+                        <p class="field-help">제품의 대표 성분이나, 제품이 문제를 어떻게 해결하는지 적어주세요.<br>예시 (성분): 시카(병풀추출물) / 히알루론산 / 나이아신아마이드<br>예시 (역할): 샴푸가 노폐물을 자극 없이 제거하고 헤어토닉이 수분을 채워줌<br>예시 (혼합): 자연유래성분이 속건조를 해결해서 가려움 해소</p>
+                        <input type="text" id="ingredient" placeholder="성분 또는 제품이 해결하는 방식" maxlength="200">
+                    </div>
+
+                    <div class="form-group" id="product-templates">
+                        <label>내 제품 <span style="color: var(--primary);">*</span> <small style="color: var(--text-secondary); font-weight: normal;">(마지막 CTA 장면에 등장)</small></label>
+                        <p class="field-help">업로드한 제품 중 하나를 클릭해서 선택하세요. 9:16 비율 이미지 권장.</p>
+                        <div id="product-grid" class="style-card-grid">
+                            <div class="style-card product-upload-card" onclick="triggerProductUpload()">
+                                <div class="style-card-preview">
+                                    <span class="style-card-icon">+</span>
+                                </div>
+                                <div class="style-card-meta">
+                                    <span class="style-card-name">제품 추가</span>
+                                </div>
+                            </div>
+                        </div>
+                        <input type="file" id="product-file-input" accept="image/png,image/jpeg,image/webp,image/bmp" hidden>
+                    </div>
+
+                    <!-- 화장품 + 정보성 전용 필드 (핵심 키워드) -->
+                    <div class="form-group" id="info-keyword-field">
+                        <label for="info-keyword">영상에서 다룰 핵심 키워드 (선택)</label>
+                        <p class="field-help">주제를 특정 방향으로 좁혀줍니다. 비워두면 AI가 자유롭게 선택해요.<br><b>성분·원리·개념만 입력하세요.</b> 제품명·브랜드명은 쓰면 안 됩니다 (정보성 영상은 제품 언급 금지).<br>예: 주제 "탈모 해결법" + 키워드 "맥주효모" → "탈모에 맥주효모가 효과적인 이유" 방향으로 생성<br><span style="color: var(--text-secondary);">※ 제목 생성 후 수정하면 나레이션 방향이 어긋날 수 있어요</span></p>
+                        <input type="text" id="info-keyword" placeholder="예: 맥주효모 / 비오틴 / 판토텐산" maxlength="100">
+                    </div>
+                </div>
+
+                <button id="btn-generate" class="btn-primary" onclick="generateTitles()" disabled>
+                    제목 생성하기
+                </button>
+            </div>
+        </section>
+
+        <!-- Step 2: 제목 선택 -->
+        <section id="step-titles" class="card hidden step-section" data-step-id="step-titles">
+            <div class="step-body">
+                <h2>2. 제목 선택</h2>
+                <p class="subtitle">마음에 드는 제목을 클릭하세요</p>
+                <div id="title-options"></div>
+                <div id="title-split-editor" class="hidden">
+                    <label>영상에 표시될 제목 (2줄)</label>
+                    <div class="title-split-layout">
+                        <div class="title-preview-frame" id="title-preview-frame">
+                            <div class="title-preview-line1" id="preview-line1"></div>
+                            <div class="title-preview-line2" id="preview-line2"></div>
+                            <div class="title-preview-image-area"></div>
+                            <div class="title-overflow-warn">제목이 화면을 넘어갑니다</div>
+                        </div>
+                        <div class="title-split-inputs">
+                            <div class="form-group">
+                                <label>윗줄</label>
+                                <input type="text" id="title-line1" maxlength="16" oninput="onTitleLineEdited()">
+                            </div>
+                            <div class="form-group">
+                                <label>아랫줄</label>
+                                <input type="text" id="title-line2" maxlength="16" oninput="onTitleLineEdited()">
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="btn-group">
+                    <button class="btn-secondary" onclick="generateTitles()">다시 생성</button>
+                    <button id="btn-next-title" class="btn-primary" onclick="confirmTitle()" disabled>다음: 나레이션 생성</button>
+                </div>
+            </div>
+        </section>
+
+        <!-- Step 3: 나레이션 확인 -->
+        <section id="step-narration" class="card hidden step-section" data-step-id="step-narration">
+            <div class="step-body">
+                <h2>3. 나레이션 확인</h2>
+                <div class="form-group">
+                    <label>선택된 제목</label>
+                    <div id="selected-title-display" class="title-readonly"></div>
+                </div>
+                <div id="narration-lines"></div>
+                <div class="btn-group">
+                    <button class="btn-secondary" onclick="regenerateNarration()">다시 생성</button>
+                    <button class="btn-primary" onclick="approveNarration()">나레이션 확정</button>
+                </div>
+            </div>
+        </section>
+
+        <!-- Step 4: TTS 설정 -->
+        <section id="step-tts" class="card hidden step-section" data-step-id="step-tts">
+            <div class="step-body">
+                <h2>4. 음성 설정</h2>
+
+                <div class="form-row">
+                    <div class="form-group">
+                        <label for="tts-engine">TTS 엔진</label>
+                        <select id="tts-engine">
+                            <option value="typecast">Typecast (고품질)</option>
+                        </select>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="tts-voice">음성 선택</label>
+                        <div class="voice-select-row">
+                            <select id="tts-voice"></select>
+                            <button type="button" id="voice-preview-btn" title="미리듣기">▶</button>
+                        </div>
+                    </div>
+                </div>
+
+                <div id="emotion-section" class="form-group hidden">
+                    <label>감정/톤</label>
+                    <div id="emotion-buttons" class="emotion-btn-group">
+                        <p class="text-dim">성우를 선택하면 감정 목록이 표시됩니다.</p>
+                    </div>
+                    <input type="hidden" id="tts-emotion" value="normal">
+                </div>
+
+                <div class="form-group">
+                    <label for="tts-speed">TTS 속도: <span id="speed-val">1.0</span>배</label>
+                    <input type="range" id="tts-speed" min="0.5" max="2.0" step="0.1" value="1.0">
+                    <div class="range-ticks">
+                        <span style="position:absolute;left:0%">0.5배</span>
+                        <span style="position:absolute;left:33.3%">1배</span>
+                        <span style="position:absolute;left:66.7%">1.5배</span>
+                        <span style="position:absolute;right:0">2배</span>
+                    </div>
+                </div>
+
+                <button class="btn-primary" onclick="confirmTtsSettings()">나레이션 음성 만들기</button>
+            </div>
+        </section>
+
+        <!-- Step 5: BGM 설정 -->
+        <section id="step-bgm" class="card hidden step-section" data-step-id="step-bgm">
+            <div class="step-body">
+                <h2>5. BGM 설정</h2>
+
+                <div class="form-group">
+                    <label>BGM 선택</label>
+                    <div class="bgm-upload-area">
+                        <input type="file" id="bgm-upload-input" accept=".mp3,.wav,.ogg" hidden>
+                        <button class="btn-secondary btn-small" onclick="handleBgmUploadClick()" id="bgm-upload-btn">+ BGM 업로드</button>
+                        <a href="https://studio.youtube.com/channel/0/music" target="_blank" class="btn-secondary btn-small">YouTube 오디오 보관함</a>
+                        <span class="text-dim" style="font-size:12px">MP3, WAV, OGG (최대 20MB)</span>
+                    </div>
+                    <div id="bgm-list" class="bgm-grid">
+                        <p class="text-dim">BGM 목록 로딩 중...</p>
+                    </div>
+                </div>
+
+                <div class="form-row">
+                    <div class="form-group">
+                        <label for="bgm-volume">BGM 볼륨: <span id="bgm-val">12</span>%</label>
+                        <input type="range" id="bgm-volume" min="0" max="50" step="1" value="12">
+                    </div>
+
+                    <div id="bgm-start-section" class="form-group hidden">
+                        <label>BGM 시작 지점: <span id="bgm-start-val">0:00</span></label>
+                        <input type="range" id="bgm-start" min="0" max="100" step="0.1" value="0">
+                        <div class="bgm-start-input-row">
+                            <input type="number" id="bgm-start-sec" min="0" step="0.1" value="0" class="bgm-time-input">
+                            <span class="text-dim">초</span>
+                        </div>
+                    </div>
+                </div>
+
+                <button class="btn-primary" onclick="startCreateFromBgm()">이미지 생성 시작</button>
+            </div>
+        </section>
+
+        <!-- 카드 B: 제목·대본 (두 개의 카드를 한 step-section에 묶음) -->
+        <section id="step-user-script" class="hidden step-section" data-step-id="step-user-script">
+            <!-- 카드 1: 제목 입력 -->
+            <div class="card">
+                <div class="step-body">
+                    <h2>1. 제목 입력</h2>
+                    <p class="subtitle">영상 상단에 흰색·노란색 2줄로 표시됩니다.</p>
+                    <div class="title-edit-box">
+                        <label>영상에 표시될 제목 (2줄)</label>
+                        <div class="title-split-layout">
+                            <div class="title-preview-frame" id="user-title-preview-frame">
+                                <div class="title-preview-line1" id="user-preview-line1"></div>
+                                <div class="title-preview-line2" id="user-preview-line2"></div>
+                                <div class="title-preview-image-area"></div>
+                                <div class="title-overflow-warn">제목이 화면을 넘어갑니다</div>
+                            </div>
+                            <div class="title-split-inputs">
+                                <div class="form-group">
+                                    <label>윗줄</label>
+                                    <input type="text" id="user-title-line1" maxlength="16"
+                                           placeholder="예: 얼굴 빨개지는"
+                                           oninput="onUserTitleLineEdited()">
+                                </div>
+                                <div class="form-group">
+                                    <label>아랫줄</label>
+                                    <input type="text" id="user-title-line2" maxlength="16"
+                                           placeholder="예: 의외의 진짜 이유"
+                                           oninput="onUserTitleLineEdited()">
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 카드 2: 대본 입력 -->
+            <div class="card">
+                <div class="step-body">
+                    <h2>2. 대본 입력</h2>
+                    <p class="subtitle">미리 준비한 대본을 그대로 붙여 넣어주세요. 1차로 문장 단위 자동 분리가 되며, 카드 단계에서 Enter 키를 치면 그 자리에서 카드를 더 잘게 나눌 수 있습니다.</p>
+                    <div class="form-group">
+                        <label for="user-script">대본</label>
+                        <textarea id="user-script" rows="10" maxlength="5000" placeholder="여기에 대본을 입력하거나 붙여넣기 하세요 (최대 5000자)." oninput="updateUserScriptCount()"></textarea>
+                        <p class="field-help"><span id="user-script-count">0</span>자 / 최대 5000자</p>
+                    </div>
+                    <div class="btn-group">
+                        <button class="btn-secondary" onclick="backToModeSelect()">이전</button>
+                        <button class="btn-primary" id="btn-split-script" onclick="splitUserScript()" disabled>대본 쪼개기</button>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- 카드 B: 줄별 자산 편집 -->
+        <section id="step-user-lines" class="hidden step-section user-lines-editor-section" data-step-id="step-user-lines">
+            <div class="step-body">
+                <div class="user-lines-layout">
+                    <div class="user-lines-editor-pane user-lines-panel-card user-lines-editor-card">
+                        <h2>줄별 자산 편집</h2>
+                        <p class="subtitle">각 줄에 사용할 이미지나 영상을 올려주세요. 비어 있는 줄은 AI가 이미지를 만들어줍니다. 카드 안에서 Enter를 치면 그 위치에서 둘로 쪼개집니다.</p>
+                        <div class="batch-actions">
+                            <button class="btn-secondary" id="btn-batch-generate-images" onclick="batchGenerateMissingImages()"><i data-lucide="wand-sparkles" class="icon-sm"></i> 이미지 없는 줄 일괄 AI 생성</button>
+                            <span class="text-dim" id="user-lines-status"></span>
+                        </div>
+                        <div id="user-lines-list" class="user-lines-list"></div>
+                        <div class="btn-group">
+                            <button class="btn-secondary" onclick="backToUserScript()">이전 (대본 다시)</button>
+                            <button class="btn-primary" onclick="proceedToTtsFromUserLines()">다음: 음성 설정</button>
+                        </div>
+                    </div>
+                    <aside class="user-lines-preview-pane" aria-label="선택 줄 자산 프리뷰">
+                        <div class="user-lines-preview-card user-lines-panel-card">
+                            <div class="user-lines-preview-header">
+                                <div>
+                                    <p class="user-lines-preview-kicker">선택 줄 프리뷰</p>
+                                    <h3 id="user-line-preview-title">1번 줄</h3>
+                                </div>
+                                <span class="user-line-preview-pill" id="user-line-preview-source">대기</span>
+                            </div>
+                            <div class="shorts-preview-frame" id="user-line-preview-frame">
+                                <div class="shorts-preview-media" id="user-line-preview-media">
+                                    <span class="shorts-preview-empty">생성/업로드 대기</span>
+                                </div>
+                                <div class="shorts-preview-title">
+                                    <div class="shorts-preview-title-line1" id="user-line-preview-title-line1"></div>
+                                    <div class="shorts-preview-title-line2" id="user-line-preview-title-line2"></div>
+                                </div>
+                            </div>
+                            <p class="user-lines-preview-caption" id="user-line-preview-caption">자산이 준비되면 이곳에 9:16으로 표시됩니다.</p>
+                        </div>
+                    </aside>
+                </div>
+            </div>
+        </section>
+
+        </div>
+    </div>
+
+    <script src="/static/js/auth.js?v=4"></script>
+    <script src="/static/js/app.js?v=25"></script>
+</body>
+</html>

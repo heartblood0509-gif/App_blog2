@@ -1,0 +1,325 @@
+/* 로그인 페이지 전용 스타일 */
+
+.login-wrapper {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    min-height: 100vh;
+    padding: 20px;
+}
+
+.login-container {
+    width: 100%;
+    max-width: 400px;
+}
+
+/* 화이트 카드 스타일 (로그인/승인대기) */
+.auth-panel.login-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow-lg);
+    padding: 56px 48px;
+    text-align: center;
+}
+body.dark .login-logo-text { color: var(--text); }
+body.dark .login-subtitle { color: var(--text-dim); }
+body.dark .btn-google { background: #fff; color: #1a1a1a; border: 1px solid #d4d4d8; }
+body.dark .approval-notice { color: var(--text-dim); }
+
+/* 로고 영역 */
+.login-logo {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 14px;
+    margin-bottom: 32px;
+}
+.login-logo-emoji {
+    font-size: 52px;
+    line-height: 1;
+}
+.login-logo-icon {
+    width: 48px;
+    height: 48px;
+    color: var(--primary);
+    stroke-width: 2.25;
+}
+.login-logo-text {
+    font-size: 44px;
+    font-weight: 800;
+    letter-spacing: -0.035em;
+    background: linear-gradient(135deg, var(--primary), var(--accent));
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+}
+.login-subtitle {
+    color: var(--text-dim);
+    font-size: var(--text-base);
+    margin-bottom: 36px;
+}
+
+/* 탭 */
+.auth-tabs {
+    display: flex;
+    border-bottom: 1px solid var(--border);
+    margin-bottom: 24px;
+}
+.auth-tab {
+    flex: 1;
+    padding: 14px;
+    background: none;
+    border: none;
+    color: var(--text-dim);
+    font-size: var(--text-base);
+    font-weight: 500;
+    cursor: pointer;
+    border-bottom: 2px solid transparent;
+    transition: color 0.2s, border-color 0.2s;
+}
+.auth-tab.active {
+    color: var(--primary);
+    border-bottom-color: var(--primary);
+}
+.auth-tab:hover {
+    color: var(--text);
+}
+
+/* 패널 */
+.auth-panel {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 24px;
+    margin-bottom: 16px;
+}
+.auth-panel h3 {
+    color: var(--text);
+    font-size: var(--text-xl);
+    font-weight: 700;
+    letter-spacing: -0.02em;
+    margin-bottom: var(--space-2);
+}
+.modal-desc {
+    color: var(--text-dim);
+    font-size: var(--text-sm);
+    margin-bottom: var(--space-6);
+}
+
+/* 입력 필드 - email, password도 스타일 적용 */
+.auth-panel input[type="email"],
+.auth-panel input[type="password"],
+.auth-panel input[type="text"] {
+    width: 100%;
+    padding: 12px 14px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    color: var(--text);
+    font-size: var(--text-base);
+    outline: none;
+    transition: border-color 0.18s ease, box-shadow 0.18s ease;
+}
+.auth-panel input:focus {
+    border-color: var(--primary);
+    box-shadow: 0 0 0 3px var(--primary-soft);
+}
+
+/* 소셜 로그인 */
+.social-login {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 0;
+}
+.btn-social {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    padding: 14px 44px;
+    border: none;
+    border-radius: 12px;
+    font-size: 16px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background 0.2s;
+}
+.btn-social:hover {
+    opacity: 0.92;
+}
+
+.btn-google {
+    background: #1a1a1a;
+    color: #fff;
+    border: 1px solid #1a1a1a;
+}
+
+/* 구분선 */
+.divider {
+    display: flex;
+    align-items: center;
+    margin: 20px 0;
+    color: var(--text-dim);
+    font-size: 14px;
+}
+.divider::before, .divider::after {
+    content: '';
+    flex: 1;
+    border-top: 1px solid var(--border);
+}
+.divider span {
+    padding: 0 12px;
+}
+
+/* 버튼 */
+.btn-primary {
+    background: var(--primary);
+    color: var(--primary-fg);
+    border: none;
+    border-radius: var(--radius-sm);
+    padding: 14px 28px;
+    font-size: var(--text-base);
+    font-weight: 600;
+    letter-spacing: -0.01em;
+    cursor: pointer;
+    box-shadow: var(--shadow-sm);
+    transition: background 0.18s ease, box-shadow 0.18s ease, transform 0.12s ease;
+}
+.btn-primary:hover {
+    background: var(--primary-hover);
+    box-shadow: var(--shadow-md);
+    transform: translateY(-1px);
+}
+.btn-primary:active {
+    transform: translateY(0);
+}
+.btn-primary:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+    transform: none;
+}
+.btn-full {
+    width: 100%;
+}
+.btn-secondary {
+    background: none;
+    border: 1px solid var(--border);
+    color: var(--text-dim);
+    border-radius: 8px;
+    padding: 10px 24px;
+    font-size: 14px;
+    cursor: pointer;
+    transition: border-color 0.2s, color 0.2s;
+}
+.btn-secondary:hover {
+    border-color: var(--text-dim);
+    color: var(--text);
+}
+.btn-back {
+    margin-top: 12px;
+}
+
+/* 링크 */
+.auth-links {
+    text-align: center;
+    font-size: 14px;
+    color: var(--text-dim);
+}
+.auth-links a {
+    color: var(--text-dim);
+    text-decoration: none;
+    transition: color 0.2s;
+}
+.auth-links a:hover {
+    color: var(--primary);
+}
+.divider-dot {
+    margin: 0 8px;
+    color: var(--border);
+}
+
+/* 에러/성공 메시지 */
+.auth-error {
+    background: rgba(255, 71, 87, 0.1);
+    border: 1px solid var(--error);
+    color: var(--error);
+    padding: 10px 14px;
+    border-radius: 8px;
+    font-size: 14px;
+    margin-bottom: 16px;
+}
+.auth-success {
+    background: rgba(46, 213, 115, 0.1);
+    border: 1px solid var(--success);
+    color: var(--success);
+    padding: 10px 14px;
+    border-radius: 8px;
+    font-size: 14px;
+    margin-bottom: 16px;
+}
+
+/* 검색 결과 */
+#find-email-result {
+    margin-top: 16px;
+    padding: 12px;
+    background: var(--bg);
+    border-radius: 8px;
+    font-size: 14px;
+}
+#find-email-result .masked-email {
+    color: var(--primary);
+    font-weight: 600;
+    display: block;
+    margin: 4px 0;
+}
+
+/* 비밀번호 토글 */
+.pw-wrapper {
+    position: relative;
+}
+.pw-wrapper input {
+    padding-right: 42px !important;
+}
+.pw-toggle {
+    position: absolute;
+    right: 8px;
+    top: 50%;
+    transform: translateY(-50%);
+    background: none;
+    border: none;
+    color: var(--text-dim);
+    cursor: pointer;
+    padding: 4px;
+    display: flex;
+    align-items: center;
+}
+.pw-toggle:hover {
+    color: var(--text);
+}
+
+.consent-notice {
+    text-align: center;
+    color: #999;
+    font-size: 14px;
+    margin-top: 12px;
+}
+.consent-notice a {
+    color: #999;
+    text-decoration: underline;
+}
+.consent-notice a:hover { color: var(--primary); }
+body.dark .consent-notice, body.dark .consent-notice a { color: #888; }
+
+.approval-notice {
+    text-align: center;
+    color: #aaa;
+    font-size: 14px;
+    margin-top: 20px;
+}
+
+.hidden {
+    display: none !important;
+}

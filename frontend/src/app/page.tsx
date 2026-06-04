@@ -25,6 +25,7 @@ import {
   FileText,
   Send,
   Check,
+  SquarePlay,
 } from "lucide-react";
 import type {
   WizardState,
@@ -174,6 +175,7 @@ function applyImagePostProcessing(
 }
 
 import { StepChannelSelect } from "@/components/steps/step-channel-select";
+import { YoutubeWorkflow } from "@/components/youtube/YoutubeWorkflow";
 import { StepNarrative } from "@/components/steps/step-narrative";
 import { StepSettings } from "@/components/steps/step-settings";
 import { StepTitleSelect } from "@/components/steps/step-title-select";
@@ -224,6 +226,11 @@ const THREADS_STEPS = [
   { label: "분석 방식", icon: BookOpen },
   { label: "글 설정", icon: Settings },
   { label: "쓰레드 생성", icon: FileText },
+];
+
+const YOUTUBE_STEPS = [
+  { label: "채널 선택", icon: Package },
+  { label: "쇼츠 생성", icon: SquarePlay },
 ];
 
 export default function Home() {
@@ -431,9 +438,19 @@ export default function Home() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [state.generatedContent]);
 
-  const STEPS = state.channel === "thread" ? THREADS_STEPS : BLOG_STEPS;
+  const STEPS =
+    state.channel === "youtube"
+      ? YOUTUBE_STEPS
+      : state.channel === "thread"
+        ? THREADS_STEPS
+        : BLOG_STEPS;
 
   const canAdvance = (): boolean => {
+    // 유튜브 채널: 채널만 고르면 통과(이후는 임베드 화면이라 마법사 진행 없음).
+    if (state.channel === "youtube") {
+      return true;
+    }
+
     // 쓰레드 채널 분기
     if (state.channel === "thread") {
       switch (state.currentStep) {
@@ -2200,6 +2217,19 @@ export default function Home() {
   }, [replacementPreview, state.generatedContent, updateState, runValidation]);
 
   const renderStep = () => {
+    // 유튜브 채널 분기 — step 0 은 채널 선택, 그 이후는 쇼츠 생성기 임베드.
+    if (state.channel === "youtube") {
+      if (state.currentStep === 0) {
+        return (
+          <StepChannelSelect
+            channel={state.channel}
+            onChannelChange={handleChannelChange}
+          />
+        );
+      }
+      return <YoutubeWorkflow />;
+    }
+
     // 쓰레드 채널 분기
     if (state.channel === "thread") {
       switch (state.currentStep) {
@@ -2393,7 +2423,8 @@ export default function Home() {
           onResetClick={() => setResetConfirmOpen(true)}
         />
 
-        {/* Stepper */}
+        {/* Stepper — 유튜브 탭(채널 선택 이후)에선 네이티브 워크플로가 자체 스텝퍼를 그리므로 숨김 */}
+        {!(state.channel === "youtube" && state.currentStep > 0) && (
         <nav className="mb-16">
           <ol className="flex items-center justify-between">
             {STEPS.map((step, index) => {
@@ -2473,6 +2504,7 @@ export default function Home() {
             })}
           </ol>
         </nav>
+        )}
 
         {/* Step Content */}
         <div className="relative min-h-[500px]">
@@ -2489,7 +2521,8 @@ export default function Home() {
           </AnimatePresence>
         </div>
 
-        {/* Navigation Buttons */}
+        {/* Navigation Buttons — 유튜브 탭(채널 선택 이후)에선 네이티브 워크플로가 자체 운전하므로 숨김 */}
+        {!(state.channel === "youtube" && state.currentStep > 0) && (
         <div className="mt-8 flex items-center justify-between border-t border-border pt-6">
           <Button
             variant="outline"
@@ -2521,6 +2554,7 @@ export default function Home() {
           )}
           {state.currentStep === STEPS.length - 1 && <div className="w-20" />}
         </div>
+        )}
       </div>
 
       {/* Phase 1 검문소 모달 — 브랜드 모드 글 생성 직전 LLM 적합성 미스매치 알림 */}

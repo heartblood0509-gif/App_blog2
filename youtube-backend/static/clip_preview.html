@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI 클립 미리보기 - Shorts Pick</title>
+    <link rel="stylesheet" href="/static/css/style.css?v=27">
+    <script src="/static/js/icons.js?v=1" defer></script>
+</head>
+<body class="has-navbar">
+    <script>if(localStorage.getItem('theme')==='dark'||!localStorage.getItem('theme'))document.body.classList.add('dark');</script>
+    <nav class="navbar">
+        <a href="/" class="navbar-logo">
+            <i data-lucide="clapperboard" class="navbar-logo-icon"></i>
+            <span class="navbar-logo-text">Shorts Pick</span>
+        </a>
+        <div id="navbar-right" class="navbar-right"></div>
+    </nav>
+
+    <div class="container" style="padding-top: 56px; padding-bottom: 56px;">
+        <h2 class="page-title">AI 영상 클립 미리보기</h2>
+        <p class="subtitle" id="clip-preview-title" style="text-align:center; margin-bottom:16px;"></p>
+
+        <div id="clip-preview-grid" class="preview-grid"></div>
+
+        <div class="btn-group center">
+            <a href="/" class="btn-secondary">처음으로</a>
+            <button id="btn-confirm-clips" class="btn-primary" onclick="confirmClipsAndRender()">
+                영상 제작 시작
+            </button>
+        </div>
+    </div>
+
+    <script src="/static/js/auth.js?v=4"></script>
+    <script src="/static/js/clip_preview.js"></script>
+</body>
+</html>
