@@ -44,7 +44,8 @@ export class NextServerManager {
       env.GEMINI_API_KEY = this.opts.geminiApiKey;
     }
 
-    // "유튜브" 탭 iframe 이 가리킬 youtube-backend origin. /api/youtube-url 이 런타임에 반환.
+    // 유튜브 탭의 같은-origin 프록시(/api/youtube/[...path] → youtube-backend-fetch)가
+    // 런타임에 읽는 youtube-backend origin. (구 iframe 의 /api/youtube-url 은 M5 에서 제거됨.)
     if (this.opts.youtubeUrl) {
       env.YOUTUBE_BACKEND_URL = this.opts.youtubeUrl;
     }
