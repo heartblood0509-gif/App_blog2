@@ -15,6 +15,7 @@ import { cn } from "@/lib/utils";
 import { useYt } from "../state";
 import { TTS_ENGINE, VOICE_OPTIONS } from "@/lib/youtube/voices";
 import {
+  getDraftState,
   ttsEmotions,
   ttsPreviewBlob,
   ttsPreviewBuild,
@@ -31,6 +32,7 @@ function errMessage(e: unknown, fallback: string): string {
 export function TtsConfig() {
   const { state, update } = useYt();
 
+  const isUserAssets = state.mode === "user_assets";
   const isCosmetics = state.category === "cosmetics";
   const isPromoComment = isCosmetics && state.contentType === "promo_comment";
 
@@ -145,6 +147,47 @@ export function TtsConfig() {
     }
     stopPreview();
 
+    // Card B(user_assets): 줄 텍스트로 TTS 세션을 **미리** 만든다(confirm 때 필수).
+    // line_ids·existing_session_id 를 보내 incremental 재빌드 활성화(변경 없으면 Typecast 0회).
+    if (isUserAssets) {
+      if (!state.jobId) {
+        toast.error("작업을 찾을 수 없어요. 대본 단계부터 다시 진행해주세요.");
+        return;
+      }
+      setBuilding(true);
+      try {
+        const ds = await getDraftState(state.jobId);
+        const lines = ds.lines ?? [];
+        if (lines.length === 0) {
+          toast.error("대본 줄이 없어요. 대본 단계부터 다시 진행해주세요.");
+          return;
+        }
+        const notReady = lines.findIndex((l) => l.status !== "ready");
+        if (notReady >= 0) {
+          toast.error(`${notReady + 1}번째 줄의 이미지가 아직 준비되지 않았어요.`);
+          update({ screen: "lines" });
+          return;
+        }
+        const data = await ttsPreviewBuild({
+          sentences: lines.map((l) => l.text.trim()),
+          voice_id: state.voiceId,
+          speed: state.ttsSpeed,
+          emotion: state.emotion,
+          content_type: "user_assets",
+          topic: state.selectedTitle,
+          style: "realistic",
+          line_ids: lines.map((l) => l.line_id ?? null),
+          existing_session_id: state.ttsSessionId,
+        });
+        update({ ttsSessionId: data.session_id, screen: "bgm" });
+      } catch (e) {
+        toast.error(errMessage(e, "음성 생성에 실패했습니다."));
+      } finally {
+        if (mountedRef.current) setBuilding(false);
+      }
+      return;
+    }
+
     // 일반 Card A: 세션을 미리 안 만든다(렌더 때 생성). 바로 BGM 으로.
     if (!isPromoComment) {
       update({ screen: "bgm" });
@@ -186,7 +229,7 @@ export function TtsConfig() {
 
   return (
     <div className="rounded-xl border border-border bg-card p-6 text-card-foreground">
-      <h2 className="text-lg font-semibold">4. 음성 설정</h2>
+      <h2 className="text-lg font-semibold">음성 설정</h2>
       <p className="mt-1 text-sm text-muted-foreground">
         나레이션을 읽어줄 성우와 말투, 속도를 정하세요. 샘플로 미리 들어볼 수 있어요.
       </p>

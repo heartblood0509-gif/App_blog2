@@ -14,6 +14,7 @@ import { cn } from "@/lib/utils";
 import { useYt } from "../state";
 import { ytUrl } from "@/lib/youtube/api";
 import {
+  confirmDraft,
   createJob,
   deleteBgm,
   generateImagePrompts,
@@ -36,6 +37,7 @@ function errMessage(e: unknown, fallback: string): string {
 
 export function BgmConfig() {
   const { state, update } = useYt();
+  const isUserAssets = state.mode === "user_assets";
   const isCosmetics = state.category === "cosmetics";
   const contentType = isCosmetics ? state.contentType : null;
   const isPromoComment = contentType === "promo_comment";
@@ -110,6 +112,42 @@ export function BgmConfig() {
 
   async function handleCreate() {
     if (creating) return;
+
+    // Card B(user_assets): draft job 에 음성·BGM·제목을 채워 confirm → 렌더.
+    // (Card A 의 createJob 과 달리 이미 만들어둔 draft 를 confirm 만 한다.)
+    if (isUserAssets) {
+      if (!state.jobId) {
+        toast.error("작업을 찾을 수 없어요. 대본 단계부터 다시 진행해주세요.");
+        return;
+      }
+      if (!state.ttsSessionId) {
+        toast.error("나레이션 음성을 먼저 만들어주세요. (음성 단계)");
+        update({ screen: "tts" });
+        return;
+      }
+      setCreating(true);
+      try {
+        await confirmDraft(state.jobId, {
+          tts_engine: state.ttsEngine,
+          tts_speed: state.ttsSpeed,
+          voice_id: state.voiceId,
+          emotion: state.ttsEngine === "typecast" ? state.emotion : null,
+          tts_session_id: state.ttsSessionId,
+          bgm_filename: state.bgmFilename,
+          bgm_start_sec: state.bgmStartSec,
+          bgm_volume: state.bgmVolume / 100,
+          title: state.selectedTitle,
+          title_line1: state.titleLine1,
+          title_line2: state.titleLine2,
+        });
+        update({ screen: "progress" });
+      } catch (e) {
+        toast.error(errMessage(e, "영상 생성 시작에 실패했습니다."));
+        setCreating(false);
+      }
+      return;
+    }
+
     // 정보성은 제품 강제 제외, 홍보성은 제품 필수(제품 등록 화면은 추후 단계).
     const productImageId = contentType === "info" ? null : state.productImageId;
     if (contentType === "promo" && !productImageId) {
@@ -166,7 +204,7 @@ export function BgmConfig() {
 
   return (
     <div className="rounded-xl border border-border bg-card p-6 text-card-foreground">
-      <h2 className="text-lg font-semibold">5. 배경 음악 (BGM)</h2>
+      <h2 className="text-lg font-semibold">배경 음악 (BGM)</h2>
       <p className="mt-1 text-sm text-muted-foreground">
         영상에 깔 배경 음악을 고르세요. 선택은 필수가 아니에요 — 없이도 만들 수 있어요.
       </p>

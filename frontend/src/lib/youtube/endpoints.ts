@@ -275,6 +275,35 @@ export function confirmRender(
   });
 }
 
+/**
+ * Card B(user_assets) 전용 confirm. draft job 에 음성·BGM·제목을 채워 렌더 시작.
+ * 같은 `/confirm` 엔드포인트지만 Card A 와 달리 음성/BGM/제목 전체를 본문으로 보낸다.
+ * **tts_session_id 는 필수**(없으면 백엔드 400 — 음성 단계 preview-build 로 미리 만들어야 함).
+ */
+export interface ConfirmDraftInput {
+  video_mode?: string; // 'kenburns'(Card B 고정)
+  tts_engine: string;
+  tts_speed: number;
+  voice_id: string;
+  emotion: string | null;
+  tts_session_id: string | null;
+  bgm_filename: string | null;
+  bgm_start_sec: number;
+  bgm_volume: number; // 0~0.5
+  title: string;
+  title_line1: string;
+  title_line2: string;
+}
+export function confirmDraft(
+  jobId: string,
+  input: ConfirmDraftInput,
+): Promise<ConfirmRenderResult> {
+  return ytPostJson<ConfirmRenderResult>(`/api/jobs/${jobId}/confirm`, {
+    video_mode: "kenburns",
+    ...input,
+  });
+}
+
 // ── 이미지 줄별 재생성 / 업로드 (preview_ready) ──────────────
 
 export interface RegenerateImageInput {

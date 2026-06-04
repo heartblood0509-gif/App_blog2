@@ -179,6 +179,7 @@ export function LineAssetEditor() {
   }
 
   const readyCount = lines.filter(isReady).length;
+  const allReady = lines.length > 0 && readyCount === lines.length;
 
   if (loading) {
     return (
@@ -323,9 +324,12 @@ export function LineAssetEditor() {
         >
           <RotateCcw className="h-4 w-4" /> 처음부터
         </Button>
-        {/* 음성·BGM·렌더 연결은 다음 조각(M3 confirm) — 현재는 비활성 안내. */}
-        <Button disabled title="음성·BGM·영상 만들기는 다음 업데이트에서 연결됩니다">
-          다음: 음성 (준비 중)
+        <Button
+          onClick={() => update({ screen: "tts" })}
+          disabled={!allReady || polling}
+          title={allReady ? "" : "모든 줄의 이미지를 먼저 준비하세요"}
+        >
+          {allReady ? "다음: 음성" : `다음: 음성 (${readyCount}/${lines.length})`}
         </Button>
       </div>
     </div>
