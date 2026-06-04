@@ -39,6 +39,9 @@ const ACCEPT = "image/png,image/jpeg,image/webp";
 const ALLOWED_TYPES = ["image/png", "image/jpeg", "image/webp"];
 const MAX_BYTES = 10 * 1024 * 1024;
 const POLL_MS = 2000;
+// 정체 감지: 한 줄이라도 완료되면 연장. 이 시간 동안 진척이 전혀 없으면 폴링 중단(영구 잠금 방지).
+// Card B 이미지는 순서대로 생성(~16~32초/줄)이라 첫 줄도 이 안에 든다.
+const STALL_MS = 150_000;
 
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
@@ -85,11 +88,24 @@ export function LineAssetEditor() {
     if (pollingRef.current) return;
     pollingRef.current = true;
     setPolling(true);
+    let doneCount = lines.filter((l) => isReady(l) || isFailed(l)).length;
+    let stallAt = Date.now() + STALL_MS;
     while (mountedRef.current && pollingRef.current) {
       await sleep(POLL_MS);
       if (!mountedRef.current) break;
       const ls = await refresh();
-      if (ls && !anyWorking(ls)) break;
+      if (ls) {
+        const done = ls.filter((l) => isReady(l) || isFailed(l)).length;
+        if (done > doneCount) {
+          doneCount = done;
+          stallAt = Date.now() + STALL_MS; // 진척 있으면 정체 타이머 연장
+        }
+        if (!anyWorking(ls)) break;
+      }
+      if (Date.now() > stallAt) {
+        toast.error("생성이 예상보다 오래 걸려요. 잠시 후 다시 시도하거나 새로고침해 주세요.");
+        break;
+      }
     }
     pollingRef.current = false;
     if (mountedRef.current) setPolling(false);
@@ -160,17 +176,39 @@ export function LineAssetEditor() {
     }
     setUploading((s) => new Set(s).add(i));
     try {
-      await uploadImage(jobId, i, file);
+      const res = await uploadImage(jobId, i, file);
+      if (!mountedRef.current) return;
+      // 낙관적 반영: 업로드 응답의 asset_version 으로 즉시 캐시버스팅 + 소스 image 전환.
+      // (뒤이은 refresh 가 실패해도 새 그림이 보장된다.)
+      setLines((prev) =>
+        prev.map((l, idx) =>
+          idx === i
+            ? {
+                ...l,
+                status: "ready",
+                asset_version: res.asset_version ?? (l.asset_version ?? 0) + 1,
+                asset_step: null,
+                asset_message: null,
+                fail_reason: null,
+              }
+            : l,
+        ),
+      );
+      setSources((prev) => prev.map((s, idx) => (idx === i ? "image" : s)));
       await refresh();
-      toast.success(`${i + 1}번째 줄 이미지를 올렸어요.`);
+      if (mountedRef.current) toast.success(`${i + 1}번째 줄 이미지를 올렸어요.`);
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "업로드에 실패했어요.");
+      if (mountedRef.current) {
+        toast.error(err instanceof Error ? err.message : "업로드에 실패했어요.");
+      }
     } finally {
-      setUploading((s) => {
-        const n = new Set(s);
-        n.delete(i);
-        return n;
-      });
+      if (mountedRef.current) {
+        setUploading((s) => {
+          const n = new Set(s);
+          n.delete(i);
+          return n;
+        });
+      }
     }
   }
 
@@ -180,6 +218,9 @@ export function LineAssetEditor() {
 
   const readyCount = lines.filter(isReady).length;
   const allReady = lines.length > 0 && readyCount === lines.length;
+  // 전역 잠금: AI 생성 폴링 중이거나 업로드가 하나라도 진행 중이면 전역 액션을 막는다.
+  // (업로드 도중 "모두 생성"/"다음"을 누르면 AI 워커가 업로드를 덮어쓸 수 있음 — Codex HIGH.)
+  const busyGlobal = polling || uploading.size > 0;
 
   if (loading) {
     return (
@@ -204,7 +245,7 @@ export function LineAssetEditor() {
             줄 준비됨.
           </p>
         </div>
-        <Button onClick={genAll} disabled={polling} variant="outline" className="shrink-0 gap-1.5">
+        <Button onClick={genAll} disabled={busyGlobal} variant="outline" className="shrink-0 gap-1.5">
           {polling ? (
             <Loader2 className="h-4 w-4 animate-spin" />
           ) : (
@@ -319,14 +360,14 @@ export function LineAssetEditor() {
         <Button
           variant="ghost"
           onClick={() => update({ ...initialYtState })}
-          disabled={polling}
+          disabled={busyGlobal}
           className="gap-1.5"
         >
           <RotateCcw className="h-4 w-4" /> 처음부터
         </Button>
         <Button
           onClick={() => update({ screen: "tts" })}
-          disabled={!allReady || polling}
+          disabled={!allReady || busyGlobal}
           title={allReady ? "" : "모든 줄의 이미지를 먼저 준비하세요"}
         >
           {allReady ? "다음: 음성" : `다음: 음성 (${readyCount}/${lines.length})`}
