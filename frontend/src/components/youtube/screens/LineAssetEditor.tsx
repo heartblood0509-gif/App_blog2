@@ -98,6 +98,20 @@ export function LineAssetEditor() {
   function indexOfLine(lineId: string): number {
     return linesRef.current.findIndex((l) => String(l.line_id ?? "") === lineId);
   }
+  // 합치기/삭제 후 해당 줄 textarea 에 포커스 + 캐럿을 지정 위치로(이음새 복원).
+  // Textarea 는 ref 를 안 넘기므로 data-line-id 로 찾는다. 재렌더 후라 rAF 로 한 프레임 미룬다.
+  function focusLineCaret(lineId: string, pos: number) {
+    if (!lineId) return;
+    requestAnimationFrame(() => {
+      const ta = document.querySelector<HTMLTextAreaElement>(
+        `textarea[data-line-id="${lineId}"]`,
+      );
+      if (!ta) return;
+      ta.focus();
+      const p = Math.max(0, Math.min(pos, ta.value.length));
+      ta.setSelectionRange(p, p);
+    });
+  }
   function clearDraft(lineId: string) {
     setDrafts((d) => {
       if (!(lineId in d)) return d;
@@ -425,9 +439,12 @@ export function LineAssetEditor() {
             </b>{" "}
             줄 준비됨.
           </p>
-          <p className="mt-1 flex items-center gap-1 text-xs text-muted-foreground">
-            <CornerDownLeft className="size-3 shrink-0" />
-            글을 고친 뒤 다른 곳을 누르면 저장돼요. 문장 안에서 Enter를 누르면 그 자리에서 두 줄로 나뉘어요.
+          <p className="mt-1 flex items-start gap-1 text-xs text-muted-foreground">
+            <CornerDownLeft className="mt-0.5 size-3 shrink-0" />
+            <span>
+              글을 고친 뒤 다른 곳을 누르면 저장돼요. 문장 안에서 <b>Enter</b>를 누르면 그
+              자리에서 두 줄로 나뉘고, 맨 앞에서 <b>Backspace</b>를 누르면 윗줄과 합쳐져요.
+            </span>
           </p>
         </div>
         <Button onClick={genAll} disabled={busyGlobal} variant="outline" className="shrink-0 gap-1.5">
@@ -535,6 +552,7 @@ export function LineAssetEditor() {
                   </Button>
                 </div>
                 <Textarea
+                  data-line-id={lineId}
                   value={textValue}
                   onChange={(e) =>
                     setDrafts((d) => ({ ...d, [lineId]: e.target.value }))
@@ -562,6 +580,35 @@ export function LineAssetEditor() {
                         ta.value.slice(0, start),
                         ta.value.slice(end),
                       );
+                      return;
+                    }
+                    // 맨 앞에서 Backspace = 윗줄과 합치기(빈 줄이면 그 줄 삭제). 원본 쇼츠픽과 동일.
+                    // IME 조합 중·Shift·선택영역이 있을 땐 일반 글자 지우기(기본 동작).
+                    if (
+                      e.key === "Backspace" &&
+                      !e.shiftKey &&
+                      !e.nativeEvent.isComposing &&
+                      i > 0
+                    ) {
+                      const ta = e.currentTarget;
+                      if (ta.selectionStart !== 0 || ta.selectionEnd !== 0) return;
+                      if (structLocked) return; // 잠금 중엔 보류(맨 앞 Backspace 는 어차피 무동작)
+                      e.preventDefault();
+                      const prevId = String(
+                        linesRef.current[i - 1]?.line_id ?? "",
+                      );
+                      const prevText =
+                        prevId && drafts[prevId] !== undefined
+                          ? drafts[prevId]
+                          : linesRef.current[i - 1]?.text ?? "";
+                      const restoreCaret = () => {
+                        if (prevId) focusLineCaret(prevId, prevText.length);
+                      };
+                      if (!ta.value.trim()) {
+                        void del(lineId).then(restoreCaret); // 빈 줄 → 삭제
+                      } else {
+                        void mergeUp(lineId).then(restoreCaret); // 윗줄과 병합
+                      }
                     }
                   }}
                   disabled={editLocked || savingThis}
@@ -604,7 +651,7 @@ export function LineAssetEditor() {
                       className="text-muted-foreground"
                       onClick={() => mergeUp(lineId)}
                       disabled={structLocked}
-                      title="이 줄을 위 줄 끝에 이어 붙입니다"
+                      title="이 줄을 위 줄 끝에 이어 붙입니다 (맨 앞에서 Backspace 로도 가능)"
                     >
                       {structuringThis ? (
                         <Loader2 className="size-3 animate-spin" />
