@@ -408,6 +408,49 @@ export function generateMissingImages(
   );
 }
 
+// ── Card B 줄 구조 편집 (M3c, 전부 job.status==preview_ready 필요) ──────
+//
+// 공통 주의:
+//  · 4종 모두 백엔드가 ① preview_ready 가 아니면 409, ② 그 줄이 AI 생성 중이면
+//    409("AI 자산 생성이 진행 중인 줄입니다") 로 거부 → 호출 측은 메시지를 그대로 안내.
+//  · split/merge/delete 는 **재정렬된 전체** {lines, sources} 를 돌려준다 → 받아서 통째 교체
+//    (별도 draft-state 새로고침 불필요). edit-line 만 {ok:true} (텍스트만, 재정렬 없음, 이미지 보존).
+//  · index 기반이라 호출 직전 line_id 로 현재 index 를 재해석할 것. delete 는 line_id 를 함께
+//    보내면 백엔드가 알아서 위치를 재확인하고, 못 찾으면 조용히 무시(레이스 안전).
+
+/** split/merge/delete 공통 응답 — 재정렬된 전체 줄과 줄별 소스. */
+export interface LineEditResult {
+  lines: ScriptLine[];
+  sources: LineSource[];
+}
+
+/** 줄 텍스트만 서버에 동기화. 재정렬·이미지 변화 없음. 빈 문자열 허용. */
+export function editLine(
+  jobId: string,
+  lineIndex: number,
+  text: string,
+): Promise<{ ok?: boolean }> {
+  return ytPostJson<{ ok?: boolean }>(`/api/jobs/${jobId}/edit-line`, {
+    line_index: lineIndex,
+    text,
+  });
+}
+
+/**
+ * 줄 삭제. line_id 를 함께 보내면 백엔드가 현재 위치를 재확인(레이스 안전, 못 찾으면 무시).
+ * 마지막 한 줄은 삭제 불가(400). 응답으로 재정렬된 전체 줄/소스를 돌려준다.
+ */
+export function deleteLine(
+  jobId: string,
+  lineIndex: number,
+  lineId?: string | null,
+): Promise<LineEditResult> {
+  return ytPostJson<LineEditResult>(`/api/jobs/${jobId}/delete-line`, {
+    line_index: lineIndex,
+    line_id: lineId ?? null,
+  });
+}
+
 // ── API 키 (단일사용자 무인증, 백엔드 DB 직접 저장) ──────────
 
 /** 설정 여부/마스킹 상태. 값은 마스킹 문자열 또는 null. */

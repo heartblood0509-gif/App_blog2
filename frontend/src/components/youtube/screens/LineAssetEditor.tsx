@@ -20,13 +20,17 @@ import {
   RefreshCw,
   RotateCcw,
   Sparkles,
+  Trash2,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Textarea } from "@/components/ui/textarea";
 import { initialYtState, useYt } from "../state";
 import { ytUrl } from "@/lib/youtube/api";
 import {
+  deleteLine,
+  editLine,
   generateMissingImages,
   getDraftState,
   regenerateImage,
@@ -65,11 +69,34 @@ export function LineAssetEditor() {
   const [loading, setLoading] = useState(true);
   const [polling, setPolling] = useState(false);
   const [uploading, setUploading] = useState<Set<number>>(new Set());
+  // 줄 텍스트 인라인 편집: line_id → 편집 중인 텍스트(아직 서버 저장 전). 저장되면 제거.
+  // 폴링이 lines 를 갈아끼워도 textarea 는 이 draft 를 우선 표시 → 입력 중 글자가 안 날아간다.
+  const [drafts, setDrafts] = useState<Record<string, string>>({});
+  const [savingText, setSavingText] = useState<Set<string>>(new Set());
+  const [deleting, setDeleting] = useState<Set<string>>(new Set());
 
   const mountedRef = useRef(true);
   const pollingRef = useRef(false);
   const fileRef = useRef<HTMLInputElement>(null);
   const uploadTargetRef = useRef(-1);
+  // 항상 최신 lines 를 가리키는 거울. blur 저장·삭제 시 line_id → 현재 index 를
+  // 이걸로 재해석한다(폴링/삭제로 순서가 바뀌어도 엉뚱한 줄을 안 건드리게).
+  const linesRef = useRef<ScriptLine[]>([]);
+  useEffect(() => {
+    linesRef.current = lines;
+  }, [lines]);
+
+  function indexOfLine(lineId: string): number {
+    return linesRef.current.findIndex((l) => String(l.line_id ?? "") === lineId);
+  }
+  function clearDraft(lineId: string) {
+    setDrafts((d) => {
+      if (!(lineId in d)) return d;
+      const n = { ...d };
+      delete n[lineId];
+      return n;
+    });
+  }
 
   async function refresh(): Promise<ScriptLine[] | null> {
     if (!jobId) return null;
@@ -151,6 +178,79 @@ export function LineAssetEditor() {
     }
     await refresh();
     startPolling();
+  }
+
+  // 텍스트 편집 저장(blur 시). 재정렬 없는 edit-line — line_id 로 현재 index 재해석 후 전송.
+  async function saveText(lineId: string) {
+    if (!jobId) return;
+    const draft = drafts[lineId];
+    if (draft === undefined) return; // 손 안 댄 줄
+    const idx = indexOfLine(lineId);
+    if (idx < 0) {
+      clearDraft(lineId);
+      return; // 그 사이 삭제된 줄
+    }
+    const current = linesRef.current[idx]?.text ?? "";
+    if (draft === current) {
+      clearDraft(lineId);
+      return; // 바뀐 게 없음
+    }
+    setSavingText((s) => new Set(s).add(lineId));
+    try {
+      await editLine(jobId, idx, draft);
+      if (!mountedRef.current) return;
+      // 로컬 텍스트 확정 + draft 제거(저장 성공이므로 textarea 는 확정 텍스트로 자연 전환).
+      setLines((prev) =>
+        prev.map((l) =>
+          String(l.line_id ?? "") === lineId ? { ...l, text: draft } : l,
+        ),
+      );
+      clearDraft(lineId);
+    } catch (e) {
+      // 실패 시 draft 를 남겨 입력을 보존(다시 blur 하면 재시도).
+      if (mountedRef.current) {
+        toast.error(e instanceof Error ? e.message : "텍스트 저장에 실패했어요.");
+      }
+    } finally {
+      if (mountedRef.current) {
+        setSavingText((s) => {
+          const n = new Set(s);
+          n.delete(lineId);
+          return n;
+        });
+      }
+    }
+  }
+
+  // 줄 삭제. line_id 동봉 → 백엔드가 현재 위치 재확인(레이스 안전). 응답으로 재정렬 전체 교체.
+  async function del(lineId: string) {
+    if (!jobId) return;
+    if (linesRef.current.length <= 1) {
+      toast.error("마지막 한 줄은 지울 수 없어요.");
+      return;
+    }
+    const idx = indexOfLine(lineId);
+    if (idx < 0) return;
+    setDeleting((s) => new Set(s).add(lineId));
+    try {
+      const res = await deleteLine(jobId, idx, lineId);
+      if (!mountedRef.current) return;
+      setLines(res.lines);
+      setSources(res.sources);
+      clearDraft(lineId);
+    } catch (e) {
+      if (mountedRef.current) {
+        toast.error(e instanceof Error ? e.message : "삭제에 실패했어요.");
+      }
+    } finally {
+      if (mountedRef.current) {
+        setDeleting((s) => {
+          const n = new Set(s);
+          n.delete(lineId);
+          return n;
+        });
+      }
+    }
   }
 
   function pickUpload(i: number) {
@@ -269,6 +369,12 @@ export function LineAssetEditor() {
           const failed = isFailed(l);
           const working = isWorking(l) || uploading.has(i);
           const src: LineSource = sources[i] ?? "ai";
+          const lineId = String(l.line_id ?? "");
+          const hasId = lineId !== "";
+          const savingThis = savingText.has(lineId);
+          const deletingThis = deleting.has(lineId);
+          const editLocked = working || deletingThis || !hasId;
+          const textValue = drafts[lineId] ?? l.text;
           return (
             <li
               key={l.line_id ?? i}
@@ -319,8 +425,38 @@ export function LineAssetEditor() {
                       <AlertCircle className="h-3 w-3" /> 실패
                     </span>
                   )}
+                  {savingThis && (
+                    <span className="inline-flex items-center gap-0.5 text-[0.7rem] text-muted-foreground">
+                      <Loader2 className="h-3 w-3 animate-spin" /> 저장 중
+                    </span>
+                  )}
+                  <Button
+                    variant="ghost"
+                    size="icon-sm"
+                    className="ml-auto shrink-0 text-muted-foreground hover:text-destructive"
+                    onClick={() => del(lineId)}
+                    disabled={editLocked || lines.length <= 1}
+                    aria-label={`${i + 1}번째 줄 삭제`}
+                    title={lines.length <= 1 ? "마지막 한 줄은 지울 수 없어요" : "이 줄 삭제"}
+                  >
+                    {deletingThis ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <Trash2 className="h-4 w-4" />
+                    )}
+                  </Button>
                 </div>
-                <p className="mt-1 line-clamp-2 text-sm">{l.text}</p>
+                <Textarea
+                  value={textValue}
+                  onChange={(e) =>
+                    setDrafts((d) => ({ ...d, [lineId]: e.target.value }))
+                  }
+                  onBlur={() => saveText(lineId)}
+                  disabled={editLocked || savingThis}
+                  rows={2}
+                  className="mt-1 min-h-0 resize-y py-1.5 text-sm"
+                  aria-label={`${i + 1}번째 줄 텍스트`}
+                />
                 {failed && l.fail_reason && (
                   <p className="mt-0.5 line-clamp-1 text-[0.7rem] text-destructive">
                     {l.fail_reason}
