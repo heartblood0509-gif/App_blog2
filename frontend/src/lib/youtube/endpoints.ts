@@ -92,9 +92,15 @@ export interface ScriptLine {
   text: string;
   image_prompt?: string;
   motion?: string;
+  // Card B 줄별 자산 상태("pending" | "ready" | "failed").
   status?: string;
   asset_version?: number;
-  // 그 외 백엔드 부가 필드(fail_reason/asset_* 등)는 그대로 통과.
+  fail_reason?: string | null;
+  // 진행 표시용(생성/업로드 중 단계·메시지).
+  asset_action?: string | null; // "ai_image" | "ai_clip" | "image_upload" | "clip_upload"
+  asset_step?: string | null; // "queued" | "planning" | "generating" | "qa" | "retrying" | "saving" | "converting"
+  asset_message?: string | null;
+  // 그 외 백엔드 부가 필드는 그대로 통과.
   [key: string]: unknown;
 }
 // 백엔드 ImagePromptRequest 는 category/content_type 만 받는다(pain_point 등은 계약 외).
@@ -316,6 +322,60 @@ export function uploadImage(
   return ytPostForm<UploadImageResult>(
     `/api/jobs/${jobId}/upload-image/${lineIndex}`,
     form,
+  );
+}
+
+// ── Card B (직접 제공): 대본 분할 / draft / 줄별 상태 ──────────
+
+export type LineSource = "ai" | "image" | "clip";
+
+/** 사용자 대본을 문장 단위로 분할(정규식, AI·키 불필요, 원문 100% 보존). */
+export function splitScript(script: string): Promise<{ lines: string[] }> {
+  return ytPostJson<{ lines: string[] }>("/api/generate/split-script", {
+    script,
+  });
+}
+
+export interface DraftJobResponse {
+  job_id: string;
+  lines: ScriptLine[];
+}
+/** 쪼갠 대본으로 Card B draft job 생성(generation_mode=user_assets, status=preview_ready). */
+export function createDraft(lines: string[]): Promise<DraftJobResponse> {
+  return ytPostJson<DraftJobResponse>("/api/jobs/draft", { lines });
+}
+
+/** 줄별 자산 편집 화면의 진실원천. 폴링으로 줄별 status/asset_step 변화를 추적. */
+export interface DraftState {
+  job_id: string;
+  status: string;
+  generation_mode: string;
+  intermediates_purged: boolean;
+  video_url?: string | null;
+  title?: string | null;
+  title_line1?: string | null;
+  title_line2?: string | null;
+  lines: ScriptLine[];
+  line_sources: LineSource[];
+  [key: string]: unknown;
+}
+export function getDraftState(jobId: string): Promise<DraftState> {
+  return ytGetJson<DraftState>(`/api/jobs/${jobId}/draft-state`);
+}
+
+export interface GenerateMissingImagesResult {
+  queued: number[]; // 이번에 큐에 들어간 줄 index
+  task_id?: string | null;
+  status?: string;
+  already_running?: boolean;
+}
+/** Card B: line_sources 가 'ai' 이고 이미지가 없는 줄을 일괄 AI 생성(비동기). */
+export function generateMissingImages(
+  jobId: string,
+): Promise<GenerateMissingImagesResult> {
+  return ytPostJson<GenerateMissingImagesResult>(
+    `/api/jobs/${jobId}/generate-missing-images`,
+    {},
   );
 }
 

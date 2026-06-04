@@ -12,40 +12,10 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
 import { useYt } from "../state";
-
-// 백엔드 NarrationRequest.selected_title 의 max_length.
-const TITLE_MAX = 30;
+import { TITLE_MAX, autoSplitTitle, combineTitle } from "@/lib/youtube/title";
 
 const STROKE = "0.7px rgba(0,0,0,0.8)";
 const SHADOW = "1px 1px 0 rgba(0,0,0,0.7), -1px -1px 0 rgba(0,0,0,0.3)";
-
-/** 공백 단어 경계에서 두 줄 길이 차가 최소가 되도록 분할(원본 autoSplitTitle). */
-function autoSplitTitle(text: string): [string, string] {
-  const words = text.split(" ").filter(Boolean);
-  if (words.length <= 1) return [text, ""];
-  let bestSplit = 1;
-  let bestDiff = Infinity;
-  for (let i = 1; i < words.length; i++) {
-    const l1 = words.slice(0, i).join(" ");
-    const l2 = words.slice(i).join(" ");
-    const diff = Math.abs(l1.length - l2.length);
-    if (diff < bestDiff) {
-      bestDiff = diff;
-      bestSplit = i;
-    }
-  }
-  return [
-    words.slice(0, bestSplit).join(" "),
-    words.slice(bestSplit).join(" "),
-  ];
-}
-
-/** 2줄 → 백엔드로 보낼 단일 제목(원본: line2 있으면 "l1 l2", 없으면 "l1"). */
-function combineTitle(l1: string, l2: string): string {
-  const a = l1.trim();
-  const b = l2.trim();
-  return b ? `${a} ${b}` : a;
-}
 
 export function TitleSelect() {
   const { state, update } = useYt();

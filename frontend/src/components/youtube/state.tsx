@@ -63,6 +63,9 @@ export interface YtState {
   titleLine1: string;
   titleLine2: string;
 
+  // Card B — 붙여넣은 원본 대본(스텝 되돌아왔을 때 유지)
+  scriptText: string;
+
   // 나레이션 (줄마다 text + role)
   narration: NarrationLine[];
   // 현재 narration 이 어떤 제목으로 생성됐는지. selectedTitle 과 다르면 stale → 재생성.
@@ -101,6 +104,7 @@ export const initialYtState: YtState = {
   keyword: "",
   productImageId: null,
   keywordAtTitleGen: "",
+  scriptText: "",
   titleOptions: [],
   selectedTitle: "",
   titleLine1: "",

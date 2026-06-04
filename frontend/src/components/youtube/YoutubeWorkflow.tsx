@@ -16,6 +16,8 @@ import { ApiKeysScreen } from "./screens/ApiKeysScreen";
 import { TopicInput } from "./screens/TopicInput";
 import { TitleSelect } from "./screens/TitleSelect";
 import { NarrationReview } from "./screens/NarrationReview";
+import { ScriptInput } from "./screens/ScriptInput";
+import { LineAssetEditor } from "./screens/LineAssetEditor";
 import { TtsConfig } from "./screens/TtsConfig";
 import { BgmConfig } from "./screens/BgmConfig";
 import { ProgressView } from "./screens/ProgressView";
@@ -49,9 +51,9 @@ function ScreenSwitch() {
     case "narration":
       return <NarrationReview />;
     case "script":
-      return <Placeholder label="제목·대본 입력" />;
+      return <ScriptInput />;
     case "lines":
-      return <Placeholder label="줄별 자산 편집" />;
+      return <LineAssetEditor />;
     case "tts":
       return <TtsConfig />;
     case "bgm":
