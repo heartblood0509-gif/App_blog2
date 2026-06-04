@@ -22,8 +22,19 @@ import {
 } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
+import { updateApiKeys } from "@/lib/youtube/endpoints";
 
 const AISTUDIO_URL = "https://aistudio.google.com/";
+
+// 같은 Gemini 키를 유튜브 로컬 백엔드에도 즉시 반영(재시작 없이 DB 갱신). best-effort —
+// 유튜브 백엔드가 안 떠 있으면 조용히 넘어가고(다음 부팅 시 env 시드), 블로그 저장은 그대로 유지한다.
+async function pushGeminiToYoutube(key: string): Promise<void> {
+  try {
+    await updateApiKeys({ gemini_api_key: key });
+  } catch {
+    // 유튜브 백엔드 미가동 등 — 무시.
+  }
+}
 
 interface ApiKeyPanelProps {
   className?: string;
@@ -119,6 +130,7 @@ export function ApiKeyPanel({ className }: ApiKeyPanelProps) {
           if (r.masked !== undefined) setMasked(r.masked);
           if (r.source) setKeySource(r.source);
           setGuideExpanded(false);
+          await pushGeminiToYoutube(plaintext);
           toast.success("저장되었습니다. 다음 글 생성부터 새 키가 사용됩니다.");
         } catch (err) {
           const msg = err instanceof Error ? err.message : String(err);
@@ -140,6 +152,8 @@ export function ApiKeyPanel({ className }: ApiKeyPanelProps) {
       }
       setPlaintext("");
       setHasKey(true);
+      // 유튜브 백엔드엔 재시작 없이 즉시 반영. 블로그 백엔드는 env 주입이라 재시작 필요(아래 안내).
+      await pushGeminiToYoutube(plaintext);
       toast.success("저장되었습니다. 재시작 후 적용됩니다.");
       const ok = window.confirm("지금 앱을 재시작할까요?");
       if (ok) {

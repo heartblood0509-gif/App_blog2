@@ -12,7 +12,6 @@ import { StepYoutubeEmbed } from "@/components/steps/step-youtube-embed";
 import { YoutubeWorkflowProvider, useYt } from "./state";
 import { Stepper } from "./Stepper";
 import { ModeSelect } from "./screens/ModeSelect";
-import { ApiKeysScreen } from "./screens/ApiKeysScreen";
 import { TopicInput } from "./screens/TopicInput";
 import { TitleSelect } from "./screens/TitleSelect";
 import { NarrationReview } from "./screens/NarrationReview";
@@ -42,8 +41,6 @@ function ScreenSwitch() {
   switch (state.screen) {
     case "mode":
       return <ModeSelect />;
-    case "keys":
-      return <ApiKeysScreen />;
     case "topic":
       return <TopicInput />;
     case "titles":

@@ -2,7 +2,7 @@
 
 // 진입 화면 — "AI가 모두 생성"(Card A) vs "내가 직접 제공"(Card B) 선택.
 
-import { KeyRound, Sparkles, PenTool } from "lucide-react";
+import { Sparkles, PenTool } from "lucide-react";
 import { useYt } from "../state";
 
 export function ModeSelect() {
@@ -45,16 +45,10 @@ export function ModeSelect() {
         </button>
       </div>
 
-      <div className="mt-6">
-        <button
-          type="button"
-          onClick={() => update({ screen: "keys" })}
-          className="inline-flex items-center gap-1.5 text-sm text-muted-foreground underline-offset-4 hover:text-foreground hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50"
-        >
-          <KeyRound className="h-3.5 w-3.5" />
-          API 키 설정
-        </button>
-      </div>
+      <p className="mt-6 text-xs text-muted-foreground">
+        API 키(Gemini·Typecast 등)는{" "}
+        <b className="font-medium text-foreground">내 정보 → AI 생성 설정</b>에서 등록해요.
+      </p>
     </div>
   );
 }

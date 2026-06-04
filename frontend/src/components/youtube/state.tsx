@@ -22,7 +22,6 @@ export type YtMode = "ai_full" | "user_assets";
 
 export type YtScreen =
   | "mode"
-  | "keys" // API 키 설정(스텝 외 화면)
   // Card A
   | "topic"
   | "titles"
