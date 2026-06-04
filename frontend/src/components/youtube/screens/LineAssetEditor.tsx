@@ -72,7 +72,8 @@ export function LineAssetEditor() {
   const [sources, setSources] = useState<LineSource[]>([]);
   const [loading, setLoading] = useState(true);
   const [polling, setPolling] = useState(false);
-  const [uploading, setUploading] = useState<Set<number>>(new Set());
+  // 업로드 진행 중인 줄(line_id 기반 — 재인덱싱돼도 표시가 엉뚱한 줄로 안 옮겨가게).
+  const [uploading, setUploading] = useState<Set<string>>(new Set());
   // 줄 텍스트 인라인 편집: line_id → 편집 중인 텍스트(아직 서버 저장 전). 저장되면 제거.
   // 폴링이 lines 를 갈아끼워도 textarea 는 이 draft 를 우선 표시 → 입력 중 글자가 안 날아간다.
   const [drafts, setDrafts] = useState<Record<string, string>>({});
@@ -84,7 +85,9 @@ export function LineAssetEditor() {
   const mountedRef = useRef(true);
   const pollingRef = useRef(false);
   const fileRef = useRef<HTMLInputElement>(null);
-  const uploadTargetRef = useRef(-1);
+  // 업로드 대상 줄의 line_id. 파일 대화상자가 열린 사이 split/delete 로 순서가 바뀌어도
+  // 전송 직전 line_id → 현재 index 로 재해석해 엉뚱한 줄에 안 올라가게 한다(Codex #7).
+  const uploadTargetRef = useRef<string>("");
   // 항상 최신 lines 를 가리키는 거울. blur 저장·삭제 시 line_id → 현재 index 를
   // 이걸로 재해석한다(폴링/삭제로 순서가 바뀌어도 엉뚱한 줄을 안 건드리게).
   const linesRef = useRef<ScriptLine[]>([]);
@@ -319,9 +322,9 @@ export function LineAssetEditor() {
     }
   }
 
-  function pickUpload(i: number) {
-    if (!jobId) return;
-    uploadTargetRef.current = i;
+  function pickUpload(lineId: string) {
+    if (!jobId || !lineId) return;
+    uploadTargetRef.current = lineId;
     fileRef.current?.click();
   }
 
@@ -329,9 +332,15 @@ export function LineAssetEditor() {
     const input = e.target;
     const file = input.files?.[0];
     input.value = "";
-    const i = uploadTargetRef.current;
-    uploadTargetRef.current = -1;
-    if (!file || i < 0 || !jobId) return;
+    const lineId = uploadTargetRef.current;
+    uploadTargetRef.current = "";
+    if (!file || !lineId || !jobId) return;
+    // 파일 고르는 사이 순서가 바뀌었을 수 있으니 line_id 로 현재 index 를 다시 구한다.
+    const i = indexOfLine(lineId);
+    if (i < 0) {
+      toast.error("그 줄이 사라졌어요. 다시 시도해 주세요.");
+      return;
+    }
     if (!ALLOWED_TYPES.includes(file.type)) {
       toast.error("PNG, JPG, WebP 이미지만 올릴 수 있어요.");
       return;
@@ -340,15 +349,15 @@ export function LineAssetEditor() {
       toast.error("파일은 10MB 이하만 올릴 수 있어요.");
       return;
     }
-    setUploading((s) => new Set(s).add(i));
+    setUploading((s) => new Set(s).add(lineId));
     try {
       const res = await uploadImage(jobId, i, file);
       if (!mountedRef.current) return;
-      // 낙관적 반영: 업로드 응답의 asset_version 으로 즉시 캐시버스팅 + 소스 image 전환.
+      // 낙관적 반영(line_id 기준): 업로드 응답의 asset_version 으로 즉시 캐시버스팅 + 소스 image 전환.
       // (뒤이은 refresh 가 실패해도 새 그림이 보장된다.)
       setLines((prev) =>
-        prev.map((l, idx) =>
-          idx === i
+        prev.map((l) =>
+          String(l.line_id ?? "") === lineId
             ? {
                 ...l,
                 status: "ready",
@@ -360,9 +369,15 @@ export function LineAssetEditor() {
             : l,
         ),
       );
-      setSources((prev) => prev.map((s, idx) => (idx === i ? "image" : s)));
+      setSources((prev) => {
+        const j = indexOfLine(lineId);
+        return j < 0 ? prev : prev.map((s, idx) => (idx === j ? "image" : s));
+      });
       await refresh();
-      if (mountedRef.current) toast.success(`${i + 1}번째 줄 이미지를 올렸어요.`);
+      if (mountedRef.current) {
+        const j = indexOfLine(lineId);
+        toast.success(`${(j < 0 ? i : j) + 1}번째 줄 이미지를 올렸어요.`);
+      }
     } catch (err) {
       if (mountedRef.current) {
         toast.error(err instanceof Error ? err.message : "업로드에 실패했어요.");
@@ -371,7 +386,7 @@ export function LineAssetEditor() {
       if (mountedRef.current) {
         setUploading((s) => {
           const n = new Set(s);
-          n.delete(i);
+          n.delete(lineId);
           return n;
         });
       }
@@ -437,14 +452,16 @@ export function LineAssetEditor() {
         {lines.map((l, i) => {
           const ready = isReady(l);
           const failed = isFailed(l);
-          const working = isWorking(l) || uploading.has(i);
-          const src: LineSource = sources[i] ?? "ai";
           const lineId = String(l.line_id ?? "");
           const hasId = lineId !== "";
+          const working = isWorking(l) || uploading.has(lineId);
+          const src: LineSource = sources[i] ?? "ai";
           const savingThis = savingText.has(lineId);
           const deletingThis = deleting.has(lineId);
           const structuringThis = structuring.has(lineId);
           const editLocked = working || deletingThis || structuringThis || !hasId;
+          // 구조 변경(나누기/합치기/삭제)은 생성 폴링·업로드 진행 중엔 막는다(재인덱싱 레이스 방지).
+          const structLocked = editLocked || busyGlobal;
           const textValue = drafts[lineId] ?? l.text;
           return (
             <li
@@ -506,7 +523,7 @@ export function LineAssetEditor() {
                     size="icon-sm"
                     className="ml-auto shrink-0 text-muted-foreground hover:text-destructive"
                     onClick={() => del(lineId)}
-                    disabled={editLocked || lines.length <= 1}
+                    disabled={structLocked || lines.length <= 1}
                     aria-label={`${i + 1}번째 줄 삭제`}
                     title={lines.length <= 1 ? "마지막 한 줄은 지울 수 없어요" : "이 줄 삭제"}
                   >
@@ -531,6 +548,12 @@ export function LineAssetEditor() {
                       !e.nativeEvent.isComposing
                     ) {
                       e.preventDefault();
+                      if (structLocked) {
+                        toast.info(
+                          "생성·업로드가 끝난 뒤에 줄을 나눌 수 있어요.",
+                        );
+                        return;
+                      }
                       const ta = e.currentTarget;
                       const start = ta.selectionStart ?? ta.value.length;
                       const end = ta.selectionEnd ?? start;
@@ -569,7 +592,7 @@ export function LineAssetEditor() {
                   <Button
                     variant="outline"
                     size="xs"
-                    onClick={() => pickUpload(i)}
+                    onClick={() => pickUpload(lineId)}
                     disabled={working}
                   >
                     <ImageUp className="size-3" /> 올리기
@@ -580,7 +603,7 @@ export function LineAssetEditor() {
                       size="xs"
                       className="text-muted-foreground"
                       onClick={() => mergeUp(lineId)}
-                      disabled={editLocked}
+                      disabled={structLocked}
                       title="이 줄을 위 줄 끝에 이어 붙입니다"
                     >
                       {structuringThis ? (
