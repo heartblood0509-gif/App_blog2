@@ -10,8 +10,8 @@ export const CONFIG = {
   IMAGE_MODEL: "gemini-3.1-flash-image-preview",
   /** 이미지 고품질 모드 모델 (Pro — 인물 일관성 우수, 느리고 비쌈) */
   IMAGE_MODEL_PRO: "gemini-3-pro-image-preview",
-  /** AI 변환 시 원본 이미지를 몇 번 반복해 넣을지 (1~4, 2 권장) */
-  TRANSFORM_REFERENCE_COUNT: 2,
+  /** AI 변환 프리패스(피사체 1줄 식별) 모델. flash로 충분(블로그 본문을 근거로 제공). 부위 오인 지속 시 ANALYSIS_MODEL(pro)로 상향 */
+  TRANSFORM_SUBJECT_MODEL: "gemini-2.5-flash",
   /** 기본 글자수 범위 */
   DEFAULT_CHAR_RANGE: { min: 1500, max: 2000, label: "1500~2000자" },
   /** 한 글당 목표 이미지 개수 */

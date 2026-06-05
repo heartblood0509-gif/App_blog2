@@ -140,7 +140,7 @@ async function fileToBase64(file: File): Promise<{ base64: string; mimeType: str
 function failureLabel(code: string): string {
   switch (code) {
     case "safety":
-      return "SAFETY 차단";
+      return "안전 필터 차단";
     case "quota":
       return "쿼터 초과";
     case "unavailable":

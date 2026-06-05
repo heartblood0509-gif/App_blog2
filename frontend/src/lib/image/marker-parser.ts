@@ -1014,3 +1014,28 @@ export function extractContextSnippet(
   }
   return content.slice(0, 1500);
 }
+
+/**
+ * AI 변환(피사체 식별) 프리패스용 본문 맥락 추출.
+ *
+ * ±500자 윈도우(extractContextSnippet)와 달리 **글 전체**를 근거로 준다.
+ * 이유(구글 공식 가이드): 단일 질문("이 사진이 뭐냐")에 대해 한 가지 주제로 쓰인
+ * 글 전체는 일관된 근거가 되며(Add context), 단일 추출은 정확도가 높다.
+ * 이미지 마커([이미지: …])는 모두 제거한다 — 다른 사진 설명은 다중 피사체 노이즈가 되고,
+ * 위치 표식은 식별 정확도를 올린다는 공식 근거가 없어 단순화를 위해 쓰지 않는다.
+ *
+ * @param content   본문 마크다운 전체
+ * @param maxChars  안전 상한(폭주 방지). 초과 시 앞에서부터 컷. 기본 8000.
+ * @returns 모든 이미지 마커가 제거된 본문(맥락 근거용)
+ */
+export function extractIdentificationContext(
+  content: string,
+  maxChars = 8000
+): string {
+  if (!content) return "";
+  const cleaned = content
+    .replace(/\[이미지:\s*[^\]]+\]/g, "") // 모든 마커 제거
+    .replace(/\n{3,}/g, "\n\n") // 빈 줄 폭주 정리
+    .trim();
+  return cleaned.length <= maxChars ? cleaned : cleaned.slice(0, maxChars);
+}
