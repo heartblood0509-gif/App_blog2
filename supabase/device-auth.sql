@@ -138,9 +138,9 @@ language sql
 security definer
 set search_path = public
 as $$
-  select max(replaced_at) + interval '30 days'
-  from public.device_replacements
-  where user_id = p_user_id;
+  -- 교체 쿨다운 제거: 항상 null 반환 → 기기 교체 즉시 가능, UI에 '다음 교체 가능일' 미표시.
+  select null::timestamptz;
+  -- (원복 시) select max(replaced_at) + interval '30 days' from public.device_replacements where user_id = p_user_id;
 $$;
 
 create or replace function public.ensure_profile(p_user_id uuid)
@@ -175,6 +175,73 @@ begin
 end;
 $$;
 
+-- ============================================================
+-- 같은 PC 중복 흡수 (서버 dedupe) — 공용 헬퍼 + 감사 테이블
+--   device_id 재발급(앱 이름변경·재설치·OS업데이트·키체인 실패)으로 같은 PC가
+--   여러 행이 되는 문제를, "등록 시점에 같은 PC의 옛 활성 행을 retire" 해서 모은다.
+--   ⚠️ 호스트네임/플랫폼은 클라이언트가 보내는 값(위조 가능) → 신원 증명이 아니라
+--      "같은 사용자 본인 행끼리의 복구 힌트"로만 사용. 모든 작업 auth.uid() 본인 한정.
+-- ============================================================
+
+-- 병합 감사 로그(누수 탐지용: 동일 호스트네임 과다 병합 패턴 감시)
+create table if not exists public.device_merge_audit (
+  id bigserial primary key,
+  user_id uuid references auth.users(id) on delete cascade,
+  kept_device_id text,
+  retired_device_id text,
+  device_name text,
+  platform text,
+  created_at timestamptz not null default now()
+);
+alter table public.device_merge_audit enable row level security;
+-- 정책 없음 = 일반 클라이언트 직접 접근 불가. security definer 함수만 기록(소유자가 RLS 우회).
+
+-- 같은 사용자 + 같은(정규화) PC이름 + 같은 OS군 + 다른 device_id 인 활성 행 전체를
+-- retire 처리하고, retire된 옛 device_id 배열을 반환한다. (device_id 자체는 절대 변경 안 함)
+create or replace function public.collapse_same_machine_devices(
+  p_user_id uuid,
+  p_device_id text,
+  p_device_name text,
+  p_platform text
+)
+returns text[]
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_key_name text := btrim(lower(coalesce(p_device_name, '')));
+  v_os_family text := split_part(coalesce(p_platform, ''), ' ', 1);
+  v_retired text[] := array[]::text[];
+begin
+  -- 가드: 비었거나 기본 이름이면 신원으로 쓰지 않음(서로 다른 PC 오병합 방지)
+  if v_key_name = '' or v_key_name = 'unknown device' then
+    return v_retired;
+  end if;
+
+  with collapsed as (
+    update public.devices d
+    set replaced_at = now()
+    where d.user_id = p_user_id
+      and d.replaced_at is null
+      and d.device_id <> p_device_id
+      and btrim(lower(d.device_name)) = v_key_name
+      and split_part(d.platform, ' ', 1) = v_os_family
+    returning d.device_id
+  )
+  select coalesce(array_agg(device_id), array[]::text[]) into v_retired from collapsed;
+
+  if array_length(v_retired, 1) is not null then
+    insert into public.device_merge_audit
+      (user_id, kept_device_id, retired_device_id, device_name, platform)
+    select p_user_id, p_device_id, rid, p_device_name, p_platform
+    from unnest(v_retired) as rid;
+  end if;
+
+  return v_retired;
+end;
+$$;
+
 -- 인자(p_claim)를 추가하므로 시그니처가 바뀐다. create or replace 는 교체가 아니라
 -- 오버로드를 만들어 옛 4-인자 함수가 남으므로, 반드시 먼저 drop 한다.
 drop function if exists public.authorize_device(text, text, text, text);
@@ -199,6 +266,7 @@ declare
   v_active_count integer;
   v_active_device text;
   v_registered boolean := false;
+  v_retired text[];
 begin
   if v_user_id is null then
     return jsonb_build_object('ok', false, 'status', 'error', 'message', 'not-authenticated');
@@ -236,14 +304,29 @@ begin
     v_registered := true;
   end if;
 
-  -- 2) 미등록이면 빈 슬롯이 있을 때만 새로 등록(최대 2대).
+  -- 1.5) 같은 PC 중복 흡수: 새 device_id 로 들어왔는데 같은 PC(이름+OS군)의
+  --      옛 활성 행이 있으면 retire 한다(슬롯 회수). device_id 는 바꾸지 않으므로
+  --      유니크 충돌 없음. retire 된 옛 id 가 활성 기기 포인터였다면 새 id 로 인계.
+  if not v_registered then
+    v_retired := public.collapse_same_machine_devices(
+      v_user_id, p_device_id, p_device_name, p_platform
+    );
+    if array_length(v_retired, 1) is not null then
+      update public.profiles
+      set active_device_id = p_device_id
+      where id = v_user_id
+        and active_device_id = any(v_retired);
+    end if;
+  end if;
+
+  -- 2) 미등록이면 빈 슬롯이 있을 때만 새로 등록(최대 3대).
   if not v_registered then
     select count(*) into v_active_count
     from public.devices
     where user_id = v_user_id
       and replaced_at is null;
 
-    if v_active_count < 2 then
+    if v_active_count < 3 then
       insert into public.devices (
         user_id, device_id, device_name, platform, app_version, last_seen_at
       )
@@ -270,7 +353,7 @@ begin
       'current_device_id', p_device_id,
       'devices', public.active_devices_json(v_user_id),
       'next_replacement_at', public.next_replacement_at(v_user_id),
-      'message', '등록 가능한 기기 2대를 모두 사용 중입니다.'
+      'message', '등록 가능한 기기 3대를 모두 사용 중입니다.'
     );
   end if;
 
@@ -361,6 +444,7 @@ declare
   v_profile public.profiles;
   v_next_replacement timestamptz;
   v_active_count integer;
+  v_retired text[];
 begin
   if v_user_id is null then
     return jsonb_build_object('ok', false, 'status', 'error', 'message', 'not-authenticated');
@@ -419,7 +503,7 @@ begin
   where user_id = v_user_id
     and replaced_at is null;
 
-  if v_active_count >= 2 then
+  if v_active_count >= 3 then
     update public.devices
     set replaced_at = now()
     where user_id = v_user_id
@@ -440,6 +524,17 @@ begin
 
     insert into public.device_replacements (user_id, old_device_id, new_device_id)
     values (v_user_id, p_old_device_id, p_new_device_id);
+  end if;
+
+  -- 같은 PC 중복 흡수 (authorize_device 와 동일 정책)
+  v_retired := public.collapse_same_machine_devices(
+    v_user_id, p_new_device_id, p_device_name, p_platform
+  );
+  if array_length(v_retired, 1) is not null then
+    update public.profiles
+    set active_device_id = p_new_device_id
+    where id = v_user_id
+      and active_device_id = any(v_retired);
   end if;
 
   insert into public.devices (
@@ -481,6 +576,9 @@ end;
 $$;
 
 revoke all on function public.active_devices_json(uuid) from public, anon, authenticated;
+-- 내부 헬퍼: p_user_id 를 인자로 받으므로 클라이언트 직접 호출 금지(타 사용자 기기 retire 방지).
+-- authorize_device/replace_device(SECURITY DEFINER) 내부에서만 호출됨(소유자 권한이라 영향 없음).
+revoke all on function public.collapse_same_machine_devices(uuid, text, text, text) from public, anon, authenticated;
 revoke all on function public.next_replacement_at(uuid) from public, anon, authenticated;
 revoke all on function public.ensure_profile(uuid) from public, anon, authenticated;
 revoke all on function public.handle_new_user_profile() from public, anon, authenticated;
