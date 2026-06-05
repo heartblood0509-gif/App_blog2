@@ -23,6 +23,8 @@
 // 사용:
 //   node scripts/dev-worktree.js                # 웹 브라우저 테스트 (기본)
 //   node scripts/dev-worktree.js --electron     # Electron 데스크톱 앱
+//   node scripts/dev-worktree.js --deps-only    # JS 의존성(node_modules)만 빌려오고 종료 (서버/Python 생략)
+//                                               #   → typecheck/lint 처럼 서버 없이 빠른 사전점검만 할 때
 //   node scripts/dev-worktree.js --main <path>  # 메인 체크아웃 경로 명시
 //   node scripts/dev-worktree.js --frontend-port 3006 --backend-port 8006  # 포트 강제 지정 (선택)
 //
@@ -39,6 +41,8 @@ const { spawn, spawnSync } = require("node:child_process");
 // ─────────────────────────────────────────────────────── 인자 파싱
 const argv = process.argv.slice(2);
 const isElectron = argv.includes("--electron");
+// JS 의존성만 빌려오고 종료 (typecheck/lint 용 — 서버 기동·Python 설치 생략)
+const depsOnly = argv.includes("--deps-only");
 const mainArgIdx = argv.indexOf("--main");
 const explicitMain = mainArgIdx >= 0 ? argv[mainArgIdx + 1] : null;
 // 포트 강제 지정 (선택). 미지정 시 빈 포트 자동 검색.
@@ -72,6 +76,11 @@ console.log(`[dev-worktree] mode    =${isElectron ? "electron" : "web"}`);
 (async () => {
   // 1. 의존성 디렉토리 빌려오기 (node_modules + playwright-cache)
   await prepareDeps(mainRoot, worktreeRoot);
+
+  if (depsOnly) {
+    console.log("\n✓ dev-worktree --deps-only 완료 (서버 미기동). typecheck/lint 실행 가능.");
+    return;
+  }
 
   if (isElectron) {
     // Electron dev: 자체 main.ts 가 빈 포트로 backend+frontend 를 orchestrate. 우리는 위임만.
@@ -180,6 +189,9 @@ async function prepareDeps(mainRoot, worktreeRoot) {
     const method = fastCopy(src, dst);
     console.log(`  ${rel}: ${method} 완료`);
   }
+
+  // --deps-only: JS 의존성만 빌려오면 충분 (typecheck/lint). Python/venv 설치 생략.
+  if (depsOnly) return;
 
   // Python 의존성 설치. requirements.txt 의 모든 패키지를 글로벌(또는 활성화된 venv) python 에 설치.
   // 미설치 상태에서 백엔드가 import 시점에 죽는 걸 막는다. 이미 설치되어 있으면 pip 가 빠르게 통과.
@@ -360,29 +372,33 @@ function copyEnvFileIfMissing(srcPath, dstPath, label) {
   console.log(`\n[dev-worktree] ${label} 생성 (메인에서 복사)`);
 }
 
-function findFreePort(start) {
-  return new Promise((resolve, reject) => {
-    function tryPort(p) {
-      if (p > start + 50) return reject(new Error(`free port not found near ${start}`));
-      const srv = net.createServer();
-      srv.once("error", () => tryPort(p + 1));
-      srv.once("listening", () => srv.close(() => resolve(p)));
-      srv.listen(p);
-    }
-    tryPort(start);
+// 한 인터페이스(host)에서 port 바인딩 가능 여부. EADDRINUSE 만 "점유"로 보고,
+// 그 외 에러(예: IPv6 미지원 EADDRNOTAVAIL)는 충돌 아님으로 간주해 막지 않는다.
+function canBind(port, host) {
+  return new Promise((resolve) => {
+    const srv = net.createServer();
+    srv.once("error", (err) => resolve(!err || err.code !== "EADDRINUSE"));
+    srv.once("listening", () => srv.close(() => resolve(true)));
+    srv.listen(port, host);
   });
 }
 
+// 진짜 빈 포트 = 127.0.0.1(IPv4 loopback)와 ::(IPv6) 양쪽에서 모두 바인딩 가능.
+// 백엔드/youtube 는 127.0.0.1, next dev 는 :: 로 바인딩한다. macOS 에선 SO_REUSEADDR 때문에
+// 0.0.0.0 테스트로는 127.0.0.1 전용 점유를 못 잡으므로, 실제 바인딩과 동일한 host 로 확인한다.
+// (한쪽만 보면 다른 워크트리가 점유한 포트를 거짓 "비어있음"으로 골라 EADDRINUSE 충돌난다.)
+async function findFreePort(start) {
+  for (let p = start; p <= start + 50; p++) {
+    if ((await canBind(p, "127.0.0.1")) && (await canBind(p, "::"))) return p;
+  }
+  throw new Error(`free port not found near ${start}`);
+}
+
 // 강제 지정 포트가 비어 있는지 확인. 점유 시 즉시 실패시켜 자동 대체 포트로 도망가지 않게 한다.
-function ensurePortFree(port, label) {
-  return new Promise((resolve, reject) => {
-    const srv = net.createServer();
-    srv.once("error", () =>
-      reject(new Error(`${label} 포트 ${port} 가 이미 사용 중입니다. 다른 포트를 쓰거나 점유 프로세스를 종료하세요.`))
-    );
-    srv.once("listening", () => srv.close(() => resolve(port)));
-    srv.listen(port);
-  });
+async function ensurePortFree(port, label) {
+  // findFreePort 와 동일 기준 — 127.0.0.1·:: 양쪽에서 바인딩 가능해야 "비어있음".
+  if ((await canBind(port, "127.0.0.1")) && (await canBind(port, "::"))) return port;
+  throw new Error(`${label} 포트 ${port} 가 이미 사용 중입니다. 다른 포트를 쓰거나 점유 프로세스를 종료하세요.`);
 }
 
 function waitForPort(port, timeoutMs) {
