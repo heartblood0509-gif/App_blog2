@@ -48,7 +48,7 @@ export function UpdaterToast() {
     if (!api?.updater) return;
     setIsDarwin(api.platform === "darwin");
 
-    const off = api.updater.onState((e) => {
+    const apply = (e: { s: Status; p?: unknown }) => {
       setStatus(e.s);
       if (e.s === "available" && e.p && typeof e.p === "object") {
         setInfo(e.p as UpdateInfo);
@@ -56,7 +56,15 @@ export function UpdaterToast() {
       if (e.s === "error") {
         setErrorMsg(typeof e.p === "string" ? e.p : "알 수 없는 오류가 발생했습니다.");
       }
-    });
+    };
+
+    // 마운트 전에 main 이 보낸 "새 버전" 알림을 놓쳤을 수 있으므로 현재 상태를 한 번 조회해 복원.
+    // (background 자동 확인이 렌더러보다 먼저 available 을 보낸 경우 대비.)
+    api.updater.getState?.().then((cached) => {
+      if (cached) apply(cached as { s: Status; p?: unknown });
+    }).catch(() => { /* 무시 — live 이벤트로 대체 */ });
+
+    const off = api.updater.onState((e) => apply(e));
     return off;
   }, []);
 

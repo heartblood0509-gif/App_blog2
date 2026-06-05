@@ -22,6 +22,7 @@ interface ElectronUpdaterApi {
   check: () => Promise<unknown>;
   download: () => Promise<boolean>;
   install: () => Promise<boolean>;
+  getState: () => Promise<UpdaterStateEvent | null>;
   onState: (cb: (e: UpdaterStateEvent) => void) => () => void;
   onProgress: (cb: (percent: number) => void) => () => void;
 }

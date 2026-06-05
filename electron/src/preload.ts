@@ -56,6 +56,8 @@ contextBridge.exposeInMainWorld("electronAPI", {
     check: () => ipcRenderer.invoke("updater:check"),
     download: () => ipcRenderer.invoke("updater:download"),
     install: () => ipcRenderer.invoke("updater:install"),
+    // 렌더러 마운트 시 현재 업데이트 상태(예: 이미 떠 있어야 할 "새 버전" 알림)를 복원.
+    getState: (): Promise<UpdaterStateEvent | null> => ipcRenderer.invoke("updater:getState"),
     onState: (cb: (e: UpdaterStateEvent) => void) => {
       const handler = (_: IpcRendererEvent, e: UpdaterStateEvent) => cb(e);
       ipcRenderer.on("updater:state", handler);
