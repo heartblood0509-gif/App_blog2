@@ -118,6 +118,7 @@ export function StepPublish({
   const [accounts, setAccounts] = useState<BlogAccount[]>([]);
   const [selectedAccountId, setSelectedAccountId] = useState<string>("");
   const [autoPublish] = useState(false); // 기본: 검토 후 수동 발행
+  const [cooldownSec, setCooldownSec] = useState(0); // 발행 1시간 쿨다운 남은 초(실시간 카운트다운)
   // §D 수동 발행 세션 — Chrome 창이 살아있는 동안 busy 유지.
   const [manualSessionId, setManualSessionId] = useState<string | null>(null);
   // dev-only: SmartEditor native paste PoC + 분할뷰
@@ -141,6 +142,37 @@ export function StepPublish({
   // 자동 발행 중 + 수동 발행 Chrome 창 살아있는 동안 둘 다 busy.
   useBusy("publish:auto", isPublishing);
   useBusy(`publish:manual:${manualSessionId ?? "none"}`, manualSessionId !== null);
+
+  // 발행 1시간 쿨다운 — 서버에서 남은 시간 조회(30초마다 재동기화) + 화면은 1초마다 줄여
+  // "MM:SS 후 발행 가능" 실시간 카운트다운. 쿨다운 중엔 발행 버튼 비활성화.
+  useEffect(() => {
+    let alive = true;
+    const sync = async () => {
+      try {
+        const res = await fetch("/api/publish/cooldown-status", { cache: "no-store" });
+        const data = await res.json();
+        if (alive) setCooldownSec(Math.max(0, Number(data.remaining_sec ?? 0)));
+      } catch {
+        // 조회 실패 시 보수적으로 그대로 둠(사용자 차단하지 않음).
+      }
+    };
+    sync();
+    const poll = window.setInterval(sync, 30000);
+    const tick = window.setInterval(() => {
+      setCooldownSec((s) => (s > 0 ? s - 1 : 0));
+    }, 1000);
+    return () => {
+      alive = false;
+      window.clearInterval(poll);
+      window.clearInterval(tick);
+    };
+  }, []);
+
+  const formatCooldown = (sec: number): string => {
+    const m = Math.floor(sec / 60);
+    const s = sec % 60;
+    return `${m}:${String(s).padStart(2, "0")}`;
+  };
 
   // §H 발행 진행 상태 — 종료 모달 가드용 (busy 와 별도 Set). 같은 opId 공유.
   usePublishing("publish:auto", isPublishing);
@@ -382,7 +414,13 @@ export function StepPublish({
       });
       const data = await res.json();
       if (!res.ok) {
-        throw new Error(data.error || "발행에 실패했습니다.");
+        // 쿨다운에 걸렸으면 카운트다운 즉시 시작.
+        if (typeof data.cooldown_remaining_sec === "number" && data.cooldown_remaining_sec > 0) {
+          setCooldownSec(data.cooldown_remaining_sec);
+        }
+        // data.error 가 객체로 와도 [object Object] 안 뜨게 문자열만 사용.
+        const msg = typeof data.error === "string" ? data.error : "발행에 실패했습니다.";
+        throw new Error(msg);
       }
       if (data.mode === "awaiting_manual_publish") {
         // §D — Chrome 창이 살아있는 동안 busy 유지. 닫히면 폴링이 감지해 자동 해제.
@@ -683,7 +721,7 @@ export function StepPublish({
           <div className="flex flex-wrap gap-3">
             <Button
               size="lg"
-              disabled={!content || isPublishing || !selectedAccountId}
+              disabled={!content || isPublishing || !selectedAccountId || cooldownSec > 0}
               className="gap-2 px-6 py-6 text-base font-semibold"
               onClick={handlePublish}
             >
@@ -694,9 +732,11 @@ export function StepPublish({
               )}
               {isPublishing
                 ? "글 작성 중..."
-                : selectedAccount
-                  ? `"${selectedAccount.label}"에 자동발행하기`
-                  : "계정을 선택하세요"}
+                : cooldownSec > 0
+                  ? `${formatCooldown(cooldownSec)} 후 발행 가능`
+                  : selectedAccount
+                    ? `"${selectedAccount.label}"에 자동발행하기`
+                    : "계정을 선택하세요"}
             </Button>
 
             <Button

@@ -41,8 +41,48 @@ export async function POST(request: Request) {
 
     if (!res.ok) {
       const err = await res.json().catch(() => ({ detail: "발행 서버 오류" }));
+      const detail: unknown = err?.detail;
+      let message = "발행에 실패했습니다.";
+      let cooldownRemainingSec: number | undefined;
+
+      if (
+        detail &&
+        typeof detail === "object" &&
+        !Array.isArray(detail) &&
+        (detail as { code?: string }).code === "cooldown-active"
+      ) {
+        // 1시간 쿨다운 — detail 이 객체라 그대로 두면 화면에 [object Object] 로 표시됨.
+        const sec = Math.max(
+          0,
+          Number((detail as { remaining_sec?: number }).remaining_sec ?? 0)
+        );
+        cooldownRemainingSec = sec;
+        const min = Math.max(1, Math.ceil(sec / 60));
+        message = `발행은 1시간에 한 번만 가능해요. 약 ${min}분 후 다시 시도해주세요.`;
+      } else if (typeof detail === "string") {
+        message = detail;
+      } else if (
+        Array.isArray(detail) &&
+        detail.length > 0 &&
+        typeof (detail[0] as { msg?: string })?.msg === "string"
+      ) {
+        // FastAPI 422 검증 오류(detail 이 객체 배열)의 첫 항목.
+        message = (detail[0] as { msg: string }).msg;
+      } else if (
+        detail &&
+        typeof detail === "object" &&
+        typeof (detail as { message?: string }).message === "string"
+      ) {
+        message = (detail as { message: string }).message;
+      }
+
       return Response.json(
-        { error: err.detail || "발행에 실패했습니다." },
+        {
+          error: message,
+          ...(cooldownRemainingSec !== undefined
+            ? { cooldown_remaining_sec: cooldownRemainingSec }
+            : {}),
+        },
         { status: res.status }
       );
     }
