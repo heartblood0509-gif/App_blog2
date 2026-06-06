@@ -50,66 +50,76 @@ ${contextSnippet}
 }
 
 /**
- * 이미지 → 이미지 (Mode 2, 실사 사진을 AI로 변환).
- * Gemini 공식 편집 템플릿 기반:
- *   "Edit this image: [change]. Preserve all other elements."
+ * 이미지 → 이미지 (Mode 2, 사용자가 올린 실사 사진을 AI로 미세 변환).
  *
- * 첨부된 사용자의 원본 사진을 "거의 그대로" 살린 채, 지시에 맞춰 미세 조정한다.
- * 인물 정체성·의상은 반드시 유지한다.
+ * 목적: 사진 1장을 여러 글에 그대로 재사용하면 네이버 중복 이슈가 생기므로,
+ * 원본 피사체는 거의 그대로 유지한 채 화각/구도/각도만 살짝 바꾼
+ * "같은 장면의 다른 컷"을 만든다.
+ *
+ * 피사체 무관(subject-agnostic) — 인물/제품/피부/음식 등 무엇이든 동일하게 동작.
+ * 블로그 본문·AI가 상상한 장면 설명은 일절 주입하지 않는다
+ * (이 둘이 원본을 덮어쓰고 전혀 다른 그림을 만들던 주범이었음).
  */
 export function buildImageToImagePrompt(
-  description: string,
   userInstruction: string,
-  blogContent: string,
-  imageIndex: number
+  subject?: string
 ): string {
-  const contextSnippet = extractContextSnippet(blogContent, imageIndex, 300);
-  const hasInstruction = userInstruction.trim().length > 0;
-  const editInstruction = hasInstruction
-    ? userInstruction.trim()
-    : "Slightly adjust the camera angle (±10°) and tidy up 1~2 background details only. No other changes.";
+  // subject = 비전 프리패스가 식별한 '실제 사진의 한 줄 피사체 라벨'(블로그 본문/장면이 아님).
+  // 있으면 "photo of [subject]" 로 지목 + 보존 규칙에서 재참조해 부위/사물 오인을 막는다.
+  const subj = (subject || "").trim();
+  const of = subj ? ` of ${subj}` : "";
+  const subjectKeep = subj
+    ? `the same ${subj} (do not turn it into a different body part, object, or place)`
+    : "the same subject";
 
-  const variationNote =
-    imageIndex > 0
-      ? "\n## Variation note\nPrevious frames already exist. Add small variation (different angle or expression), but keep identity IDENTICAL to the reference."
-      : "";
+  // 기본 변경 = 각도 + 거리/프레이밍을 함께(평평한 장면도 눈에 보이게) + "한눈에 달라 보이게" 강제.
+  // 사용자 지시란 있으면 그것으로 교체. 인물 단정·블로그 본문·AI 상상장면 주입은 계속 배제.
+  // '같은 피사체·같은 장소·새 장면 금지' 빗장으로 발산은 막되, 변형은 보이게(보수화 방지).
+  // 비율은 프롬프트가 아니라 config(imageConfig 미지정=원본 비율 보존)가 담당 → 텍스트에서 뺌.
+  const change =
+    userInstruction.trim() ||
+    "Take a clearly different second shot of the same subject: change the camera angle (about 10–20°) and also the framing or distance — step a little closer or further back, or re-crop. The result must look noticeably different from the original at a glance, while obviously remaining the same subject in the same place.";
 
-  return `Edit the provided reference photo of this Korean person.
+  return `Edit the attached photo${of}. Treat it as the ground truth and take another shot from the same photo session — clearly ${subjectKeep}, but a visibly different frame.
 
-## What to change
-${editInstruction}
+## What to change (only this)
+${change}
 
-## What MUST be preserved (DO NOT change)
-- Face identity: eyes, nose, mouth, jawline, skin tone, age, gender — exactly the same person
-- Hair: color, length, and overall style (only stray hairs may differ)
-- Clothing and accessories: exact colors, shapes, patterns, glasses, jewelry
-- Lighting direction and type (natural/indoor, same light source direction)
-- Color grading and white balance
-- Camera distance (close-up stays close-up, full-shot stays full-shot)
+## Must stay the same
+- The subject: identity, shape, proportions, colors, materials, textures, and any text or labels on it
+- The setting: clearly the same place, with the same lighting and color tone
 
-## Allowed micro-adjustments (only within this scope)
-- Camera angle: ±5~15° rotation only
-- Expression and gaze: subtle smile or gaze direction change
-- Background: 1~2 items may be tidied or replaced with same-style props
-- Pose: small variation (e.g., both hands → one hand)
-
-## Scene description (Korean blog context)
-${description}
-
-## Nearby blog content (for scene interpretation only — DO NOT let this override the reference photo)
----
-${contextSnippet}
----
-
-## CRITICAL RULES
-- The result MUST look like the NEXT FRAME from the same photo shoot — same person, same clothes, same location, same lighting.
-- DO NOT generate a new scene, different location, different outfit, or a different person.
-- DO NOT make it an illustration, cartoon, anime, painting, or digital art. Photorealistic DSLR photo only.
-- DO NOT add any text, watermark, logo, or caption.
-- If the user's instruction conflicts with identity preservation, preserve the identity first.${variationNote}
+## Critical rules
+- It MUST look like another shot of the same subject in the same place — NOT a new scene, a new location, or a re-invented/different subject
+- Keep it a real photograph (no illustration, cartoon, anime, painting, or 3D render)
+- Do not add any text, watermark, or logo
 
 ## Output
-Exactly 1 photorealistic image, 16:9 aspect ratio.`;
+Exactly 1 photorealistic image.`;
+}
+
+/**
+ * AI 변환 프리패스용 — 첨부 사진의 "주된 피사체"를 한 줄로 식별시키는 분석 프롬프트.
+ * 블로그 본문 발췌(contextSnippet)는 '사진이 무엇인지' 판단하는 근거로만 쓰고,
+ * 장면을 상상하지 않게 한다. (이미지 분석 호출에서 이미지 뒤에 이 텍스트를 붙인다.)
+ */
+export function buildSubjectDescribePrompt(contextSnippet: string): string {
+  const ctx = contextSnippet.trim();
+  // 공식 표준 식별 = "Caption this image"(이미지에 담긴 것을 묘사). 피사체 유/무를 구분하지
+  // 않는다 — 모델이 보이는 그대로 묘사하므로 신체부위·제품·풍경 모두 한 프롬프트로 커버.
+  // '주된 피사체' 같은 피사체 전제 표현을 버리고 '사진에 담긴 것'으로 일반화.
+  // 길이 강제(25자)·구체 예시(정답 흘림)는 제거 — 길이는 후처리(한 줄·100자 컷)가 담당.
+  // 공식 가이드: 단일 이미지는 [이미지, 텍스트] 순서 + 쿼리는 맥락 '뒤'에 둘 때 정확.
+  const ask = `첨부한 사진에 실제로 담긴 것을 한국어로 한 줄로 구체적으로 묘사해주세요.
+- 신체 부위가 보이면 어느 부위인지, 제품이면 어떤 제품인지, 풍경/사물이면 어떤 장면인지 — 보이는 그대로.
+- 사진에 없는 것은 지어내지 말고, 설명·접두어 없이 묘사만.`;
+  if (!ctx) return ask;
+  return `아래 글은 첨부한 사진이 무엇인지 알아내기 위한 참고 자료입니다.
+---
+${ctx}
+---
+
+위 글을 참고해서, ${ask}`;
 }
 
 /**

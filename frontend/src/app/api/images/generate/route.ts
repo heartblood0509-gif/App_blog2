@@ -1,13 +1,16 @@
 import {
   generateImage,
   transformImage,
+  describeImageSubject,
   type GeneratedImageResult,
 } from "@/lib/gemini";
 import {
   buildTextToImagePrompt,
   buildImageToImagePrompt,
+  buildSubjectDescribePrompt,
   buildNeutralizedPrompt,
 } from "@/lib/prompts/image";
+import { extractIdentificationContext } from "@/lib/image/marker-parser";
 import { CONFIG } from "@/lib/config";
 
 export const maxDuration = 95;
@@ -78,20 +81,34 @@ async function generateOneSlot(
   apiKey?: string
 ): Promise<GeneratedImageResult | null> {
   if (slot.mode === "userPhoto" && slot.userPhoto) {
-    const prompt = buildImageToImagePrompt(
-      slot.description,
-      slot.userPhoto.instruction || "",
-      content,
-      slot.index
+    // 비전 프리패스: 모호한 접사(부위 오인)를 막기 위해 사진에 담긴 것을 한 줄 식별.
+    // 식별 근거로 '글 전체'(모든 이미지 마커 제거)를 준다 — 부위명이 ±500자 밖에 있어
+    // 놓치던 문제 해결. 생성엔 여전히 미주입. best-effort — 실패 시 "" 폴백.
+    const ctx = content ? extractIdentificationContext(content) : "";
+    const subject = await describeImageSubject(
+      slot.userPhoto.base64,
+      slot.userPhoto.mimeType,
+      buildSubjectDescribePrompt(ctx),
+      CONFIG.TRANSFORM_SUBJECT_MODEL,
+      apiKey
     );
+    logSlot("transform_subject", {
+      slotId: slot.id,
+      subject,
+      ctxChars: ctx.length,
+      // 사용자 변환 지시문(비웠으면 ""). '지시문이 프롬프트에 실렸나'(배선) 확인용 —
+      // 모델이 따랐는지(순종)는 결과 이미지로만 판단.
+      instruction: slot.userPhoto.instruction || "",
+    });
+    // 생성엔 원본 사진 + (식별된 한 줄 피사체)만 — 블로그 본문/장면 서사는 주입하지 않음.
+    const prompt = buildImageToImagePrompt(slot.userPhoto.instruction || "", subject);
     const model = slot.useProModel ? CONFIG.IMAGE_MODEL_PRO : CONFIG.IMAGE_MODEL;
     return await transformImage(
       prompt,
       slot.userPhoto.base64,
       slot.userPhoto.mimeType,
       model,
-      apiKey,
-      CONFIG.TRANSFORM_REFERENCE_COUNT
+      apiKey
     );
   }
   const prompt =
@@ -310,7 +327,9 @@ export async function POST(request: Request) {
       !!slot.customPrompt &&
       slot.customPrompt.trim().length > 0;
     let neutralized = false;
-    if (!img && !hasCustomPrompt && CONFIG.IMAGE_MAX_RETRIES > 0) {
+    // 중립화 재시도는 AI 생성(text-to-image) 전용. 변환(userPhoto)에 적용하면
+    // 원본을 버리고 슬롯 설명으로 '다른 그림'을 만들어 성공으로 반환하므로 제외.
+    if (!img && slot.mode === "ai" && !hasCustomPrompt && CONFIG.IMAGE_MAX_RETRIES > 0) {
       logSlot("slot_neutralize_retry", { roundId, slotId });
       try {
         const neutralPrompt = buildNeutralizedPrompt(slot.description);
@@ -346,15 +365,18 @@ export async function POST(request: Request) {
       return Response.json({ results: [done] satisfies SlotResult[] });
     }
 
-    // 여기 도달했다는 건 SAFETY 차단 (gemini.ts가 null 반환) 또는 SAFETY 외 empty.
-    // 둘 다 같은 입력으로 재시도해도 의미 없음 → HTTP 200, reasonCode로 구분.
-    const reasonCode: ReasonCode = "safety"; // 보수적으로 safety로 분류 (대부분 케이스)
+    // 여기 도달 = gemini.ts가 null 반환(SAFETY 차단) 또는 SAFETY 외 빈 응답.
+    // 원인을 단정할 수 없으므로 reasonCode는 보수적으로 safety로 두되,
+    // 사용자 안내는 단정형이 아닌 '가능형'으로 + 변환은 일시 오류 여지를 두어 재시도 유도.
+    const reasonCode: ReasonCode = "safety";
+    const isTransform = slot.mode === "userPhoto";
     logSlot("slot_failed", {
       roundId,
       slotId,
       durationMs,
       reason: "null_response",
       reasonCode,
+      mode: slot.mode,
       neutralized,
       totalRequestMs: Date.now() - requestStart,
     });
@@ -362,8 +384,11 @@ export async function POST(request: Request) {
       id: slot.id,
       status: "failed",
       reasonCode,
-      retryable: false,
-      error: "이미지 생성 실패 (응답 없음 또는 SAFETY 필터)",
+      // 변환 빈 응답은 일시 오류일 수 있어 재시도 여지를 둔다(단일 슬롯은 사용자 수동 재시도).
+      retryable: isTransform,
+      error: isTransform
+        ? "AI가 이 사진을 변환하지 못했어요. 다시 한 번 시도하거나 다른 사진을 써보세요. 신체 노출·의료·민감한 사진은 안전 필터에 막힐 수 있어요."
+        : "AI가 이미지를 만들지 못했어요. 잠시 후 다시 시도하거나 표현을 부드럽게 바꿔보세요(안전 필터일 수 있어요).",
     };
     return Response.json({ results: [failed] satisfies SlotResult[] });
   } catch (error) {

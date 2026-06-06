@@ -95,6 +95,59 @@ export async function* generateMultimodalStream(
   }
 }
 
+/**
+ * Gemini로 멀티모달(텍스트 + 이미지) 입력을 받아 텍스트를 한 번에 생성 (비스트리밍).
+ * generateMultimodalStream 의 단발 버전.
+ */
+export async function generateMultimodalText(
+  parts: Array<
+    | { text: string }
+    | { inlineData: { data: string; mimeType: string } }
+  >,
+  model: string,
+  apiKey?: string
+): Promise<string> {
+  const ai = await getGenAI(apiKey);
+  const response = await ai.models.generateContent({
+    model,
+    contents: [{ role: "user", parts: parts as never }],
+  });
+  return response.text || "";
+}
+
+/**
+ * 업로드한 사진의 "주된 피사체"를 한 줄로 식별한다 (AI 변환 프리패스).
+ * 공식 권장대로 단일 이미지는 [이미지, 텍스트] 순서로 넣고, 텍스트(prompt)에
+ * 블로그 맥락을 식별 근거로 함께 준다.
+ *
+ * best-effort: SAFETY/빈응답/에러 시 "" 반환 — 변환 자체는 절대 막지 않는다.
+ * 결과는 첫 줄·trim·길이 캡(100자)으로 정제.
+ */
+export async function describeImageSubject(
+  userImageBase64: string,
+  userImageMime: string,
+  prompt: string,
+  model: string,
+  apiKey?: string
+): Promise<string> {
+  try {
+    const text = await generateMultimodalText(
+      [
+        { inlineData: { data: userImageBase64, mimeType: userImageMime } },
+        { text: prompt },
+      ],
+      model,
+      apiKey
+    );
+    // 여러 줄로 답해도 통째로 한 줄로 합친 뒤(줄바꿈·연속 공백 → 공백 1개) 100자 컷.
+    // (첫 줄만 취하면 모델이 줄 단위로 나눠 답할 때 뒷부분이 잘리던 문제 방지.)
+    const oneLine = (text || "").replace(/\s+/g, " ").trim();
+    return oneLine.slice(0, 100);
+  } catch {
+    return "";
+  }
+}
+
 // ─────────────────────────────────────────────
 // 이미지 생성/변환 (Nano Banana 2 등 image-preview 모델)
 // ─────────────────────────────────────────────
@@ -205,51 +258,39 @@ export async function generateImageWithAspect(
 
 /**
  * 사용자 이미지 + 텍스트 지시로 변형된 이미지 1장 생성 (image-to-image).
- * Gemini 공식 가이드 기반:
- *  - imageConfig 로 aspectRatio/imageSize 강제
- *  - thinkingConfig high 로 다중 제약 프롬프트 처리 향상
- *  - 같은 원본 이미지를 N번 반복 전송하여 인물 정체성 강화
+ * 원본을 거의 그대로 살리는 게 목적이라, 비율 강제(imageConfig)·고강도 추론(thinkingConfig)은
+ * 의도적으로 지정하지 않는다 — imageConfig 미지정 시 모델이 입력 비율을 추종(원본 비율 보존),
+ * thinking 미지정 시 과한 재해석을 줄인다.
  *
- * @param referenceCount 원본 이미지를 몇 번 반복해 넣을지 (1~4, 2 권장)
+ * 원본 사진은 정확히 1장만 넣는다. (구글의 멀티 reference 기능은 '서로 다른 각도/뷰'를
+ * 합성·일관성에 쓰는 것이라, 동일 이미지 중복은 공식적 이점이 없어 제거함.)
  */
 export async function transformImage(
   prompt: string,
   userImageBase64: string,
   userImageMime: string,
   model: string,
-  apiKey?: string,
-  referenceCount: number = 1
+  apiKey?: string
 ): Promise<GeneratedImageResult | null> {
   try {
     const ai = await getGenAI(apiKey);
 
-    // parts 배열 구성: [text, image, image, ...]
+    // parts 배열: [text, image] — 원본 1장만.
     const parts: Array<
       { text: string } | { inlineData: { data: string; mimeType: string } }
-    > = [{ text: prompt }];
-    const repeat = Math.max(1, Math.min(4, referenceCount));
-    for (let i = 0; i < repeat; i++) {
-      parts.push({
-        inlineData: { data: userImageBase64, mimeType: userImageMime },
-      });
-    }
+    > = [
+      { text: prompt },
+      { inlineData: { data: userImageBase64, mimeType: userImageMime } },
+    ];
 
-    // SDK 타입에 imageConfig/thinkingConfig 가 아직 반영되지 않았을 수 있어 any 캐스팅
-    const config = {
-      responseModalities: [Modality.TEXT, Modality.IMAGE],
-      imageConfig: {
-        aspectRatio: "16:9",
-        imageSize: "2K",
-      },
-      thinkingConfig: {
-        thinkingLevel: "high",
-      },
-    } as unknown as Parameters<typeof ai.models.generateContent>[0]["config"];
-
+    // 원본 비율 보존을 위해 imageConfig(aspectRatio/imageSize)·thinkingConfig는
+    // 의도적으로 지정하지 않는다. AI 변환은 원본을 거의 그대로 살리는 것이 목적.
     const resp = await ai.models.generateContent({
       model,
       contents: [{ role: "user", parts }],
-      config,
+      config: {
+        responseModalities: [Modality.TEXT, Modality.IMAGE],
+      },
     });
     return extractFirstImage(resp);
   } catch (err) {
