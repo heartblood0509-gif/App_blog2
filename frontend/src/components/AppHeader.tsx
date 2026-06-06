@@ -13,7 +13,6 @@ import {
   HelpCircle,
   LogOut,
   Megaphone,
-  RotateCcw,
   UserCircle2,
 } from "lucide-react";
 import { Button, buttonVariants } from "@/components/ui/button";
@@ -33,9 +32,6 @@ interface AppHeaderProps {
   subtitle?: string;
   /** 메인이 아닌 페이지에서 본문 큰 타이틀로 표시할 텍스트 */
   pageTitle?: string;
-  /** 메인 위저드에서 진행 중일 때 좌측에 노출되는 "새로 시작" 버튼 (대안 진입) */
-  showReset?: boolean;
-  onResetClick?: () => void;
 }
 
 const BRAND_NAME = "Blog Pick";
@@ -45,8 +41,6 @@ export function AppHeader({
   onTitleClick,
   subtitle,
   pageTitle,
-  showReset = false,
-  onResetClick,
 }: AppHeaderProps) {
   const pathname = usePathname();
   const isMain = pathname === "/";

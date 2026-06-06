@@ -930,7 +930,6 @@ export default function Home() {
         if (checkRes.ok) {
           const fit = await checkRes.json();
           // 디버그: 검문소 응답을 항상 콘솔에 남겨 사용자가 DevTools로 확인 가능하게
-          // eslint-disable-next-line no-console
           console.log("[검문소 응답]", fit);
           if (
             !fit.skipped &&
@@ -2431,8 +2430,6 @@ export default function Home() {
                 ? "후기 · 브랜드 · AEO 블로그 글을 단계별로 자동 생성합니다"
                 : "어떤 채널의 콘텐츠를 만들지 골라보세요"
           }
-          showReset={state.currentStep > 0}
-          onResetClick={() => setResetConfirmOpen(true)}
         />
 
         {/* Stepper — 유튜브 탭(채널 선택 이후)에선 네이티브 워크플로가 자체 스텝퍼를 그리므로 숨김 */}

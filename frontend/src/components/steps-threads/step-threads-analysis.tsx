@@ -562,6 +562,7 @@ export function StepThreadsAnalysis({
         <div className="flex flex-wrap gap-3">
           {threads.uploadedImages.map((img, idx) => (
             <div key={idx} className="relative group">
+              {/* eslint-disable-next-line @next/next/no-img-element -- 사용자 업로드 미리보기는 blob/data URL이라 치수가 동적이고 최적화 대상이 아님 → next/image 부적합 */}
               <img
                 src={img.data}
                 alt={`업로드 ${idx + 1}`}

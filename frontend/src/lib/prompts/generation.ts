@@ -1,5 +1,4 @@
 import type { NarrativeType, ProductInfo, ToneType, SelectedProduct } from "@/types";
-import { getTonePrompt } from "./tone-rules";
 import { buildProductContext } from "./product-placement";
 import { getDefaultReference } from "./default-reference";
 import { getNarrativePrompt } from "./narrative-templates";
@@ -47,7 +46,6 @@ export function buildGenerationPrompt(params: GenerationParams): string {
     requirements,
     selectedTitle,
     referenceAnalysis,
-    referenceExcerpts,
     topic,
     customProductInfoById,
     productPlacementMode,
