@@ -92,7 +92,14 @@ async function generateOneSlot(
       CONFIG.TRANSFORM_SUBJECT_MODEL,
       apiKey
     );
-    logSlot("transform_subject", { slotId: slot.id, subject, ctxChars: ctx.length });
+    logSlot("transform_subject", {
+      slotId: slot.id,
+      subject,
+      ctxChars: ctx.length,
+      // 사용자 변환 지시문(비웠으면 ""). '지시문이 프롬프트에 실렸나'(배선) 확인용 —
+      // 모델이 따랐는지(순종)는 결과 이미지로만 판단.
+      instruction: slot.userPhoto.instruction || "",
+    });
     // 생성엔 원본 사진 + (식별된 한 줄 피사체)만 — 블로그 본문/장면 서사는 주입하지 않음.
     const prompt = buildImageToImagePrompt(slot.userPhoto.instruction || "", subject);
     const model = slot.useProModel ? CONFIG.IMAGE_MODEL_PRO : CONFIG.IMAGE_MODEL;

@@ -64,44 +64,38 @@ export function buildImageToImagePrompt(
   userInstruction: string,
   subject?: string
 ): string {
-  const editInstruction =
-    userInstruction.trim() ||
-    "Take a slightly different shot of the exact same subject: change the camera angle, framing, and composition just a little (a small, natural variation). Keep everything else identical.";
-
   // subject = 비전 프리패스가 식별한 '실제 사진의 한 줄 피사체 라벨'(블로그 본문/장면이 아님).
-  // 있으면 구글식 "photo of [subject]" 로 지목해 부위/사물 오인을 막는다. 없으면 피사체 무관.
+  // 있으면 "photo of [subject]" 로 지목 + 보존 규칙에서 재참조해 부위/사물 오인을 막는다.
   const subj = (subject || "").trim();
-  const opening = subj
-    ? `Edit the attached photo of ${subj}. Treat it as the ground truth.`
-    : "Edit the attached photo. Treat it as the ground truth.";
-  const subjectLine = subj
-    ? `\n- This is: ${subj} — keep it recognizably the same thing (do NOT turn it into a different body part, object, or place)`
-    : "";
+  const of = subj ? ` of ${subj}` : "";
+  const subjectKeep = subj
+    ? `the same ${subj} (do not turn it into a different body part, object, or place)`
+    : "the same subject";
 
-  return `${opening}
+  // 기본 변경 = 각도 + 거리/프레이밍을 함께(평평한 장면도 눈에 보이게) + "한눈에 달라 보이게" 강제.
+  // 사용자 지시란 있으면 그것으로 교체. 인물 단정·블로그 본문·AI 상상장면 주입은 계속 배제.
+  // '같은 피사체·같은 장소·새 장면 금지' 빗장으로 발산은 막되, 변형은 보이게(보수화 방지).
+  // 비율은 프롬프트가 아니라 config(imageConfig 미지정=원본 비율 보존)가 담당 → 텍스트에서 뺌.
+  const change =
+    userInstruction.trim() ||
+    "Take a clearly different second shot of the same subject: change the camera angle (about 10–20°) and also the framing or distance — step a little closer or further back, or re-crop. The result must look noticeably different from the original at a glance, while obviously remaining the same subject in the same place.";
 
-## Goal
-Produce a near-duplicate of the attached photo with only a small, natural variation — as if it were a second photo taken of the EXACT same subject in the same session. The output must be immediately recognizable as the same subject.
+  return `Edit the attached photo${of}. Treat it as the ground truth and take another shot from the same photo session — clearly ${subjectKeep}, but a visibly different frame.
 
 ## What to change (only this)
-${editInstruction}
+${change}
 
-## Allowed adjustments (keep them subtle)
-- Camera angle / perspective: small rotation only
-- Framing & composition: minor crop or re-centering
-- Background: tidy or slightly shift 1~2 minor details
+## Must stay the same
+- The subject: identity, shape, proportions, colors, materials, textures, and any text or labels on it
+- The setting: clearly the same place, with the same lighting and color tone
 
-## Must stay identical
-- The main subject itself: identity, shape, proportions, colors, materials, textures, and any text/branding on it${subjectLine}
-- Photographic look: keep it a real photo with the same lighting mood and color tone (no illustration, cartoon, anime, painting, or 3D render)
-
-## Forbidden
-- Do NOT replace the subject with a different one, or invent a new scene, location, or objects
-- Do NOT change the subject's colors, labels, or text
-- Do NOT add any text, watermark, logo, or caption
+## Critical rules
+- It MUST look like another shot of the same subject in the same place — NOT a new scene, a new location, or a re-invented/different subject
+- Keep it a real photograph (no illustration, cartoon, anime, painting, or 3D render)
+- Do not add any text, watermark, or logo
 
 ## Output
-Exactly 1 photorealistic image. Preserve the original aspect ratio of the attached photo.`;
+Exactly 1 photorealistic image.`;
 }
 
 /**
