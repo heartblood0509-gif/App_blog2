@@ -65,7 +65,7 @@ export default function HelpUsagePage() {
             사전 준비 · 제품 등록 (필수)
           </strong>
           <span className="mt-1 block text-foreground/80">
-            "제품 관리" 페이지에서 발행할 제품을 먼저 등록해주세요. 제품이
+            &quot;제품 관리&quot; 페이지에서 발행할 제품을 먼저 등록해주세요. 제품이
             등록돼 있지 않으면 1단계에서 진행이 막힙니다.
           </span>
         </Callout>
@@ -104,8 +104,8 @@ export default function HelpUsagePage() {
             등록된 제품이 없으신가요?
           </strong>
           <span className="mt-1 block text-foreground/80">
-            상단의 <strong>"+ 새 등록 (직접)"</strong> 버튼을 누르거나, 우상단의{" "}
-            <strong>"AI 도움받기"</strong> 로 빠르게 등록하세요. 또는{" "}
+            상단의 <strong>&quot;+ 새 등록 (직접)&quot;</strong> 버튼을 누르거나, 우상단의{" "}
+            <strong>&quot;AI 도움받기&quot;</strong> 로 빠르게 등록하세요. 또는{" "}
             <strong>제품 관리 페이지</strong>에서 미리 여러 개 등록해두면
             편합니다.
           </span>
@@ -140,7 +140,7 @@ export default function HelpUsagePage() {
               term: "결론 선공형",
               desc: (
                 <>
-                  <strong>"지금은 괜찮아졌다"</strong>로 시작 → 과거 문제 회상 →
+                  <strong>&quot;지금은 괜찮아졌다&quot;</strong>로 시작 → 과거 문제 회상 →
                   시도/실패 → 깨달음 → 변화 → 마무리{" "}
                   <em className="text-foreground/55">(9단계)</em>
                   <br />
@@ -199,7 +199,7 @@ export default function HelpUsagePage() {
         <NumberedSubHeading number="④" title="다음 단계로" />
         <p>
           세 가지(제품 · 서사 · 말투)를 모두 선택했으면 우하단의{" "}
-          <strong>"다음: 글 설정"</strong> 버튼을 누르세요. 2단계(메인 키워드 +
+          <strong>&quot;다음: 글 설정&quot;</strong> 버튼을 누르세요. 2단계(메인 키워드 +
           AI 추천)로 넘어갑니다.
         </p>
 
@@ -241,7 +241,7 @@ export default function HelpUsagePage() {
           suffix="— 글 주제를 자동으로 만들어주는 두 가지 버튼"
         />
         <p>
-          "무엇에 대해 쓰고 싶나요?" 칸을 <strong>비워둬도 글은 생성됩니다</strong>{" "}
+          &quot;무엇에 대해 쓰고 싶나요?&quot; 칸을 <strong>비워둬도 글은 생성됩니다</strong>{" "}
           (메인 키워드 + 제품 정보로 AI가 알아서 구성). 다만 더 풍부한 글을
           원한다면 두 가지 도구를 활용하세요.
         </p>
@@ -287,7 +287,7 @@ export default function HelpUsagePage() {
         {/* ─── ④ 다음 단계 ─── */}
         <NumberedSubHeading number="④" title="다음: 제목 선택" />
         <p>
-          메인 키워드를 채웠으면 우하단 <strong>"다음: 제목 선택"</strong>{" "}
+          메인 키워드를 채웠으면 우하단 <strong>&quot;다음: 제목 선택&quot;</strong>{" "}
           버튼이 활성화됩니다. 클릭하면 3단계로 넘어가요.
         </p>
 
@@ -332,7 +332,7 @@ export default function HelpUsagePage() {
             <strong>카테고리·태그·공개 설정</strong> 확인
           </li>
           <li>
-            <strong>"발행"</strong> 버튼 클릭
+            <strong>&quot;발행&quot;</strong> 버튼 클릭
           </li>
           <li>
             자동화 창이 잠깐 떴다가 닫힙니다 →{" "}
@@ -352,7 +352,7 @@ export default function HelpUsagePage() {
             사전 준비 · 브랜드 프로필 등록 (필수)
           </strong>
           <span className="mt-1 block text-foreground/80">
-            "브랜드 프로필" 페이지에서 우리 브랜드의 톤·스타일·자주 쓰는 표현을
+            &quot;브랜드 프로필&quot; 페이지에서 우리 브랜드의 톤·스타일·자주 쓰는 표현을
             미리 정의해주세요. 없으면 1단계에서 등록 안내 모달이 뜹니다.
           </span>
         </Callout>
@@ -483,7 +483,7 @@ export default function HelpUsagePage() {
           ]}
         />
         <p>
-          "AI에게 맡기기" 외 4개 중 하나를 고르면{" "}
+          &quot;AI에게 맡기기&quot; 외 4개 중 하나를 고르면{" "}
           <strong>글 의도 자동 반영(Intent Mode)</strong>이 켜져서, 본문 어휘·
           구조·이미지가 의도에 맞춰 자동으로 조정됩니다.
         </p>
@@ -506,7 +506,7 @@ export default function HelpUsagePage() {
         </p>
 
         <StageHeading id="wizard-aeo-step-4" step="4" title="본문 생성" />
-        <p>"AI에게 맡기기"가 아닌 의도를 고르신 경우 자동 조정 사항:</p>
+        <p>&quot;AI에게 맡기기&quot;가 아닌 의도를 고르신 경우 자동 조정 사항:</p>
         <ul>
           <li>
             도입·어휘·주의점·FAQ 패턴이 의도별로 강제됨 — 글이 의도에서 벗어나지
@@ -518,7 +518,7 @@ export default function HelpUsagePage() {
           </li>
         </ul>
         <p>
-          "AI에게 맡기기" 선택 시 기존 동작(제한 없음)으로 생성됩니다. 보통{" "}
+          &quot;AI에게 맡기기&quot; 선택 시 기존 동작(제한 없음)으로 생성됩니다. 보통{" "}
           <strong>30초~2분</strong> 소요.
         </p>
         <Callout tone="danger">
@@ -556,7 +556,7 @@ export default function HelpUsagePage() {
           </li>
         </ul>
 
-        <SubHeading>네이버가 "비정상 접속"으로 차단했어요</SubHeading>
+        <SubHeading>네이버가 &quot;비정상 접속&quot;으로 차단했어요</SubHeading>
         <ul>
           <li>같은 IP에서 너무 자주 자동 발행하면 일시적으로 막힙니다.</li>
           <li>
@@ -568,7 +568,7 @@ export default function HelpUsagePage() {
         <SubHeading>SmartEditor가 흰 화면이 됐어요</SubHeading>
         <ul>
           <li>
-            위 "4단계. 본문 생성"의 경고(Ctrl+A → Delete)를 안 지키신 경우입니다.
+            위 &quot;4단계. 본문 생성&quot;의 경고(Ctrl+A → Delete)를 안 지키신 경우입니다.
           </li>
           <li>
             모달을 닫고 글을 다시 생성하세요. 저장된 이미지는 보관함에 남아
@@ -601,7 +601,7 @@ export default function HelpUsagePage() {
 
       <ManualFooterNote>
         글 발행이 익숙해지셨다면 좌측 목차에서{" "}
-        <strong>"도구 & 관리"</strong> 카테고리로 넘어가 부가 기능과 데이터
+        <strong>&quot;도구 & 관리&quot;</strong> 카테고리로 넘어가 부가 기능과 데이터
         백업을 확인하세요.
       </ManualFooterNote>
     </ManualArticle>

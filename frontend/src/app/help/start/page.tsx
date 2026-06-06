@@ -67,7 +67,7 @@ export default function HelpStartPage() {
       </Section>
 
       <ManualFooterNote>
-        준비가 끝났다면 좌측 목차에서 <strong>"사용방법"</strong> 카테고리로
+        준비가 끝났다면 좌측 목차에서 <strong>&quot;사용방법&quot;</strong> 카테고리로
         넘어가세요.
       </ManualFooterNote>
     </ManualArticle>
