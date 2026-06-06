@@ -14,7 +14,11 @@ export function ThemeToggle() {
   const { resolvedTheme, setTheme } = useTheme();
   const [mounted, setMounted] = useState(false);
 
-  useEffect(() => setMounted(true), []);
+  useEffect(() => {
+    // 마운트 후 1회만 켜는 하이드레이션 가드(next-themes 표준). SSR/CSR 테마 불일치 방지용 의도된 단발 setState.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setMounted(true);
+  }, []);
 
   const isDark = mounted && resolvedTheme === "dark";
 

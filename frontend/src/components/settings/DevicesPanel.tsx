@@ -35,6 +35,8 @@ export function DevicesPanel() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
+    // 마운트 시 기기 목록 1회 로딩 — 표준 로딩 토글 패턴(의도된 동기 초기화).
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setLoading(true);
     setError(null);
     refreshDevices()

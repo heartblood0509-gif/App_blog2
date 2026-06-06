@@ -697,7 +697,7 @@ export default function Home() {
       toast.error(msg);
       updateState({ isLoading: false });
     }
-  }, [state.referenceUrl, state.toneType, state.referenceText, state.postCategory, updateState]);
+  }, [state.referenceUrl, state.referenceText, state.postCategory, updateState]);
 
   // 브랜드 모드에서 selectedBrandProfileId 로 프로필 객체를 가져옴
   const fetchBrandProfile = useCallback(async (): Promise<unknown | null> => {
@@ -858,6 +858,10 @@ export default function Home() {
       toast.error(msg);
       updateState({ isLoading: false });
     }
+    // getEffectiveMainKeyword(state)가 state 전체를 읽어 룰은 whole-object(state)를 요구하지만,
+    // 실제로 읽는 필드는 아래에 개별 나열돼 있다. 전체 state를 넣으면 매 state 변경마다 콜백이
+    // 재생성돼 불필요한 비용만 늘어 의도적으로 좁게 유지한다.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [state.postCategory, state.selectedBrandTemplate, state.selectedBrandInfoVariant, state.selectedBrandIntroVariant, state.selectedBrandValueProofVariant, state.selectedBrandDetailVariant, state.selectedAnalysisRecordId, state.referenceAnalysis, state.referenceTitleFormula, state.selectedProducts, state.narrativeType, state.toneType, state.mainKeyword, state.subKeywords, state.persona, state.topic, customProductInfoById, fetchBrandProfile, fetchAeoProfile, updateState]);
 
   // 검증 호출. fetchContent와 본문 직접 수정(handleContentEdit) 양쪽에서 재사용한다.
@@ -888,6 +892,10 @@ export default function Home() {
         // 검증 실패는 사용자 흐름을 막지 않음
       }
     },
+    // getEffectiveMainKeyword(state)가 state 전체를 읽어 룰은 whole-object(state)를 요구하지만,
+    // runValidation은 effect(2217)에 묶여 있어 전체 state를 deps에 넣으면 재검증 루프가 된다.
+    // (state.selectedTemplateType를 deps 밖에서 읽는 기존 잠재 stale은 PR에 별도 플래그함.)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     [state.postCategory, state.mainKeyword, state.charCountRange, updateState]
   );
 
@@ -1122,6 +1130,10 @@ export default function Home() {
       toast.error(msg);
       updateState({ isLoading: false });
     }
+    // fetchContent는 useEffect(…, [fetchContent]) (1181·1883)에 묶여 있어, 전체 state나
+    // userProducts를 deps에 넣으면 매 state 변경마다 콜백이 재생성→effect가 재실행되어 글이
+    // 반복 재생성될 수 있다. 필요한 필드는 아래에 개별 나열돼 있으므로 의도적으로 좁게 유지한다.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [state.postCategory, state.selectedBrandTemplate, state.selectedBrandInfoVariant, state.topic, state.selectedProducts, state.narrativeType, state.toneType, state.mainKeyword, state.subKeywords, state.persona, state.requirements, state.charCountRange, state.selectedTitle, state.referenceAnalysis, state.referenceExcerpts, state.referenceText, state.toneExample, customProductInfoById, fetchBrandProfile, fetchAeoProfile, updateState, runValidation]);
 
   // ── Phase 1 검문소 모달 핸들러 ──
@@ -1236,7 +1248,7 @@ export default function Home() {
         };
       });
     },
-    []
+    [setState]
   );
 
   /**
@@ -1371,7 +1383,7 @@ export default function Home() {
         }));
       }
     },
-    [state.imageSlots, state.excludedSlotIds, state.userPhotosBySlot, state.generatedContent, state.customPromptsBySlot]
+    [state.imageSlots, state.excludedSlotIds, state.userPhotosBySlot, state.generatedContent, state.customPromptsBySlot, setState]
   );
 
   const handleGenerateSlotAI = useCallback(
@@ -1654,7 +1666,7 @@ export default function Home() {
         threads: { ...prev.threads, ...partial },
       }));
     },
-    []
+    [setState]
   );
 
   const handlePostCategoryChange = useCallback(
@@ -2077,7 +2089,7 @@ export default function Home() {
       setLibraryOpen(false);
       toast.success("보관함의 글을 불러왔습니다.");
     },
-    [state.generatedContent, state.channel],
+    [state.generatedContent, state.channel, setState],
   );
 
   // "내 정보 → 글 보관함"에서 「이어서 작성하기」로 넘어온 경우, 마운트 시 1회 자동 복원.

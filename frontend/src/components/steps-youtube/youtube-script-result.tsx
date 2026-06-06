@@ -45,6 +45,8 @@ export function YoutubeScriptResult({
   // 매칭 변경(부모의 excludedKeys 또는 matches 갱신) 시 manualEdit 초기화
   // → 사용자가 매칭 X 토글하면 textarea가 다시 자동 계산됨
   useEffect(() => {
+    // 부모의 매칭(matches/excludedKeys)이 바뀌면 수동 편집본을 자동 결과로 되돌리는 의도된 파생상태 리셋.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setManualEdit(null);
   }, [matches, excludedKeys]);
 
