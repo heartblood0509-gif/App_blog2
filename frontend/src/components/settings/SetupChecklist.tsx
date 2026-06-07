@@ -67,6 +67,9 @@ export function SetupChecklist({ onGoToTab }: SetupChecklistProps) {
   }, []);
 
   useEffect(() => {
+    // checkAll 내부 setState는 병렬 fetch await 이후 비동기로 실행 → effect 동기 구간이 아니라
+    // 룰의 보수적 추적이 잡은 사실상 오탐.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     void checkAll();
   }, [checkAll]);
 

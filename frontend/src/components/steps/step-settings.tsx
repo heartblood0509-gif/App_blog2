@@ -416,7 +416,7 @@ export function StepSettings({ state, onChange, customProductInfoById }: StepSet
             {/* 질문 1 */}
             <div className="space-y-2">
               <Label className="text-sm font-medium">
-                질문 1. 이 스토리는 '누구'의 이야기인가요?
+                질문 1. 이 스토리는 &apos;누구&apos;의 이야기인가요?
               </Label>
               <p className="text-xs text-muted-foreground">
                 아래 칩을 누르면 입력칸에 자동으로 채워져요. 그 뒤에 직업·나이대를 자유롭게 덧붙이세요.
@@ -468,7 +468,7 @@ export function StepSettings({ state, onChange, customProductInfoById }: StepSet
             {/* 질문 2 */}
             <div className="space-y-2">
               <Label className="text-sm font-medium">
-                질문 2. 그 사람이 겪은 '가장 짜증 나는 증상'과 '그 때문에 포기한 행동'은?
+                질문 2. 그 사람이 겪은 &apos;가장 짜증 나는 증상&apos;과 &apos;그 때문에 포기한 행동&apos;은?
               </Label>
               <Textarea
                 placeholder="예) 밤마다 온몸이 가려워 긁다 보니 흉터 생기고 밤잠 완전히 설침. 너무 가려워서 외출도 안 함."
@@ -481,7 +481,7 @@ export function StepSettings({ state, onChange, customProductInfoById }: StepSet
             {/* 질문 3 */}
             <div className="space-y-2">
               <Label className="text-sm font-medium">
-                질문 3. 우리 제품을 쓰고 나서 '그 행동'을 다시 할 수 있게 되었나요?
+                질문 3. 우리 제품을 쓰고 나서 &apos;그 행동&apos;을 다시 할 수 있게 되었나요?
               </Label>
               <Textarea
                 placeholder="예) 한 달째 쓰는데 가려움 싹 줄고 요즘은 매일 꿀잠 자며 살 것 같음."

@@ -390,6 +390,7 @@ export function StepThreadsGenerate({
                     key={index}
                     className="relative group rounded-lg overflow-hidden border bg-muted/30"
                   >
+                    {/* eslint-disable-next-line @next/next/no-img-element -- AI 생성 결과는 base64 data URL이라 치수가 동적이고 최적화 대상이 아님 → next/image 부적합 */}
                     <img
                       src={`data:${image.mimeType};base64,${image.data}`}
                       alt={`생성된 이미지 ${index + 1}`}

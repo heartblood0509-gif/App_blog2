@@ -55,7 +55,6 @@ export async function POST(request: Request) {
     );
 
     // 디버그용 — 운영 1~2주 후 제거 예정
-    // eslint-disable-next-line no-console
     console.log("[check-fit] in:", { template, infoVariantId, topic, mainKeyword }, "→ out:", result);
 
     return Response.json(result);

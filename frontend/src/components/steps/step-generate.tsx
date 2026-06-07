@@ -33,7 +33,6 @@ import {
   X,
   Search,
 } from "lucide-react";
-import { toast } from "sonner";
 import type {
   QualityResult,
   ImageSlot,
@@ -101,7 +100,6 @@ function MetricRow({
   icon: Icon,
   label,
   value,
-  status,
 }: {
   icon: React.ElementType;
   label: string;

@@ -62,7 +62,7 @@ function uniqueKeyFor(kind: Kind): "name" | "label" {
   return kind === "aeo" ? "label" : "name";
 }
 
-function displayKeyFor(kind: Kind): "name" {
+function displayKeyFor(): "name" {
   // 세 종류 모두 표시명은 name 필드 (AEO도 화면엔 name을 노출)
   return "name";
 }
@@ -230,7 +230,7 @@ export function ProfileBundleDialog({ open, onClose, onImported }: ProfileBundle
       }
       const rec = item as Record<string, unknown>;
       const uk = uniqueKeyFor(kind);
-      const dk = displayKeyFor(kind);
+      const dk = displayKeyFor();
       const keyVal = rec[uk];
       const dispVal = rec[dk];
       if (typeof keyVal !== "string" || !keyVal) {

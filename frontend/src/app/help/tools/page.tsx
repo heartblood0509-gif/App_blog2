@@ -119,7 +119,7 @@ export default function HelpToolsPage() {
               <strong>Gemini API 키</strong>는 파일로 옮겨가므로 재등록 불필요.
             </li>
             <li>
-              새 PC에서 로그인할 때 <strong>"기기 관리"</strong>에서 기존 PC
+              새 PC에서 로그인할 때 <strong>&quot;기기 관리&quot;</strong>에서 기존 PC
               등록을 해제하거나, 다른 기기로 추가하세요.
             </li>
           </ul>

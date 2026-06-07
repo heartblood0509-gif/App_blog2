@@ -46,6 +46,8 @@ export function UpdaterToast() {
   useEffect(() => {
     const api = typeof window !== "undefined" ? window.electronAPI : undefined;
     if (!api?.updater) return;
+    // 플랫폼은 Electron preload가 주입하는 정적 값 → 마운트 시 1회만 확정하는 의도된 단발 setState.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setIsDarwin(api.platform === "darwin");
 
     const apply = (e: { s: Status; p?: unknown }) => {
