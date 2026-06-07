@@ -43,7 +43,8 @@ npm --prefix frontend run lint
 npm --prefix frontend run build
 ```
 
-- `next build`가 자체적으로 타입체크 + ESLint를 포함하므로 2~3번은 "빠른 사전 점검",
-  6번 풀 빌드는 "출시 형태로 조립 가능한지 최종 확인". 매번 돌릴 필요는 없음.
+- `next build`는 타입체크는 포함하지만 **ESLint는 돌리지 않는다**(Next.js 16에서 `next lint` 제거).
+  그래서 lint는 `npm --prefix frontend run lint`(또는 `npx eslint src`)로 따로 점검해야 한다.
+  2~3번은 "빠른 사전 점검", 6번 풀 빌드는 "출시 형태로 조립 가능한지 최종 확인". 매번 돌릴 필요는 없음.
 - Electron(`electron/`) 코드를 건드린 경우엔 추가로 `npm run build:electron`.
 - `/commit-push-pr` 명령은 자체적으로 검증을 돌리지 않으므로, 명령을 호출하기 *전* 단계에서 위 게이트를 통과시킨다.
