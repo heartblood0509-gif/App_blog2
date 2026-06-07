@@ -12,6 +12,7 @@ import {
   RefreshCcw,
   Shield,
   ShieldOff,
+  SquarePlay,
   Trash2,
   UserPlus,
 } from "lucide-react";
@@ -49,6 +50,7 @@ interface AdminUser {
   updated_at: string;
   device_count: number;
   entitlement_status: string | null;
+  entitlement_plan: string | null;
   entitlement_note: string | null;
   display_name: string | null;
   memo: string | null;
@@ -293,6 +295,32 @@ export default function AdminPage() {
     [authHeader, refreshUsers],
   );
 
+  const setPlan = useCallback(
+    async (user: AdminUser, plan: "blog" | "blog_youtube") => {
+      if (!authHeader) return;
+      setBusyId(user.id);
+      try {
+        const res = await fetch(`/api/admin/users/plan`, {
+          method: "PATCH",
+          headers: { ...authHeader, "Content-Type": "application/json" },
+          body: JSON.stringify({ email: user.email, plan }),
+        });
+        const data = await res.json();
+        if (!res.ok || !data?.ok) {
+          toast.error(data?.error ?? "유튜브 플랜 변경 실패");
+          return;
+        }
+        toast.success(
+          `${user.email} 유튜브 ${plan === "blog_youtube" ? "ON" : "OFF"}`,
+        );
+        await refreshUsers();
+      } finally {
+        setBusyId(null);
+      }
+    },
+    [authHeader, refreshUsers],
+  );
+
   const openDevices = useCallback(
     async (user: AdminUser) => {
       if (!authHeader) return;
@@ -478,6 +506,7 @@ export default function AdminPage() {
               onApprove={approveUser}
               onSetStatus={setStatus}
               onSetRole={setRole}
+              onSetPlan={setPlan}
               onOpenDevices={openDevices}
               onEdit={(u) =>
                 setEditTarget({
@@ -498,6 +527,7 @@ export default function AdminPage() {
               onApprove={approveUser}
               onSetStatus={setStatus}
               onSetRole={setRole}
+              onSetPlan={setPlan}
               onOpenDevices={openDevices}
               onEdit={(u) =>
                 setEditTarget({
@@ -813,6 +843,7 @@ function UserTable({
   onApprove,
   onSetStatus,
   onSetRole,
+  onSetPlan,
   onOpenDevices,
   onEdit,
   emptyMessage,
@@ -823,6 +854,7 @@ function UserTable({
   onApprove: (u: AdminUser) => void;
   onSetStatus: (u: AdminUser, s: ProfileStatus) => void;
   onSetRole: (u: AdminUser, r: ProfileRole) => void;
+  onSetPlan: (u: AdminUser, p: "blog" | "blog_youtube") => void;
   onOpenDevices: (u: AdminUser) => void;
   onEdit: (u: AdminUser) => void;
   emptyMessage: string;
@@ -871,6 +903,13 @@ function UserTable({
                         <Monitor className="h-3 w-3" />
                         {u.device_count}
                       </Badge>
+                      {/* 유튜브 OFF(미구매)만 배지로 표시 — 기본값은 ON 이라 평소엔 안 보임 */}
+                      {u.entitlement_plan === "blog" && (
+                        <Badge variant="secondary" className="gap-1">
+                          <SquarePlay className="h-3 w-3" />
+                          유튜브 OFF
+                        </Badge>
+                      )}
                     </div>
                     <div className="mt-1 text-xs text-muted-foreground">
                       가입: {formatDate(u.created_at)}
@@ -986,6 +1025,30 @@ function UserTable({
                       >
                         <ShieldOff className="h-3.5 w-3.5" />
                         승격 해제
+                      </Button>
+                    )}
+                    {/* 유튜브 플랜 토글 — 기본 ON(blog_youtube/null), 클릭으로 OFF(blog) ↔ ON */}
+                    {u.entitlement_plan === "blog" ? (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => onSetPlan(u, "blog_youtube")}
+                        disabled={busy}
+                        className="gap-1"
+                      >
+                        <SquarePlay className="h-3.5 w-3.5" />
+                        유튜브 ON
+                      </Button>
+                    ) : (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => onSetPlan(u, "blog")}
+                        disabled={busy}
+                        className="gap-1"
+                      >
+                        <SquarePlay className="h-3.5 w-3.5" />
+                        유튜브 OFF
                       </Button>
                     )}
                   </div>

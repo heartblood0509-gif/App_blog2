@@ -9,8 +9,10 @@ import {
   MessageSquare,
   SquarePlay,
   Check,
+  Lock,
 } from "lucide-react";
 import type { Channel } from "@/types";
+import { useAuthContext } from "@/lib/auth/auth-context";
 
 const CHANNELS: Array<{
   id: Channel;
@@ -31,6 +33,11 @@ interface StepChannelSelectProps {
 }
 
 export function StepChannelSelect({ channel, onChannelChange }: StepChannelSelectProps) {
+  const { plan } = useAuthContext();
+  // 명시적으로 'blog'(유튜브 미구매) 인 사용자만 유튜브 비활성. plan 없음/null/blog_youtube
+  // 는 허용(기본 허용). dev 인증우회는 provider 가 plan='blog_youtube' 로 강제하므로 활성.
+  const youtubeAllowed = plan !== "blog";
+
   return (
     <div className="space-y-6">
       <section>
@@ -45,7 +52,9 @@ export function StepChannelSelect({ channel, onChannelChange }: StepChannelSelec
           {CHANNELS.map((ch) => {
             const selected = channel === ch.id;
             const Icon = ch.icon;
-            const disabled = !ch.enabled;
+            // 유튜브 카드는 plan 으로 잠그고(미구매), 그 외는 기존 enabled 플래그를 따른다.
+            const isPlanLocked = ch.id === "youtube" && !youtubeAllowed;
+            const disabled = isPlanLocked || !ch.enabled;
 
             return (
               <Card
@@ -72,9 +81,16 @@ export function StepChannelSelect({ channel, onChannelChange }: StepChannelSelec
                 {disabled && (
                   <Badge
                     variant="secondary"
-                    className="absolute right-3 top-3 text-[10px]"
+                    className="absolute right-3 top-3 flex items-center gap-1 text-[10px]"
                   >
-                    준비 중
+                    {isPlanLocked ? (
+                      <>
+                        <Lock className="h-2.5 w-2.5" />
+                        구매 필요
+                      </>
+                    ) : (
+                      "준비 중"
+                    )}
                   </Badge>
                 )}
                 {!disabled && selected && (

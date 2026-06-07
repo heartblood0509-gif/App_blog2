@@ -14,9 +14,15 @@
 
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
+import type { ProfilePlan } from "@/lib/auth/types";
 
 const SESSION_COOKIE = "app_session";
 const USER_SESSION_COOKIE = "app_user_session";
+
+// 유튜브 프록시 prefix 와, plan 차단에서 예외로 두는 키 관리 통로.
+// (키 입력란은 항상 열어둠 — 미결제자도 키 저장/조회는 가능, 기능 사용만 차단.)
+const YOUTUBE_PROXY_PREFIX = "/api/youtube/";
+const YOUTUBE_KEY_MGMT_PREFIX = "/api/youtube/api/auth/";
 
 interface BasicAuthConfig {
   username: string;
@@ -103,13 +109,22 @@ function decodeBase64urlJson(value: string): unknown {
   return JSON.parse(json);
 }
 
-async function isUserSessionValid(cookie: string | undefined): Promise<boolean> {
-  if (!cookie) return false;
+interface VerifiedUserSession {
+  exp: number;
+  plan: ProfilePlan | null;
+}
+
+// 서명(HMAC-SHA256)·만료를 검증하고 통과 시 payload 를 돌려준다(실패=null).
+// 위변조 불가한 서명 안에 plan 클레임이 들어 있어 DB 추가조회 없이 옆문 차단에 쓴다.
+async function verifyUserSession(
+  cookie: string | undefined,
+): Promise<VerifiedUserSession | null> {
+  if (!cookie) return null;
   const secret = userSessionSecret();
-  if (!secret) return false;
+  if (!secret) return null;
 
   const [payload, signature] = cookie.split(".");
-  if (!payload || !signature) return false;
+  if (!payload || !signature) return null;
 
   try {
     const key = await crypto.subtle.importKey(
@@ -125,14 +140,20 @@ async function isUserSessionValid(cookie: string | undefined): Promise<boolean> 
       base64urlToArrayBuffer(signature),
       new TextEncoder().encode(payload),
     );
-    if (!ok) return false;
+    if (!ok) return null;
 
     const decoded = decodeBase64urlJson(payload);
-    if (!decoded || typeof decoded !== "object") return false;
+    if (!decoded || typeof decoded !== "object") return null;
     const exp = (decoded as { exp?: unknown }).exp;
-    return typeof exp === "number" && exp > Math.floor(Date.now() / 1000);
+    if (typeof exp !== "number" || exp <= Math.floor(Date.now() / 1000)) {
+      return null;
+    }
+    const rawPlan = (decoded as { plan?: unknown }).plan;
+    const plan: ProfilePlan | null =
+      rawPlan === "blog" || rawPlan === "blog_youtube" ? rawPlan : null;
+    return { exp, plan };
   } catch {
-    return false;
+    return null;
   }
 }
 
@@ -156,8 +177,21 @@ export async function proxy(request: NextRequest): Promise<NextResponse> {
     const isAuthApi = request.nextUrl.pathname.startsWith("/api/auth/");
     if (!isAuthApi && !isUserAuthDisabled()) {
       const userCookie = request.cookies.get(USER_SESSION_COOKIE)?.value;
-      if (!(await isUserSessionValid(userCookie))) {
+      const session = await verifyUserSession(userCookie);
+      if (!session) {
         return new NextResponse("User authentication required", { status: 401 });
+      }
+
+      // 옆문 차단: 유튜브 미결제자(plan==='blog')는 유튜브 기능 API 직접 호출 차단.
+      // 키 관리 통로(/api/youtube/api/auth/*)는 예외로 통과(키 입력란 열어둠 요구와 정합).
+      // 명시적 'blog' 만 차단 — plan 없음/null/blog_youtube 는 통과(기본 허용).
+      const { pathname } = request.nextUrl;
+      if (
+        session.plan === "blog" &&
+        pathname.startsWith(YOUTUBE_PROXY_PREFIX) &&
+        !pathname.startsWith(YOUTUBE_KEY_MGMT_PREFIX)
+      ) {
+        return new NextResponse("YouTube plan required", { status: 403 });
       }
     }
 

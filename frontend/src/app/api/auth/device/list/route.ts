@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import {
+  fetchProfilePlan,
   fetchProfileRole,
   getAuthorizedUserClient,
   normalizeDeviceAuthResponse,
@@ -28,6 +29,11 @@ export async function GET(request: Request) {
   }
 
   const payload = normalizeDeviceAuthResponse(data);
-  payload.profile_role = await fetchProfileRole(authorized.supabase);
+  const [profileRole, profilePlan] = await Promise.all([
+    fetchProfileRole(authorized.supabase),
+    fetchProfilePlan(authorized.supabase),
+  ]);
+  payload.profile_role = profileRole;
+  payload.profile_plan = profilePlan;
   return NextResponse.json(payload);
 }

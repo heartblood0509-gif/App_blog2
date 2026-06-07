@@ -424,6 +424,10 @@ export function AuthSessionProvider({ children }: { children: ReactNode }) {
       message: payload.message ?? prev?.message,
       user_email: payload.user_email ?? prev?.user_email ?? null,
       profile_status: payload.profile_status ?? prev?.profile_status ?? null,
+      // role/plan 도 보존한다 — 이전엔 누락되어 목록 새로고침 후 admin 이
+      // user 로 강등(role)되거나 유튜브 권한(plan)이 사라지는 잠재버그가 있었다.
+      profile_role: payload.profile_role ?? prev?.profile_role ?? null,
+      profile_plan: payload.profile_plan ?? prev?.profile_plan ?? null,
       current_device_id: payload.current_device_id ?? prev?.current_device_id,
       devices: payload.devices ?? prev?.devices ?? [],
       next_replacement_at: payload.next_replacement_at ?? prev?.next_replacement_at ?? null,
@@ -458,6 +462,12 @@ export function AuthSessionProvider({ children }: { children: ReactNode }) {
         <AuthContextProvider
           value={{
             role: result?.profile_role ?? null,
+            // dev 인증우회(auth_required===false)일 땐 result 가 null 이라
+            // plan 도 null → 유튜브 잠김이 된다. dev 는 풀액세스로 강제.
+            plan:
+              config?.auth_required === false
+                ? "blog_youtube"
+                : (result?.profile_plan ?? null),
             email: session?.user.email ?? result?.user_email ?? null,
             accessToken: session?.access_token ?? null,
           }}

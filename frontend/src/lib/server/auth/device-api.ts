@@ -1,4 +1,9 @@
-import type { DeviceAuthResponse, DeviceInfo, ProfileRole } from "@/lib/auth/types";
+import type {
+  DeviceAuthResponse,
+  DeviceInfo,
+  ProfilePlan,
+  ProfileRole,
+} from "@/lib/auth/types";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import {
   createUserSupabaseClient,
@@ -61,4 +66,13 @@ export async function fetchProfileRole(
   if (error || !data || typeof data !== "object") return null;
   const role = (data as { role?: unknown }).role;
   return role === "admin" || role === "user" ? role : null;
+}
+
+export async function fetchProfilePlan(
+  supabase: SupabaseClient,
+): Promise<ProfilePlan | null> {
+  const { data, error } = await supabase.rpc("get_my_plan");
+  if (error || !data || typeof data !== "object") return null;
+  const plan = (data as { plan?: unknown }).plan;
+  return plan === "blog" || plan === "blog_youtube" ? plan : null;
 }

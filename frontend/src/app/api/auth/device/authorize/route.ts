@@ -5,6 +5,7 @@ import {
   setAppUserSessionCookie,
 } from "@/lib/server/auth/app-user-session";
 import {
+  fetchProfilePlan,
   fetchProfileRole,
   getAuthorizedUserClient,
   normalizeDeviceAuthResponse,
@@ -54,7 +55,12 @@ export async function POST(request: Request) {
   }
 
   const payload = normalizeDeviceAuthResponse(data);
-  payload.profile_role = await fetchProfileRole(authorized.supabase);
+  const [profileRole, profilePlan] = await Promise.all([
+    fetchProfileRole(authorized.supabase),
+    fetchProfilePlan(authorized.supabase),
+  ]);
+  payload.profile_role = profileRole;
+  payload.profile_plan = profilePlan;
   const response = NextResponse.json(payload, {
     status: payload.ok && payload.status === "authorized" ? 200 : 403,
   });
@@ -64,6 +70,7 @@ export async function POST(request: Request) {
       sub: authorized.user.id,
       email: authorized.user.email ?? null,
       device_id: device.device_id,
+      plan: payload.profile_plan ?? null,
     });
     setAppUserSessionCookie(response, session);
   } else if (payload.status === "superseded") {

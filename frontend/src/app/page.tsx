@@ -15,6 +15,7 @@ import {
 } from "@/components/ui/dialog";
 import { AppHeader } from "@/components/AppHeader";
 import { useWizardState } from "@/components/providers/WizardStateProvider";
+import { useAuthContext } from "@/lib/auth/auth-context";
 import {
   ChevronLeft,
   ChevronRight,
@@ -236,6 +237,10 @@ const YOUTUBE_STEPS = [
 export default function Home() {
   const router = useRouter();
   const { state, setState, updateState, resetState } = useWizardState();
+  const { plan } = useAuthContext();
+  // 유튜브 미구매(plan==='blog') 사용자가 persist 된 위저드 상태로 유튜브에 머물러 있어도
+  // 채널선택으로 되돌리기 위한 가드(보안 아닌 UX 일관성용 — 실제 차단은 카드+프록시).
+  const youtubeAllowed = plan !== "blog";
   const [userProducts, setUserProducts] = useState<UserProduct[]>([]);
   const [resetConfirmOpen, setResetConfirmOpen] = useState(false);
 
@@ -2230,10 +2235,11 @@ export default function Home() {
   const renderStep = () => {
     // 유튜브 채널 분기 — step 0 은 채널 선택, 그 이후는 쇼츠 생성기 임베드.
     if (state.channel === "youtube") {
-      if (state.currentStep === 0) {
+      // 미구매자가 이전에 고른 유튜브 상태가 persist 돼 남아 있으면 채널선택으로 폴백.
+      if (state.currentStep === 0 || !youtubeAllowed) {
         return (
           <StepChannelSelect
-            channel={state.channel}
+            channel={youtubeAllowed ? state.channel : null}
             onChannelChange={handleChannelChange}
           />
         );
