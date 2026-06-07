@@ -1,5 +1,6 @@
 import crypto from "node:crypto";
 import { NextResponse } from "next/server";
+import type { ProfilePlan } from "@/lib/auth/types";
 
 export const APP_USER_SESSION_COOKIE = "app_user_session";
 const TTL_SECONDS = 10 * 60;
@@ -8,6 +9,7 @@ interface AppUserSessionPayload {
   sub: string;
   email: string | null;
   device_id: string;
+  plan: ProfilePlan | null;
   exp: number;
 }
 
@@ -27,6 +29,7 @@ export function createAppUserSession(input: {
   sub: string;
   email: string | null;
   device_id: string;
+  plan: ProfilePlan | null;
 }): string {
   const payload: AppUserSessionPayload = {
     ...input,

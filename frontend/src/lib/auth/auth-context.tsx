@@ -1,16 +1,18 @@
 "use client";
 
 import { createContext, useContext, type ReactNode } from "react";
-import type { ProfileRole } from "@/lib/auth/types";
+import type { ProfilePlan, ProfileRole } from "@/lib/auth/types";
 
 interface AuthContextValue {
   role: ProfileRole | null;
+  plan: ProfilePlan | null;
   email: string | null;
   accessToken: string | null;
 }
 
 const AuthContext = createContext<AuthContextValue>({
   role: null,
+  plan: null,
   email: null,
   accessToken: null,
 });
