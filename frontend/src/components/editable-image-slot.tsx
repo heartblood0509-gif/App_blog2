@@ -28,10 +28,10 @@ async function fileToBase64(
  * 본문 미리보기 속 '이미지 자리' 를 편집 가능한 인터랙티브 슬롯으로 렌더.
  *
  * 상태별 UI:
+ * - 채워진 이미지(업로드/AI 결과): 이미지 + 호버/드롭 오버레이로 "이미지 변경하기"(파일 교체)
+ *   → 본문에서는 파일 교체만, AI 변환/생성은 하단 슬롯 카드에서 수행
+ * - 생성 중: 스피너
  * - 빈 자리: 드래그앤드롭 영역 + [파일 선택] + [AI 생성]
- * - 변환 전 (원본 올렸고 아직 AI 변환 안 함): 원본 썸네일 + 변환 대기 오버레이 + [AI 변환] + [AI 생성]
- * - 이미지 완성: 완성 이미지 + cursor-zoom-in (클릭 시 onOpenLightbox)
- * - 생성 중: 스피너 + 버튼 비활성
  */
 export function EditableImageSlot({
   slot,
@@ -40,7 +40,6 @@ export function EditableImageSlot({
   isGenerating,
   onUserPhotoChange,
   onGenerateAI,
-  onTransform,
   onOpenLightbox,
 }: {
   slot: ImageSlot;
@@ -49,20 +48,10 @@ export function EditableImageSlot({
   isGenerating: boolean;
   onUserPhotoChange: (photo: UserPhoto | null) => void;
   onGenerateAI: () => void;
-  onTransform: () => void;
   onOpenLightbox: (src: string) => void;
 }) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [isDragOver, setIsDragOver] = useState(false);
-
-  const hasPhoto = !!userPhoto;
-  const isPendingTransform =
-    hasPhoto &&
-    !!generatedBase64 &&
-    generatedBase64 === userPhoto.base64 &&
-    !isGenerating;
-  const hasFinalImage =
-    !!generatedBase64 && !isPendingTransform;
 
   const handleFile = async (file: File) => {
     if (!file.type.startsWith("image/")) {
@@ -86,24 +75,21 @@ export function EditableImageSlot({
     if (file) handleFile(file);
   };
 
-  // ─── 상태 1: 이미지 완성됨 — 표시 + 클릭 확대
-  if (hasFinalImage) {
-    return (
-      <div className="my-4">
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img
-          src={`data:image/png;base64,${generatedBase64}`}
-          alt={slot.description}
-          className="w-full rounded-lg border border-border cursor-zoom-in"
-          onClick={() =>
-            onOpenLightbox(`data:image/png;base64,${generatedBase64}`)
-          }
-        />
-      </div>
-    );
-  }
+  const handleDragOver = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (!isGenerating) setIsDragOver(true);
+  };
 
-  // ─── 공통: 파일 input (숨김)
+  const handleDragLeave = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    e.stopPropagation();
+    // 자식 요소 경계를 지날 때의 깜빡임 방지: 래퍼 밖으로 나갈 때만 해제
+    if (e.currentTarget.contains(e.relatedTarget as Node)) return;
+    setIsDragOver(false);
+  };
+
+  // ─── 공통: 파일 input (숨김) — 모든 상태에서 참조 가능하도록 먼저 선언
   const hiddenFileInput = (
     <input
       ref={fileInputRef}
@@ -118,82 +104,74 @@ export function EditableImageSlot({
     />
   );
 
-  // ─── 상태 2: 변환 전 (원본만 올렸고 AI 변환 대기)
-  if (isPendingTransform && userPhoto) {
+  // ─── 채워진 이미지: 파일 교체 전용 (드래그&드랍 + "이미지 변경하기" 클릭)
+  if (generatedBase64) {
+    // 표시한 이미지가 업로드 원본과 동일하면 원본 mime, 아니면 AI 결과(png)
+    const displayMime =
+      userPhoto && userPhoto.base64 === generatedBase64
+        ? userPhoto.mimeType
+        : "image/png";
+    const src = `data:${displayMime};base64,${generatedBase64}`;
     return (
-      <div className="my-4 rounded-lg border border-border bg-muted/20 p-3">
+      <div
+        className={`group relative my-4 overflow-hidden rounded-lg border transition ${
+          isDragOver ? "border-primary ring-2 ring-primary" : "border-border"
+        }`}
+        onDragOver={handleDragOver}
+        onDragLeave={handleDragLeave}
+        onDrop={handleDrop}
+      >
         {hiddenFileInput}
-        <div className="relative">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            src={`data:${userPhoto.mimeType};base64,${userPhoto.base64}`}
-            alt="원본 사진"
-            className="w-full aspect-video rounded object-contain bg-muted/50 cursor-zoom-in"
-            onClick={() =>
-              onOpenLightbox(
-                `data:${userPhoto.mimeType};base64,${userPhoto.base64}`
-              )
-            }
-          />
-          {/* 변환 대기 오버레이 */}
-          <div
-            className="absolute inset-0 flex flex-col items-center justify-center gap-2 rounded bg-black/55 backdrop-blur-[1px] text-white cursor-zoom-in"
-            onClick={() =>
-              onOpenLightbox(
-                `data:${userPhoto.mimeType};base64,${userPhoto.base64}`
-              )
-            }
-          >
-            <RefreshCw className="h-6 w-6" />
-            <span className="text-xs font-medium">AI 변환을 눌러주세요</span>
-          </div>
-        </div>
-        <p className="mt-2 text-[11px] text-muted-foreground line-clamp-1">
-          이미지 자리: {slot.description}
-        </p>
-        <div className="mt-2 flex gap-2">
-          <Button
-            size="sm"
-            variant="default"
-            className="flex-1 h-8 gap-1 text-xs"
-            onClick={onTransform}
-            disabled={isGenerating}
-          >
-            {isGenerating ? (
-              <Loader2 className="h-3 w-3 animate-spin" />
-            ) : (
-              <RefreshCw className="h-3 w-3" />
-            )}
-            AI 변환
-          </Button>
-          <Button
-            size="sm"
-            variant="outline"
-            className="flex-1 h-8 gap-1 text-xs"
-            onClick={onGenerateAI}
-            disabled={isGenerating}
-            title="원본 사진을 무시하고 AI로 새 이미지를 생성합니다"
-          >
-            <Sparkles className="h-3 w-3" />
-            AI 생성
-          </Button>
-          <Button
-            size="sm"
-            variant="ghost"
-            className="h-8 px-2 text-xs"
-            onClick={() => onUserPhotoChange(null)}
-            disabled={isGenerating}
-            title="원본 사진 제거"
-          >
-            제거
-          </Button>
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          src={src}
+          alt={slot.description}
+          className="w-full cursor-zoom-in"
+          onClick={() => onOpenLightbox(src)}
+        />
+        {/* 호버/드롭 시 떠오르는 부드러운 오버레이 */}
+        <div
+          className={`pointer-events-none absolute inset-0 flex flex-col items-center justify-center gap-1.5 bg-black/35 text-white transition-opacity ${
+            isDragOver
+              ? "opacity-100"
+              : "opacity-0 group-hover:opacity-100 group-focus-within:opacity-100"
+          }`}
+        >
+          {isGenerating ? (
+            <>
+              <Loader2 className="h-6 w-6 animate-spin" />
+              <span className="text-xs font-medium">처리 중...</span>
+            </>
+          ) : isDragOver ? (
+            <>
+              <Upload className="h-6 w-6" />
+              <span className="text-sm font-semibold">여기에 놓아 변경</span>
+            </>
+          ) : (
+            <>
+              <button
+                type="button"
+                className="pointer-events-auto inline-flex items-center gap-1.5 rounded-md bg-white/90 px-3 py-1.5 text-xs font-semibold text-foreground shadow-sm transition hover:bg-white"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  fileInputRef.current?.click();
+                }}
+              >
+                <RefreshCw className="h-3.5 w-3.5" />
+                이미지 변경하기
+              </button>
+              <span className="px-3 text-center text-[11px] text-white/85">
+                드래그&드랍으로도 변경 · AI 변환은 아래에서 실행해주세요
+              </span>
+            </>
+          )}
         </div>
       </div>
     );
   }
 
-  // ─── 상태 3: 생성 중 (빈 상태에서 AI 생성 눌렀을 때)
-  if (isGenerating && !hasPhoto) {
+  // ─── 생성 중 (빈 상태에서 AI 생성 눌렀을 때)
+  if (isGenerating) {
     return (
       <div className="my-4 flex aspect-video items-center justify-center rounded-lg border border-dashed border-border bg-muted/30">
         <div className="flex flex-col items-center gap-2">
@@ -206,7 +184,7 @@ export function EditableImageSlot({
     );
   }
 
-  // ─── 상태 4: 빈 자리 — 드래그앤드롭 + 업로드 + AI 생성
+  // ─── 빈 자리 — 드래그앤드롭 + 업로드 + AI 생성
   return (
     <div
       className={`my-4 flex aspect-video flex-col items-center justify-center gap-3 rounded-lg border-2 border-dashed p-4 transition-colors ${
@@ -214,16 +192,8 @@ export function EditableImageSlot({
           ? "border-primary bg-primary/10"
           : "border-border bg-muted/30"
       }`}
-      onDragOver={(e) => {
-        e.preventDefault();
-        e.stopPropagation();
-        if (!isGenerating) setIsDragOver(true);
-      }}
-      onDragLeave={(e) => {
-        e.preventDefault();
-        e.stopPropagation();
-        setIsDragOver(false);
-      }}
+      onDragOver={handleDragOver}
+      onDragLeave={handleDragLeave}
       onDrop={handleDrop}
     >
       {hiddenFileInput}
