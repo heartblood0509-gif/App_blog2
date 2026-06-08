@@ -16,6 +16,7 @@ import {
   getClientId,
   rateLimitResponse,
 } from "@/lib/rate-limit";
+import { YOUTUBE_FEATURE_ENABLED } from "@/lib/youtube-feature";
 
 export const maxDuration = 60;
 
@@ -25,6 +26,14 @@ interface YoutubeMatch {
 }
 
 export async function POST(request: Request) {
+  // 전역 킬스위치 OFF면 유튜브 변환 자체를 차단(직접 호출 옆문 방어 + Gemini 비용 차단).
+  if (!YOUTUBE_FEATURE_ENABLED) {
+    return Response.json(
+      { error: "YouTube feature is disabled" },
+      { status: 403 },
+    );
+  }
+
   const { success } = rateLimit(getClientId(request), 10, 60_000);
   if (!success) return rateLimitResponse();
 

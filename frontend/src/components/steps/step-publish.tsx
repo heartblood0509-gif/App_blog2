@@ -28,6 +28,7 @@ import { BlogAccountManager } from "@/components/accounts/BlogAccountManager";
 import { BlogContentRenderer } from "@/components/blog-content-renderer";
 import { ThreadsContentPreview } from "@/components/steps-threads/threads-content-preview";
 import { YoutubeScriptResult } from "@/components/steps-youtube/youtube-script-result";
+import { YOUTUBE_FEATURE_ENABLED } from "@/lib/youtube-feature";
 import { useWizardState } from "@/components/providers/WizardStateProvider";
 import type { BlogAccount, ImageSlot } from "@/types";
 import type { MediaMatch } from "@/lib/youtube-script/apply-matches";
@@ -893,35 +894,39 @@ export function StepPublish({
               </Button>
             )}
 
-            {/* 유튜브 변환 (로즈 톤) */}
-            {youtubeMatches.length === 0 && !isConvertingToYoutube && (
-              <Button
-                variant="outline"
-                size="lg"
-                onClick={handleConvertToYoutube}
-                disabled={!content || content.trim().length < 200}
-                className="gap-2 border-rose-500/40 hover:border-rose-500/70 hover:bg-rose-50 dark:hover:bg-rose-950/20"
-              >
-                <span className="text-base leading-none" aria-hidden="true">🎬</span>
-                유튜브 변환
-              </Button>
-            )}
-            {isConvertingToYoutube && (
-              <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                <Loader2 className="h-4 w-4 animate-spin" />
-                유튜브 변환 중...
-              </div>
-            )}
-            {youtubeMatches.length > 0 && !isConvertingToYoutube && (
-              <Button
-                variant="outline"
-                size="lg"
-                onClick={handleResetYoutube}
-                className="gap-2 border-rose-500/40 hover:border-rose-500/70 hover:bg-rose-50 dark:hover:bg-rose-950/20"
-              >
-                <RefreshCw className="h-4 w-4 text-rose-500" />
-                유튜브 다시 변환
-              </Button>
+            {/* 유튜브 변환 (로즈 톤) — 킬스위치 OFF면 전체 숨김 */}
+            {YOUTUBE_FEATURE_ENABLED && (
+              <>
+                {youtubeMatches.length === 0 && !isConvertingToYoutube && (
+                  <Button
+                    variant="outline"
+                    size="lg"
+                    onClick={handleConvertToYoutube}
+                    disabled={!content || content.trim().length < 200}
+                    className="gap-2 border-rose-500/40 hover:border-rose-500/70 hover:bg-rose-50 dark:hover:bg-rose-950/20"
+                  >
+                    <span className="text-base leading-none" aria-hidden="true">🎬</span>
+                    유튜브 변환
+                  </Button>
+                )}
+                {isConvertingToYoutube && (
+                  <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    유튜브 변환 중...
+                  </div>
+                )}
+                {youtubeMatches.length > 0 && !isConvertingToYoutube && (
+                  <Button
+                    variant="outline"
+                    size="lg"
+                    onClick={handleResetYoutube}
+                    className="gap-2 border-rose-500/40 hover:border-rose-500/70 hover:bg-rose-50 dark:hover:bg-rose-950/20"
+                  >
+                    <RefreshCw className="h-4 w-4 text-rose-500" />
+                    유튜브 다시 변환
+                  </Button>
+                )}
+              </>
             )}
           </div>
         </div>
@@ -947,8 +952,8 @@ export function StepPublish({
         </Card>
       )}
 
-      {/* 유튜브 스크립트 변환 결과 — 변환 결과 또는 진행 중일 때만 표시 */}
-      {(youtubeMatches.length > 0 || isConvertingToYoutube) && (
+      {/* 유튜브 스크립트 변환 결과 — 변환 결과 또는 진행 중일 때만 표시 (킬스위치 OFF면 숨김) */}
+      {YOUTUBE_FEATURE_ENABLED && (youtubeMatches.length > 0 || isConvertingToYoutube) && (
         <YoutubeScriptResult
           originalContent={content}
           matches={youtubeMatches}

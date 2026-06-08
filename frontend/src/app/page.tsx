@@ -177,6 +177,7 @@ function applyImagePostProcessing(
 
 import { StepChannelSelect } from "@/components/steps/step-channel-select";
 import { YoutubeWorkflow } from "@/components/youtube/YoutubeWorkflow";
+import { YOUTUBE_FEATURE_ENABLED } from "@/lib/youtube-feature";
 import { StepNarrative } from "@/components/steps/step-narrative";
 import { StepSettings } from "@/components/steps/step-settings";
 import { StepTitleSelect } from "@/components/steps/step-title-select";
@@ -240,7 +241,8 @@ export default function Home() {
   const { plan } = useAuthContext();
   // 유튜브 미구매(plan==='blog') 사용자가 persist 된 위저드 상태로 유튜브에 머물러 있어도
   // 채널선택으로 되돌리기 위한 가드(보안 아닌 UX 일관성용 — 실제 차단은 카드+프록시).
-  const youtubeAllowed = plan !== "blog";
+  // 킬스위치 OFF면 plan 무관하게 유튜브 워크플로우 진입 차단(저장된 channel:"youtube" 우회 방어).
+  const youtubeAllowed = plan !== "blog" && YOUTUBE_FEATURE_ENABLED;
   const [userProducts, setUserProducts] = useState<UserProduct[]>([]);
   const [resetConfirmOpen, setResetConfirmOpen] = useState(false);
 
