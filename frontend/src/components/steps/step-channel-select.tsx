@@ -13,6 +13,7 @@ import {
 } from "lucide-react";
 import type { Channel } from "@/types";
 import { useAuthContext } from "@/lib/auth/auth-context";
+import { YOUTUBE_FEATURE_ENABLED } from "@/lib/youtube-feature";
 
 const CHANNELS: Array<{
   id: Channel;
@@ -34,9 +35,9 @@ interface StepChannelSelectProps {
 
 export function StepChannelSelect({ channel, onChannelChange }: StepChannelSelectProps) {
   const { plan } = useAuthContext();
-  // 명시적으로 'blog'(유튜브 미구매) 인 사용자만 유튜브 비활성. plan 없음/null/blog_youtube
-  // 는 허용(기본 허용). dev 인증우회는 provider 가 plan='blog_youtube' 로 강제하므로 활성.
-  const youtubeAllowed = plan !== "blog";
+  // 전역 킬스위치가 켜져 있을 때만 plan 게이팅 적용(명시적 'blog'=유튜브 미구매만 차단,
+  // null/blog_youtube 는 허용). 킬스위치가 꺼져 있으면 plan 무관하게 "준비 중"으로 잠근다.
+  const youtubePlanAllowed = plan !== "blog";
 
   return (
     <div className="space-y-6">
@@ -52,9 +53,11 @@ export function StepChannelSelect({ channel, onChannelChange }: StepChannelSelec
           {CHANNELS.map((ch) => {
             const selected = channel === ch.id;
             const Icon = ch.icon;
-            // 유튜브 카드는 plan 으로 잠그고(미구매), 그 외는 기존 enabled 플래그를 따른다.
-            const isPlanLocked = ch.id === "youtube" && !youtubeAllowed;
-            const disabled = isPlanLocked || !ch.enabled;
+            // 유튜브 카드: 킬스위치 OFF면 전체 "준비 중", ON이면 plan 미구매자만 "구매 필요".
+            const isComingSoon = ch.id === "youtube" && !YOUTUBE_FEATURE_ENABLED;
+            const isPlanLocked =
+              ch.id === "youtube" && YOUTUBE_FEATURE_ENABLED && !youtubePlanAllowed;
+            const disabled = isComingSoon || isPlanLocked || !ch.enabled;
 
             return (
               <Card

@@ -15,6 +15,7 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import type { ProfilePlan } from "@/lib/auth/types";
+import { YOUTUBE_FEATURE_ENABLED } from "@/lib/youtube-feature";
 
 const SESSION_COOKIE = "app_session";
 const USER_SESSION_COOKIE = "app_user_session";
@@ -182,16 +183,17 @@ export async function proxy(request: NextRequest): Promise<NextResponse> {
         return new NextResponse("User authentication required", { status: 401 });
       }
 
-      // 옆문 차단: 유튜브 미결제자(plan==='blog')는 유튜브 기능 API 직접 호출 차단.
-      // 키 관리 통로(/api/youtube/api/auth/*)는 예외로 통과(키 입력란 열어둠 요구와 정합).
-      // 명시적 'blog' 만 차단 — plan 없음/null/blog_youtube 는 통과(기본 허용).
+      // 옆문 차단: 킬스위치 OFF면 plan 무관하게 유튜브 기능 API 전체 403,
+      // ON이면 기존 게이팅(명시적 plan==='blog'=미구매자만 차단).
+      // 키 관리 통로(/api/youtube/api/auth/*)는 어느 경우든 예외로 통과(키 입력란 열어둠).
       const { pathname } = request.nextUrl;
+      const youtubeBlocked = !YOUTUBE_FEATURE_ENABLED || session.plan === "blog";
       if (
-        session.plan === "blog" &&
+        youtubeBlocked &&
         pathname.startsWith(YOUTUBE_PROXY_PREFIX) &&
         !pathname.startsWith(YOUTUBE_KEY_MGMT_PREFIX)
       ) {
-        return new NextResponse("YouTube plan required", { status: 403 });
+        return new NextResponse("YouTube unavailable", { status: 403 });
       }
     }
 
