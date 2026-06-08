@@ -169,3 +169,43 @@ body.blog-split-open [data-blog-pick-shell] {
   padding-left: 1rem !important;
   padding-right: 1rem !important;
 }
+
+/* ── 챗봇(ChatWidget) 마크다운 답변 렌더링 ── */
+.chat-markdown > :first-child {
+  margin-top: 0;
+}
+.chat-markdown > :last-child {
+  margin-bottom: 0;
+}
+.chat-markdown p {
+  margin: 0.4em 0;
+}
+.chat-markdown ul,
+.chat-markdown ol {
+  margin: 0.4em 0;
+  padding-left: 1.25em;
+}
+.chat-markdown ul {
+  list-style: disc;
+}
+.chat-markdown ol {
+  list-style: decimal;
+}
+.chat-markdown li {
+  margin: 0.15em 0;
+}
+.chat-markdown strong {
+  font-weight: 600;
+}
+.chat-markdown a {
+  color: var(--primary);
+  text-decoration: underline;
+  word-break: break-all;
+}
+.chat-markdown code {
+  font-family: var(--font-geist-mono), monospace;
+  font-size: 0.85em;
+  background: var(--muted);
+  padding: 0.1em 0.3em;
+  border-radius: 4px;
+}

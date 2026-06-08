@@ -4,6 +4,7 @@ import localFont from "next/font/local";
 import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { UpdaterToast } from "@/components/UpdaterToast";
+import { ChatWidget } from "@/components/ChatWidget";
 import { AuthSessionProvider } from "@/components/providers/AuthSessionProvider";
 import { WizardStateProvider } from "@/components/providers/WizardStateProvider";
 import { ThemeProvider } from "@/components/providers/ThemeProvider";
@@ -52,6 +53,7 @@ export default function RootLayout({
             </AuthSessionProvider>
           </TooltipProvider>
           <UpdaterToast />
+          <ChatWidget />
           <Toaster position="bottom-right" richColors />
         </ThemeProvider>
       </body>
