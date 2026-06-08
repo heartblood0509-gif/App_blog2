@@ -83,7 +83,6 @@ export function BlogContentRenderer({
                     editable.onUserPhotoChange(slot.id, p)
                   }
                   onGenerateAI={() => editable.onGenerateSlotAI(slot.id)}
-                  onTransform={() => editable.onTransformSlot(slot.id)}
                   onOpenLightbox={setLightboxSrc}
                 />
               );
