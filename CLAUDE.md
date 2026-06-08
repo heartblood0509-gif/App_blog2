@@ -4,6 +4,7 @@
 
 ## 워크트리 dev
 
+- ⚠️ **워크트리 세션에서 파일 수정(Edit/Write)은 반드시 현재 워크트리(`.claude/worktrees/<이름>/`) 경로로.** 서브에이전트·검색이 메인 절대경로(`/Users/gwack/projects/App_blog2/frontend/...`)를 줘도 수정 직전 워크트리 경로로 번역할 것. (Read는 참고로 메인을 봐도 무방 — 막지 말 것. 단 그 경로 *그대로 수정*하면 dev엔 안 보이고 메인의 남 작업까지 오염됨)
 - 워크트리에서 dev 테스트는 `npm run dev:worktree`(웹) 또는 `:electron` 한 줄로 끝. 의존성·포트·env·`playwright-cache` 다 자동 처리. **수동으로 `npm install`/symlink/env 짜지 말 것** — 스크립트 한계 발견 시 스크립트 자체를 고침.
 - 메인 체크아웃에서는 `dev:worktree`가 거부됨. **Electron 테스트면 `npm run dev`** (Electron이 백엔드+Next를 직접 spawn), 웹만이면 `./start.sh`.
 
