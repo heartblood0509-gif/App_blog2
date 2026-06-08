@@ -4,17 +4,21 @@ import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import {
+  ArrowDown,
   ArrowLeft,
+  ArrowUp,
   CheckCircle2,
   Loader2,
   Monitor,
   Pencil,
   RefreshCcw,
+  Search,
   Shield,
   ShieldOff,
   SquarePlay,
   Trash2,
   UserPlus,
+  X,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -36,6 +40,13 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useAuthContext } from "@/lib/auth/auth-context";
@@ -114,6 +125,30 @@ const STATUS_BADGE: Record<ProfileStatus, "default" | "secondary" | "destructive
   expired: "outline",
 };
 
+type StatusFilter = ProfileStatus | "all";
+type RoleFilter = ProfileRole | "all";
+type SortField = "created_at" | "name";
+type SortOrder = "asc" | "desc";
+
+const STATUS_FILTER_OPTIONS: { value: StatusFilter; label: string }[] = [
+  { value: "all", label: "전체 상태" },
+  { value: "active", label: "활성" },
+  { value: "pending", label: "대기" },
+  { value: "blocked", label: "차단" },
+  { value: "expired", label: "만료" },
+];
+
+const ROLE_FILTER_OPTIONS: { value: RoleFilter; label: string }[] = [
+  { value: "all", label: "전체 역할" },
+  { value: "admin", label: "관리자" },
+  { value: "user", label: "일반 사용자" },
+];
+
+const SORT_FIELD_OPTIONS: { value: SortField; label: string }[] = [
+  { value: "created_at", label: "가입일순" },
+  { value: "name", label: "이름순" },
+];
+
 export default function AdminPage() {
   const { accessToken } = useAuthContext();
   const router = useRouter();
@@ -121,6 +156,13 @@ export default function AdminPage() {
   const [loadingUsers, setLoadingUsers] = useState(false);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [tab, setTab] = useState("pending");
+
+  // 전체 사용자 탭: 검색 / 필터 / 정렬
+  const [userQuery, setUserQuery] = useState("");
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
+  const [roleFilter, setRoleFilter] = useState<RoleFilter>("all");
+  const [sortField, setSortField] = useState<SortField>("created_at");
+  const [sortOrder, setSortOrder] = useState<SortOrder>("desc");
 
   const [deviceDialogUser, setDeviceDialogUser] = useState<AdminUser | null>(null);
   const [devices, setDevices] = useState<AdminDevice[]>([]);
@@ -454,6 +496,52 @@ export default function AdminPage() {
 
   const pendingUsers = users.filter((u) => u.status === "pending");
 
+  // 검색어: 쉼표(,) 또는 줄바꿈으로 여러 명 분리 (빈 항목 제거, 소문자화)
+  const searchTerms = useMemo(
+    () =>
+      userQuery
+        .split(/[,\n]/)
+        .map((t) => t.trim().toLowerCase())
+        .filter(Boolean),
+    [userQuery],
+  );
+
+  // 전체 사용자: 검색어·필터 적용 후 정렬한 목록
+  const visibleUsers = useMemo(() => {
+    const filtered = users.filter((u) => {
+      if (statusFilter !== "all" && u.status !== statusFilter) return false;
+      if (roleFilter !== "all" && u.role !== roleFilter) return false;
+      if (searchTerms.length > 0) {
+        // 여러 검색어 중 하나라도 이메일/이름에 포함되면 표시 (OR)
+        const haystack = `${u.email} ${u.display_name ?? ""}`.toLowerCase();
+        if (!searchTerms.some((t) => haystack.includes(t))) return false;
+      }
+      return true;
+    });
+    const sorted = [...filtered].sort((a, b) => {
+      let cmp: number;
+      if (sortField === "name") {
+        // 이름이 없는 사용자는 이메일을 기준으로 정렬
+        const an = (a.display_name ?? a.email).toLowerCase();
+        const bn = (b.display_name ?? b.email).toLowerCase();
+        cmp = an.localeCompare(bn, "ko");
+      } else {
+        cmp = new Date(a.created_at).getTime() - new Date(b.created_at).getTime();
+      }
+      return sortOrder === "asc" ? cmp : -cmp;
+    });
+    return sorted;
+  }, [users, searchTerms, statusFilter, roleFilter, sortField, sortOrder]);
+
+  const userFiltersActive =
+    searchTerms.length > 0 || statusFilter !== "all" || roleFilter !== "all";
+
+  const resetUserFilters = () => {
+    setUserQuery("");
+    setStatusFilter("all");
+    setRoleFilter("all");
+  };
+
   return (
     <main className="min-h-screen bg-background px-4 py-8 text-foreground">
       <div className="mx-auto w-full max-w-6xl space-y-6">
@@ -519,9 +607,113 @@ export default function AdminPage() {
             />
           </TabsContent>
 
-          <TabsContent value="all" className="mt-4">
+          <TabsContent value="all" className="mt-4 space-y-3">
+            <div className="relative">
+              <Search className="pointer-events-none absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+              <Textarea
+                value={userQuery}
+                onChange={(e) => setUserQuery(e.target.value)}
+                placeholder="이메일 또는 이름으로 검색 — 여러 명은 쉼표(,)나 줄바꿈으로 구분"
+                rows={1}
+                className="max-h-40 min-h-9 resize-none py-1.5 pl-8 pr-8"
+              />
+              {userQuery && (
+                <button
+                  type="button"
+                  onClick={() => setUserQuery("")}
+                  aria-label="검색어 지우기"
+                  className="absolute right-2 top-2 text-muted-foreground transition-colors hover:text-foreground"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              )}
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2">
+              <Select
+                items={STATUS_FILTER_OPTIONS}
+                value={statusFilter}
+                onValueChange={(v) => v && setStatusFilter(v)}
+              >
+                <SelectTrigger className="w-[110px]">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {STATUS_FILTER_OPTIONS.map((o) => (
+                    <SelectItem key={o.value} value={o.value}>
+                      {o.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+
+              <Select
+                items={ROLE_FILTER_OPTIONS}
+                value={roleFilter}
+                onValueChange={(v) => v && setRoleFilter(v)}
+              >
+                <SelectTrigger className="w-[120px]">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {ROLE_FILTER_OPTIONS.map((o) => (
+                    <SelectItem key={o.value} value={o.value}>
+                      {o.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+
+              <Select
+                items={SORT_FIELD_OPTIONS}
+                value={sortField}
+                onValueChange={(v) => v && setSortField(v)}
+              >
+                <SelectTrigger className="w-[110px]">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {SORT_FIELD_OPTIONS.map((o) => (
+                    <SelectItem key={o.value} value={o.value}>
+                      {o.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+
+              <Button
+                variant="outline"
+                onClick={() => setSortOrder((o) => (o === "asc" ? "desc" : "asc"))}
+                className="gap-1.5"
+                title={sortOrder === "asc" ? "오름차순" : "내림차순"}
+              >
+                {sortOrder === "asc" ? (
+                  <ArrowUp className="h-4 w-4" />
+                ) : (
+                  <ArrowDown className="h-4 w-4" />
+                )}
+                {sortOrder === "asc" ? "오름차순" : "내림차순"}
+              </Button>
+            </div>
+
+            <div className="flex items-center justify-between px-1 text-xs text-muted-foreground">
+              <span>
+                {visibleUsers.length}명
+                {userFiltersActive && ` (전체 ${users.length}명)`}
+              </span>
+              {userFiltersActive && (
+                <button
+                  type="button"
+                  onClick={resetUserFilters}
+                  className="underline-offset-2 transition-colors hover:text-foreground hover:underline"
+                >
+                  필터 초기화
+                </button>
+              )}
+            </div>
+
             <UserTable
-              users={users}
+              users={visibleUsers}
               loading={loadingUsers}
               busyId={busyId}
               onApprove={approveUser}
@@ -536,7 +728,11 @@ export default function AdminPage() {
                   memo: u.memo ?? "",
                 })
               }
-              emptyMessage="사용자가 없습니다."
+              emptyMessage={
+                userFiltersActive
+                  ? "검색·필터 조건에 맞는 사용자가 없습니다."
+                  : "사용자가 없습니다."
+              }
             />
           </TabsContent>
 
