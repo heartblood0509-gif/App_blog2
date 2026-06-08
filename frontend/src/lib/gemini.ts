@@ -43,6 +43,35 @@ export async function* generateStream(
   }
 }
 
+/** 챗봇 대화 한 턴 (시스템 프롬프트는 별도 전달). */
+export interface ChatTurn {
+  role: "user" | "model";
+  text: string;
+}
+
+/**
+ * 멀티턴 대화를 시스템 프롬프트와 함께 스트리밍 생성 (챗봇용).
+ * systemInstruction 으로 지식 베이스/역할을 고정하고, history 로 직전 대화를 잇는다.
+ */
+export async function* generateChatStream(
+  systemInstruction: string,
+  history: ChatTurn[],
+  model: string = "gemini-2.5-flash",
+  apiKey?: string
+): AsyncGenerator<string> {
+  const ai = await getGenAI(apiKey);
+  const response = await ai.models.generateContentStream({
+    model,
+    contents: history.map((t) => ({ role: t.role, parts: [{ text: t.text }] })),
+    config: { systemInstruction },
+  });
+
+  for await (const chunk of response) {
+    const text = chunk.text;
+    if (text) yield text;
+  }
+}
+
 /**
  * Gemini 일괄 텍스트 생성용 선택적 설정.
  * 결정론적 출력이 필요한 변환·치환 작업에서 temperature=0 / topP / topK / responseMimeType 같은
