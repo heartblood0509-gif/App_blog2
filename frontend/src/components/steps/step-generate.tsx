@@ -43,6 +43,16 @@ import { ImageLightbox } from "@/components/image-lightbox";
 import { FindBar } from "@/components/shared/find-bar";
 import { buildTextToImagePrompt } from "@/lib/prompts/image";
 
+// 내부 스크롤 영역(생성된 글 미리보기 등) — 기본보다 진한 스크롤바.
+// globals.css 손글씨 CSS는 기존 ::highlight 규칙 때문에 Turbopack(Lightning CSS) 파싱이
+// 실패해 누락되므로, 정상 동작하는 Tailwind 유틸(임의 변형) 경로로 스크롤바를 스타일링한다.
+const SCROLLBAR_PROMINENT =
+  "[scrollbar-width:thin] [scrollbar-color:var(--color-muted-foreground)_transparent] " +
+  "[&::-webkit-scrollbar]:w-[10px] [&::-webkit-scrollbar-track]:bg-transparent " +
+  "[&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:border-2 " +
+  "[&::-webkit-scrollbar-thumb]:border-transparent [&::-webkit-scrollbar-thumb]:bg-clip-padding " +
+  "[&::-webkit-scrollbar-thumb]:bg-muted-foreground [&::-webkit-scrollbar-thumb:hover]:bg-foreground";
+
 interface StepGenerateProps {
   content: string;
   title?: string;
@@ -791,7 +801,7 @@ export function StepGenerate({
               )}
 
               {content && !isEditing && (
-                <div>
+                <div className={`max-h-[70dvh] overflow-y-auto pr-1 ${SCROLLBAR_PROMINENT} lg:max-h-none lg:h-[calc(100dvh-12rem)] lg:min-h-[480px]`}>
                     {isLoading && (
                       <div className="mb-3 flex items-center gap-2 text-xs font-medium text-primary">
                         <Loader2 className="h-3 w-3 animate-spin" />
@@ -862,7 +872,7 @@ export function StepGenerate({
 
         {/* Right: Quality Panel (약 33%, 보조 사이드) — 글을 내려도 화면에 따라오도록 sticky */}
         <div
-          className={`flex-[1] self-start lg:sticky lg:top-6 ${isEditing ? "pointer-events-none opacity-60" : ""}`}
+          className={`flex-[1] self-start lg:sticky lg:top-6 lg:max-h-[calc(100dvh-3rem)] lg:overflow-y-auto ${SCROLLBAR_PROMINENT} ${isEditing ? "pointer-events-none opacity-60" : ""}`}
         >
           <Card className="h-full">
             <CardHeader>
