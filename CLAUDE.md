@@ -49,3 +49,4 @@ npm --prefix frontend run build
   2~3번은 "빠른 사전 점검", 6번 풀 빌드는 "출시 형태로 조립 가능한지 최종 확인". 매번 돌릴 필요는 없음.
 - Electron(`electron/`) 코드를 건드린 경우엔 추가로 `npm run build:electron`.
 - `/commit-push-pr` 명령은 자체적으로 검증을 돌리지 않으므로, 명령을 호출하기 *전* 단계에서 위 게이트를 통과시킨다.
+- 릴리스: `npm version`은 frontend가 git 루트가 아니라 버전만 bump하고 커밋·태그를 안 만든다 → `git add frontend/package*.json` 후 직접 커밋 + `git tag -a vX.Y.Z`로 마무리.
