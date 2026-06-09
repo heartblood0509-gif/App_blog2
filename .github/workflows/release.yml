@@ -230,22 +230,18 @@ jobs:
           ### 🍎 macOS 설치 안내 (꼭 읽어주세요)
 
           이 앱은 Apple 개발자 인증서로 서명되지 않아, 처음 실행 시
-          **"앱이 손상되었기 때문에 열 수 없습니다"** 메시지가 나타날 수 있습니다.
-          아래 절차를 따르시면 정상 실행됩니다.
+          **"확인되지 않은 개발자" 또는 "손상되었기 때문에 열 수 없습니다"** 경고가 나타날 수 있습니다.
+          아래 절차(클릭만)로 정상 실행됩니다.
 
-          1. 본인 Mac에 맞는 `.dmg` 파일 다운로드
-             - Apple Silicon (M1/M2/M3/M4): `Blog-Pick-VERSION_PLACEHOLDER-mac-arm64.dmg`
-             - Intel Mac: `Blog-Pick-VERSION_PLACEHOLDER-mac-x64.dmg`
+          1. `Blog-Pick-VERSION_PLACEHOLDER-mac-arm64.dmg` 다운로드 (Apple Silicon · M1~M4 칩)
           2. `.dmg`를 더블클릭 → 앱을 **응용 프로그램(Applications)** 폴더로 드래그
-          3. **터미널** 앱을 열고 (Spotlight에서 "터미널" 검색) 아래 명령어를 그대로 붙여넣은 후 Enter:
-             ```bash
-             xattr -dr com.apple.quarantine "/Applications/Blog Pick.app"
-             ```
-             비밀번호는 묻지 않습니다. 아무 출력 없이 끝나면 성공입니다.
-          4. **응용 프로그램**에서 `Blog Pick` 실행
-          5. (선택) 이전 버전 `App Blog Publisher.app` 이 응용 프로그램 폴더에 남아 있다면 휴지통으로 옮겨 주세요.
+          3. **응용 프로그램**에서 `Blog Pick` 실행 → 경고가 뜨면 **"취소"** (휴지통으로 보내지 마세요)
+          4. 화면 좌측 상단 **🍎 → "시스템 설정" → "개인정보 보호 및 보안"** 으로 이동
+          5. 아래로 스크롤 → **"그래도 열기"**(macOS 버전에 따라 "확인 없이 열기") 버튼 클릭 → 다시 **"열기"**. 완료!
+          6. (선택) 이전 버전 `App Blog Publisher.app` 이 응용 프로그램 폴더에 남아 있다면 휴지통으로 옮겨 주세요.
 
-          > 이 명령어는 macOS가 인터넷 다운로드 파일에 자동으로 붙이는 "격리(quarantine)" 표식을 제거하는 것이며, 앱 내용 자체를 수정하지 않습니다. 최초 1회만 실행하면 됩니다 (자동 업데이트로 앱이 교체되면 다시 한 번 실행).
+          > 이 보안 경고는 Apple 공증을 받지 않은 모든 앱에 나오는 일반 안내이며, 최초 1회만 거치면 됩니다.
+          > 아주 오래된 macOS에서 "그래도 열기" 버튼이 안 보이면, 터미널에서 `xattr -dr com.apple.quarantine "/Applications/Blog Pick.app"` 를 1회 실행해 주세요.
 
           ### 🪟 Windows 설치 안내
 

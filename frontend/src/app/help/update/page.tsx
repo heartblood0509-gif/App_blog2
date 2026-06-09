@@ -136,41 +136,11 @@ export default function HelpUpdatePage() {
           </li>
           <li>
             페이지를 아래로 스크롤하면 <strong>Assets</strong>(또는 「첨부 파일」)
-            목록이 있어요. 내 Mac의 칩 종류에 맞는 파일을 받습니다.
+            목록이 있어요. 그중 <Code>arm64.dmg</Code>가 들어간 파일을 받습니다.
+            (파일명은 <Code>Blog-Pick-…-mac-arm64.dmg</Code> 형태 — 보통 다운로드
+            폴더에 저장돼요.)
           </li>
         </ol>
-        <DefList
-          items={[
-            {
-              term: "Apple Silicon",
-              desc: (
-                <>
-                  M1·M2·M3·M4 → <Code>arm64.dmg</Code>가 들어간 파일
-                </>
-              ),
-            },
-            {
-              term: "Intel CPU",
-              desc: (
-                <>
-                  <Code>x64.dmg</Code> 또는 arm64가 없는 그냥 <Code>.dmg</Code>{" "}
-                  파일
-                </>
-              ),
-            },
-          ]}
-        />
-        <Callout tone="warning">
-          <strong className="block text-foreground">
-            내 Mac이 어느 쪽인지 모르겠다면?
-          </strong>
-          <span className="mt-1 block text-foreground/80">
-            화면 왼쪽 위 사과 아이콘 → <strong>「이 Mac에 관하여」</strong>를
-            누르세요. 「칩」 항목에 <Code>Apple M1</Code> 같은 글자가 있으면 →
-            Apple Silicon, <Code>Intel Core ...</Code>라고 적혀 있으면 → Intel.
-            파일은 보통 다운로드 폴더에 저장됩니다.
-          </span>
-        </Callout>
 
         <StageHeading id="mac-step-2" step="2" title="기존 블로그픽 종료하기" />
         <Callout tone="danger">
@@ -239,8 +209,8 @@ export default function HelpUpdatePage() {
           </li>
           <li>
             오른쪽 내용을 아래로 스크롤하면 「Blog Pick 사용이 차단되었습니다」
-            문구가 보입니다. 옆의 <strong>「확인 없이 열기」</strong> 버튼을
-            누릅니다.
+            문구가 보입니다. 옆의 <strong>「그래도 열기」</strong>(macOS 버전에
+            따라 「확인 없이 열기」로 보일 수 있어요) 버튼을 누릅니다.
           </li>
           <li>
             Mac 비밀번호 입력 → 다시 한 번 <strong>「열기」</strong> → 블로그픽이
@@ -261,23 +231,28 @@ export default function HelpUpdatePage() {
           (Mac) 「손상되어 열 수 없습니다. 휴지통으로 이동…」 경고가 떠요
         </SubHeading>
         <p>
-          이건 위의 경고와 다른 종류입니다. 다운로드는 멀쩡한데 macOS가
-          「격리(quarantine)」 표시를 잘못 붙여서 막은 경우예요.
+          이 경고가 떠도 <strong>「취소」</strong>를 누르세요(휴지통으로 보내지
+          마세요!). 대부분 위 <strong>03단계의 「그래도 열기」 방법</strong>으로
+          그대로 해결됩니다 — 사과 아이콘 →{" "}
+          <strong>「시스템 설정」 → 「개인정보 보호 및 보안」</strong> → 아래로
+          스크롤 → <strong>「그래도 열기」</strong> 버튼.
         </p>
-        <ol>
-          <li>
-            <Code>⌘ + Space</Code>로 Spotlight 검색을 열고 → <Code>터미널</Code>{" "}
-            입력 → 엔터.
-          </li>
-          <li>검은 화면이 뜨면, 아래 한 줄을 그대로 복사해 붙여넣고 엔터:</li>
-        </ol>
-        <p>
-          <Code>{"xattr -cr /Applications/Blog\\ Pick.app"}</Code>
-        </p>
-        <p>다시 응용 프로그램에서 블로그픽 실행 → 정상 작동합니다.</p>
         <Callout tone="warning">
-          무서워하지 않으셔도 돼요. 위 명령은 Mac이 잘못 붙인 「위험 표시」만
-          떼주는 안전한 명령입니다. 시스템을 건드리지 않습니다.
+          <strong className="block text-foreground">
+            그래도 안 열린다면 (주로 오래된 macOS)
+          </strong>
+          <span className="mt-1 block text-foreground/80">
+            구형 macOS에서는 「그래도 열기」 버튼이 안 보일 수 있어요. 그럴 때만
+            아래를 쓰세요: <Code>⌘ + Space</Code> → <Code>터미널</Code> 입력 →
+            엔터 → 검은 화면에 아래 한 줄을 그대로 복사해 붙여넣고 엔터.
+          </span>
+          <span className="mt-2 block">
+            <Code>{"xattr -cr /Applications/Blog\\ Pick.app"}</Code>
+          </span>
+          <span className="mt-2 block text-foreground/80">
+            (Mac이 잘못 붙인 「위험 표시」만 떼는 안전한 명령이에요. 시스템은 안
+            건드립니다.) 그다음 응용 프로그램에서 블로그픽을 다시 실행하세요.
+          </span>
         </Callout>
 
         <SubHeading>(Windows) 「다운로드 중」에서 멈춰요</SubHeading>
