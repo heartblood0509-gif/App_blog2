@@ -115,9 +115,13 @@ console.log(`[dev-worktree] mode    =${isElectron ? "electron" : "web"}`);
 
   // 3-2. youtube-backend(쇼츠 생성기) 기동. 웹 모드엔 Electron NextServer 가 없으므로
   //      여기서 직접 띄우고 YOUTUBE_BACKEND_URL 을 프론트 env 로 주입한다.
+  //      킬스위치 OFF면 띄우지 않는다 — Electron 메인과 동일하게 맞춰 혼란을 막는다.
   let youtube = null;
   let youtubeUrl = null;
-  if (fs.existsSync(path.join(worktreeRoot, "youtube-backend", "main.py"))) {
+  if (
+    youtubeFeatureEnabled(worktreeRoot) &&
+    fs.existsSync(path.join(worktreeRoot, "youtube-backend", "main.py"))
+  ) {
     const youtubePort = await findFreePort(8101);
     youtubeUrl = `http://127.0.0.1:${youtubePort}`;
     console.log(`\n[dev-worktree] youtube-backend 기동 (PORT=${youtubePort})`);
@@ -468,6 +472,21 @@ function spawnFrontend(worktreeRoot, frontendPort, backendPort, youtubeUrl) {
 }
 
 // youtube-backend(쇼츠 생성기)를 로컬 단일 사용자 모드로 띄운다. 웹 dev 전용.
+// frontend 킬스위치(YOUTUBE_FEATURE_ENABLED)를 파싱한다. OFF면 dev-worktree 도
+// youtube-backend 를 띄우지 않아 Electron 메인과 동작이 일치한다.
+// (파일을 못 읽거나 값을 못 찾으면 보수적으로 false = 띄우지 않음.)
+function youtubeFeatureEnabled(worktreeRoot) {
+  try {
+    const p = path.join(worktreeRoot, "frontend", "src", "lib", "youtube-feature.ts");
+    const m = fs
+      .readFileSync(p, "utf8")
+      .match(/YOUTUBE_FEATURE_ENABLED\s*=\s*(true|false)\b/);
+    return m ? m[1] === "true" : false;
+  } catch {
+    return false;
+  }
+}
+
 function spawnYoutubeBackend(worktreeRoot, port) {
   const ytDir = path.join(worktreeRoot, "youtube-backend");
   const venvPython = youtubeVenvPython(worktreeRoot);
