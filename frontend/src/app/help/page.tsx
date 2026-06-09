@@ -4,19 +4,31 @@
 import Link from "next/link";
 import { ArrowRight } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { TOC_GROUPS } from "./_components/sections-data";
+import { TOC_GROUPS, PRODUCT_ORDER } from "./_components/sections-data";
 import { ManualArticle } from "./_components/manual-ui";
 
 // 카테고리별 한 줄 소개 (랜딩 카드 본문)
 const GROUP_DESCRIPTIONS: Record<string, string> = {
   "/help/start":
     "블로그픽을 처음 켜기 전에 꼭 알아두실 주의사항과 빠른 점검 체크리스트입니다.",
+  "/help/install":
+    "Windows·Mac 설치부터 보안경고 통과, 방화벽·백신, 재설치·완전 삭제, 설치 FAQ까지.",
   "/help/usage":
     "후기성 · 브랜드 · AEO 세 가지 글쓰기 모드의 5단계 흐름과 자주 막히는 함정까지.",
+  "/help/api-key":
+    "Gemini API 키 발급(무료)부터 유료 전환, 선불 결제·429 에러 해결까지.",
   "/help/tools":
     "보관함·브랜드 프로필·제품 관리 같은 부가 도구, 그리고 데이터 백업·PC 이전 가이드.",
   "/help/update":
     "새 버전이 나왔을 때 Windows·Mac에서 받아 설치하는 법과 자주 겪는 문제 해결.",
+  "/help/marketing":
+    "마케팅 퍼널(고객 구매여정)을 이해하고 브랜드 블로그 글쓰기에 적용하는 법.",
+  "/help/shortspick":
+    "쇼츠픽이 무엇인지, 그리고 블로그픽 앱으로 통합되는 과정 안내.",
+  "/help/shortspick-guide":
+    "제목·대본부터 이미지·음성·BGM까지, 쇼츠 영상 한 편을 만드는 5단계.",
+  "/help/shortspick-api":
+    "제미나이·타입캐스트·FAL API 키 등록과 모델별 비용 정리.",
 };
 
 export default function HelpLandingPage() {
@@ -32,9 +44,24 @@ export default function HelpLandingPage() {
         </p>
       </div>
 
-      <div className="space-y-5">
-        {TOC_GROUPS.map((group, gi) => (
-          <Link
+      <div className="space-y-10">
+        {PRODUCT_ORDER.map((product) => {
+          const groups = TOC_GROUPS.filter((g) => g.product === product);
+          if (groups.length === 0) return null;
+          return (
+            <section key={product}>
+              <div className="mb-4 flex items-center gap-2.5">
+                <span
+                  className="block h-5 w-[3px] rounded-full bg-primary"
+                  aria-hidden
+                />
+                <h2 className="font-heading text-[20px] font-bold tracking-tight text-foreground">
+                  {product}
+                </h2>
+              </div>
+              <div className="space-y-5">
+                {groups.map((group, gi) => (
+                  <Link
             key={group.label}
             href={group.page}
             className={cn(
@@ -80,8 +107,12 @@ export default function HelpLandingPage() {
               </div>
               <ArrowRight className="mt-1 h-5 w-5 shrink-0 text-foreground/30 transition-all duration-150 group-hover:translate-x-1 group-hover:text-primary" />
             </div>
-          </Link>
-        ))}
+                  </Link>
+                ))}
+              </div>
+            </section>
+          );
+        })}
       </div>
     </ManualArticle>
   );

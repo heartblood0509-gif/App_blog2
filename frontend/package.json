@@ -12,7 +12,8 @@
     "lint": "eslint",
     "test": "vitest run",
     "check:whats-new": "node scripts/check-whats-new-version.mjs",
-    "build:chatbot-knowledge": "node scripts/build-chatbot-knowledge.mjs"
+    "build:chatbot-knowledge": "node scripts/build-chatbot-knowledge.mjs",
+    "sync:notion": "node scripts/sync-notion-knowledge.mjs"
   },
   "dependencies": {
     "@base-ui/react": "^1.4.0",

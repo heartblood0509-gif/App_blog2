@@ -12,7 +12,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
-import { TOC_GROUPS, findGroupByPage } from "./sections-data";
+import { TOC_GROUPS, PRODUCT_ORDER, findGroupByPage } from "./sections-data";
 
 /** 현재 스크롤 위치 기준으로 활성 섹션 ID를 결정.
  *
@@ -132,15 +132,36 @@ export function HelpSidebar() {
         </div>
 
         <div className="space-y-1">
-          {TOC_GROUPS.map((group, gi) => {
-            const isCurrentGroup = group.page === currentGroup?.page;
+          {PRODUCT_ORDER.map((product, pi) => {
+            const groups = TOC_GROUPS.filter((g) => g.product === product);
+            if (groups.length === 0) return null;
             return (
               <div
-                key={group.label}
+                key={product}
                 className={cn(
-                  gi > 0 && "mt-5 border-t border-foreground/[0.07] pt-5",
+                  pi > 0 && "mt-6 border-t-2 border-foreground/10 pt-5",
                 )}
               >
+                {/* 제품 헤더 */}
+                <div className="mb-3 flex items-center gap-2 px-3">
+                  <span
+                    className="block h-3.5 w-[3px] rounded-full bg-primary"
+                    aria-hidden
+                  />
+                  <p className="text-[13px] font-bold tracking-tight text-foreground">
+                    {product}
+                  </p>
+                </div>
+                {groups.map((group, gi) => {
+                  const isCurrentGroup = group.page === currentGroup?.page;
+                  return (
+                    <div
+                      key={group.label}
+                      className={cn(
+                        gi > 0 &&
+                          "mt-4 border-t border-foreground/[0.07] pt-4",
+                      )}
+                    >
                 <p
                   className={cn(
                     "mb-2 px-3 text-[10.5px] font-semibold uppercase tracking-[0.16em] transition-colors",
@@ -239,6 +260,9 @@ export function HelpSidebar() {
                     );
                   })}
                 </ul>
+                    </div>
+                  );
+                })}
               </div>
             );
           })}
