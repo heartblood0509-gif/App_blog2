@@ -207,7 +207,7 @@ export function ChatWidget() {
                 >
                   <div
                     className={cn(
-                      "max-w-[85%] whitespace-pre-wrap break-words rounded-2xl px-3.5 py-2 text-sm leading-relaxed",
+                      "max-w-[85%] whitespace-pre-wrap break-keep break-words rounded-2xl px-3.5 py-2 text-sm leading-relaxed",
                       m.role === "user"
                         ? "bg-primary text-primary-foreground"
                         : "bg-muted text-foreground"

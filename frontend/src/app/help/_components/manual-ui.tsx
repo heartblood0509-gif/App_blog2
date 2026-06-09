@@ -2,13 +2,14 @@
 // 페이지(/help/start, /help/usage, /help/tools)에서 공통으로 사용.
 
 import { cn } from "@/lib/utils";
+import { withSentenceBreaks } from "./sentence-breaks";
 
 /** 본문 최외곽 article — 폭 1100px + 폰트·행간·자간 통일.
  *  스크린샷·표를 시원하게 보여줄 수 있는 폭. 텍스트도 너무 길지 않게 균형.
  */
 export function ManualArticle({ children }: { children: React.ReactNode }) {
   return (
-    <article className="mx-auto w-full max-w-[1100px] text-[18px] leading-[1.95] tracking-[0.005em] text-foreground/90">
+    <article className="mx-auto w-full max-w-[1100px] break-keep [overflow-wrap:anywhere] text-[18px] leading-[1.95] tracking-[0.005em] text-foreground/90">
       {children}
     </article>
   );
@@ -18,7 +19,9 @@ export function ManualArticle({ children }: { children: React.ReactNode }) {
 export function PageIntro({ children }: { children: React.ReactNode }) {
   return (
     <div className="mb-14 rounded-2xl bg-muted/30 px-7 py-6 ring-1 ring-foreground/5">
-      <p className="text-[17px] leading-[1.85] text-foreground/80">{children}</p>
+      <p className="text-[17px] leading-[1.85] text-foreground/80">
+        {withSentenceBreaks(children)}
+      </p>
     </div>
   );
 }
@@ -97,7 +100,7 @@ export function Section({
           "[&_strong]:font-semibold [&_strong]:text-foreground",
         )}
       >
-        {children}
+        {withSentenceBreaks(children)}
       </div>
     </section>
   );
@@ -254,7 +257,7 @@ export function DefList({
             {it.term}
           </dt>
           <dd className="text-[17px] leading-[1.8] text-foreground/80">
-            {it.desc}
+            {withSentenceBreaks(it.desc)}
           </dd>
         </div>
       ))}
@@ -266,7 +269,7 @@ export function DefList({
 export function ManualFooterNote({ children }: { children: React.ReactNode }) {
   return (
     <p className="mt-16 border-t border-foreground/5 pt-7 text-[14px] text-muted-foreground">
-      {children}
+      {withSentenceBreaks(children)}
     </p>
   );
 }
