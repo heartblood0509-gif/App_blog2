@@ -73,8 +73,21 @@ export class YoutubeManager {
         label: "yt",
       });
     } else {
-      this.child = spawnDetached(paths.youtubeBackendExe, [], {
-        cwd: path.dirname(paths.youtubeBackendExe),
+      // packaged: 번들된 실행파일이 실제로 있는지(+POSIX 실행권한) 먼저 확인.
+      // 없으면 원시 ENOENT 팝업 대신 명확한 에러로 실패시킨다(킬스위치 어긋남/빌드 누락 방어).
+      const exe = paths.youtubeBackendExe;
+      if (!fs.existsSync(exe)) {
+        throw new Error(`[yt] backend executable not found: ${exe}`);
+      }
+      if (process.platform !== "win32") {
+        try {
+          fs.accessSync(exe, fs.constants.X_OK);
+        } catch {
+          throw new Error(`[yt] backend executable not runnable (no +x): ${exe}`);
+        }
+      }
+      this.child = spawnDetached(exe, [], {
+        cwd: path.dirname(exe),
         env,
         label: "yt",
       });

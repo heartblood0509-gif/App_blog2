@@ -67,6 +67,11 @@ export function spawnDetached(
   proc.on("exit", (code, sig) =>
     console.log(`[${opts.label}] exited code=${code} sig=${sig}`),
   );
+  // spawn 실패(ENOENT/EACCES 등)에 핸들러가 없으면 Electron 이 원시 에러 다이얼로그를 띄운다.
+  // 로그로만 남기고, 실제 실패 처리는 상위 매니저의 health-check 타임아웃에 맡긴다.
+  proc.on("error", (err) =>
+    console.error(`[${opts.label}] spawn error:`, err),
+  );
   // 부모 이벤트 루프가 자식 종료를 기다리지 않도록 unref.
   // 우리는 별도로 PID 추적 + killTree 로 명시적 종료를 수행함.
   try { proc.unref(); } catch { /* ignore */ }

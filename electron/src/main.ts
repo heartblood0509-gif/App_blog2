@@ -23,6 +23,7 @@ import { applyWindowSecurity } from "./security";
 import { getFreePort, getPreferredOrFreePort } from "./net-utils";
 import { PythonManager } from "./python-manager";
 import { YoutubeManager } from "./youtube-manager";
+import { YOUTUBE_FEATURE_ENABLED } from "./youtube-feature";
 import { NextServerManager } from "./next-server";
 import { initJobObject, assignToJob, closeJobObject } from "./job-object";
 import { initUpdater, tryInstallNow } from "./updater";
@@ -1708,13 +1709,16 @@ async function boot(): Promise<void> {
   await broker.start();
 
   const backendPort = await getFreePort();
-  const youtubePort = await getFreePort();
+  // 킬스위치 OFF면 포트를 잡지 않는다(불필요 점유 방지). youtubeOrigin 도 undefined 가 되어
+  // 아래 NextServer env 주입·navigation allowlist 에서 자연히 빠진다.
+  const youtubePort = YOUTUBE_FEATURE_ENABLED ? await getFreePort() : null;
   // §J — Supabase 세션 영속성을 위해 매 부팅마다 같은 포트(=같은 origin)를 시도한다.
   // 마지막에 사용한 포트가 비어 있으면 재사용, 점유돼 있으면 빈 포트로 fallback.
   const frontendPort = await getPreferredOrFreePort(loadFrontendPort());
   saveFrontendPort(frontendPort);
   const frontendOrigin = `http://127.0.0.1:${frontendPort}`;
-  const youtubeOrigin = `http://127.0.0.1:${youtubePort}`;
+  const youtubeOrigin =
+    youtubePort !== null ? `http://127.0.0.1:${youtubePort}` : undefined;
 
   python = new PythonManager(backendPort, {
     appToken: APP_TOKEN,
@@ -1730,21 +1734,24 @@ async function boot(): Promise<void> {
 
   // youtube-backend(쇼츠 생성기) — 백그라운드로 띄운다. 사용자가 "유튜브" 탭을 눌러
   // iframe 이 로드될 때 준비돼 있으면 되고, 부팅을 막을 필요는 없으므로 await 하지 않는다.
-  youtube = new YoutubeManager(youtubePort, {
-    jwtSecret: getOrCreateYoutubeJwtSecret(),
-    storageDir: path.join(paths.userData, "youtube", "storage"),
-    bgmDir: path.join(paths.userData, "youtube", "bgm"),
-    // 3키 모두 부팅 시 env 시드(youtube-backend DB 가 비어있을 때만 반영). 변경 즉시 적용은 설정 UI 의 PUT.
-    geminiApiKey: loadGeminiApiKey(),
-    typecastApiKey: loadTypecastApiKey(),
-    falKey: loadFalKey(),
-    ffmpegBin: paths.ffmpegBin || undefined,
-    ffprobeBin: paths.ffprobeBin || undefined,
-  });
-  youtube.start().catch((err) => {
-    console.error("[yt] start failed:", err);
-  });
-  assignToJob(youtube.pid);
+  // 킬스위치 OFF면 생성·spawn 자체를 건너뛴다 → packaged 빌드에 실행파일이 없어도 ENOENT 팝업 없음.
+  if (YOUTUBE_FEATURE_ENABLED && youtubePort !== null) {
+    youtube = new YoutubeManager(youtubePort, {
+      jwtSecret: getOrCreateYoutubeJwtSecret(),
+      storageDir: path.join(paths.userData, "youtube", "storage"),
+      bgmDir: path.join(paths.userData, "youtube", "bgm"),
+      // 3키 모두 부팅 시 env 시드(youtube-backend DB 가 비어있을 때만 반영). 변경 즉시 적용은 설정 UI 의 PUT.
+      geminiApiKey: loadGeminiApiKey(),
+      typecastApiKey: loadTypecastApiKey(),
+      falKey: loadFalKey(),
+      ffmpegBin: paths.ffmpegBin || undefined,
+      ffprobeBin: paths.ffprobeBin || undefined,
+    });
+    youtube.start().catch((err) => {
+      console.error("[yt] start failed:", err);
+    });
+    assignToJob(youtube.pid);
+  }
 
   // splash 가 실제로 표시될 때까지 대기 (ready-to-show 또는 1.5s fallback).
   await splashShownPromise;
@@ -1770,7 +1777,7 @@ async function boot(): Promise<void> {
 
   const allowedOrigin = nextSrv.url;
 
-  applyWindowSecurity(win, allowedOrigin, [youtubeOrigin]);
+  applyWindowSecurity(win, allowedOrigin, youtubeOrigin ? [youtubeOrigin] : []);
 
   // §F 설정 IPC.
   registerSettingsIpc();
