@@ -124,20 +124,16 @@ export default function HelpInstallPage() {
           <li>네이버 계정 · Gemini API 키 · 안정적인 인터넷</li>
         </ul>
 
-        <StageHeading step="1" title="내 Mac이 Apple Silicon인지 Intel인지 확인" />
+        <StageHeading step="1" title="받을 파일 확인" />
         <p>
-          좌측 상단 🍎 → <strong>“이 Mac에 관하여”</strong> →{" "}
-          <strong>“칩”</strong> 항목 확인. <Code>Apple M1/M2/M3...</Code>이면
-          Apple Silicon(arm64), <Code>Intel Core...</Code>이면 Intel(x64)입니다.
+          블로그픽 맥 버전은 <strong>Apple Silicon(M1~M4 칩)</strong> 용 하나예요.
+          요즘 맥은 대부분 여기에 해당합니다.
         </p>
-        <Callout tone="warning">
-          잘못 받으면 실행이 안 되거나 매우 느립니다. 반드시 확인하세요.
-        </Callout>
 
         <StageHeading step="2" title="설치 파일 다운로드" />
         <p>
-          확인한 칩에 맞는 <Code>.dmg</Code> 파일을 받습니다 — Apple Silicon은{" "}
-          <Code>arm64.dmg</Code>, Intel은 <Code>x64.dmg</Code>.
+          공식 배포처(GitHub Releases)에서{" "}
+          <Code>Blog-Pick-…-mac-arm64.dmg</Code> 파일을 받습니다.
         </p>
 
         <StageHeading step="3" title=".dmg 열고 응용 프로그램으로 드래그" />
@@ -213,12 +209,12 @@ export default function HelpInstallPage() {
 
         <SubHeading>(Mac) “손상된 파일이라 휴지통으로 이동” 경고</SubHeading>
         <p>
-          공식 파일이 맞는지 먼저 확인 후, 위 “방법 A(Control+클릭 → 열기)”를 다시
-          시도하세요. (터미널 명령은 보안 우회라 함부로 권하지 않습니다.)
+          경고창은 “취소”를 누르고(휴지통으로 보내지 마세요), 위 보안 경고 통과
+          단계의{" "}
+          <strong>“시스템 설정 → 개인정보 보호 및 보안 → 그래도 열기”</strong>를
+          따라 하세요. 대부분 해결됩니다. (아주 오래된 macOS에서 그래도 안 열리면
+          인앱 도움말의 “터미널” 최후수단을 참고하세요.)
         </p>
-
-        <SubHeading>(Mac) Apple Silicon인데 x64를 받았어요</SubHeading>
-        <p>작동은 되지만 매우 느립니다. arm64 버전을 다시 받아 설치하세요.</p>
 
         <SubHeading>회사 컴퓨터 방화벽이 막아요</SubHeading>
         <p>회사 IT팀에 아래 도메인 허용을 요청하세요.</p>
