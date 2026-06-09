@@ -2,26 +2,34 @@
 
 // 고객 지원 / FAQ 챗봇 — 화면 우측 하단 플로팅 위젯.
 // 전역 레이아웃(layout.tsx)에 마운트되어 앱 전체에서 항상 떠 있다.
-// 두뇌: /api/chat (Gemini + 지식 베이스). 새 의존성 없이 기존 스택만 사용.
+// 두뇌: /api/chat (Gemini + 지식 베이스). 이미지(스크린샷) 첨부 지원.
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { AnimatePresence, motion } from "framer-motion";
-import { MessageCircle, X, Send, Loader2 } from "lucide-react";
+import { MessageCircle, X, Send, Loader2, Paperclip, ImageUp } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
+/** 첨부 이미지 (자동 축소 후). base64 는 data URL prefix 없는 순수 값. */
+interface Attachment {
+  dataUrl: string;
+  base64: string;
+  mimeType: string;
+}
+
 interface ChatMessage {
   role: "user" | "assistant";
   content: string;
+  image?: Attachment;
 }
 
 const GREETING: ChatMessage = {
   role: "assistant",
   content:
-    "안녕하세요! So-Pick 도우미예요. 😊\n블로그픽·쇼츠픽 사용법, 발행/제작 오류, API 키 등 궁금한 점을 물어보세요.",
+    "안녕하세요! So-Pick 도우미예요. 😊\n블로그픽·쇼츠픽 사용법, 발행/제작 오류, API 키 등 궁금한 점을 물어보세요.\n에러 화면은 캡처해서 붙여넣어(또는 끌어다 놓아) 주셔도 됩니다.",
 };
 
 // 빠른 질문 칩 — 첫 진입 시 사용자가 클릭만으로 시작할 수 있게.
@@ -32,15 +40,68 @@ const QUICK_QUESTIONS = [
   "편집기가 흰 화면이 됐어요",
 ];
 
+const MAX_DIM = 1568; // 이미지 최대 한 변(px) — Gemini 권장. 큰 스크린샷 자동 축소.
+
+/** 파일을 data URL 문자열로 읽는다. */
+function readAsDataUrl(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result as string);
+    reader.onerror = () => reject(new Error("파일을 읽지 못했습니다."));
+    reader.readAsDataURL(file);
+  });
+}
+
+/** 큰 이미지를 max 한 변 기준으로 축소하고 JPEG로 재인코딩 (토큰·용량 절약). */
+function downscale(dataUrl: string, maxDim: number): Promise<Attachment> {
+  return new Promise((resolve) => {
+    const fallback = (): Attachment => ({
+      dataUrl,
+      base64: dataUrl.split(",")[1] ?? "",
+      mimeType: (dataUrl.match(/^data:(image\/[\w.+-]+);/)?.[1] ?? "image/png"),
+    });
+    const img = new Image();
+    img.onload = () => {
+      try {
+        const scale = Math.min(1, maxDim / Math.max(img.width, img.height));
+        const w = Math.max(1, Math.round(img.width * scale));
+        const h = Math.max(1, Math.round(img.height * scale));
+        const canvas = document.createElement("canvas");
+        canvas.width = w;
+        canvas.height = h;
+        const ctx = canvas.getContext("2d");
+        if (!ctx) return resolve(fallback());
+        ctx.drawImage(img, 0, 0, w, h);
+        const out = canvas.toDataURL("image/jpeg", 0.9);
+        resolve({
+          dataUrl: out,
+          base64: out.split(",")[1] ?? "",
+          mimeType: "image/jpeg",
+        });
+      } catch {
+        resolve(fallback());
+      }
+    };
+    img.onerror = () => resolve(fallback());
+    img.src = dataUrl;
+  });
+}
+
 export function ChatWidget() {
   const [open, setOpen] = useState(false);
   const [messages, setMessages] = useState<ChatMessage[]>([GREETING]);
   const [input, setInput] = useState("");
+  const [attachment, setAttachment] = useState<Attachment | null>(null);
   const [isStreaming, setIsStreaming] = useState(false);
+  const [isDragging, setIsDragging] = useState(false);
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
   const abortRef = useRef<AbortController | null>(null);
+  const dragDepth = useRef(0);
+  const panelRef = useRef<HTMLDivElement>(null);
+  const [size, setSize] = useState<{ w: number; h: number } | null>(null);
 
   const pathname = usePathname();
   const router = useRouter();
@@ -49,34 +110,57 @@ export function ChatWidget() {
   useEffect(() => {
     const el = scrollRef.current;
     if (el) el.scrollTop = el.scrollHeight;
-  }, [messages, open]);
+  }, [messages, open, attachment]);
 
   // 열릴 때 입력창 포커스.
   useEffect(() => {
     if (open) inputRef.current?.focus();
   }, [open]);
 
-  const send = useCallback(
-    async (text: string) => {
-      const trimmed = text.trim();
-      if (!trimmed || isStreaming) return;
+  // 파일(이미지)을 받아 축소 후 첨부로 등록.
+  const attachFile = useCallback(async (file: File | null | undefined) => {
+    if (!file || !file.type.startsWith("image/")) return;
+    try {
+      const dataUrl = await readAsDataUrl(file);
+      const att = await downscale(dataUrl, MAX_DIM);
+      if (att.base64) setAttachment(att);
+    } catch {
+      // 무시 — 첨부 실패해도 텍스트 대화는 가능
+    }
+  }, []);
 
-      const nextMessages: ChatMessage[] = [
-        ...messages,
-        { role: "user", content: trimmed },
-      ];
-      // user 메시지 + 빈 assistant 자리(스트리밍으로 채움)를 한 번에 반영.
+  const send = useCallback(
+    async (text: string, image: Attachment | null) => {
+      const trimmed = text.trim();
+      if ((!trimmed && !image) || isStreaming) return;
+
+      const userMsg: ChatMessage = {
+        role: "user",
+        content: trimmed,
+        image: image ?? undefined,
+      };
+      const nextMessages: ChatMessage[] = [...messages, userMsg];
       setMessages([...nextMessages, { role: "assistant", content: "" }]);
       setInput("");
+      setAttachment(null);
       setIsStreaming(true);
 
       abortRef.current = new AbortController();
+
+      // 서버로 보낼 형태로 변환 (이미지는 base64 만).
+      const wire = nextMessages.map((m) => ({
+        role: m.role,
+        content: m.content,
+        ...(m.image
+          ? { image: { data: m.image.base64, mimeType: m.image.mimeType } }
+          : {}),
+      }));
 
       try {
         const res = await fetch("/api/chat", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ messages: nextMessages, currentPage: pathname }),
+          body: JSON.stringify({ messages: wire, currentPage: pathname }),
           signal: abortRef.current.signal,
         });
 
@@ -93,7 +177,6 @@ export function ChatWidget() {
           const { done, value } = await reader.read();
           if (done) break;
           acc += decoder.decode(value, { stream: true });
-          // 마지막(assistant) 메시지를 누적 텍스트로 갱신.
           setMessages((prev) => {
             const copy = [...prev];
             copy[copy.length - 1] = { role: "assistant", content: acc };
@@ -108,10 +191,7 @@ export function ChatWidget() {
             err instanceof Error ? err.message : "알 수 없는 오류가 발생했습니다.";
           setMessages((prev) => {
             const copy = [...prev];
-            copy[copy.length - 1] = {
-              role: "assistant",
-              content: `⚠️ ${msg}`,
-            };
+            copy[copy.length - 1] = { role: "assistant", content: `⚠️ ${msg}` };
             return copy;
           });
         }
@@ -124,7 +204,6 @@ export function ChatWidget() {
   );
 
   // 도움말 딥링크(/help/...)는 새로고침 없이 앱 내에서 이동하고 패널을 닫는다.
-  // 외부 링크(http...)는 기본 동작(새 탭/브라우저).
   const renderLink = ({
     href,
     children,
@@ -152,15 +231,76 @@ export function ChatWidget() {
 
   const onSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    send(input);
+    send(input, attachment);
   };
 
   const onKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
-      send(input);
+      send(input, attachment);
     }
   };
+
+  // 붙여넣기(Ctrl+V)로 이미지 첨부.
+  const onPaste = (e: React.ClipboardEvent) => {
+    const item = Array.from(e.clipboardData.items).find((it) =>
+      it.type.startsWith("image/")
+    );
+    if (item) {
+      e.preventDefault();
+      attachFile(item.getAsFile());
+    }
+  };
+
+  // 드래그앤드롭으로 이미지 첨부 (패널 전체가 드롭 영역).
+  const onDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    dragDepth.current = 0;
+    setIsDragging(false);
+    const file = Array.from(e.dataTransfer.files).find((f) =>
+      f.type.startsWith("image/")
+    );
+    if (file) attachFile(file);
+  };
+  const onDragEnter = (e: React.DragEvent) => {
+    if (Array.from(e.dataTransfer.types).includes("Files")) {
+      e.preventDefault();
+      dragDepth.current += 1;
+      setIsDragging(true);
+    }
+  };
+  const onDragOver = (e: React.DragEvent) => {
+    if (Array.from(e.dataTransfer.types).includes("Files")) e.preventDefault();
+  };
+  const onDragLeave = () => {
+    dragDepth.current = Math.max(0, dragDepth.current - 1);
+    if (dragDepth.current === 0) setIsDragging(false);
+  };
+
+  // 좌상단 모서리 드래그로 채팅창 크기 조절 (패널은 우하단 고정이라 위·왼쪽으로 커짐).
+  const startResize = (e: React.PointerEvent) => {
+    e.preventDefault();
+    const startX = e.clientX;
+    const startY = e.clientY;
+    const rect = panelRef.current?.getBoundingClientRect();
+    const startW = rect?.width ?? 384;
+    const startH = rect?.height ?? 512;
+    const onMove = (ev: PointerEvent) => {
+      const maxW = Math.min(window.innerWidth - 36, 760);
+      const maxH = window.innerHeight - 112;
+      const w = Math.max(300, Math.min(maxW, startW + (startX - ev.clientX)));
+      const h = Math.max(360, Math.min(maxH, startH + (startY - ev.clientY)));
+      setSize({ w, h });
+    };
+    const onUp = () => {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+    };
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+  };
+
+  const canSend = (!!input.trim() || !!attachment) && !isStreaming;
 
   return (
     <>
@@ -168,14 +308,42 @@ export function ChatWidget() {
       <AnimatePresence>
         {open && (
           <motion.div
+            ref={panelRef}
             initial={{ opacity: 0, y: 16, scale: 0.98 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: 16, scale: 0.98 }}
             transition={{ duration: 0.18, ease: "easeOut" }}
+            style={size ? { width: size.w, height: size.h } : undefined}
             className="fixed bottom-24 right-5 z-[60] flex h-[min(32rem,calc(100dvh-7rem))] w-[min(24rem,calc(100vw-2.5rem))] flex-col overflow-hidden rounded-2xl border border-border bg-background shadow-2xl"
             role="dialog"
             aria-label="고객 지원 챗봇"
+            onDragEnter={onDragEnter}
+            onDragOver={onDragOver}
+            onDragLeave={onDragLeave}
+            onDrop={onDrop}
           >
+            {/* 좌상단 크기 조절 핸들 */}
+            <div
+              onPointerDown={startResize}
+              className="absolute left-0 top-0 z-20 size-5 cursor-nwse-resize"
+              style={{ touchAction: "none" }}
+              role="separator"
+              aria-label="채팅창 크기 조절"
+              title="드래그해서 크기 조절"
+            >
+              <span className="pointer-events-none absolute left-1.5 top-1.5 size-2 rounded-tl-[3px] border-l-2 border-t-2 border-primary-foreground/70" />
+            </div>
+
+            {/* 드래그 오버레이 */}
+            {isDragging && (
+              <div className="pointer-events-none absolute inset-0 z-10 flex flex-col items-center justify-center gap-2 bg-primary/10 backdrop-blur-sm ring-2 ring-inset ring-primary/40">
+                <ImageUp className="size-8 text-primary" />
+                <span className="text-sm font-semibold text-primary">
+                  이미지를 여기에 놓으세요
+                </span>
+              </div>
+            )}
+
             {/* 헤더 */}
             <div className="flex items-center justify-between border-b border-border bg-primary px-4 py-3 text-primary-foreground">
               <div className="flex items-center gap-2">
@@ -213,6 +381,15 @@ export function ChatWidget() {
                         : "bg-muted text-foreground"
                     )}
                   >
+                    {/* 첨부 이미지 썸네일 */}
+                    {m.image && (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img
+                        src={m.image.dataUrl}
+                        alt="첨부 이미지"
+                        className="mb-1.5 max-h-48 w-auto rounded-lg"
+                      />
+                    )}
                     {m.role === "assistant" ? (
                       m.content ? (
                         <div className="chat-markdown">
@@ -240,7 +417,7 @@ export function ChatWidget() {
                     <button
                       key={q}
                       type="button"
-                      onClick={() => send(q)}
+                      onClick={() => send(q, null)}
                       className="rounded-full border border-border bg-background px-3 py-1.5 text-xs text-foreground/80 transition-colors hover:bg-muted"
                     >
                       {q}
@@ -250,16 +427,62 @@ export function ChatWidget() {
               )}
             </div>
 
+            {/* 첨부 미리보기 */}
+            {attachment && (
+              <div className="flex items-center gap-2 border-t border-border bg-muted/30 px-3 py-2">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src={attachment.dataUrl}
+                  alt="첨부 미리보기"
+                  className="size-12 rounded-md object-cover ring-1 ring-border"
+                />
+                <span className="flex-1 truncate text-xs text-foreground/60">
+                  이미지 1장 첨부됨
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setAttachment(null)}
+                  className="rounded-md p-1 text-foreground/50 transition-colors hover:bg-muted hover:text-foreground"
+                  aria-label="첨부 제거"
+                >
+                  <X className="size-4" />
+                </button>
+              </div>
+            )}
+
             {/* 입력 영역 */}
             <form
               onSubmit={onSubmit}
               className="flex items-end gap-2 border-t border-border p-3"
             >
+              {/* 이미지 첨부 버튼 */}
+              <input
+                ref={fileRef}
+                type="file"
+                accept="image/*"
+                className="hidden"
+                onChange={(e) => {
+                  attachFile(e.target.files?.[0]);
+                  e.target.value = "";
+                }}
+              />
+              <Button
+                type="button"
+                size="icon"
+                variant="ghost"
+                onClick={() => fileRef.current?.click()}
+                aria-label="이미지 첨부"
+                title="이미지 첨부 (붙여넣기·드래그도 가능)"
+              >
+                <Paperclip className="size-4" />
+              </Button>
+
               <textarea
                 ref={inputRef}
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
                 onKeyDown={onKeyDown}
+                onPaste={onPaste}
                 rows={1}
                 placeholder="궁금한 점을 입력하세요…"
                 className="max-h-28 min-h-9 flex-1 resize-none rounded-lg border border-input bg-background px-3 py-2 text-sm outline-none placeholder:text-foreground/40 focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
@@ -267,7 +490,7 @@ export function ChatWidget() {
               <Button
                 type="submit"
                 size="icon"
-                disabled={!input.trim() || isStreaming}
+                disabled={!canSend}
                 aria-label="보내기"
               >
                 {isStreaming ? (

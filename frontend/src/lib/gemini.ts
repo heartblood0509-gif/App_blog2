@@ -72,6 +72,43 @@ export async function* generateChatStream(
   }
 }
 
+/** 멀티모달 채팅용 파트 (텍스트 또는 인라인 이미지). */
+export type ChatPart =
+  | { text: string }
+  | { inlineData: { data: string; mimeType: string } };
+
+/** 이미지 첨부가 가능한 챗봇 대화 한 턴. */
+export interface MultimodalTurn {
+  role: "user" | "model";
+  parts: ChatPart[];
+}
+
+/**
+ * 이미지 첨부를 포함할 수 있는 멀티턴 대화를 스트리밍 생성 (챗봇 + 스크린샷).
+ * 각 턴의 parts 에 {text} 와 {inlineData}(이미지)를 섞어 넣을 수 있다.
+ */
+export async function* generateMultimodalChatStream(
+  systemInstruction: string,
+  history: MultimodalTurn[],
+  model: string = "gemini-2.5-flash",
+  apiKey?: string
+): AsyncGenerator<string> {
+  const ai = await getGenAI(apiKey);
+  const response = await ai.models.generateContentStream({
+    model,
+    contents: history.map((t) => ({
+      role: t.role,
+      parts: t.parts as never,
+    })),
+    config: { systemInstruction },
+  });
+
+  for await (const chunk of response) {
+    const text = chunk.text;
+    if (text) yield text;
+  }
+}
+
 /**
  * Gemini 일괄 텍스트 생성용 선택적 설정.
  * 결정론적 출력이 필요한 변환·치환 작업에서 temperature=0 / topP / topK / responseMimeType 같은
