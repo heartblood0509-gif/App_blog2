@@ -21,15 +21,15 @@ interface ChatMessage {
 const GREETING: ChatMessage = {
   role: "assistant",
   content:
-    "안녕하세요! 블로그픽 도우미예요. 😊\n사용 방법, 발행 오류, 데이터 백업 등 궁금한 점을 물어보세요.",
+    "안녕하세요! So-Pick 도우미예요. 😊\n블로그픽·쇼츠픽 사용법, 발행/제작 오류, API 키 등 궁금한 점을 물어보세요.",
 };
 
 // 빠른 질문 칩 — 첫 진입 시 사용자가 클릭만으로 시작할 수 있게.
 const QUICK_QUESTIONS = [
   "글은 어떻게 발행하나요?",
+  "쇼츠 영상은 어떻게 만드나요?",
   "API 키는 어디서 등록하나요?",
   "편집기가 흰 화면이 됐어요",
-  "다른 PC로 데이터를 옮기고 싶어요",
 ];
 
 export function ChatWidget() {
@@ -180,7 +180,7 @@ export function ChatWidget() {
             <div className="flex items-center justify-between border-b border-border bg-primary px-4 py-3 text-primary-foreground">
               <div className="flex items-center gap-2">
                 <MessageCircle className="size-4" />
-                <span className="text-sm font-semibold">블로그픽 도우미</span>
+                <span className="text-sm font-semibold">So-Pick 도우미</span>
               </div>
               <button
                 type="button"
