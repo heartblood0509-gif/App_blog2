@@ -177,7 +177,12 @@ export const TOC_GROUPS: TocGroup[] = [
   },
 ];
 
-/** 페이지 경로로 그룹을 찾는 헬퍼 */
+/** 페이지 경로로 그룹을 찾는 헬퍼.
+ *  정확히 일치하거나 그 하위 경로(`/page/...`)일 때만 매칭한다.
+ *  단순 startsWith 를 쓰면 "/help/shortspick" 가
+ *  "/help/shortspick-guide" 의 접두사라 잘못 매칭되므로 주의. */
 export function findGroupByPage(pathname: string): TocGroup | undefined {
-  return TOC_GROUPS.find((g) => pathname.startsWith(g.page));
+  return TOC_GROUPS.find(
+    (g) => pathname === g.page || pathname.startsWith(g.page + "/"),
+  );
 }
