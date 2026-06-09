@@ -107,16 +107,15 @@
     ],
     "win": {
       "target": "nsis",
-      "artifactName": "Blog-Pick-Setup-${version}-${arch}.${ext}",
+      "artifactName": "Blog-Pick-Windows-${version}.${ext}",
       "verifyUpdateCodeSignature": false,
       "icon": "build/icon.png"
     },
     "mac": {
       "target": [
-        "dmg",
-        "zip"
+        "dmg"
       ],
-      "artifactName": "Blog-Pick-${version}-mac-${arch}.${ext}",
+      "artifactName": "Blog-Pick-Mac-${version}.${ext}",
       "identity": null,
       "gatekeeperAssess": false,
       "icon": "build/icon.png"

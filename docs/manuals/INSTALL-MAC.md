@@ -52,15 +52,15 @@
 
 블로그픽 맥 버전은 **Apple Silicon(M1~M4 칩)** 용 하나예요. 요즘 맥은 대부분 여기에 해당합니다.
 
-- 받을 파일: **`arm64.dmg`** 가 들어간 파일 (`Blog-Pick-XXX-mac-arm64.dmg`)
+- 받을 파일: **`Blog-Pick-Mac`** 이 들어간 `.dmg` 파일 (`Blog-Pick-Mac-XXX.dmg`)
 
 ---
 
 ## 3단계. 설치 파일 다운로드
 
-공식 배포처에서 **`arm64.dmg`** 파일을 받으세요.
+공식 배포처에서 **`Blog-Pick-Mac-….dmg`** 파일을 받으세요.
 
-- **`Blog-Pick-XXX-mac-arm64.dmg`**
+- **`Blog-Pick-Mac-XXX.dmg`**
 
 > 📥 **다운로드 링크:** `[배포 담당자가 채울 자리]`
 

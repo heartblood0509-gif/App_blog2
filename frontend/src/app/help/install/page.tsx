@@ -39,7 +39,7 @@ export default function HelpInstallPage() {
         <StageHeading step="1" title="설치 파일 다운로드" />
         <ul>
           <li>
-            공식 배포처(GitHub Releases)에서 <Code>Blog-Pick-Setup-...-x64.exe</Code>{" "}
+            공식 배포처(GitHub Releases)에서 <Code>Blog-Pick-Windows-….exe</Code>{" "}
             파일을 받습니다.
           </li>
           <li>
@@ -133,7 +133,7 @@ export default function HelpInstallPage() {
         <StageHeading step="2" title="설치 파일 다운로드" />
         <p>
           공식 배포처(GitHub Releases)에서{" "}
-          <Code>Blog-Pick-…-mac-arm64.dmg</Code> 파일을 받습니다.
+          <Code>Blog-Pick-Mac-….dmg</Code> 파일을 받습니다.
         </p>
 
         <StageHeading step="3" title=".dmg 열고 응용 프로그램으로 드래그" />

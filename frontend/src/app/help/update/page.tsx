@@ -136,9 +136,9 @@ export default function HelpUpdatePage() {
           </li>
           <li>
             페이지를 아래로 스크롤하면 <strong>Assets</strong>(또는 「첨부 파일」)
-            목록이 있어요. 그중 <Code>arm64.dmg</Code>가 들어간 파일을 받습니다.
-            (파일명은 <Code>Blog-Pick-…-mac-arm64.dmg</Code> 형태 — 보통 다운로드
-            폴더에 저장돼요.)
+            목록이 있어요. 그중 <Code>Blog-Pick-Mac</Code>이 들어간{" "}
+            <Code>.dmg</Code> 파일을 받습니다. (파일명은{" "}
+            <Code>Blog-Pick-Mac-…dmg</Code> 형태 — 보통 다운로드 폴더에 저장돼요.)
           </li>
         </ol>
 
@@ -161,7 +161,7 @@ export default function HelpUpdatePage() {
         <StageHeading id="mac-step-3" step="3" title="dmg로 새 버전 설치하기" />
         <ol>
           <li>
-            다운로드된 파일(예: <Code>Blog-Pick-0.2.9-arm64.dmg</Code>)을{" "}
+            다운로드된 파일(예: <Code>Blog-Pick-Mac-0.2.15.dmg</Code>)을{" "}
             <strong>더블클릭</strong>합니다. → 창이 하나 뜨고, 그 안에 왼쪽{" "}
             <strong>Blog Pick 아이콘</strong>과 오른쪽{" "}
             <strong>Applications 폴더 아이콘</strong>이 보입니다.
