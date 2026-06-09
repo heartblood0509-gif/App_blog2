@@ -10,6 +10,7 @@ import { AnimatePresence, motion } from "framer-motion";
 import { MessageCircle, X, Send, Loader2, Paperclip, ImageUp } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
@@ -41,6 +42,11 @@ const QUICK_QUESTIONS = [
 ];
 
 const MAX_DIM = 1568; // 이미지 최대 한 변(px) — Gemini 권장. 큰 스크린샷 자동 축소.
+const MAX_IMAGE_B64 = 7_000_000; // 첨부 base64 최대 길이 — 서버 route.ts 의 MAX_IMAGE_B64 와 값 일치.
+// 축소가 필요할 때 PNG(무손실, 글씨 선명) 대신 JPEG로 폴백할지 가르는 base64 길이 한도.
+// 이보다 작으면 PNG 유지, 크면(주로 사진) 고품질 JPEG로 용량을 잡는다. 하드 한도(MAX_IMAGE_B64)보다 충분히 낮게.
+const PNG_BUDGET_B64 = 3_000_000; // ≈ 2.2MB
+const KEEP_IMAGES = 2; // 서버로 실어 보낼 직전 이미지 보존 수 — 서버 route.ts 의 KEEP_IMAGES 와 값 일치.
 
 /** 파일을 data URL 문자열로 읽는다. */
 function readAsDataUrl(file: File): Promise<string> {
@@ -52,7 +58,11 @@ function readAsDataUrl(file: File): Promise<string> {
   });
 }
 
-/** 큰 이미지를 max 한 변 기준으로 축소하고 JPEG로 재인코딩 (토큰·용량 절약). */
+/**
+ * 첨부 이미지를 캡처 판독에 맞게 정리한다.
+ * - 줄일 필요 없으면(원본이 maxDim 이내) 재인코딩하지 않고 원본 그대로 → 글씨 100% 보존.
+ * - 줄여야 하면 글자에 강한 PNG(무손실) 우선, PNG가 너무 크면(주로 사진) 고품질 JPEG로 폴백.
+ */
 function downscale(dataUrl: string, maxDim: number): Promise<Attachment> {
   return new Promise((resolve) => {
     const fallback = (): Attachment => ({
@@ -60,10 +70,18 @@ function downscale(dataUrl: string, maxDim: number): Promise<Attachment> {
       base64: dataUrl.split(",")[1] ?? "",
       mimeType: (dataUrl.match(/^data:(image\/[\w.+-]+);/)?.[1] ?? "image/png"),
     });
+    const toAttachment = (url: string, mimeType: string): Attachment => ({
+      dataUrl: url,
+      base64: url.split(",")[1] ?? "",
+      mimeType,
+    });
     const img = new Image();
     img.onload = () => {
       try {
         const scale = Math.min(1, maxDim / Math.max(img.width, img.height));
+        // 줄일 필요가 없으면 원본 그대로 — 재압축으로 글씨를 뭉개지 않는다.
+        if (scale === 1) return resolve(fallback());
+
         const w = Math.max(1, Math.round(img.width * scale));
         const h = Math.max(1, Math.round(img.height * scale));
         const canvas = document.createElement("canvas");
@@ -72,12 +90,14 @@ function downscale(dataUrl: string, maxDim: number): Promise<Attachment> {
         const ctx = canvas.getContext("2d");
         if (!ctx) return resolve(fallback());
         ctx.drawImage(img, 0, 0, w, h);
-        const out = canvas.toDataURL("image/jpeg", 0.9);
-        resolve({
-          dataUrl: out,
-          base64: out.split(",")[1] ?? "",
-          mimeType: "image/jpeg",
-        });
+
+        // 글자에 강한 PNG(무손실) 우선. 예산을 넘으면(사진 등) 고품질 JPEG로 폴백.
+        const png = canvas.toDataURL("image/png");
+        const pngB64 = png.split(",")[1] ?? "";
+        if (pngB64 && pngB64.length <= PNG_BUDGET_B64) {
+          return resolve(toAttachment(png, "image/png"));
+        }
+        return resolve(toAttachment(canvas.toDataURL("image/jpeg", 0.92), "image/jpeg"));
       } catch {
         resolve(fallback());
       }
@@ -119,13 +139,27 @@ export function ChatWidget() {
 
   // 파일(이미지)을 받아 축소 후 첨부로 등록.
   const attachFile = useCallback(async (file: File | null | undefined) => {
-    if (!file || !file.type.startsWith("image/")) return;
+    if (!file) return;
+    if (!file.type.startsWith("image/")) {
+      toast.error("이미지 파일만 첨부할 수 있어요.");
+      return;
+    }
     try {
       const dataUrl = await readAsDataUrl(file);
       const att = await downscale(dataUrl, MAX_DIM);
-      if (att.base64) setAttachment(att);
+      if (!att.base64) {
+        toast.error("이미지를 불러오지 못했어요. 다시 시도해 주세요.");
+        return;
+      }
+      // 서버가 말없이 버리던 용량 초과를 클라에서 선제 차단 (base64 길이 = 서버 MAX_IMAGE_B64 기준).
+      if (att.base64.length > MAX_IMAGE_B64) {
+        toast.error("이미지가 너무 커요. 더 작은 캡처로 보내주세요.");
+        return;
+      }
+      setAttachment(att);
     } catch {
-      // 무시 — 첨부 실패해도 텍스트 대화는 가능
+      // readAsDataUrl(파일 읽기) 실패 경로. downscale 실패는 fallback 으로 흡수돼 여기 안 옴.
+      toast.error("이미지를 불러오지 못했어요. 다시 시도해 주세요.");
     }
   }, []);
 
@@ -148,10 +182,15 @@ export function ChatWidget() {
       abortRef.current = new AbortController();
 
       // 서버로 보낼 형태로 변환 (이미지는 base64 만).
-      const wire = nextMessages.map((m) => ({
+      // 이미지는 서버 정책과 동일하게 "최근 KEEP_IMAGES개"만 실어 보낸다 (요청 본문·전송량 상한).
+      const imageMsgIdxs = nextMessages
+        .map((m, i) => (m.image ? i : -1))
+        .filter((i) => i >= 0);
+      const keepWireImages = new Set(imageMsgIdxs.slice(-KEEP_IMAGES));
+      const wire = nextMessages.map((m, i) => ({
         role: m.role,
         content: m.content,
-        ...(m.image
+        ...(m.image && keepWireImages.has(i)
           ? { image: { data: m.image.base64, mimeType: m.image.mimeType } }
           : {}),
       }));
@@ -189,11 +228,12 @@ export function ChatWidget() {
         } else {
           const msg =
             err instanceof Error ? err.message : "알 수 없는 오류가 발생했습니다.";
-          setMessages((prev) => {
-            const copy = [...prev];
-            copy[copy.length - 1] = { role: "assistant", content: `⚠️ ${msg}` };
-            return copy;
-          });
+          // 전송 실패 — 추가했던 사용자/빈 답변 메시지를 되돌리고, 입력·첨부를 복구해
+          // 같은 내용으로 바로 재전송할 수 있게 한다 (특히 어렵게 캡처한 이미지 보존).
+          setMessages(messages);
+          setInput(trimmed);
+          setAttachment(image ?? null);
+          toast.error(`전송 실패: ${msg}`);
         }
       } finally {
         setIsStreaming(false);
@@ -257,10 +297,14 @@ export function ChatWidget() {
     e.preventDefault();
     dragDepth.current = 0;
     setIsDragging(false);
-    const file = Array.from(e.dataTransfer.files).find((f) =>
-      f.type.startsWith("image/")
-    );
-    if (file) attachFile(file);
+    const files = Array.from(e.dataTransfer.files);
+    const image = files.find((f) => f.type.startsWith("image/"));
+    if (image) {
+      attachFile(image);
+    } else if (files.length > 0) {
+      // 파일은 떨궜는데 이미지가 하나도 없으면 조용히 무시하지 않고 알린다.
+      toast.error("이미지 파일만 첨부할 수 있어요.");
+    }
   };
   const onDragEnter = (e: React.DragEvent) => {
     if (Array.from(e.dataTransfer.types).includes("Files")) {
@@ -436,9 +480,14 @@ export function ChatWidget() {
                   alt="첨부 미리보기"
                   className="size-12 rounded-md object-cover ring-1 ring-border"
                 />
-                <span className="flex-1 truncate text-xs text-foreground/60">
-                  이미지 1장 첨부됨
-                </span>
+                <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+                  <span className="truncate text-xs text-foreground/60">
+                    이미지 1장 첨부됨
+                  </span>
+                  <span className="text-[11px] leading-snug text-foreground/45">
+                    분석을 위해 외부(Google)로 전송돼요. 비밀번호·API 키 등 민감정보는 가려주세요.
+                  </span>
+                </div>
                 <button
                   type="button"
                   onClick={() => setAttachment(null)}
