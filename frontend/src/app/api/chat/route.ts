@@ -6,7 +6,7 @@ import {
   type ChatPart,
   type MultimodalTurn,
 } from "@/lib/gemini";
-import { buildSystemPrompt } from "@/lib/chatbot/knowledge";
+import { buildSystemPrompt, type Verbosity } from "@/lib/chatbot/knowledge";
 import { CONFIG } from "@/lib/config";
 
 export const maxDuration = 60;
@@ -27,6 +27,7 @@ interface IncomingMessage {
 const MAX_TURNS = 12; // 직전 대화 최대 보존 턴 수 (토큰 절약)
 const MAX_LEN = 2000; // 메시지 한 건 최대 길이 (남용 방지)
 const MAX_IMAGE_B64 = 7_000_000; // 인라인 이미지 base64 최대 길이(약 5MB) — 초과 시 이미지 무시
+const KEEP_IMAGES = 2; // 모델에 전달할 직전 이미지 보존 수 (정확도↔재과금 균형). ChatWidget 의 wire 필터와 값 일치.
 
 function isValidImage(img: unknown): img is IncomingImage {
   if (!img || typeof img !== "object") return false;
@@ -46,6 +47,7 @@ export async function POST(request: Request) {
       messages?: IncomingMessage[];
       apiKey?: string;
       currentPage?: string;
+      verbosity?: string;
     };
 
     const rawMessages = Array.isArray(body.messages) ? body.messages : [];
@@ -59,29 +61,38 @@ export async function POST(request: Request) {
       })
       .slice(-MAX_TURNS);
 
-    // 멀티모달 턴으로 변환. 이미지는 비용 절약을 위해 "마지막 메시지"에만 포함.
+    // 멀티모달 턴으로 변환. 이미지는 비용·정확도 균형을 위해
+    // "이미지가 달린 메시지 중 최근 KEEP_IMAGES개"에만 포함 (후속 질문에서도 직전 캡처 유지).
     const lastIndex = usable.length - 1;
-    const history: MultimodalTurn[] = usable.map((m, idx) => {
-      const parts: ChatPart[] = [];
-      const text =
-        typeof m.content === "string" ? m.content.trim().slice(0, MAX_LEN) : "";
-      if (text) parts.push({ text });
-      if (idx === lastIndex && isValidImage(m.image)) {
-        parts.push({
-          inlineData: { data: m.image.data, mimeType: m.image.mimeType },
-        });
-        // 이미지만 있고 텍스트가 없으면, 분석을 유도하는 기본 지시를 덧붙인다.
-        if (!text) {
-          parts.unshift({
-            text: "첨부한 이미지(주로 앱 화면·에러 스크린샷)를 보고 무엇인지 파악해 도와주세요.",
+    const imageIdxs = usable
+      .map((m, i) => (isValidImage(m.image) ? i : -1))
+      .filter((i) => i >= 0);
+    const keepImageSet = new Set(imageIdxs.slice(-KEEP_IMAGES));
+    const history: MultimodalTurn[] = usable
+      .map((m, idx): MultimodalTurn => {
+        const parts: ChatPart[] = [];
+        const text =
+          typeof m.content === "string" ? m.content.trim().slice(0, MAX_LEN) : "";
+        if (text) parts.push({ text });
+        if (keepImageSet.has(idx) && isValidImage(m.image)) {
+          parts.push({
+            inlineData: { data: m.image.data, mimeType: m.image.mimeType },
           });
+          // 이미지만 있고 텍스트가 없는 "현재 질문"이면, 분석을 유도하는 기본 지시를 덧붙인다.
+          if (!text && idx === lastIndex) {
+            parts.unshift({
+              text: "첨부한 이미지(주로 앱 화면·에러 스크린샷)를 보고 무엇인지 파악해 도와주세요.",
+            });
+          }
         }
-      }
-      return {
-        role: m.role === "assistant" ? "model" : "user",
-        parts,
-      };
-    });
+        return {
+          role: m.role === "assistant" ? "model" : "user",
+          parts,
+        };
+      })
+      // 이미지만 있던 과거 메시지가 keep 에서 빠지면 parts 가 비는데,
+      // 빈 parts 턴은 Gemini 가 거부할 수 있어 제외한다.
+      .filter((turn) => turn.parts.length > 0);
 
     if (history.length === 0 || history[history.length - 1].role !== "user") {
       return Response.json(
@@ -92,7 +103,12 @@ export async function POST(request: Request) {
 
     const currentPage =
       typeof body.currentPage === "string" ? body.currentPage : undefined;
-    const systemInstruction = buildSystemPrompt(currentPage);
+    // "더 자세히/짧게" 버튼이 보낸 깊이. 허용값만 채택, 그 외엔 무시(기본 톤).
+    const verbosity: Verbosity | undefined =
+      body.verbosity === "detailed" || body.verbosity === "concise"
+        ? body.verbosity
+        : undefined;
+    const systemInstruction = buildSystemPrompt(currentPage, verbosity);
 
     const encoder = new TextEncoder();
     const stream = new ReadableStream({

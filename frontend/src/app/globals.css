@@ -194,6 +194,14 @@ body.blog-split-open [data-blog-pick-shell] {
 .chat-markdown li {
   margin: 0.15em 0;
 }
+/* 말풍선의 white-space: pre-wrap 이 목록(loose list)의 구조적 줄바꿈까지 그려
+   점(•)과 텍스트가 다른 줄로 갈라지는 문제 방지 — 목록 요소만 normal 로 되돌린다.
+   (일반 문단은 pre-wrap 유지: 모델이 의도한 줄바꿈 보존) */
+.chat-markdown ul,
+.chat-markdown ol,
+.chat-markdown li {
+  white-space: normal;
+}
 .chat-markdown strong {
   font-weight: 600;
 }
