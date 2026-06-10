@@ -6,7 +6,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
-import { AnimatePresence, motion } from "framer-motion";
+import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import { MessageCircle, X, Send, Loader2, Paperclip, ImageUp } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -95,6 +95,11 @@ export function ChatWidget() {
   const [isStreaming, setIsStreaming] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
 
+  // 플로팅 버튼 안내 말풍선 — 호버 시 / 첫 방문 자동 노출.
+  const [hovered, setHovered] = useState(false);
+  const [autoHinted, setAutoHinted] = useState(false);
+  const reduceMotion = useReducedMotion();
+
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
@@ -116,6 +121,33 @@ export function ChatWidget() {
   useEffect(() => {
     if (open) inputRef.current?.focus();
   }, [open]);
+
+  // 첫 방문 1회만 안내 말풍선 자동 노출 (2.5초 뒤 등장 → 4초 유지 후 숨김).
+  useEffect(() => {
+    let safe = true;
+    try {
+      if (localStorage.getItem("sopick-chat-hint-shown")) return;
+    } catch {
+      return; // localStorage 접근 불가(프라이빗 모드 등) — 조용히 건너뜀
+    }
+    const t1 = setTimeout(() => {
+      if (!safe) return;
+      setAutoHinted(true);
+      try {
+        localStorage.setItem("sopick-chat-hint-shown", "1");
+      } catch {
+        // 기록 실패해도 노출 자체는 진행
+      }
+    }, 2500);
+    const t2 = setTimeout(() => {
+      if (safe) setAutoHinted(false);
+    }, 6500);
+    return () => {
+      safe = false;
+      clearTimeout(t1);
+      clearTimeout(t2);
+    };
+  }, []);
 
   // 파일(이미지)을 받아 축소 후 첨부로 등록.
   const attachFile = useCallback(async (file: File | null | undefined) => {
@@ -301,6 +333,7 @@ export function ChatWidget() {
   };
 
   const canSend = (!!input.trim() || !!attachment) && !isStreaming;
+  const showBubble = !open && (hovered || autoHinted);
 
   return (
     <>
@@ -314,7 +347,7 @@ export function ChatWidget() {
             exit={{ opacity: 0, y: 16, scale: 0.98 }}
             transition={{ duration: 0.18, ease: "easeOut" }}
             style={size ? { width: size.w, height: size.h } : undefined}
-            className="fixed bottom-24 right-5 z-[60] flex h-[min(32rem,calc(100dvh-7rem))] w-[min(24rem,calc(100vw-2.5rem))] flex-col overflow-hidden rounded-2xl border border-border bg-background shadow-2xl"
+            className="fixed bottom-24 right-5 z-[60] flex h-[min(61rem,calc(100dvh-7rem))] w-[min(27rem,calc(100vw-2.5rem))] flex-col overflow-hidden rounded-2xl border border-border bg-background shadow-2xl"
             role="dialog"
             aria-label="고객 지원 챗봇"
             onDragEnter={onDragEnter}
@@ -504,29 +537,57 @@ export function ChatWidget() {
         )}
       </AnimatePresence>
 
-      {/* 플로팅 토글 버튼 */}
-      <button
-        type="button"
-        onClick={() => setOpen((v) => !v)}
-        className="fixed bottom-5 right-5 z-[60] flex size-14 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-lg transition-transform hover:scale-105 active:scale-95"
-        aria-label={open ? "챗봇 닫기" : "챗봇 열기"}
-      >
-        <AnimatePresence mode="wait" initial={false}>
-          <motion.span
-            key={open ? "close" : "open"}
-            initial={{ opacity: 0, rotate: -45 }}
-            animate={{ opacity: 1, rotate: 0 }}
-            exit={{ opacity: 0, rotate: 45 }}
-            transition={{ duration: 0.15 }}
-          >
-            {open ? (
-              <X className="size-6" />
-            ) : (
-              <MessageCircle className="size-6" />
-            )}
-          </motion.span>
+      {/* 플로팅 토글 버튼 + 안내 말풍선 (wrapper 기준으로 말풍선이 버튼 왼쪽에 정렬) */}
+      <div className="fixed bottom-5 right-5 z-[60]">
+        {/* 안내 말풍선 — 호버 또는 첫 방문 자동 노출 시 */}
+        <AnimatePresence>
+          {showBubble && (
+            <motion.div
+              key="chat-hint"
+              initial={reduceMotion ? { opacity: 0 } : { opacity: 0, scale: 0.8 }}
+              animate={reduceMotion ? { opacity: 1 } : { opacity: 1, scale: 1 }}
+              exit={reduceMotion ? { opacity: 0 } : { opacity: 0, scale: 0.8 }}
+              transition={
+                reduceMotion
+                  ? { duration: 0.15 }
+                  : { type: "spring", stiffness: 500, damping: 18 }
+              }
+              style={{ transformOrigin: "right center" }}
+              aria-hidden
+              className="pointer-events-none absolute right-full top-1/2 mr-3 w-max max-w-[min(15rem,calc(100vw-5rem))] -translate-y-1/2 whitespace-normal break-keep rounded-xl bg-primary px-3.5 py-2 text-sm font-medium text-primary-foreground shadow-lg"
+            >
+              So-Pick 도우미예요. 도와드릴게요!
+              {/* 꼬리 — 버튼 쪽을 가리킴 */}
+              <span className="absolute right-0 top-1/2 size-2.5 -translate-y-1/2 translate-x-1/2 rotate-45 bg-primary" />
+            </motion.div>
+          )}
         </AnimatePresence>
-      </button>
+
+        <button
+          type="button"
+          onClick={() => setOpen((v) => !v)}
+          onMouseEnter={() => setHovered(true)}
+          onMouseLeave={() => setHovered(false)}
+          className="flex size-14 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-lg transition-transform hover:scale-105 active:scale-95"
+          aria-label={open ? "챗봇 닫기" : "챗봇 열기"}
+        >
+          <AnimatePresence mode="wait" initial={false}>
+            <motion.span
+              key={open ? "close" : "open"}
+              initial={{ opacity: 0, rotate: -45 }}
+              animate={{ opacity: 1, rotate: 0 }}
+              exit={{ opacity: 0, rotate: 45 }}
+              transition={{ duration: 0.15 }}
+            >
+              {open ? (
+                <X className="size-6" />
+              ) : (
+                <MessageCircle className="size-6" />
+              )}
+            </motion.span>
+          </AnimatePresence>
+        </button>
+      </div>
     </>
   );
 }
