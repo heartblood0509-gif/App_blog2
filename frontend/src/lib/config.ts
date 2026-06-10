@@ -20,16 +20,21 @@ export const CONFIG = {
   IMAGE_MAX_RETRIES: 1,
 
   // ── 이미지 일괄 생성 (클라이언트 풀) ──
-  /** 동시에 진행할 슬롯 fetch 개수의 기본값 (AIMD의 상한이기도 함) */
-  IMAGE_BULK_CONCURRENCY_DEFAULT: 3,
+  /** 동시에 진행할 슬롯 fetch 개수의 기본값 (AIMD의 상한이기도 함).
+   *  동시 3장은 같은 키로 요청이 몰려 장당 응답이 느려지고 일부가 slot timeout(아래)에 걸린다.
+   *  주 병목은 RPM(429)이 아니라 '응답 지연'이라, Tier1에서도 2가 안전하다. */
+  IMAGE_BULK_CONCURRENCY_DEFAULT: 2,
   /** 새 슬롯 fetch 시작 사이 최소 간격 — RPM 안전장치 (ms) */
   IMAGE_BULK_MIN_START_INTERVAL_MS: 6_000,
-  /** 슬롯 한 장당 클라이언트측 timeout (ms) */
-  IMAGE_PER_SLOT_TIMEOUT_MS: 90_000,
+  /** 슬롯 한 장당 클라이언트측 timeout (ms).
+   *  Pro/고해상도는 90초를 넘길 수 있어 120초로 여유를 둔다. standalone 서버에선
+   *  maxDuration 이 무효라, 이 클라측 컷이 실질적으로 유일한 마감 — 너무 짧으면 정상 생성도 잘린다. */
+  IMAGE_PER_SLOT_TIMEOUT_MS: 120_000,
   /** 429/503/500/network 일시 에러 재시도 횟수 (timeout은 별도, 재시도 안 함) */
-  IMAGE_TRANSIENT_RETRIES: 2,
-  /** retryAfter 헤더가 없을 때 fallback backoff (ms) — 시도 N회차 = 배열[N-1] */
-  IMAGE_BACKOFF_FALLBACK_MS: [5_000, 15_000] as readonly number[],
+  IMAGE_TRANSIENT_RETRIES: 3,
+  /** retryAfter 헤더가 없을 때 fallback backoff (ms) — 시도 N회차 = 배열[N-1].
+   *  재시도 3회로 늘리며 3회차(30초)를 추가. 공식 권장 지수 백오프+지터(60초 cap 이내). */
+  IMAGE_BACKOFF_FALLBACK_MS: [5_000, 15_000, 30_000] as readonly number[],
   /** network 에러용 짧은 backoff (ms) */
   IMAGE_BACKOFF_NETWORK_MS: [2_000, 5_000] as readonly number[],
   /** AIMD: 성공 N개 연속 시 동시성 +1 회복 */

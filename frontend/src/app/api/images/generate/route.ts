@@ -13,7 +13,9 @@ import {
 import { extractIdentificationContext } from "@/lib/image/marker-parser";
 import { CONFIG } from "@/lib/config";
 
-export const maxDuration = 95;
+// Vercel 등 지원 플랫폼에서만 적용(standalone Node 서버에선 무효). 클라 슬롯 timeout(120초)보다
+// 약간 길게 둬, 플랫폼이 강제하더라도 클라가 먼저 마감을 판단하게 한다.
+export const maxDuration = 125;
 
 interface SlotRequest {
   id: string;

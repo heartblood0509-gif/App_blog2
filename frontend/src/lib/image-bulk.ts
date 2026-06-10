@@ -444,7 +444,7 @@ export function reasonCodeToLabel(code: ReasonCode): string {
     case "deadline":
       return "응답 너무 큼 (프롬프트 단순화 필요)";
     case "timeout":
-      return "시간 초과 (90초)";
+      return `시간 초과 (${Math.round(CONFIG.IMAGE_PER_SLOT_TIMEOUT_MS / 1000)}초)`;
     case "network":
       return "네트워크 오류";
     case "empty":
