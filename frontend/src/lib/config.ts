@@ -48,6 +48,17 @@ export const CONFIG = {
   /** OpenAI 이미지 품질 — 기본 슬롯 / 고품질(useProModel) 슬롯. */
   OPENAI_IMAGE_QUALITY: { default: "medium", pro: "high" },
 
+  // ── 텍스트 생성 재시도 (제목·본문·분석 등) ──
+  /** 429/503/500 일시 에러 재시도 횟수 (첫 시도 + N회 = 총 N+1회).
+   *  Electron standalone이라 서버리스 시간제한이 없어 넉넉히 둘 수 있으나,
+   *  사용자 대기 체감을 고려해 이미지(3)보다 약간 보수적으로. */
+  TEXT_TRANSIENT_RETRIES: 2,
+  /** retryAfter(서버가 준 대기시간)가 없을 때 fallback 지수 백오프 (ms). */
+  TEXT_BACKOFF_MS: [4_000, 12_000] as readonly number[],
+  /** 본문 품질 재생성(2차 생성) 시 재시도 상한 — (재생성 2회)×(재시도)로 인한
+   *  누적 대기 폭증을 막기 위해 1차보다 짧게. */
+  TEXT_REGEN_RETRIES: 1,
+
   /** Python 자동 포스팅 백엔드 URL */
   BACKEND_URL: process.env.BACKEND_URL || "http://localhost:8000",
 } as const;
