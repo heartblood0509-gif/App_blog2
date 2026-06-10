@@ -6,12 +6,14 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
-import { AnimatePresence, motion } from "framer-motion";
+import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import { MessageCircle, X, Send, Loader2, Paperclip, ImageUp } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import type { Verbosity } from "@/lib/chatbot/knowledge";
 
 /** 첨부 이미지 (자동 축소 후). base64 는 data URL prefix 없는 순수 값. */
 interface Attachment {
@@ -41,6 +43,11 @@ const QUICK_QUESTIONS = [
 ];
 
 const MAX_DIM = 1568; // 이미지 최대 한 변(px) — Gemini 권장. 큰 스크린샷 자동 축소.
+const MAX_IMAGE_B64 = 7_000_000; // 첨부 base64 최대 길이 — 서버 route.ts 의 MAX_IMAGE_B64 와 값 일치.
+// 축소가 필요할 때 PNG(무손실, 글씨 선명) 대신 JPEG로 폴백할지 가르는 base64 길이 한도.
+// 이보다 작으면 PNG 유지, 크면(주로 사진) 고품질 JPEG로 용량을 잡는다. 하드 한도(MAX_IMAGE_B64)보다 충분히 낮게.
+const PNG_BUDGET_B64 = 3_000_000; // ≈ 2.2MB
+const KEEP_IMAGES = 2; // 서버로 실어 보낼 직전 이미지 보존 수 — 서버 route.ts 의 KEEP_IMAGES 와 값 일치.
 
 /** 파일을 data URL 문자열로 읽는다. */
 function readAsDataUrl(file: File): Promise<string> {
@@ -52,7 +59,11 @@ function readAsDataUrl(file: File): Promise<string> {
   });
 }
 
-/** 큰 이미지를 max 한 변 기준으로 축소하고 JPEG로 재인코딩 (토큰·용량 절약). */
+/**
+ * 첨부 이미지를 캡처 판독에 맞게 정리한다.
+ * - 줄일 필요 없으면(원본이 maxDim 이내) 재인코딩하지 않고 원본 그대로 → 글씨 100% 보존.
+ * - 줄여야 하면 글자에 강한 PNG(무손실) 우선, PNG가 너무 크면(주로 사진) 고품질 JPEG로 폴백.
+ */
 function downscale(dataUrl: string, maxDim: number): Promise<Attachment> {
   return new Promise((resolve) => {
     const fallback = (): Attachment => ({
@@ -60,10 +71,18 @@ function downscale(dataUrl: string, maxDim: number): Promise<Attachment> {
       base64: dataUrl.split(",")[1] ?? "",
       mimeType: (dataUrl.match(/^data:(image\/[\w.+-]+);/)?.[1] ?? "image/png"),
     });
+    const toAttachment = (url: string, mimeType: string): Attachment => ({
+      dataUrl: url,
+      base64: url.split(",")[1] ?? "",
+      mimeType,
+    });
     const img = new Image();
     img.onload = () => {
       try {
         const scale = Math.min(1, maxDim / Math.max(img.width, img.height));
+        // 줄일 필요가 없으면 원본 그대로 — 재압축으로 글씨를 뭉개지 않는다.
+        if (scale === 1) return resolve(fallback());
+
         const w = Math.max(1, Math.round(img.width * scale));
         const h = Math.max(1, Math.round(img.height * scale));
         const canvas = document.createElement("canvas");
@@ -72,12 +91,14 @@ function downscale(dataUrl: string, maxDim: number): Promise<Attachment> {
         const ctx = canvas.getContext("2d");
         if (!ctx) return resolve(fallback());
         ctx.drawImage(img, 0, 0, w, h);
-        const out = canvas.toDataURL("image/jpeg", 0.9);
-        resolve({
-          dataUrl: out,
-          base64: out.split(",")[1] ?? "",
-          mimeType: "image/jpeg",
-        });
+
+        // 글자에 강한 PNG(무손실) 우선. 예산을 넘으면(사진 등) 고품질 JPEG로 폴백.
+        const png = canvas.toDataURL("image/png");
+        const pngB64 = png.split(",")[1] ?? "";
+        if (pngB64 && pngB64.length <= PNG_BUDGET_B64) {
+          return resolve(toAttachment(png, "image/png"));
+        }
+        return resolve(toAttachment(canvas.toDataURL("image/jpeg", 0.92), "image/jpeg"));
       } catch {
         resolve(fallback());
       }
@@ -87,6 +108,40 @@ function downscale(dataUrl: string, maxDim: number): Promise<Attachment> {
   });
 }
 
+/** 답변 끝에 붙는 "도움말에서 자세히 보기" 마크다운 링크 한 줄을 제거 (프롬프트가 어겨도 코드로 확실히). */
+function stripHelpLink(text: string): string {
+  const stripped = text.replace(
+    /\n*\[[^\]]*(?:📖|도움말에서 자세히 보기)[^\]]*\]\([^)]*\)\s*$/u,
+    ""
+  );
+  return stripped === text ? text : stripped.trimEnd();
+}
+
+/** 에러 말풍선 판별 — "⚠️"로 시작하는 답변엔 "더 자세히/짧게" 버튼을 숨긴다(실패 반복 방지). */
+function isErrorBubble(content: string): boolean {
+  return content.trim().startsWith("⚠️");
+}
+
+/** 서버로 보낼 wire 메시지 (이미지는 base64 만). */
+type WireMessage = {
+  role: "user" | "assistant";
+  content: string;
+  image?: { data: string; mimeType: string };
+};
+
+/** 메시지 배열 → wire. 이미지는 서버 정책과 동일하게 최근 KEEP_IMAGES개만 포함. */
+function buildWire(msgs: ChatMessage[]): WireMessage[] {
+  const imageIdxs = msgs.map((m, i) => (m.image ? i : -1)).filter((i) => i >= 0);
+  const keep = new Set(imageIdxs.slice(-KEEP_IMAGES));
+  return msgs.map((m, i) => ({
+    role: m.role,
+    content: m.content,
+    ...(m.image && keep.has(i)
+      ? { image: { data: m.image.base64, mimeType: m.image.mimeType } }
+      : {}),
+  }));
+}
+
 export function ChatWidget() {
   const [open, setOpen] = useState(false);
   const [messages, setMessages] = useState<ChatMessage[]>([GREETING]);
@@ -94,6 +149,11 @@ export function ChatWidget() {
   const [attachment, setAttachment] = useState<Attachment | null>(null);
   const [isStreaming, setIsStreaming] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
+
+  // 플로팅 버튼 안내 말풍선 — 호버 시 / 첫 방문 자동 노출.
+  const [hovered, setHovered] = useState(false);
+  const [autoHinted, setAutoHinted] = useState(false);
+  const reduceMotion = useReducedMotion();
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -106,28 +166,119 @@ export function ChatWidget() {
   const pathname = usePathname();
   const router = useRouter();
 
-  // 새 메시지마다 맨 아래로 스크롤.
+  // 새 메시지마다 맨 아래로 스크롤. isStreaming 도 의존성에 둬서, 스트리밍이 끝나
+  // "더 자세히/짧게" 버튼이 추가되는 순간에도 다시 스크롤해 버튼이 가려지지 않게 한다.
   useEffect(() => {
     const el = scrollRef.current;
     if (el) el.scrollTop = el.scrollHeight;
-  }, [messages, open, attachment]);
+  }, [messages, open, attachment, isStreaming]);
 
   // 열릴 때 입력창 포커스.
   useEffect(() => {
     if (open) inputRef.current?.focus();
   }, [open]);
 
+  // 첫 방문 1회만 안내 말풍선 자동 노출 (2.5초 뒤 등장 → 4초 유지 후 숨김).
+  useEffect(() => {
+    let safe = true;
+    try {
+      if (localStorage.getItem("sopick-chat-hint-shown")) return;
+    } catch {
+      return; // localStorage 접근 불가(프라이빗 모드 등) — 조용히 건너뜀
+    }
+    const t1 = setTimeout(() => {
+      if (!safe) return;
+      setAutoHinted(true);
+      try {
+        localStorage.setItem("sopick-chat-hint-shown", "1");
+      } catch {
+        // 기록 실패해도 노출 자체는 진행
+      }
+    }, 2500);
+    const t2 = setTimeout(() => {
+      if (safe) setAutoHinted(false);
+    }, 6500);
+    return () => {
+      safe = false;
+      clearTimeout(t1);
+      clearTimeout(t2);
+    };
+  }, []);
+
   // 파일(이미지)을 받아 축소 후 첨부로 등록.
   const attachFile = useCallback(async (file: File | null | undefined) => {
-    if (!file || !file.type.startsWith("image/")) return;
+    if (!file) return;
+    if (!file.type.startsWith("image/")) {
+      toast.error("이미지 파일만 첨부할 수 있어요.");
+      return;
+    }
     try {
       const dataUrl = await readAsDataUrl(file);
       const att = await downscale(dataUrl, MAX_DIM);
-      if (att.base64) setAttachment(att);
+      if (!att.base64) {
+        toast.error("이미지를 불러오지 못했어요. 다시 시도해 주세요.");
+        return;
+      }
+      // 서버가 말없이 버리던 용량 초과를 클라에서 선제 차단 (base64 길이 = 서버 MAX_IMAGE_B64 기준).
+      if (att.base64.length > MAX_IMAGE_B64) {
+        toast.error("이미지가 너무 커요. 더 작은 캡처로 보내주세요.");
+        return;
+      }
+      setAttachment(att);
     } catch {
-      // 무시 — 첨부 실패해도 텍스트 대화는 가능
+      // readAsDataUrl(파일 읽기) 실패 경로. downscale 실패는 fallback 으로 흡수돼 여기 안 옴.
+      toast.error("이미지를 불러오지 못했어요. 다시 시도해 주세요.");
     }
   }, []);
+
+  // 공통 스트리밍: /api/chat 호출 → 마지막(빈) assistant 메시지에 누적 → 완료 시 도움말 링크 푸터 제거.
+  // 실패는 throw (호출자가 롤백/토스트). 호출 전에 마지막 메시지로 빈 assistant 를 넣어둬야 한다.
+  const streamAssistant = useCallback(
+    async (wire: WireMessage[], verbosity?: Verbosity) => {
+      abortRef.current = new AbortController();
+      const res = await fetch("/api/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          messages: wire,
+          currentPage: pathname,
+          ...(verbosity ? { verbosity } : {}),
+        }),
+        signal: abortRef.current.signal,
+      });
+
+      if (!res.ok || !res.body) {
+        const data = await res.json().catch(() => null);
+        throw new Error(data?.error || "응답을 받지 못했습니다.");
+      }
+
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let acc = "";
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        acc += decoder.decode(value, { stream: true });
+        setMessages((prev) => {
+          const copy = [...prev];
+          copy[copy.length - 1] = { role: "assistant", content: acc };
+          return copy;
+        });
+      }
+
+      // 완료 후 도움말 링크 푸터 제거 (프롬프트가 어겨도 코드로 확실히).
+      const cleaned = stripHelpLink(acc);
+      if (cleaned !== acc) {
+        setMessages((prev) => {
+          const copy = [...prev];
+          copy[copy.length - 1] = { role: "assistant", content: cleaned };
+          return copy;
+        });
+      }
+    },
+    [pathname]
+  );
 
   const send = useCallback(
     async (text: string, image: Attachment | null) => {
@@ -145,62 +296,76 @@ export function ChatWidget() {
       setAttachment(null);
       setIsStreaming(true);
 
-      abortRef.current = new AbortController();
-
-      // 서버로 보낼 형태로 변환 (이미지는 base64 만).
-      const wire = nextMessages.map((m) => ({
-        role: m.role,
-        content: m.content,
-        ...(m.image
-          ? { image: { data: m.image.base64, mimeType: m.image.mimeType } }
-          : {}),
-      }));
-
       try {
-        const res = await fetch("/api/chat", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ messages: wire, currentPage: pathname }),
-          signal: abortRef.current.signal,
-        });
-
-        if (!res.ok || !res.body) {
-          const data = await res.json().catch(() => null);
-          throw new Error(data?.error || "응답을 받지 못했습니다.");
-        }
-
-        const reader = res.body.getReader();
-        const decoder = new TextDecoder();
-        let acc = "";
-
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
-          acc += decoder.decode(value, { stream: true });
-          setMessages((prev) => {
-            const copy = [...prev];
-            copy[copy.length - 1] = { role: "assistant", content: acc };
-            return copy;
-          });
-        }
+        await streamAssistant(buildWire(nextMessages));
       } catch (err) {
         if (err instanceof DOMException && err.name === "AbortError") {
           // 사용자가 닫음 — 무시
         } else {
           const msg =
             err instanceof Error ? err.message : "알 수 없는 오류가 발생했습니다.";
-          setMessages((prev) => {
-            const copy = [...prev];
-            copy[copy.length - 1] = { role: "assistant", content: `⚠️ ${msg}` };
-            return copy;
-          });
+          // 전송 실패 — 추가했던 사용자/빈 답변을 되돌리고, 입력·첨부를 복구해
+          // 같은 내용으로 바로 재전송할 수 있게 한다 (특히 어렵게 캡처한 이미지 보존).
+          setMessages(messages);
+          setInput(trimmed);
+          setAttachment(image ?? null);
+          toast.error(`전송 실패: ${msg}`);
         }
       } finally {
         setIsStreaming(false);
         abortRef.current = null;
       }
     },
-    [messages, isStreaming, pathname]
+    [messages, isStreaming, streamAssistant]
+  );
+
+  // "더 자세히/짧게" — 원래 답은 남기고 새 답을 아래에 추가(append).
+  // 모델엔 직전 대화 전체(질문+짧은 답)를 보내고, 끝에 "이 답을 더 자세히/짧게" 지시 턴을
+  // wire 에만 덧붙인다(화면엔 안 보임) → 모델이 무엇을 확장/요약할지 알게 한다.
+  const regenerateLast = useCallback(
+    async (verbosity: Verbosity) => {
+      if (isStreaming) return;
+      const last = messages[messages.length - 1];
+      if (
+        !last ||
+        last.role !== "assistant" ||
+        !last.content ||
+        isErrorBubble(last.content)
+      )
+        return;
+      if (!messages.some((m) => m.role === "user")) return; // 재답할 질문 존재
+
+      const instruction =
+        verbosity === "detailed"
+          ? "방금 답변을 매뉴얼 수준으로 더 자세히, 빠짐없이 다시 설명해 주세요."
+          : "방금 답변을 핵심만 1~3줄로 짧게 요약해 주세요.";
+      // 직전 대화(이미지 KEEP_IMAGES 유지) + 지시 턴(user). 서버 가드(마지막 role=user) 충족.
+      const wire: WireMessage[] = [
+        ...buildWire(messages),
+        { role: "user", content: instruction },
+      ];
+
+      const snapshot = messages;
+      setMessages([...messages, { role: "assistant", content: "" }]);
+      setIsStreaming(true);
+
+      try {
+        await streamAssistant(wire, verbosity);
+      } catch (err) {
+        if (err instanceof DOMException && err.name === "AbortError") {
+          // 무시
+        } else {
+          const msg =
+            err instanceof Error ? err.message : "알 수 없는 오류가 발생했습니다.";
+          setMessages(snapshot); // append 한 빈 답변 제거(이전 상태 복구)
+          toast.error(`다시 답변 실패: ${msg}`);
+        }
+      } finally {
+        setIsStreaming(false);
+        abortRef.current = null;
+      }
+    },
+    [messages, isStreaming, streamAssistant]
   );
 
   // 도움말 딥링크(/help/...)는 새로고침 없이 앱 내에서 이동하고 패널을 닫는다.
@@ -257,10 +422,14 @@ export function ChatWidget() {
     e.preventDefault();
     dragDepth.current = 0;
     setIsDragging(false);
-    const file = Array.from(e.dataTransfer.files).find((f) =>
-      f.type.startsWith("image/")
-    );
-    if (file) attachFile(file);
+    const files = Array.from(e.dataTransfer.files);
+    const image = files.find((f) => f.type.startsWith("image/"));
+    if (image) {
+      attachFile(image);
+    } else if (files.length > 0) {
+      // 파일은 떨궜는데 이미지가 하나도 없으면 조용히 무시하지 않고 알린다.
+      toast.error("이미지 파일만 첨부할 수 있어요.");
+    }
   };
   const onDragEnter = (e: React.DragEvent) => {
     if (Array.from(e.dataTransfer.types).includes("Files")) {
@@ -301,6 +470,17 @@ export function ChatWidget() {
   };
 
   const canSend = (!!input.trim() || !!attachment) && !isStreaming;
+  const showBubble = !open && (hovered || autoHinted);
+
+  // "더 자세히/짧게"는 마지막이 정상(에러 아님) 답변이고, 재답할 질문이 있을 때만 노출.
+  const lastMsg = messages[messages.length - 1];
+  const canRefine =
+    !isStreaming &&
+    !!lastMsg &&
+    lastMsg.role === "assistant" &&
+    !!lastMsg.content &&
+    !isErrorBubble(lastMsg.content) &&
+    messages.some((m) => m.role === "user");
 
   return (
     <>
@@ -314,7 +494,7 @@ export function ChatWidget() {
             exit={{ opacity: 0, y: 16, scale: 0.98 }}
             transition={{ duration: 0.18, ease: "easeOut" }}
             style={size ? { width: size.w, height: size.h } : undefined}
-            className="fixed bottom-24 right-5 z-[60] flex h-[min(32rem,calc(100dvh-7rem))] w-[min(24rem,calc(100vw-2.5rem))] flex-col overflow-hidden rounded-2xl border border-border bg-background shadow-2xl"
+            className="fixed bottom-24 right-5 z-[60] flex h-[min(61rem,calc(100dvh-7rem))] w-[min(27rem,calc(100vw-2.5rem))] flex-col overflow-hidden rounded-2xl border border-border bg-background shadow-2xl"
             role="dialog"
             aria-label="고객 지원 챗봇"
             onDragEnter={onDragEnter}
@@ -410,6 +590,26 @@ export function ChatWidget() {
                 </div>
               ))}
 
+              {/* 답변 깊이 조절 — 마지막 정상 답변 아래에만 노출 */}
+              {canRefine && (
+                <div className="flex flex-wrap gap-1.5 pt-1">
+                  <button
+                    type="button"
+                    onClick={() => regenerateLast("detailed")}
+                    className="rounded-full border border-border bg-background px-3 py-1.5 text-xs text-foreground/80 transition-colors hover:bg-muted"
+                  >
+                    더 자세히
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => regenerateLast("concise")}
+                    className="rounded-full border border-border bg-background px-3 py-1.5 text-xs text-foreground/80 transition-colors hover:bg-muted"
+                  >
+                    짧게
+                  </button>
+                </div>
+              )}
+
               {/* 빠른 질문 — 첫 인사만 있을 때 노출 */}
               {messages.length === 1 && (
                 <div className="flex flex-wrap gap-1.5 pt-1">
@@ -436,9 +636,14 @@ export function ChatWidget() {
                   alt="첨부 미리보기"
                   className="size-12 rounded-md object-cover ring-1 ring-border"
                 />
-                <span className="flex-1 truncate text-xs text-foreground/60">
-                  이미지 1장 첨부됨
-                </span>
+                <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+                  <span className="truncate text-xs text-foreground/60">
+                    이미지 1장 첨부됨
+                  </span>
+                  <span className="text-[11px] leading-snug text-foreground/45">
+                    분석을 위해 외부(Google)로 전송돼요. 비밀번호·API 키 등 민감정보는 가려주세요.
+                  </span>
+                </div>
                 <button
                   type="button"
                   onClick={() => setAttachment(null)}
@@ -504,29 +709,57 @@ export function ChatWidget() {
         )}
       </AnimatePresence>
 
-      {/* 플로팅 토글 버튼 */}
-      <button
-        type="button"
-        onClick={() => setOpen((v) => !v)}
-        className="fixed bottom-5 right-5 z-[60] flex size-14 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-lg transition-transform hover:scale-105 active:scale-95"
-        aria-label={open ? "챗봇 닫기" : "챗봇 열기"}
-      >
-        <AnimatePresence mode="wait" initial={false}>
-          <motion.span
-            key={open ? "close" : "open"}
-            initial={{ opacity: 0, rotate: -45 }}
-            animate={{ opacity: 1, rotate: 0 }}
-            exit={{ opacity: 0, rotate: 45 }}
-            transition={{ duration: 0.15 }}
-          >
-            {open ? (
-              <X className="size-6" />
-            ) : (
-              <MessageCircle className="size-6" />
-            )}
-          </motion.span>
+      {/* 플로팅 토글 버튼 + 안내 말풍선 (wrapper 기준으로 말풍선이 버튼 왼쪽에 정렬) */}
+      <div className="fixed bottom-5 right-5 z-[60]">
+        {/* 안내 말풍선 — 호버 또는 첫 방문 자동 노출 시 */}
+        <AnimatePresence>
+          {showBubble && (
+            <motion.div
+              key="chat-hint"
+              initial={reduceMotion ? { opacity: 0 } : { opacity: 0, scale: 0.8 }}
+              animate={reduceMotion ? { opacity: 1 } : { opacity: 1, scale: 1 }}
+              exit={reduceMotion ? { opacity: 0 } : { opacity: 0, scale: 0.8 }}
+              transition={
+                reduceMotion
+                  ? { duration: 0.15 }
+                  : { type: "spring", stiffness: 500, damping: 18 }
+              }
+              style={{ transformOrigin: "right center" }}
+              aria-hidden
+              className="pointer-events-none absolute right-full top-1/2 mr-3 w-max max-w-[min(15rem,calc(100vw-5rem))] -translate-y-1/2 whitespace-normal break-keep rounded-xl bg-primary px-3.5 py-2 text-sm font-medium text-primary-foreground shadow-lg"
+            >
+              So-Pick 도우미예요. 도와드릴게요!
+              {/* 꼬리 — 버튼 쪽을 가리킴 */}
+              <span className="absolute right-0 top-1/2 size-2.5 -translate-y-1/2 translate-x-1/2 rotate-45 bg-primary" />
+            </motion.div>
+          )}
         </AnimatePresence>
-      </button>
+
+        <button
+          type="button"
+          onClick={() => setOpen((v) => !v)}
+          onMouseEnter={() => setHovered(true)}
+          onMouseLeave={() => setHovered(false)}
+          className="flex size-14 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-lg transition-transform hover:scale-105 active:scale-95"
+          aria-label={open ? "챗봇 닫기" : "챗봇 열기"}
+        >
+          <AnimatePresence mode="wait" initial={false}>
+            <motion.span
+              key={open ? "close" : "open"}
+              initial={{ opacity: 0, rotate: -45 }}
+              animate={{ opacity: 1, rotate: 0 }}
+              exit={{ opacity: 0, rotate: 45 }}
+              transition={{ duration: 0.15 }}
+            >
+              {open ? (
+                <X className="size-6" />
+              ) : (
+                <MessageCircle className="size-6" />
+              )}
+            </motion.span>
+          </AnimatePresence>
+        </button>
+      </div>
     </>
   );
 }
