@@ -21,7 +21,7 @@ const SUPPORTED_RATIOS = [
   "2:3",
 ] as const;
 
-const IMAGE_MODEL = "gemini-3.1-flash-image-preview";
+const IMAGE_MODEL = "gemini-3.1-flash-image";
 
 export async function POST(request: Request) {
   const { success } = rateLimit(getClientId(request), 10, 60_000);

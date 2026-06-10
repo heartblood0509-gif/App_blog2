@@ -36,6 +36,10 @@ yarn-error.log*
 # Gemini API 키 로컬 저장 (웹 dev 모드에서 ApiKeyPanel 이 작성. git 절대 금지)
 .gemini-key.local
 
+# OpenAI API 키 + AI 제공자 설정 로컬 저장 (웹 dev 모드에서 AiProviderPanel 이 작성. git 절대 금지)
+.openai-key.local
+.ai-provider.local
+
 # vercel
 .vercel
 

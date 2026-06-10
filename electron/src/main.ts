@@ -36,6 +36,8 @@ import {
   loadFalKey,
   loadFrontendPort,
   loadGeminiApiKey,
+  loadOpenAIApiKey,
+  aiProviderConfigPath,
   loadTypecastApiKey,
   registerSettingsIpc,
   saveFrontendPort,
@@ -1763,6 +1765,7 @@ async function boot(): Promise<void> {
   // §F 설정에서 Gemini key 복호화. 없으면 SettingsModal 이 사용자에게 입력 요청.
   // (위에서 safeStorage 가 이미 준비됐으므로 여기선 빠름)
   const geminiApiKey = loadGeminiApiKey();
+  const openaiApiKey = loadOpenAIApiKey();
 
   await pythonReady;
 
@@ -1770,6 +1773,8 @@ async function boot(): Promise<void> {
     appToken: APP_TOKEN,
     sessionToken: APP_SESSION_TOKEN,
     geminiApiKey,
+    openaiApiKey,
+    aiProviderConfigPath: aiProviderConfigPath(),
     youtubeUrl: youtubeOrigin,
   });
   await nextSrv.start();

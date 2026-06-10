@@ -6,6 +6,9 @@ export interface NextServerOptions {
   appToken: string;
   sessionToken: string;
   geminiApiKey?: string;
+  openaiApiKey?: string;
+  // provider/모델은 부팅 env 가 아니라, Next 가 매 요청 읽는 파일 경로로 전달(즉시 전환).
+  aiProviderConfigPath?: string;
   // youtube-backend(쇼츠 생성기) origin — "유튜브" 탭 iframe src 로 클라이언트에 노출.
   youtubeUrl?: string;
 }
@@ -42,6 +45,16 @@ export class NextServerManager {
     // §F GEMINI_API_KEY — settings.json 에서 복호화한 평문이 있을 때만 주입.
     if (this.opts.geminiApiKey) {
       env.GEMINI_API_KEY = this.opts.geminiApiKey;
+    }
+
+    // 블로그 ChatGPT 모드 — OpenAI 키는 부팅 시 env 로 주입(키 변경은 재시작 후 반영).
+    if (this.opts.openaiApiKey) {
+      env.OPENAI_API_KEY = this.opts.openaiApiKey;
+    }
+    // provider/모델은 userData 의 파일 경로만 알려준다. Next 가 매 요청 이 파일을 읽어
+    // 토글이 재시작 없이 즉시 반영된다.
+    if (this.opts.aiProviderConfigPath) {
+      env.AI_PROVIDER_CONFIG_PATH = this.opts.aiProviderConfigPath;
     }
 
     // 유튜브 탭의 같은-origin 프록시(/api/youtube/[...path] → youtube-backend-fetch)가

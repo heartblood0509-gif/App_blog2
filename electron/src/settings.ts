@@ -30,6 +30,9 @@ interface SettingsFile {
   // youtube-backend(쇼츠 생성기)의 JWT_SECRET. API 키 암호화(Fernet) 키를 여기서 파생하므로
   // 재시작해도 동일해야 저장된 키를 복호화할 수 있다 → 1회 생성 후 영속.
   youtube_jwt_secret?: string;
+  // ── AI 제공자(블로그 글 생성) ── 키만 암호화 저장.
+  // provider/모델 토글은 즉시 반영돼야 해서 userData/ai-provider.json(평문 JSON)에 따로 둔다.
+  openai_api_key_encrypted?: string; // base64 DPAPI
 }
 
 function settingsPath(): string {
@@ -80,6 +83,42 @@ export function loadTypecastApiKey(): string | undefined {
 
 export function loadFalKey(): string | undefined {
   return loadEncryptedKey(readRaw().fal_key_encrypted);
+}
+
+export function loadOpenAIApiKey(): string | undefined {
+  return loadEncryptedKey(readRaw().openai_api_key_encrypted);
+}
+
+// provider/모델은 비밀이 아니고 토글 시 즉시 반영돼야 해서 userData 의 평문 JSON 으로 둔다.
+// Next 가 AI_PROVIDER_CONFIG_PATH 로 이 파일을 매 요청 읽어, 재시작 없이 전환된다.
+export type AiProviderConfig = {
+  provider: "gemini" | "openai";
+  openaiTextModel: "gpt-5.4-mini" | "gpt-5.5";
+};
+
+export function aiProviderConfigPath(): string {
+  return path.join(app.getPath("userData"), "ai-provider.json");
+}
+
+export function readAiProviderConfig(): AiProviderConfig {
+  try {
+    const raw = fs.readFileSync(aiProviderConfigPath(), "utf-8");
+    const p = JSON.parse(raw);
+    return {
+      provider: p?.provider === "openai" ? "openai" : "gemini",
+      openaiTextModel: p?.openaiTextModel === "gpt-5.4-mini" ? "gpt-5.4-mini" : "gpt-5.5",
+    };
+  } catch {
+    return { provider: "gemini", openaiTextModel: "gpt-5.5" };
+  }
+}
+
+function writeAiProviderConfig(cfg: AiProviderConfig): void {
+  const p = aiProviderConfigPath();
+  fs.mkdirSync(path.dirname(p), { recursive: true });
+  const tmp = `${p}.tmp`;
+  fs.writeFileSync(tmp, JSON.stringify(cfg), "utf-8");
+  fs.renameSync(tmp, p);
 }
 
 // 유튜브 전용 키(typecast/fal) 저장. 빈 문자열이면 해당 필드를 지운다(설정 UI '지우기'와 정합).
@@ -217,6 +256,53 @@ export function registerSettingsIpc(): void {
   );
   ipcMain.handle("settings:setFalKey", async (_e, plaintext: string) =>
     setEncryptedYoutubeKey("fal_key_encrypted", plaintext),
+  );
+
+  // OpenAI 키 (블로그 ChatGPT 모드). setGeminiKey 패턴 + 빈 문자열=지우기.
+  ipcMain.handle("settings:setOpenAIKey", async (_e, plaintext: string) => {
+    const encryption_available = safeStorage.isEncryptionAvailable();
+    const data = readRaw();
+    if (typeof plaintext === "string" && plaintext.length === 0) {
+      if (data.openai_api_key_encrypted !== undefined) {
+        delete data.openai_api_key_encrypted;
+        writeRawAtomic(data);
+      }
+      return { ok: true, encryption_available };
+    }
+    if (!encryption_available) return { ok: false, encryption_available: false };
+    if (typeof plaintext !== "string") return { ok: false, encryption_available: true };
+    data.openai_api_key_encrypted = safeStorage.encryptString(plaintext).toString("base64");
+    writeRawAtomic(data);
+    return { ok: true, encryption_available: true };
+  });
+
+  ipcMain.handle("settings:getOpenAIMasked", async () => {
+    const plain = loadOpenAIApiKey();
+    return {
+      hasKey: Boolean(plain),
+      masked: plain ? mask(plain) : null,
+      encryption_available: safeStorage.isEncryptionAvailable(),
+    };
+  });
+
+  ipcMain.handle("settings:getAiProvider", async () => readAiProviderConfig());
+
+  // provider/모델 토글 — userData/ai-provider.json 에 즉시 기록. Next 가 매 요청 읽어 재시작 불필요.
+  ipcMain.handle(
+    "settings:setAiProvider",
+    async (_e, cfg: { provider?: string; openaiTextModel?: string }) => {
+      const current = readAiProviderConfig();
+      const next: AiProviderConfig = {
+        provider:
+          cfg?.provider === "gemini" || cfg?.provider === "openai" ? cfg.provider : current.provider,
+        openaiTextModel:
+          cfg?.openaiTextModel === "gpt-5.4-mini" || cfg?.openaiTextModel === "gpt-5.5"
+            ? cfg.openaiTextModel
+            : current.openaiTextModel,
+      };
+      writeAiProviderConfig(next);
+      return { ok: true, ...next };
+    },
   );
 
   ipcMain.handle("app:relaunch", () => {
