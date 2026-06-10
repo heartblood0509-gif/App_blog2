@@ -6,7 +6,7 @@ import {
   type ChatPart,
   type MultimodalTurn,
 } from "@/lib/gemini";
-import { buildSystemPrompt } from "@/lib/chatbot/knowledge";
+import { buildSystemPrompt, type Verbosity } from "@/lib/chatbot/knowledge";
 import { CONFIG } from "@/lib/config";
 
 export const maxDuration = 60;
@@ -47,6 +47,7 @@ export async function POST(request: Request) {
       messages?: IncomingMessage[];
       apiKey?: string;
       currentPage?: string;
+      verbosity?: string;
     };
 
     const rawMessages = Array.isArray(body.messages) ? body.messages : [];
@@ -102,7 +103,12 @@ export async function POST(request: Request) {
 
     const currentPage =
       typeof body.currentPage === "string" ? body.currentPage : undefined;
-    const systemInstruction = buildSystemPrompt(currentPage);
+    // "더 자세히/짧게" 버튼이 보낸 깊이. 허용값만 채택, 그 외엔 무시(기본 톤).
+    const verbosity: Verbosity | undefined =
+      body.verbosity === "detailed" || body.verbosity === "concise"
+        ? body.verbosity
+        : undefined;
+    const systemInstruction = buildSystemPrompt(currentPage, verbosity);
 
     const encoder = new TextEncoder();
     const stream = new ReadableStream({

@@ -13,6 +13,7 @@ import remarkGfm from "remark-gfm";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import type { Verbosity } from "@/lib/chatbot/knowledge";
 
 /** 첨부 이미지 (자동 축소 후). base64 는 data URL prefix 없는 순수 값. */
 interface Attachment {
@@ -107,6 +108,40 @@ function downscale(dataUrl: string, maxDim: number): Promise<Attachment> {
   });
 }
 
+/** 답변 끝에 붙는 "도움말에서 자세히 보기" 마크다운 링크 한 줄을 제거 (프롬프트가 어겨도 코드로 확실히). */
+function stripHelpLink(text: string): string {
+  const stripped = text.replace(
+    /\n*\[[^\]]*(?:📖|도움말에서 자세히 보기)[^\]]*\]\([^)]*\)\s*$/u,
+    ""
+  );
+  return stripped === text ? text : stripped.trimEnd();
+}
+
+/** 에러 말풍선 판별 — "⚠️"로 시작하는 답변엔 "더 자세히/짧게" 버튼을 숨긴다(실패 반복 방지). */
+function isErrorBubble(content: string): boolean {
+  return content.trim().startsWith("⚠️");
+}
+
+/** 서버로 보낼 wire 메시지 (이미지는 base64 만). */
+type WireMessage = {
+  role: "user" | "assistant";
+  content: string;
+  image?: { data: string; mimeType: string };
+};
+
+/** 메시지 배열 → wire. 이미지는 서버 정책과 동일하게 최근 KEEP_IMAGES개만 포함. */
+function buildWire(msgs: ChatMessage[]): WireMessage[] {
+  const imageIdxs = msgs.map((m, i) => (m.image ? i : -1)).filter((i) => i >= 0);
+  const keep = new Set(imageIdxs.slice(-KEEP_IMAGES));
+  return msgs.map((m, i) => ({
+    role: m.role,
+    content: m.content,
+    ...(m.image && keep.has(i)
+      ? { image: { data: m.image.base64, mimeType: m.image.mimeType } }
+      : {}),
+  }));
+}
+
 export function ChatWidget() {
   const [open, setOpen] = useState(false);
   const [messages, setMessages] = useState<ChatMessage[]>([GREETING]);
@@ -126,11 +161,12 @@ export function ChatWidget() {
   const pathname = usePathname();
   const router = useRouter();
 
-  // 새 메시지마다 맨 아래로 스크롤.
+  // 새 메시지마다 맨 아래로 스크롤. isStreaming 도 의존성에 둬서, 스트리밍이 끝나
+  // "더 자세히/짧게" 버튼이 추가되는 순간에도 다시 스크롤해 버튼이 가려지지 않게 한다.
   useEffect(() => {
     const el = scrollRef.current;
     if (el) el.scrollTop = el.scrollHeight;
-  }, [messages, open, attachment]);
+  }, [messages, open, attachment, isStreaming]);
 
   // 열릴 때 입력창 포커스.
   useEffect(() => {
@@ -163,6 +199,55 @@ export function ChatWidget() {
     }
   }, []);
 
+  // 공통 스트리밍: /api/chat 호출 → 마지막(빈) assistant 메시지에 누적 → 완료 시 도움말 링크 푸터 제거.
+  // 실패는 throw (호출자가 롤백/토스트). 호출 전에 마지막 메시지로 빈 assistant 를 넣어둬야 한다.
+  const streamAssistant = useCallback(
+    async (wire: WireMessage[], verbosity?: Verbosity) => {
+      abortRef.current = new AbortController();
+      const res = await fetch("/api/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          messages: wire,
+          currentPage: pathname,
+          ...(verbosity ? { verbosity } : {}),
+        }),
+        signal: abortRef.current.signal,
+      });
+
+      if (!res.ok || !res.body) {
+        const data = await res.json().catch(() => null);
+        throw new Error(data?.error || "응답을 받지 못했습니다.");
+      }
+
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let acc = "";
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        acc += decoder.decode(value, { stream: true });
+        setMessages((prev) => {
+          const copy = [...prev];
+          copy[copy.length - 1] = { role: "assistant", content: acc };
+          return copy;
+        });
+      }
+
+      // 완료 후 도움말 링크 푸터 제거 (프롬프트가 어겨도 코드로 확실히).
+      const cleaned = stripHelpLink(acc);
+      if (cleaned !== acc) {
+        setMessages((prev) => {
+          const copy = [...prev];
+          copy[copy.length - 1] = { role: "assistant", content: cleaned };
+          return copy;
+        });
+      }
+    },
+    [pathname]
+  );
+
   const send = useCallback(
     async (text: string, image: Attachment | null) => {
       const trimmed = text.trim();
@@ -179,56 +264,15 @@ export function ChatWidget() {
       setAttachment(null);
       setIsStreaming(true);
 
-      abortRef.current = new AbortController();
-
-      // 서버로 보낼 형태로 변환 (이미지는 base64 만).
-      // 이미지는 서버 정책과 동일하게 "최근 KEEP_IMAGES개"만 실어 보낸다 (요청 본문·전송량 상한).
-      const imageMsgIdxs = nextMessages
-        .map((m, i) => (m.image ? i : -1))
-        .filter((i) => i >= 0);
-      const keepWireImages = new Set(imageMsgIdxs.slice(-KEEP_IMAGES));
-      const wire = nextMessages.map((m, i) => ({
-        role: m.role,
-        content: m.content,
-        ...(m.image && keepWireImages.has(i)
-          ? { image: { data: m.image.base64, mimeType: m.image.mimeType } }
-          : {}),
-      }));
-
       try {
-        const res = await fetch("/api/chat", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ messages: wire, currentPage: pathname }),
-          signal: abortRef.current.signal,
-        });
-
-        if (!res.ok || !res.body) {
-          const data = await res.json().catch(() => null);
-          throw new Error(data?.error || "응답을 받지 못했습니다.");
-        }
-
-        const reader = res.body.getReader();
-        const decoder = new TextDecoder();
-        let acc = "";
-
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
-          acc += decoder.decode(value, { stream: true });
-          setMessages((prev) => {
-            const copy = [...prev];
-            copy[copy.length - 1] = { role: "assistant", content: acc };
-            return copy;
-          });
-        }
+        await streamAssistant(buildWire(nextMessages));
       } catch (err) {
         if (err instanceof DOMException && err.name === "AbortError") {
           // 사용자가 닫음 — 무시
         } else {
           const msg =
             err instanceof Error ? err.message : "알 수 없는 오류가 발생했습니다.";
-          // 전송 실패 — 추가했던 사용자/빈 답변 메시지를 되돌리고, 입력·첨부를 복구해
+          // 전송 실패 — 추가했던 사용자/빈 답변을 되돌리고, 입력·첨부를 복구해
           // 같은 내용으로 바로 재전송할 수 있게 한다 (특히 어렵게 캡처한 이미지 보존).
           setMessages(messages);
           setInput(trimmed);
@@ -240,7 +284,56 @@ export function ChatWidget() {
         abortRef.current = null;
       }
     },
-    [messages, isStreaming, pathname]
+    [messages, isStreaming, streamAssistant]
+  );
+
+  // "더 자세히/짧게" — 원래 답은 남기고 새 답을 아래에 추가(append).
+  // 모델엔 직전 대화 전체(질문+짧은 답)를 보내고, 끝에 "이 답을 더 자세히/짧게" 지시 턴을
+  // wire 에만 덧붙인다(화면엔 안 보임) → 모델이 무엇을 확장/요약할지 알게 한다.
+  const regenerateLast = useCallback(
+    async (verbosity: Verbosity) => {
+      if (isStreaming) return;
+      const last = messages[messages.length - 1];
+      if (
+        !last ||
+        last.role !== "assistant" ||
+        !last.content ||
+        isErrorBubble(last.content)
+      )
+        return;
+      if (!messages.some((m) => m.role === "user")) return; // 재답할 질문 존재
+
+      const instruction =
+        verbosity === "detailed"
+          ? "방금 답변을 매뉴얼 수준으로 더 자세히, 빠짐없이 다시 설명해 주세요."
+          : "방금 답변을 핵심만 1~3줄로 짧게 요약해 주세요.";
+      // 직전 대화(이미지 KEEP_IMAGES 유지) + 지시 턴(user). 서버 가드(마지막 role=user) 충족.
+      const wire: WireMessage[] = [
+        ...buildWire(messages),
+        { role: "user", content: instruction },
+      ];
+
+      const snapshot = messages;
+      setMessages([...messages, { role: "assistant", content: "" }]);
+      setIsStreaming(true);
+
+      try {
+        await streamAssistant(wire, verbosity);
+      } catch (err) {
+        if (err instanceof DOMException && err.name === "AbortError") {
+          // 무시
+        } else {
+          const msg =
+            err instanceof Error ? err.message : "알 수 없는 오류가 발생했습니다.";
+          setMessages(snapshot); // append 한 빈 답변 제거(이전 상태 복구)
+          toast.error(`다시 답변 실패: ${msg}`);
+        }
+      } finally {
+        setIsStreaming(false);
+        abortRef.current = null;
+      }
+    },
+    [messages, isStreaming, streamAssistant]
   );
 
   // 도움말 딥링크(/help/...)는 새로고침 없이 앱 내에서 이동하고 패널을 닫는다.
@@ -345,6 +438,16 @@ export function ChatWidget() {
   };
 
   const canSend = (!!input.trim() || !!attachment) && !isStreaming;
+
+  // "더 자세히/짧게"는 마지막이 정상(에러 아님) 답변이고, 재답할 질문이 있을 때만 노출.
+  const lastMsg = messages[messages.length - 1];
+  const canRefine =
+    !isStreaming &&
+    !!lastMsg &&
+    lastMsg.role === "assistant" &&
+    !!lastMsg.content &&
+    !isErrorBubble(lastMsg.content) &&
+    messages.some((m) => m.role === "user");
 
   return (
     <>
@@ -453,6 +556,26 @@ export function ChatWidget() {
                   </div>
                 </div>
               ))}
+
+              {/* 답변 깊이 조절 — 마지막 정상 답변 아래에만 노출 */}
+              {canRefine && (
+                <div className="flex flex-wrap gap-1.5 pt-1">
+                  <button
+                    type="button"
+                    onClick={() => regenerateLast("detailed")}
+                    className="rounded-full border border-border bg-background px-3 py-1.5 text-xs text-foreground/80 transition-colors hover:bg-muted"
+                  >
+                    더 자세히
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => regenerateLast("concise")}
+                    className="rounded-full border border-border bg-background px-3 py-1.5 text-xs text-foreground/80 transition-colors hover:bg-muted"
+                  >
+                    짧게
+                  </button>
+                </div>
+              )}
 
               {/* 빠른 질문 — 첫 인사만 있을 때 노출 */}
               {messages.length === 1 && (
