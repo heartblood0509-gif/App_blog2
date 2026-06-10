@@ -28,6 +28,16 @@ import type {
 type ChatMessage = OpenAI.Chat.Completions.ChatCompletionMessageParam;
 type ContentPart = OpenAI.Chat.Completions.ChatCompletionContentPart;
 
+// 정적 메타 지시(사용자 입력과 무관). 긴 규칙이 user 메시지에만 있으면 gpt 가 규칙을 약하게
+// 따르는 문제를 보정한다. user 보다 상위 채널인 developer 로 "지침을 엄격히 따르라"는 고정
+// 문구만 올린다. ⚠️ 사용자 데이터(주제·요구사항·본문 등)는 절대 이 채널로 올리지 않는다
+// (신뢰경계 보존 — 코덱스 리뷰 ①). developer 가 기대만 못하면 system 으로 교체 가능.
+const OPENAI_GENERATION_DIRECTIVE =
+  "당신은 한국어 글쓰기 전문가입니다. 사용자 메시지에 담긴 모든 지침·규칙·형식·분량 요구를 하나도 빠짐없이 정확히 따르세요. " +
+  "글을 끝내기 전, 사용자 메시지가 요구한 구조 요소·분량·금지 규칙·출력 형식을 모두 충족했는지 스스로 점검하고, 누락이나 위반이 있으면 고친 뒤 최종본만 출력하세요. " +
+  "같은 제목 문구를 본문 안에 그대로 반복하지 마세요. " +
+  "요청된 결과물만 출력하고, 인사말·자기설명·메타발언·코드펜스 같은 군더더기는 절대 덧붙이지 마세요.";
+
 // 키 단위 인스턴스 캐싱 (genai 패턴과 동일 — 키 변경 시 자동으로 새 인스턴스).
 const openaiByKey = new Map<string, OpenAI>();
 
@@ -118,7 +128,10 @@ export async function* generateStream(
   const model = await resolveTextModel();
   const stream = await client.chat.completions.create({
     model,
-    messages: [{ role: "user", content: prompt }],
+    messages: [
+      { role: "developer", content: OPENAI_GENERATION_DIRECTIVE },
+      { role: "user", content: prompt },
+    ],
     stream: true,
   });
   for await (const chunk of stream) {
@@ -188,10 +201,14 @@ export async function generateText(
   const wantJson = generationConfig?.responseMimeType === "application/json";
   const messages: ChatMessage[] = wantJson
     ? [
+        { role: "developer", content: OPENAI_GENERATION_DIRECTIVE },
         { role: "system", content: "You must respond with valid JSON only." },
         { role: "user", content: prompt },
       ]
-    : [{ role: "user", content: prompt }];
+    : [
+        { role: "developer", content: OPENAI_GENERATION_DIRECTIVE },
+        { role: "user", content: prompt },
+      ];
   const res = await client.chat.completions.create({
     model,
     messages,
