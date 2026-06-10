@@ -2,6 +2,7 @@
 
 import { AppHeader } from "@/components/AppHeader";
 import { BlogAccountManager } from "@/components/accounts/BlogAccountManager";
+import { AiProviderPanel } from "@/components/settings/AiProviderPanel";
 import { ApiKeyPanel } from "@/components/settings/ApiKeyPanel";
 import { YoutubeKeysPanel } from "@/components/settings/YoutubeKeysPanel";
 import { YOUTUBE_FEATURE_ENABLED } from "@/lib/youtube-feature";
@@ -23,6 +24,7 @@ export default function ApiKeySettingsPage() {
               </div>
               <div className="h-px flex-1 bg-primary/25" />
             </div>
+            <AiProviderPanel className="max-w-none" />
             <ApiKeyPanel className="max-w-none" />
             {YOUTUBE_FEATURE_ENABLED && <YoutubeKeysPanel className="max-w-none" />}
           </section>

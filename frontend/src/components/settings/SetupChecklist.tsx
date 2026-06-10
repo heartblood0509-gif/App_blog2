@@ -21,6 +21,7 @@ interface SetupChecklistProps {
 
 interface ChecklistState {
   loaded: boolean;
+  provider: "gemini" | "openai";
   hasApiKey: boolean;
   hasBlogAccount: boolean;
   hasAnyProfile: boolean;
@@ -28,6 +29,7 @@ interface ChecklistState {
 
 const INITIAL_STATE: ChecklistState = {
   loaded: false,
+  provider: "gemini",
   hasApiKey: false,
   hasBlogAccount: false,
   hasAnyProfile: false,
@@ -48,14 +50,21 @@ export function SetupChecklist({ onGoToTab }: SetupChecklistProps) {
       }
     };
 
-    const [keyRes, accRes, prodRes, brandRes, aeoRes] = await Promise.all([
-      safeFetch("/api/settings/gemini-key"),
-      safeFetch("/api/accounts"),
-      safeFetch("/api/products"),
-      safeFetch("/api/brand/profiles"),
-      safeFetch("/api/aeo/profiles"),
-    ]);
+    const [provRes, geminiKeyRes, openaiKeyRes, accRes, prodRes, brandRes, aeoRes] =
+      await Promise.all([
+        safeFetch("/api/settings/ai-provider"),
+        safeFetch("/api/settings/gemini-key"),
+        safeFetch("/api/settings/openai-key"),
+        safeFetch("/api/accounts"),
+        safeFetch("/api/products"),
+        safeFetch("/api/brand/profiles"),
+        safeFetch("/api/aeo/profiles"),
+      ]);
 
+    // 활성 provider 의 키만 "등록됨"으로 본다 — ChatGPT 모드인데 Gemini 키만 있으면 미완료.
+    const provider =
+      (provRes as { provider?: string } | null)?.provider === "openai" ? "openai" : "gemini";
+    const keyRes = provider === "openai" ? openaiKeyRes : geminiKeyRes;
     const hasApiKey = Boolean((keyRes as { hasKey?: boolean } | null)?.hasKey);
     const hasBlogAccount = Array.isArray(accRes) && accRes.length > 0;
     const hasAnyProfile =
@@ -63,7 +72,7 @@ export function SetupChecklist({ onGoToTab }: SetupChecklistProps) {
       (Array.isArray(brandRes) && brandRes.length > 0) ||
       (Array.isArray(aeoRes) && aeoRes.length > 0);
 
-    setState({ loaded: true, hasApiKey, hasBlogAccount, hasAnyProfile });
+    setState({ loaded: true, provider, hasApiKey, hasBlogAccount, hasAnyProfile });
   }, []);
 
   useEffect(() => {
@@ -95,7 +104,7 @@ export function SetupChecklist({ onGoToTab }: SetupChecklistProps) {
         <ChecklistItem
           done={state.hasApiKey}
           required
-          title="Gemini API 키 등록"
+          title={state.provider === "openai" ? "OpenAI API 키 등록" : "Gemini API 키 등록"}
           description="글과 이미지 생성을 위한 핵심 설정"
           onClick={() => onGoToTab("api-generation")}
         />

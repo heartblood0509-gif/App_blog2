@@ -5,7 +5,9 @@
 
 const PATTERNS: Array<[RegExp, string]> = [
   // KEY=value
-  [/((?:APP_TOKEN|APP_SESSION_TOKEN|GEMINI_API_KEY)=)([^\s'"]+)/g, "$1***"],
+  [/((?:APP_TOKEN|APP_SESSION_TOKEN|GEMINI_API_KEY|OPENAI_API_KEY)=)([^\s'"]+)/g, "$1***"],
+  // OpenAI 키(sk-...)는 KEY= 없이 에러 메시지 등에 노출될 수 있어 값 자체도 마스킹.
+  [/\bsk-[A-Za-z0-9_-]{20,}/g, "sk-***"],
   // 헤더 X-App-Token: xxx
   [/(X-App-(?:Token|Session)\s*[:=]\s*)([^\s'",}]+)/gi, "$1***"],
   // Authorization: Bearer xxx

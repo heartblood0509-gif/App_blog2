@@ -12,6 +12,7 @@ import {
 } from "@/lib/prompts/image";
 import { extractIdentificationContext } from "@/lib/image/marker-parser";
 import { CONFIG } from "@/lib/config";
+import { withProviderSnapshot } from "@/lib/ai/provider-context";
 
 // Vercel 등 지원 플랫폼에서만 적용(standalone Node 서버에선 무효). 클라 슬롯 timeout(120초)보다
 // 약간 길게 둬, 플랫폼이 강제하더라도 클라가 먼저 마감을 판단하게 한다.
@@ -28,7 +29,7 @@ interface SlotRequest {
     mimeType: string;
     instruction?: string;
   };
-  /** AI 변환 시 Pro 모델(gemini-3-pro-image-preview) 사용 여부 */
+  /** AI 변환 시 Pro 모델(gemini-3-pro-image) 사용 여부 */
   useProModel?: boolean;
   /** AI 생성 모드에서 사용자가 수정한 프롬프트. 있으면 기본 빌더 무시하고 그대로 전송. */
   customPrompt?: string;
@@ -233,7 +234,13 @@ function buildHeaders(parsed: ParsedGeminiError): HeadersInit {
   return h;
 }
 
-export async function POST(request: Request) {
+export async function POST(request: Request): Promise<Response> {
+  // 한 요청(=한 슬롯) 안에서 describeImageSubject→transformImage 가 같은 provider 를
+  // 쓰도록 provider 를 1회 스냅샷으로 고정 (코덱스 리뷰 ⑦).
+  return withProviderSnapshot(() => handlePost(request));
+}
+
+async function handlePost(request: Request): Promise<Response> {
   const requestStart = Date.now();
   let roundId: string | null = null;
   let slotId: string | null = null;

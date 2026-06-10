@@ -97,6 +97,29 @@ interface ElectronSettingsApi {
     ok: boolean;
     encryption_available: boolean;
   }>;
+  // OpenAI 키 (ChatGPT 모드). 빈 문자열=지우기.
+  setOpenAIKey: (plaintext: string) => Promise<{
+    ok: boolean;
+    encryption_available: boolean;
+  }>;
+  getOpenAIMasked: () => Promise<{
+    hasKey: boolean;
+    masked: string | null;
+    encryption_available: boolean;
+  }>;
+  // AI 제공자 토글 + OpenAI 텍스트 모델.
+  getAiProvider: () => Promise<{
+    provider: "gemini" | "openai";
+    openaiTextModel: "gpt-5.4-mini" | "gpt-5.5";
+  }>;
+  setAiProvider: (cfg: {
+    provider?: "gemini" | "openai";
+    openaiTextModel?: "gpt-5.4-mini" | "gpt-5.5";
+  }) => Promise<{
+    ok: boolean;
+    provider: "gemini" | "openai";
+    openaiTextModel: "gpt-5.4-mini" | "gpt-5.5";
+  }>;
 }
 
 interface ElectronAuthDeviceInfo {

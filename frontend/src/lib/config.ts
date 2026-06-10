@@ -6,10 +6,10 @@ export const CONFIG = {
   GENERATION_MODEL: "gemini-2.5-flash",
   /** 레퍼런스 분석에 사용하는 AI 모델 (더 정확한 분석 필요) */
   ANALYSIS_MODEL: "gemini-2.5-pro",
-  /** 이미지 생성/변환 기본 모델 (Flash — 빠르고 저렴) */
-  IMAGE_MODEL: "gemini-3.1-flash-image-preview",
-  /** 이미지 고품질 모드 모델 (Pro — 인물 일관성 우수, 느리고 비쌈) */
-  IMAGE_MODEL_PRO: "gemini-3-pro-image-preview",
+  /** 이미지 생성/변환 기본 모델 (Flash — 빠르고 저렴). GA명 — -preview 는 2026-06-25 셧다운. */
+  IMAGE_MODEL: "gemini-3.1-flash-image",
+  /** 이미지 고품질 모드 모델 (Pro — 인물 일관성 우수, 느리고 비쌈). GA명 — -preview 는 2026-06-25 셧다운. */
+  IMAGE_MODEL_PRO: "gemini-3-pro-image",
   /** AI 변환 프리패스(피사체 1줄 식별) 모델. flash로 충분(블로그 본문을 근거로 제공). 부위 오인 지속 시 ANALYSIS_MODEL(pro)로 상향 */
   TRANSFORM_SUBJECT_MODEL: "gemini-2.5-flash",
   /** 기본 글자수 범위 */
@@ -39,6 +39,14 @@ export const CONFIG = {
   IMAGE_BACKOFF_NETWORK_MS: [2_000, 5_000] as readonly number[],
   /** AIMD: 성공 N개 연속 시 동시성 +1 회복 */
   IMAGE_AIMD_RECOVERY_AFTER_N: 4,
+
+  // ── OpenAI(ChatGPT) 제공자 ──
+  /** OpenAI 텍스트 모델 (사용자가 ChatGPT 모드에서 둘 중 선택). */
+  OPENAI_TEXT_MODELS: { mini: "gpt-5.4-mini", full: "gpt-5.5" },
+  /** OpenAI 이미지 모델 (고정). */
+  OPENAI_IMAGE_MODEL: "gpt-image-2",
+  /** OpenAI 이미지 품질 — 기본 슬롯 / 고품질(useProModel) 슬롯. */
+  OPENAI_IMAGE_QUALITY: { default: "medium", pro: "high" },
 
   /** Python 자동 포스팅 백엔드 URL */
   BACKEND_URL: process.env.BACKEND_URL || "http://localhost:8000",

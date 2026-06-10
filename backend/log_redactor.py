@@ -9,7 +9,9 @@ import logging
 import re
 
 _PATTERNS: list[tuple[re.Pattern[str], str]] = [
-    (re.compile(r"((?:APP_TOKEN|APP_SESSION_TOKEN|GEMINI_API_KEY)=)([^\s'\"]+)"), r"\1***"),
+    (re.compile(r"((?:APP_TOKEN|APP_SESSION_TOKEN|GEMINI_API_KEY|OPENAI_API_KEY)=)([^\s'\"]+)"), r"\1***"),
+    # OpenAI 키(sk-...)는 KEY= 없이 노출될 수 있어 값 자체도 마스킹.
+    (re.compile(r"\bsk-[A-Za-z0-9_-]{20,}"), r"sk-***"),
     (re.compile(r"(X-App-(?:Token|Session)\s*[:=]\s*)([^\s'\",}]+)", re.IGNORECASE), r"\1***"),
     (re.compile(r"(Authorization\s*[:=]\s*)([^\s'\",}]+)", re.IGNORECASE), r"\1***"),
     (re.compile(r'("?naver_pw"?\s*[:=]\s*)("?)([^,"\n}]+)'), r"\1\2***"),
