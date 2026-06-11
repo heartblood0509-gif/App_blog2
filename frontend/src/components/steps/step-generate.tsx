@@ -724,7 +724,7 @@ export function StepGenerate({
             ) : (
               <Package className="h-4 w-4" />
             )}
-            ZIP 다운로드
+            글 + 이미지 다운로드
           </Button>
           <Button
             variant="outline"
