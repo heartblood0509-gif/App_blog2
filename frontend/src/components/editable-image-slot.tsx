@@ -4,6 +4,7 @@ import { useRef, useState } from "react";
 import { toast } from "sonner";
 import { Loader2, Upload, Sparkles, RefreshCw, ImageIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { ImageSourceDialog } from "@/components/image-source-dialog";
 import type { ImageSlot, UserPhoto } from "@/types";
 
 /** 파일 → base64 변환 (data URL prefix 제외) */
@@ -52,6 +53,7 @@ export function EditableImageSlot({
 }) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [isDragOver, setIsDragOver] = useState(false);
+  const [pickerOpen, setPickerOpen] = useState(false);
 
   const handleFile = async (file: File) => {
     if (!file.type.startsWith("image/")) {
@@ -104,6 +106,16 @@ export function EditableImageSlot({
     />
   );
 
+  // ─── 공통: 소스 선택 팝업(붙여넣기 / 파일에서 선택)
+  const sourcePicker = (
+    <ImageSourceDialog
+      open={pickerOpen}
+      onOpenChange={setPickerOpen}
+      onUpload={() => fileInputRef.current?.click()}
+      onPasteFile={handleFile}
+    />
+  );
+
   // ─── 채워진 이미지: 파일 교체 전용 (드래그&드랍 + "이미지 변경하기" 클릭)
   if (generatedBase64) {
     // 표시한 이미지가 업로드 원본과 동일하면 원본 mime, 아니면 AI 결과(png)
@@ -122,6 +134,7 @@ export function EditableImageSlot({
         onDrop={handleDrop}
       >
         {hiddenFileInput}
+        {sourcePicker}
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img
           src={src}
@@ -154,7 +167,7 @@ export function EditableImageSlot({
                 className="pointer-events-auto inline-flex items-center gap-1.5 rounded-md bg-white/90 px-3 py-1.5 text-xs font-semibold text-foreground shadow-sm transition hover:bg-white"
                 onClick={(e) => {
                   e.stopPropagation();
-                  fileInputRef.current?.click();
+                  setPickerOpen(true);
                 }}
               >
                 <RefreshCw className="h-3.5 w-3.5" />
@@ -197,6 +210,7 @@ export function EditableImageSlot({
       onDrop={handleDrop}
     >
       {hiddenFileInput}
+      {sourcePicker}
       <div className="flex items-center gap-2 text-muted-foreground">
         <ImageIcon className="h-5 w-5" />
         <span className="text-xs line-clamp-1">
@@ -213,7 +227,7 @@ export function EditableImageSlot({
           size="sm"
           variant="outline"
           className="h-8 gap-1 text-xs"
-          onClick={() => fileInputRef.current?.click()}
+          onClick={() => setPickerOpen(true)}
           disabled={isGenerating}
         >
           <Upload className="h-3 w-3" />
