@@ -34,9 +34,65 @@ import { updateApiKeys } from "@/lib/youtube/endpoints";
 const OPENAI_KEYS_URL = "https://platform.openai.com/api-keys";
 const FAL_KEYS_URL = "https://fal.ai/dashboard/keys";
 
+// ChatGPT(OpenAI) 글·이미지 생성은 아직 품질·검증 미완 → 토글을 "준비 중"으로 비활성.
+// 준비되면 이 플래그만 true 로 → 버튼·자동정리 로직이 함께 원복된다.
+// (`: boolean` 명시로 항상-false 상수 폴딩에 의한 lint/unreachable 경고를 피한다.)
+const CHATGPT_ENABLED: boolean = false;
+
 type Provider = "gemini" | "openai";
 type TextModel = "gpt-5.4-mini" | "gpt-5.5";
 type KeySrc = "local-file" | "env" | "none" | null;
+
+// 로드된 설정 → 화면 표시값 + (필요 시) 무토스트 정리 partial.
+// CHATGPT 비활성 동안엔 화면을 항상 gemini 로 두고, 저장된 openai 는 gemini 로 정리한다.
+function resolveProviders(cfg: { provider: Provider; imageProvider?: Provider }): {
+  provider: Provider;
+  imageProvider: Provider;
+  imageExplicit: boolean;
+  cleanup: { provider?: Provider; imageProvider?: Provider } | null;
+} {
+  const imageExplicit = cfg.imageProvider != null;
+  if (CHATGPT_ENABLED) {
+    return {
+      provider: cfg.provider,
+      imageProvider: cfg.imageProvider ?? cfg.provider,
+      imageExplicit,
+      cleanup: null,
+    };
+  }
+  const cleanup: { provider?: Provider; imageProvider?: Provider } = {};
+  if (cfg.provider === "openai") cleanup.provider = "gemini";
+  if (cfg.imageProvider === "openai") cleanup.imageProvider = "gemini";
+  return {
+    provider: "gemini",
+    imageProvider: "gemini",
+    imageExplicit,
+    cleanup: cleanup.provider || cleanup.imageProvider ? cleanup : null,
+  };
+}
+
+// ChatGPT 비활성 동안 저장된 openai → gemini 로 조용히 정리(토스트·재시작 없음).
+// 웹=POST, Electron=IPC. 실패해도 화면은 gemini 로 표시되고 다음 로드에서 재시도.
+async function persistProviderCleanup(partial: {
+  provider?: Provider;
+  imageProvider?: Provider;
+}): Promise<void> {
+  try {
+    const api = window.electronAPI?.settings;
+    if (!api) {
+      await fetch("/api/settings/ai-provider", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        cache: "no-store",
+        body: JSON.stringify(partial),
+      });
+    } else {
+      await api.setAiProvider(partial);
+    }
+  } catch {
+    /* 정리 실패 무시 — 표시는 이미 gemini */
+  }
+}
 
 // 같은 fal 키를 유튜브 로컬 백엔드에도 즉시 반영(best-effort). 백엔드 미가동 시 조용히 넘어간다.
 async function pushFalToYoutube(key: string): Promise<void> {
@@ -106,15 +162,17 @@ export function AiProviderPanel({ className }: AiProviderPanelProps) {
         ),
       ])
         .then(([cfg, oa, fl]) => {
-          setProvider(cfg.provider);
-          setImageExplicit(cfg.imageProvider != null);
-          setImageProvider(cfg.imageProvider ?? cfg.provider);
+          const rp = resolveProviders(cfg);
+          setProvider(rp.provider);
+          setImageProvider(rp.imageProvider);
+          setImageExplicit(rp.imageExplicit);
           setTextModel(cfg.openaiTextModel);
           setHasKey(oa.hasKey);
           setMasked(oa.masked);
           setKeySource(oa.source);
           setFalHasKey(fl.hasKey);
           setFalMasked(fl.masked);
+          if (rp.cleanup) void persistProviderCleanup(rp.cleanup);
         })
         .catch(() => {
           /* 라우트 실패 시 기본값(Gemini) 유지 */
@@ -128,9 +186,10 @@ export function AiProviderPanel({ className }: AiProviderPanelProps) {
       api.getFalMasked?.(),
     ])
       .then(([cfg, oa, fl]) => {
-        setProvider(cfg.provider);
-        setImageExplicit(cfg.imageProvider != null);
-        setImageProvider(cfg.imageProvider ?? cfg.provider);
+        const rp = resolveProviders(cfg);
+        setProvider(rp.provider);
+        setImageProvider(rp.imageProvider);
+        setImageExplicit(rp.imageExplicit);
         setTextModel(cfg.openaiTextModel);
         setHasKey(oa.hasKey);
         setMasked(oa.masked);
@@ -138,6 +197,7 @@ export function AiProviderPanel({ className }: AiProviderPanelProps) {
           setFalHasKey(fl.hasKey);
           setFalMasked(fl.masked);
         }
+        if (rp.cleanup) void persistProviderCleanup(rp.cleanup);
       })
       .finally(() => setLoading(false));
   }, []);
@@ -398,8 +458,16 @@ export function AiProviderPanel({ className }: AiProviderPanelProps) {
           AI 생성 방식 & 추가 키
         </CardTitle>
         <CardDescription className="pl-10">
-          글·제목과 이미지를 각각 Gemini / ChatGPT 중 무엇으로 만들지 고르고, 필요한 키를
-          입력합니다. 블로그 글 생성에 적용됩니다.
+          {CHATGPT_ENABLED ? (
+            "글·제목과 이미지를 각각 Gemini / ChatGPT 중 무엇으로 만들지 고르고, 필요한 키를 입력합니다. 블로그 글 생성에 적용됩니다."
+          ) : (
+            <>
+              글·제목과 이미지 생성에 필요한 키를 입력합니다. 블로그 글 생성에 적용됩니다.{" "}
+              <span className="text-muted-foreground">
+                (ChatGPT 생성은 준비 중 — 지금은 Gemini 로 동작합니다.)
+              </span>
+            </>
+          )}
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-6 px-5 pt-4">
@@ -470,15 +538,17 @@ export function AiProviderPanel({ className }: AiProviderPanelProps) {
             <Button
               type="button"
               size="sm"
-              variant={isOpenAIText ? "default" : "ghost"}
+              variant={CHATGPT_ENABLED && isOpenAIText ? "default" : "ghost"}
               onClick={() =>
-                isOpenAIText || switching
+                !CHATGPT_ENABLED || isOpenAIText || switching
                   ? undefined
                   : applyConfig({ provider: "openai" })
               }
-              disabled={switching || loading}
+              disabled={!CHATGPT_ENABLED || switching || loading}
+              title={CHATGPT_ENABLED ? undefined : "ChatGPT 생성 기능은 준비 중입니다"}
             >
-              <Bot className="mr-1 h-3.5 w-3.5" /> ChatGPT
+              <Bot className="mr-1 h-3.5 w-3.5" />{" "}
+              {CHATGPT_ENABLED ? "ChatGPT" : "ChatGPT 준비 중"}
             </Button>
           </div>
 
@@ -528,15 +598,17 @@ export function AiProviderPanel({ className }: AiProviderPanelProps) {
             <Button
               type="button"
               size="sm"
-              variant={isOpenAIImage ? "default" : "ghost"}
+              variant={CHATGPT_ENABLED && isOpenAIImage ? "default" : "ghost"}
               onClick={() =>
-                isOpenAIImage || switching
+                !CHATGPT_ENABLED || isOpenAIImage || switching
                   ? undefined
                   : applyConfig({ imageProvider: "openai" })
               }
-              disabled={switching || loading}
+              disabled={!CHATGPT_ENABLED || switching || loading}
+              title={CHATGPT_ENABLED ? undefined : "ChatGPT 생성 기능은 준비 중입니다"}
             >
-              <Bot className="mr-1 h-3.5 w-3.5" /> ChatGPT
+              <Bot className="mr-1 h-3.5 w-3.5" />{" "}
+              {CHATGPT_ENABLED ? "ChatGPT" : "ChatGPT 준비 중"}
             </Button>
           </div>
 
