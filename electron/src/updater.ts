@@ -381,6 +381,12 @@ function initMacUpdater(): void {
 function initWindowsUpdater(): void {
   autoUpdater.autoDownload = false;
   autoUpdater.autoInstallOnAppQuit = false;
+  // 설치본이 시험판(예: 0.3.0-rc4)이면 electron-updater 가 allowPrerelease 를 자동으로 true 로
+  // 켜서 "시험판 채널" 규칙으로 업데이트를 찾는다 → 정식 릴리스(0.3.1 등)를 못 집어내 자동업데이트
+  // 알림이 안 뜨는 경우가 있다(rc 빌드 윈도우 한정). false 로 고정해 항상 "정식 최신 릴리스
+  // (/releases/latest)" 기준으로 확인하게 한다. 정식 설치본엔 영향 없음(원래 false). 시험판 설치본도
+  // 정식 업데이트 알림을 받게 됨 — 맥(숫자 비교) 과 동작이 일관됨.
+  autoUpdater.allowPrerelease = false;
   // v0.1.3 의 blockmap 파일명은 점 구분(`App.Blog.Publisher-...`), v0.1.4 부터는 하이픈
   // 구분(`App-Blog-Publisher-...`) 이라 두 버전 사이 differential download 가 잘못된
   // blockmap 경로를 시도하다 실패할 수 있다. v0.1.5+ 부터는 양쪽 파일명이 일관되므로
