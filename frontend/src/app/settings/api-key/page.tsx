@@ -2,12 +2,13 @@
 
 import { AppHeader } from "@/components/AppHeader";
 import { BlogAccountManager } from "@/components/accounts/BlogAccountManager";
-import { AiProviderPanel } from "@/components/settings/AiProviderPanel";
-import { ApiKeyPanel } from "@/components/settings/ApiKeyPanel";
-import { YoutubeKeysPanel } from "@/components/settings/YoutubeKeysPanel";
+import { AiKeysPanel } from "@/components/settings/AiKeysPanel";
 import { YOUTUBE_FEATURE_ENABLED } from "@/lib/youtube-feature";
+import { useAuthContext } from "@/lib/auth/auth-context";
 
 export default function ApiKeySettingsPage() {
+  const { plan } = useAuthContext();
+  const youtubeAllowed = YOUTUBE_FEATURE_ENABLED && plan !== "blog";
   return (
     <div className="min-h-screen bg-background text-foreground">
       <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
@@ -24,9 +25,7 @@ export default function ApiKeySettingsPage() {
               </div>
               <div className="h-px flex-1 bg-primary/25" />
             </div>
-            <ApiKeyPanel className="max-w-none" />
-            <AiProviderPanel className="max-w-none" />
-            {YOUTUBE_FEATURE_ENABLED && <YoutubeKeysPanel className="max-w-none" />}
+            <AiKeysPanel youtubeAllowed={youtubeAllowed} className="max-w-none" />
           </section>
 
           <section className="space-y-3">
