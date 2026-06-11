@@ -182,10 +182,17 @@ jobs:
           set -euo pipefail
           mkdir -p build/ffmpeg
           # ⚠️ arm64 + libfreetype 는 아래 Verify 단계가 강제 검증한다(틀리면 RC 빌드 실패 → 소스 교체).
-          curl -L -o ffmpeg.zip https://evermeet.cx/ffmpeg/getrelease/ffmpeg/zip
-          curl -L -o ffprobe.zip https://evermeet.cx/ffmpeg/getrelease/ffprobe/zip
-          unzip -o -q ffmpeg.zip -d build/ffmpeg
-          unzip -o -q ffprobe.zip -d build/ffmpeg
+          # evermeet.cx 는 x86_64 만 제공 → arm64 단언 실패(RC2). osxexperts.net 의 Apple Silicon 정적 빌드(8.1)로 교체.
+          # SHA256 고정: 압축 푼 "바이너리" 기준(사이트 공개값). 다운로드가 변조/손상되면 즉시 실패한다.
+          # zip 해시가 아니라 바이너리 해시를 고정한다 — 재압축돼도 실제 실행 파일만 같으면 통과.
+          FFMPEG_BIN_SHA256="9a08d61f9328e8164ba560ee7a79958e357307fcfeea6fe626b7d66cdc287028"
+          FFPROBE_BIN_SHA256="aab17ac7379c1178aaf400c3ef36cdb67db0b75b1a23eeef2cb9f658be8844e6"
+          curl -L -o ffmpeg.zip https://www.osxexperts.net/ffmpeg81arm.zip
+          curl -L -o ffprobe.zip https://www.osxexperts.net/ffprobe81arm.zip
+          unzip -o -q ffmpeg.zip -d build/ffmpeg -x "__MACOSX/*"
+          unzip -o -q ffprobe.zip -d build/ffmpeg -x "__MACOSX/*"
+          echo "${FFMPEG_BIN_SHA256}  build/ffmpeg/ffmpeg" | shasum -a 256 -c -
+          echo "${FFPROBE_BIN_SHA256}  build/ffmpeg/ffprobe" | shasum -a 256 -c -
           chmod +x build/ffmpeg/ffmpeg build/ffmpeg/ffprobe
 
       - name: Verify bundled ffmpeg (libfreetype + exec + arch)
