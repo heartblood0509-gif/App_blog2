@@ -40,8 +40,10 @@ import type {
 } from "@/types";
 import { BlogContentRenderer } from "@/components/blog-content-renderer";
 import { ImageLightbox } from "@/components/image-lightbox";
+import { ImageContextMenu } from "@/components/image-context-menu";
 import { FindBar } from "@/components/shared/find-bar";
 import { buildTextToImagePrompt } from "@/lib/prompts/image";
+import { downloadImageFromBase64 } from "@/lib/export-zip";
 
 // 내부 스크롤 영역(생성된 글 미리보기 등) — 기본보다 진한 스크롤바.
 // globals.css 손글씨 CSS는 기존 ::highlight 규칙 때문에 Turbopack(Lightning CSS) 파싱이
@@ -212,6 +214,7 @@ function SlotCard({
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [isPromptOpen, setIsPromptOpen] = useState(false);
   const [lightboxSrc, setLightboxSrc] = useState<string | null>(null);
+  const [menuPos, setMenuPos] = useState<{ x: number; y: number } | null>(null);
 
   const handleFile = async (file: File) => {
     const { base64, mimeType } = await fileToBase64(file);
@@ -507,6 +510,10 @@ function SlotCard({
                   onClick={() =>
                     setLightboxSrc(`data:image/png;base64,${generatedBase64}`)
                   }
+                  onContextMenu={(e) => {
+                    e.preventDefault();
+                    setMenuPos({ x: e.clientX, y: e.clientY });
+                  }}
                 />
                 {/* 상태 배지 (변환 대기 중이면 오버레이가 설명하므로 배지 생략) */}
                 {finalKind === "transformed" && (
@@ -536,6 +543,10 @@ function SlotCard({
                         `data:image/png;base64,${generatedBase64}`
                       )
                     }
+                    onContextMenu={(e) => {
+                      e.preventDefault();
+                      setMenuPos({ x: e.clientX, y: e.clientY });
+                    }}
                   >
                     <RefreshCw className="h-6 w-6" />
                     <span className="text-xs font-medium">
@@ -561,6 +572,21 @@ function SlotCard({
               src={lightboxSrc}
               alt={slot.description}
               onClose={() => setLightboxSrc(null)}
+            />
+          )}
+
+          {/* 우클릭 컨텍스트 메뉴 (생성 이미지 다운로드) */}
+          {menuPos && generatedBase64 && (
+            <ImageContextMenu
+              x={menuPos.x}
+              y={menuPos.y}
+              onClose={() => setMenuPos(null)}
+              onDownload={() =>
+                downloadImageFromBase64(
+                  generatedBase64,
+                  `${String(slot.index + 1).padStart(2, "0")}_${slot.description}`
+                )
+              }
             />
           )}
         </>

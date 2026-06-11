@@ -1893,7 +1893,7 @@ export default function Home() {
   }, [state.generatedContent]);
 
   // 본문 + 이미지를 ZIP 한 묶음으로 다운로드.
-  // Electron 은 will-download 핸들러가 다운로드 폴더로 자동 저장(다이얼로그 없음).
+  // Electron 은 will-download 핸들러가 저장 위치 선택 창을 띄움(기본 위치=다운로드 폴더).
   const handleExportZip = useCallback(async () => {
     if (!state.generatedContent) return;
     setIsExportingZip(true);
@@ -1904,7 +1904,6 @@ export default function Home() {
         imageSlots: state.imageSlots,
         generatedImages: state.generatedImages,
       });
-      toast.success("ZIP 다운로드를 시작했습니다.");
     } catch (err) {
       const msg = err instanceof Error ? err.message : "ZIP 생성에 실패했습니다.";
       toast.error(msg);
@@ -2131,7 +2130,6 @@ export default function Home() {
         generatedImages,
         mimeBySlot,
       });
-      toast.success("ZIP 다운로드를 시작했습니다.");
     } catch {
       toast.error("ZIP 생성에 실패했습니다.");
     }
