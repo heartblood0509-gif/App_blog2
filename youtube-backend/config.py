@@ -87,10 +87,32 @@ class Settings(BaseSettings):
 settings = Settings()
 
 
+# 유튜브 "AI가 모두 생성"(Card A) 스위치. False=숨김+차단(출시 기본), True=복원.
+# ⚠ 프론트 쌍: frontend/src/lib/youtube-ai-full-feature.ts 의 YT_AI_FULL_ENABLED — 항상 같은 값 유지.
+#    복원 시 손볼 곳 3개: 이 상수 + 프론트 플래그 + static/index.html 의 ai_full 카드 주석 해제.
+YT_AI_FULL_ENABLED = False
+
+
 def find_font(bold=True):
-    """시스템에서 한국어 폰트 탐색 (Windows / macOS / Linux)"""
+    """한국어 폰트 탐색. 앱 동봉 폰트(fonts/Pretendard) 를 1순위로, 없으면 시스템 폰트 폴백.
+
+    동봉 폰트를 우선하면 사용자 PC 의 폰트 설치 여부·플랫폼과 무관하게 모든 환경
+    (dev·배포본·타 PC)에서 동일한 한글 렌더가 보장된다. 예전엔 시스템 폰트만 찾아
+    PC 마다 결과가 달랐고, 한글 폰트가 없는 환경에선 글자가 깨질(tofu) 수 있었다.
+    (PACKAGING.md 의 YoutubeGenerator.spec 이 fonts/ 를 datas 로 배포에 동봉한다.)"""
     import glob as _glob
     home = os.path.expanduser("~")
+
+    # 1순위: 앱에 동봉한 Pretendard(.otf). 제목은 굵게(ExtraBold), 자막은 보통(Regular).
+    bundled_names = (
+        ("Pretendard-ExtraBold.otf", "Pretendard-Bold.otf")
+        if bold
+        else ("Pretendard-Regular.otf", "Pretendard-SemiBold.otf")
+    )
+    for _name in bundled_names:
+        _p = os.path.join(BASE_DIR, "fonts", _name)
+        if os.path.exists(_p):
+            return _p
 
     if sys.platform == "win32":
         if bold:

@@ -28,6 +28,8 @@ bgm_router = APIRouter(prefix="/api/assets", tags=["bgm"])
 
 def _mark_expired_if_old(db: Session, job_id: str):
     """파일이 없고 30일 지난 작업이면 만료 표시"""
+    if settings.LOCAL_SINGLE_USER:
+        return  # 로컬 단일사용자: 30일 만료 미적용("받아도 계속 수정")
     job = db.query(Job).filter(Job.id == job_id).first()
     if job and job.completed_at and not job.files_expired_at:
         age = utc_now_naive() - job.completed_at

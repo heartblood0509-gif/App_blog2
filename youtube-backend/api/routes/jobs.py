@@ -7,7 +7,7 @@ from api.models import JobCreateRequest, JobResponse, JobStatus, DraftJobRequest
 from api.deps import get_approved_user, get_user_job, get_user_job_by_uid
 from db.database import get_db
 from db.models import Job, JobTask, User, UserProduct
-from config import settings
+from config import settings, YT_AI_FULL_ENABLED
 from core.time_utils import utc_isoformat, utc_now_naive
 from core.user_assets_visual import new_line_id, ensure_line_ids, line_asset_rel_candidates
 from core.r2_storage import (
@@ -36,14 +36,30 @@ def _require_generation_storage():
         raise HTTPException(status_code=503, detail=str(e))
 
 
-def _job_to_response(job: Job, user_map: dict | None = None) -> JobResponse:
+def _job_size_bytes(job_id: str) -> int:
+    """작업 폴더(STORAGE_DIR/{id}) 총 바이트. symlink 미추적·예외 무시.
+    tts_sessions/ 는 STORAGE_DIR 직하 별도 경로라 자동 제외된다(이중계산 방지)."""
+    job_dir = os.path.join(settings.STORAGE_DIR, job_id)
+    total = 0
+    for root, _dirs, files in os.walk(job_dir, followlinks=False):
+        for name in files:
+            try:
+                total += os.path.getsize(os.path.join(root, name))
+            except OSError:
+                pass
+    return total
+
+
+def _job_to_response(job: Job, user_map: dict | None = None, include_size: bool = False) -> JobResponse:
     video_url = None
     if job.video_path and (os.path.exists(job.video_path) or getattr(job, "r2_synced", "") == "synced"):
         video_url = f"/api/jobs/{job.id}/video"
 
     files_expired = bool(job.files_expired_at)
     days_remaining = None
-    if job.completed_at and not files_expired:
+    # 로컬 단일사용자: 완료 30일 만료를 적용하지 않는다("받아도 계속 수정").
+    # 사용자가 직접 discard 해서 files_expired_at 이 찍힌 건 그대로 만료로 둔다.
+    if job.completed_at and not files_expired and not settings.LOCAL_SINGLE_USER:
         age = (utc_now_naive() - job.completed_at).days
         days_remaining = max(0, 30 - age)
         if days_remaining == 0:
@@ -83,6 +99,11 @@ def _job_to_response(job: Job, user_map: dict | None = None) -> JobResponse:
         owner_nickname=owner_nickname,
         owner_email=owner_email,
         can_reopen=can_reopen,
+        title=job.title or None,
+        title_line1=job.title_line1 or None,
+        title_line2=job.title_line2 or None,
+        generation_mode=job.generation_mode,
+        size_bytes=_job_size_bytes(job.id) if include_size else None,
     )
 
 
@@ -144,6 +165,10 @@ async def create_job(
     _user: User = Depends(get_approved_user),
 ):
     """작업 생성 → 이미지 생성 시작"""
+    # 유튜브 "AI가 모두 생성"(Card A) 비활성화 게이트. React 카드·정적 UI·직접 호출이
+    # 모두 이 엔드포인트로 모이므로, 여기서 막으면 AI job 신규 생성이 전 표면에서 차단된다.
+    if not YT_AI_FULL_ENABLED:
+        raise HTTPException(status_code=403, detail="AI 자동 생성 모드는 현재 비활성화되어 있습니다.")
     _require_generation_storage()
     # Job ID를 미리 생성 (스냅샷 경로 계산용)
     job_id = uuid.uuid4().hex[:12]
@@ -271,7 +296,10 @@ async def create_draft_job(
         id=job_id,
         user_id=_user.id,
         topic="",
-        title="",
+        # 중단한 draft 를 작업이력에서 다시 열 때 제목이 복원되게 함께 저장.
+        title=(f"{request.title_line1} {request.title_line2}").strip(),
+        title_line1=request.title_line1 or None,
+        title_line2=request.title_line2 or None,
         script_json=json.dumps(script_lines, ensure_ascii=False),
         generation_mode="user_assets",
         line_sources_json=json.dumps(["ai"] * n, ensure_ascii=False),
@@ -294,7 +322,7 @@ async def create_draft_job(
 async def list_jobs(limit: int = 20, db: Session = Depends(get_db), _user: User = Depends(get_approved_user)):
     """작업 목록 (최신순, 본인 작업만)"""
     jobs = db.query(Job).filter(Job.user_id == _user.id).order_by(Job.created_at.desc()).limit(limit).all()
-    return [_job_to_response(j) for j in jobs]
+    return [_job_to_response(j, include_size=True) for j in jobs]
 
 
 @router.get("/{job_id}", response_model=JobResponse)
@@ -428,6 +456,9 @@ async def retry_images(
     _user: User = Depends(get_approved_user),
 ):
     """실패한 이미지 생성 재시도"""
+    # Card A 비활성화 게이트 — card_a_images 를 재큐잉하는 또 다른 입구이므로 동일 차단.
+    if not YT_AI_FULL_ENABLED:
+        raise HTTPException(status_code=403, detail="AI 자동 생성 모드는 현재 비활성화되어 있습니다.")
     _require_generation_storage()
     job = get_user_job(db, job_id, _user)
 
@@ -678,6 +709,9 @@ async def reopen_job(
     # 이미 preview_ready 상태면 멱등 응답 (active task 없는 경우에 한해)
     if job.status == "preview_ready":
         if _active_tasks_count(db, job_id) == 0:
+            # 멱등 재진입에서도 incremental TTS 세션을 복원한다.
+            # (안 하면 세션 폴더가 사라진 뒤 다음 preview-build 가 full rebuild 로 추락)
+            _restore_tts_session_dir(job.tts_session_id, job_id)
             return _build_draft_state(job)
         raise HTTPException(status_code=409, detail="이미 편집 가능 상태이며 진행 중인 작업이 있습니다")
 
@@ -769,6 +803,10 @@ async def discard_job(
 
     if job.files_expired_at:
         return {"ok": True, "already_discarded": True}
+
+    # 진행 중(렌더/생성) 작업을 지우면 워커와 파일 삭제가 충돌 → 차단
+    if _active_tasks_count(db, job_id) > 0:
+        raise HTTPException(status_code=409, detail="진행 중인 작업이 있어 삭제할 수 없어요. 잠시 후 다시 시도하세요.")
 
     await delete_job_all_files(job_id)
 

@@ -354,6 +354,50 @@ export function uploadImage(
   );
 }
 
+export interface UploadClipResult {
+  message?: string;
+  clip_url: string; // /api/jobs/{id}/clips/{i}
+  asset_version?: number | null;
+}
+/**
+ * 특정 줄을 사용자 영상으로 교체. **동기**(저장 후 응답). MP4/MOV/WebM/AVI, 50MB 이하만 허용
+ * (백엔드와 동일 검사를 호출 측에서도 선행). MP4 외 포맷은 백엔드가 FFmpeg 로 MP4 변환하므로
+ * 이미지 업로드보다 응답이 느릴 수 있다. 성공 시 그 줄의 소스가 'clip' 으로 바뀐다.
+ */
+export function uploadClip(
+  jobId: string,
+  lineIndex: number,
+  file: File,
+): Promise<UploadClipResult> {
+  const form = new FormData();
+  form.append("file", file);
+  return ytPostForm<UploadClipResult>(
+    `/api/jobs/${jobId}/upload-clip/${lineIndex}`,
+    form,
+  );
+}
+
+export interface RegenerateClipResult {
+  message?: string;
+  task_id?: string;
+  already_running?: boolean;
+}
+/**
+ * 준비된 이미지(소스 'ai'/'image')를 AI 로 움직이는 영상으로 변환. **비동기**(작업 큐, fal.ai) —
+ * 호출 직후 그 줄 status='pending'(asset_action='ai_clip')이 되고, 워커가 끝나면 'ready'(소스 'clip')
+ * 또는 'failed' 로 바뀐다. 호출 측은 draft-state 를 폴링해 상태 변화를 추적한다. fal.ai 키가 없으면
+ * 그 줄이 'failed' + fail_reason 으로 돌아온다. 클립이 이미 있는 줄(소스 'clip')에는 호출하지 말 것.
+ */
+export function regenerateClip(
+  jobId: string,
+  lineIndex: number,
+): Promise<RegenerateClipResult> {
+  return ytPostJson<RegenerateClipResult>(
+    `/api/jobs/${jobId}/regenerate-clip/${lineIndex}`,
+    {},
+  );
+}
+
 // ── Card B (직접 제공): 대본 분할 / draft / 줄별 상태 ──────────
 
 export type LineSource = "ai" | "image" | "clip";
@@ -369,9 +413,18 @@ export interface DraftJobResponse {
   job_id: string;
   lines: ScriptLine[];
 }
-/** 쪼갠 대본으로 Card B draft job 생성(generation_mode=user_assets, status=preview_ready). */
-export function createDraft(lines: string[]): Promise<DraftJobResponse> {
-  return ytPostJson<DraftJobResponse>("/api/jobs/draft", { lines });
+/** 쪼갠 대본으로 Card B draft job 생성(generation_mode=user_assets, status=preview_ready).
+ * 제목(2줄)도 함께 보내 중단한 draft 를 작업이력에서 다시 열 때 제목이 복원되게 한다. */
+export function createDraft(
+  lines: string[],
+  titleLine1 = "",
+  titleLine2 = "",
+): Promise<DraftJobResponse> {
+  return ytPostJson<DraftJobResponse>("/api/jobs/draft", {
+    lines,
+    title_line1: titleLine1,
+    title_line2: titleLine2,
+  });
 }
 
 /** 줄별 자산 편집 화면의 진실원천. 폴링으로 줄별 status/asset_step 변화를 추적. */
@@ -384,6 +437,15 @@ export interface DraftState {
   title?: string | null;
   title_line1?: string | null;
   title_line2?: string | null;
+  // 작업 다시 열기 복원용 음성/BGM 설정(백엔드 DraftStateResponse 제공).
+  tts_engine?: string | null;
+  voice_id?: string | null;
+  emotion?: string | null;
+  tts_speed?: number | null;
+  tts_session_id?: string | null;
+  bgm_filename?: string | null;
+  bgm_volume?: number | null; // 0~0.5
+  bgm_start_sec?: number | null;
   lines: ScriptLine[];
   line_sources: LineSource[];
   [key: string]: unknown;
@@ -482,6 +544,40 @@ export function deleteLine(
     line_index: lineIndex,
     line_id: lineId ?? null,
   });
+}
+
+// ── 작업이력 (목록 / 다시 열기 / 삭제) ──────────
+
+/** 작업이력 카드 1건. 백엔드 JobResponse 의 목록용 부분집합. */
+export interface JobSummary {
+  job_id: string;
+  status: string;
+  created_at: string;
+  completed_at?: string | null;
+  video_url?: string | null;
+  can_reopen: boolean;
+  generation_mode?: string | null;
+  title?: string | null;
+  title_line1?: string | null;
+  title_line2?: string | null;
+  size_bytes?: number | null;
+  error?: string | null;
+}
+
+/** 본인 작업 이력(최신순). 목록 응답엔 size_bytes·title 이 채워져 있다. */
+export function listJobs(limit = 30): Promise<JobSummary[]> {
+  return ytGetJson<JobSummary[]>(`/api/jobs/?limit=${limit}`);
+}
+
+/** 완료/편집중 Card B 작업을 편집 상태(preview_ready)로 되돌리고 복원 데이터(draft-state) 반환.
+ * 진행 중(active task)이면 409, 정리/만료됐으면 410. */
+export function reopenJob(jobId: string): Promise<DraftState> {
+  return ytPostJson<DraftState>(`/api/jobs/${jobId}/reopen`, {});
+}
+
+/** 작업의 모든 산출물 삭제(작업이력 "삭제"). 진행 중이면 409. 멱등. */
+export function discardJob(jobId: string): Promise<{ ok: boolean }> {
+  return ytPostJson<{ ok: boolean }>(`/api/jobs/${jobId}/discard`, {});
 }
 
 // ── API 키 (단일사용자 무인증, 백엔드 DB 직접 저장) ──────────

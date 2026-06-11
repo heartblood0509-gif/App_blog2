@@ -4,6 +4,7 @@
 
 import { Sparkles, PenTool } from "lucide-react";
 import { useYt } from "../state";
+import { YT_AI_FULL_ENABLED } from "@/lib/youtube-ai-full-feature";
 
 export function ModeSelect() {
   const { update } = useYt();
@@ -16,19 +17,23 @@ export function ModeSelect() {
       </p>
 
       <div className="mt-8 grid gap-4 sm:grid-cols-2">
-        <button
-          type="button"
-          onClick={() => update({ mode: "ai_full", screen: "topic" })}
-          className="group flex flex-col items-center gap-3 rounded-xl border border-border bg-card p-6 text-center transition-all hover:border-primary hover:shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50"
-        >
-          <div className="flex h-12 w-12 items-center justify-center rounded-full bg-primary/10 text-primary">
-            <Sparkles className="h-6 w-6" />
-          </div>
-          <h3 className="text-base font-semibold">AI가 모두 생성</h3>
-          <p className="text-sm text-muted-foreground">
-            주제만 입력하면 제목·나레이션·이미지·영상까지 AI가 자동으로 만들어줍니다.
-          </p>
-        </button>
+        {/* "AI가 모두 생성"(Card A): YT_AI_FULL_ENABLED=false 면 숨김. 평소엔 initialYtState 가
+            ModeSelect 자체를 건너뛰므로 이 화면은 거의 안 뜨지만, ScreenSwitch 폴백 방어용으로도 가린다. */}
+        {YT_AI_FULL_ENABLED && (
+          <button
+            type="button"
+            onClick={() => update({ mode: "ai_full", screen: "topic" })}
+            className="group flex flex-col items-center gap-3 rounded-xl border border-border bg-card p-6 text-center transition-all hover:border-primary hover:shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50"
+          >
+            <div className="flex h-12 w-12 items-center justify-center rounded-full bg-primary/10 text-primary">
+              <Sparkles className="h-6 w-6" />
+            </div>
+            <h3 className="text-base font-semibold">AI가 모두 생성</h3>
+            <p className="text-sm text-muted-foreground">
+              주제만 입력하면 제목·나레이션·이미지·영상까지 AI가 자동으로 만들어줍니다.
+            </p>
+          </button>
+        )}
 
         <button
           type="button"

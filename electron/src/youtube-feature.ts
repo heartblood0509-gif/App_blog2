@@ -9,4 +9,4 @@
 //   true  → 기존 동작 복원. 부팅 시 youtube-backend 를 띄우고 iframe origin 을 허용한다.
 //
 // 유튜브 이식이 완성되면 이 값을 (frontend 와 함께) true 로 되돌리면 끝.
-export const YOUTUBE_FEATURE_ENABLED = false;
+export const YOUTUBE_FEATURE_ENABLED = true;
