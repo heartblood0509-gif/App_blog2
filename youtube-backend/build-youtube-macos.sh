@@ -24,16 +24,18 @@ if [ -z "$PY" ]; then
 fi
 echo "[youtube] using $PY ($($PY --version 2>&1))"
 
-echo "[1/2] pip install dependencies..."
-"$PY" -m pip install --upgrade pip
-"$PY" -m pip install -r requirements.txt
-if ! "$PY" -m pip show pyinstaller >/dev/null 2>&1; then
-  "$PY" -m pip install pyinstaller
-fi
+echo "[1/2] pip install dependencies (venv)..."
+# PEP 668: CI 러너의 Homebrew python 은 externally-managed 라 시스템 pip install 이 거부된다.
+# venv 안에 설치하면 어떤 python 이든(로컬·CI 공통) 안전하게 동작한다. (.venv/ 는 .gitignore 됨)
+"$PY" -m venv .venv
+VENV_PY=".venv/bin/python"
+"$VENV_PY" -m pip install --upgrade pip
+"$VENV_PY" -m pip install -r requirements.txt
+"$VENV_PY" -m pip install pyinstaller
 
 echo
 echo "[2/2] PyInstaller build (YoutubeGenerator.spec)..."
-"$PY" -m PyInstaller YoutubeGenerator.spec --clean --noconfirm
+"$VENV_PY" -m PyInstaller YoutubeGenerator.spec --clean --noconfirm
 
 echo
 echo "========================================================"
