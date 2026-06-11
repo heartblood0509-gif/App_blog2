@@ -16,7 +16,7 @@
  *    base64 매직바이트로 판별한다. draft 내보내기처럼 mimeType 을 알면 그걸 우선 사용.
  *  - 번호(NN)는 슬롯 등장 순서(1-base)로 고정한다. 이미지가 없는 슬롯도 번호는 소비되어
  *    (.txt/.md/이미지 파일이 같은 번호 체계를 공유) 어긋나지 않는다.
- *  - 다운로드는 Blob + <a download>. Electron 은 will-download 핸들러가 다운로드 폴더로 자동 저장.
+ *  - 다운로드는 Blob + <a download>. Electron 은 will-download 핸들러가 저장 위치 선택 창을 띄움(기본 위치=다운로드 폴더).
  */
 
 import JSZip from "jszip";
@@ -230,7 +230,22 @@ export async function buildZipBlob(input: ExportZipInput): Promise<Blob> {
   return zip.generateAsync({ type: "blob" });
 }
 
-/** Blob 을 파일로 다운로드시킨다. (Electron: will-download 핸들러가 다운로드 폴더로 저장) */
+/**
+ * base64 이미지 한 장을 파일로 다운로드한다.
+ * (Electron: will-download 핸들러가 "다른 이름으로 저장" 창을 띄움 — 기본 위치는 다운로드 폴더)
+ * 확장자/mime 는 매직바이트로 판별. fileNameNoExt 는 sanitize 후 확장자를 붙인다.
+ */
+export function downloadImageFromBase64(base64: string, fileNameNoExt: string): void {
+  const b64 = stripDataUrlPrefix(base64);
+  const ext = extFromBase64(b64);
+  const mime = ext === "jpg" ? "image/jpeg" : `image/${ext}`;
+  const bytes = base64ToBytes(b64);
+  // base64ToBytes 는 정확한 길이의 ArrayBuffer 를 새로 만드므로 buffer 를 그대로 Blob 으로.
+  const blob = new Blob([bytes.buffer as ArrayBuffer], { type: mime });
+  triggerDownload(blob, `${sanitizeFileName(fileNameNoExt, 60)}.${ext}`);
+}
+
+/** Blob 을 파일로 다운로드시킨다. (Electron: will-download 핸들러가 저장 위치 선택 창을 띄움) */
 export function triggerDownload(blob: Blob, fileName: string): void {
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");

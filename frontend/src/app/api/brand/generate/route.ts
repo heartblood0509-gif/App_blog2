@@ -8,6 +8,9 @@ import { buildBrandGenerationPrompt } from "@/lib/brand/prompts/generation";
 import { generateStream } from "@/lib/gemini";
 import { CONFIG } from "@/lib/config";
 import { backendFetch } from "@/lib/backend-fetch";
+import { withRetryAsync } from "@/lib/ai/with-retry";
+import { geminiErrorResponse } from "@/lib/ai/retry-classify";
+import { withProviderSnapshot } from "@/lib/ai/provider-context";
 import type {
   BrandProfile,
   BrandTemplateId,
@@ -27,6 +30,10 @@ const PRODUCT_ATTACH_ENABLED =
   process.env.NEXT_PUBLIC_ENABLE_PRODUCT_ATTACH !== "0";
 
 export async function POST(request: Request) {
+  return withProviderSnapshot(() => handlePost(request));
+}
+
+async function handlePost(request: Request): Promise<Response> {
   try {
     const body = await request.json();
     const {
@@ -135,8 +142,11 @@ export async function POST(request: Request) {
       attachedProduct: effectiveAttachedProduct,
     });
 
-    // 1차 생성 (버퍼)
-    const firstContent = await collectStream(prompt, apiKey);
+    // 1차 생성 (버퍼) — 429/503/500은 서버 재시도(버퍼링이라 클라 중복 없음)
+    const firstContent = await withRetryAsync(
+      () => collectStream(prompt, apiKey),
+      { retries: CONFIG.TEXT_TRANSIENT_RETRIES, backoffMs: CONFIG.TEXT_BACKOFF_MS }
+    );
     if (!firstContent) {
       throw new Error("생성된 내용이 없습니다. 다시 시도해주세요.");
     }
@@ -171,9 +181,7 @@ export async function POST(request: Request) {
       },
     });
   } catch (error) {
-    const message =
-      error instanceof Error ? error.message : "브랜드 글 생성 중 오류가 발생했습니다.";
-    return Response.json({ error: message }, { status: 500 });
+    return geminiErrorResponse(error);
   }
 }
 

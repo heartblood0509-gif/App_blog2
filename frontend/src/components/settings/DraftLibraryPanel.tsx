@@ -86,7 +86,6 @@ export function DraftLibraryPanel() {
         generatedImages,
         mimeBySlot,
       });
-      toast.success("ZIP 다운로드를 시작했습니다.");
     } catch {
       toast.error("ZIP 생성에 실패했습니다.");
     }

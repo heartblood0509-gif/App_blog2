@@ -29,23 +29,40 @@ export async function POST(req: Request) {
     );
   }
 
-  let body: { provider?: unknown; openaiTextModel?: unknown } | null = null;
+  let body:
+    | { provider?: unknown; imageProvider?: unknown; openaiTextModel?: unknown }
+    | null = null;
   try {
-    body = (await req.json()) as { provider?: unknown; openaiTextModel?: unknown };
+    body = (await req.json()) as {
+      provider?: unknown;
+      imageProvider?: unknown;
+      openaiTextModel?: unknown;
+    };
   } catch {
     return NextResponse.json({ ok: false, error: "JSON 본문이 올바르지 않습니다." }, { status: 400 });
   }
 
-  const partial: { provider?: AiProvider; openaiTextModel?: OpenAiTextModel } = {};
+  const partial: {
+    provider?: AiProvider;
+    imageProvider?: AiProvider;
+    openaiTextModel?: OpenAiTextModel;
+  } = {};
   if (body?.provider === "gemini" || body?.provider === "openai") {
     partial.provider = body.provider;
+  }
+  if (body?.imageProvider === "gemini" || body?.imageProvider === "openai") {
+    partial.imageProvider = body.imageProvider;
   }
   if (body?.openaiTextModel === "gpt-5.4-mini" || body?.openaiTextModel === "gpt-5.5") {
     partial.openaiTextModel = body.openaiTextModel;
   }
-  if (partial.provider === undefined && partial.openaiTextModel === undefined) {
+  if (
+    partial.provider === undefined &&
+    partial.imageProvider === undefined &&
+    partial.openaiTextModel === undefined
+  ) {
     return NextResponse.json(
-      { ok: false, error: "유효한 provider 또는 openaiTextModel 이 필요합니다." },
+      { ok: false, error: "유효한 provider / imageProvider / openaiTextModel 이 필요합니다." },
       { status: 400 }
     );
   }

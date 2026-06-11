@@ -88,13 +88,19 @@ interface ElectronSettingsApi {
     ok: boolean;
     encryption_available: boolean;
   }>;
-  // 유튜브 전용 키(다음 부팅 시 youtube-backend 에 env 시드용). 빈 문자열=지우기.
+  // Typecast: 유튜브 전용 키(다음 부팅 시 youtube-backend 에 env 시드용). 빈 문자열=지우기.
   setTypecastKey: (plaintext: string) => Promise<{
     ok: boolean;
     encryption_available: boolean;
   }>;
+  // fal: 블로그 이미지(fal 우선) + 유튜브 공용 키. 빈 문자열=지우기.
   setFalKey: (plaintext: string) => Promise<{
     ok: boolean;
+    encryption_available: boolean;
+  }>;
+  getFalMasked: () => Promise<{
+    hasKey: boolean;
+    masked: string | null;
     encryption_available: boolean;
   }>;
   // OpenAI 키 (ChatGPT 모드). 빈 문자열=지우기.
@@ -110,14 +116,17 @@ interface ElectronSettingsApi {
   // AI 제공자 토글 + OpenAI 텍스트 모델.
   getAiProvider: () => Promise<{
     provider: "gemini" | "openai";
+    imageProvider?: "gemini" | "openai";
     openaiTextModel: "gpt-5.4-mini" | "gpt-5.5";
   }>;
   setAiProvider: (cfg: {
     provider?: "gemini" | "openai";
+    imageProvider?: "gemini" | "openai";
     openaiTextModel?: "gpt-5.4-mini" | "gpt-5.5";
   }) => Promise<{
     ok: boolean;
     provider: "gemini" | "openai";
+    imageProvider?: "gemini" | "openai";
     openaiTextModel: "gpt-5.4-mini" | "gpt-5.5";
   }>;
 }

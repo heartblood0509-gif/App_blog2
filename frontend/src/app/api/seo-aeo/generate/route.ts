@@ -12,12 +12,19 @@ import {
 import { isIntentMode } from "@/lib/seo-aeo/templates";
 import { generateStream } from "@/lib/gemini";
 import { CONFIG } from "@/lib/config";
+import { withRetryAsync } from "@/lib/ai/with-retry";
+import { geminiErrorResponse } from "@/lib/ai/retry-classify";
+import { withProviderSnapshot } from "@/lib/ai/provider-context";
 import type { AeoProfile } from "@/types/aeo";
 import type { SeoAeoTemplateType } from "@/types";
 
 export const maxDuration = 60;
 
 export async function POST(request: Request) {
+  return withProviderSnapshot(() => handlePost(request));
+}
+
+async function handlePost(request: Request): Promise<Response> {
   try {
     const body = await request.json();
     const {
@@ -84,7 +91,10 @@ export async function POST(request: Request) {
           charCount,
         });
 
-    const firstContent = await collectStream(prompt, apiKey);
+    const firstContent = await withRetryAsync(
+      () => collectStream(prompt, apiKey),
+      { retries: CONFIG.TEXT_TRANSIENT_RETRIES, backoffMs: CONFIG.TEXT_BACKOFF_MS }
+    );
     if (!firstContent) {
       throw new Error("생성된 내용이 없습니다. 다시 시도해주세요.");
     }
@@ -109,11 +119,7 @@ export async function POST(request: Request) {
       },
     });
   } catch (error) {
-    const message =
-      error instanceof Error
-        ? error.message
-        : "SEO·AEO 글 생성 중 오류가 발생했습니다.";
-    return Response.json({ error: message }, { status: 500 });
+    return geminiErrorResponse(error);
   }
 }
 

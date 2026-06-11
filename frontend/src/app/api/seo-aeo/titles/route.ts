@@ -11,10 +11,17 @@ import {
 import { isIntentMode } from "@/lib/seo-aeo/templates";
 import { generateText } from "@/lib/gemini";
 import { CONFIG } from "@/lib/config";
+import { withRetryAsync } from "@/lib/ai/with-retry";
+import { geminiErrorResponse } from "@/lib/ai/retry-classify";
+import { withProviderSnapshot } from "@/lib/ai/provider-context";
 import type { AeoProfile } from "@/types/aeo";
 import type { SeoAeoTemplateType } from "@/types";
 
 export async function POST(request: Request) {
+  return withProviderSnapshot(() => handlePost(request));
+}
+
+async function handlePost(request: Request): Promise<Response> {
   try {
     const body = await request.json();
     const {
@@ -71,7 +78,10 @@ export async function POST(request: Request) {
           count: count ?? 5,
         });
 
-    const result = await generateText(prompt, CONFIG.GENERATION_MODEL, apiKey);
+    const result = await withRetryAsync(
+      () => generateText(prompt, CONFIG.GENERATION_MODEL, apiKey),
+      { retries: CONFIG.TEXT_TRANSIENT_RETRIES, backoffMs: CONFIG.TEXT_BACKOFF_MS }
+    );
 
     let jsonStr = result.trim();
     if (jsonStr.startsWith("```")) {
@@ -81,10 +91,6 @@ export async function POST(request: Request) {
     const suggestions = JSON.parse(jsonStr);
     return Response.json({ suggestions });
   } catch (error) {
-    const message =
-      error instanceof Error
-        ? error.message
-        : "SEO·AEO 제목 생성 중 오류가 발생했습니다.";
-    return Response.json({ error: message }, { status: 500 });
+    return geminiErrorResponse(error);
   }
 }

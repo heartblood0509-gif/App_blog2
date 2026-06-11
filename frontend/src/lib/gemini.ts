@@ -6,8 +6,12 @@
 // provider 는 resolveProviderConfig 로 해석 — 요청 스냅샷(withProviderSnapshot)이 있으면 그 값.
 
 import { resolveProviderConfig } from "./ai/provider-context";
+import { effectiveImageProvider } from "./server/ai-provider";
+import { isFalImageAvailable } from "./server/fal-key";
+import { devLog } from "./ai/log";
 import * as gemini from "./ai/gemini-provider";
 import * as openai from "./ai/openai-provider";
+import * as fal from "./ai/fal-provider";
 import type {
   ChatTurn,
   MultimodalTurn,
@@ -23,9 +27,28 @@ export type {
   GeneratedImageResult,
 } from "./ai/types";
 
+// 텍스트 축(글·제목·분석·describeImageSubject) — provider 설정을 따른다.
 async function isOpenAIActive(): Promise<boolean> {
   const { provider } = await resolveProviderConfig();
   return provider === "openai";
+}
+
+// 이미지 축 — imageProvider(미설정 시 provider) + fal 키 유무로 백엔드 결정.
+//   openai            → gpt-image-2
+//   gemini + fal 키   → fal (nano-banana, 같은 Gemini 모델·429 회피)
+//   gemini + 키 없음  → Gemini 직접
+// 런타임 자동 우회 없음(결정 5): fal 이 골라지면 실패해도 Gemini 로 재시도하지 않는다.
+async function resolveImageBackend(): Promise<"openai" | "fal" | "gemini"> {
+  const cfg = await resolveProviderConfig();
+  const imageProvider = effectiveImageProvider(cfg);
+  if (imageProvider === "openai") {
+    devLog("[image-backend]", { imageProvider, chosen: "openai" });
+    return "openai";
+  }
+  const hasFalKey = await isFalImageAvailable();
+  const chosen = hasFalKey ? "fal" : "gemini";
+  devLog("[image-backend]", { imageProvider, hasFalKey, chosen });
+  return chosen;
 }
 
 /**
@@ -36,7 +59,9 @@ export async function* generateStream(
   model: string = "gemini-2.5-flash",
   apiKey?: string
 ): AsyncGenerator<string> {
-  if (await isOpenAIActive()) {
+  const openaiActive = await isOpenAIActive();
+  devLog("[ai-text]", { fn: "generateStream", provider: openaiActive ? "openai" : "gemini" });
+  if (openaiActive) {
     yield* openai.generateStream(prompt, model, apiKey);
     return;
   }
@@ -84,7 +109,9 @@ export async function generateText(
   apiKey?: string,
   generationConfig?: GenerateTextConfig
 ): Promise<string> {
-  if (await isOpenAIActive()) {
+  const openaiActive = await isOpenAIActive();
+  devLog("[ai-text]", { fn: "generateText", provider: openaiActive ? "openai" : "gemini" });
+  if (openaiActive) {
     return openai.generateText(prompt, model, apiKey, generationConfig);
   }
   return gemini.generateText(prompt, model, apiKey, generationConfig);
@@ -129,7 +156,9 @@ export async function describeImageSubject(
   model: string,
   apiKey?: string
 ): Promise<string> {
-  if (await isOpenAIActive()) {
+  const openaiActive = await isOpenAIActive();
+  devLog("[ai-text]", { fn: "describeImageSubject", provider: openaiActive ? "openai" : "gemini" });
+  if (openaiActive) {
     return openai.describeImageSubject(userImageBase64, userImageMime, prompt, model, apiKey);
   }
   return gemini.describeImageSubject(userImageBase64, userImageMime, prompt, model, apiKey);
@@ -143,9 +172,10 @@ export async function generateImage(
   model: string,
   apiKey?: string
 ): Promise<GeneratedImageResult | null> {
-  if (await isOpenAIActive()) {
-    return openai.generateImage(prompt, model, apiKey);
-  }
+  const backend = await resolveImageBackend();
+  if (backend === "openai") return openai.generateImage(prompt, model, apiKey);
+  // fal 은 서버 fal 키를 직접 읽으므로 apiKey(=Gemini 키)를 넘기지 않는다.
+  if (backend === "fal") return fal.generateImage(prompt, model);
   return gemini.generateImage(prompt, model, apiKey);
 }
 
@@ -158,9 +188,11 @@ export async function generateImageWithAspect(
   model: string,
   apiKey?: string
 ): Promise<GeneratedImageResult | null> {
-  if (await isOpenAIActive()) {
+  const backend = await resolveImageBackend();
+  if (backend === "openai")
     return openai.generateImageWithAspect(prompt, aspectRatio, model, apiKey);
-  }
+  if (backend === "fal")
+    return fal.generateImageWithAspect(prompt, aspectRatio, model);
   return gemini.generateImageWithAspect(prompt, aspectRatio, model, apiKey);
 }
 
@@ -174,8 +206,10 @@ export async function transformImage(
   model: string,
   apiKey?: string
 ): Promise<GeneratedImageResult | null> {
-  if (await isOpenAIActive()) {
+  const backend = await resolveImageBackend();
+  if (backend === "openai")
     return openai.transformImage(prompt, userImageBase64, userImageMime, model, apiKey);
-  }
+  if (backend === "fal")
+    return fal.transformImage(prompt, userImageBase64, userImageMime, model);
   return gemini.transformImage(prompt, userImageBase64, userImageMime, model, apiKey);
 }

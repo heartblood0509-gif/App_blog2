@@ -1,4 +1,17 @@
 import { CONFIG } from "@/lib/config";
+import {
+  type ReasonCode,
+  NON_RETRYABLE,
+  sleep,
+  jitter,
+  pickBackoff,
+  parseRetryAfter,
+  mapStatusToReason,
+  type ServerResponseBody,
+} from "@/lib/ai/retry-classify";
+
+// 다른 모듈이 lib/image-bulk 에서 ReasonCode 를 import 하던 경로 보존.
+export type { ReasonCode };
 
 /**
  * 이미지 일괄 생성 — 클라이언트 병렬 풀.
@@ -10,34 +23,6 @@ import { CONFIG } from "@/lib/config";
  *  - 슬롯당 90초 timeout (재시도 안 함 — 중복 생성 방지)
  *  - roundId/slotVersion 전달 → 콜백에서 stale write 검증 가능
  */
-
-export type ReasonCode =
-  | "safety"
-  | "quota"
-  | "unavailable"
-  | "internal"
-  | "deadline"
-  | "timeout"
-  | "network"
-  | "empty"
-  | "permission"
-  | "not_found"
-  | "precondition"
-  | "bad_request"
-  | "auth"
-  | "unknown";
-
-const NON_RETRYABLE: ReadonlySet<ReasonCode> = new Set<ReasonCode>([
-  "permission",
-  "not_found",
-  "precondition",
-  "bad_request",
-  "auth",
-  "deadline",
-  "safety",
-  "empty",
-  "timeout",
-]);
 
 export interface SlotPayload {
   id: string;
@@ -96,100 +81,6 @@ export interface RunOptions {
     concurrency: number;
     reason: "down_429" | "up_success" | "init";
   }) => void;
-}
-
-function sleep(ms: number, signal: AbortSignal): Promise<void> {
-  return new Promise((resolve, reject) => {
-    if (signal.aborted) {
-      reject(new DOMException("Aborted", "AbortError"));
-      return;
-    }
-    const timer = setTimeout(() => {
-      signal.removeEventListener("abort", onAbort);
-      resolve();
-    }, ms);
-    const onAbort = () => {
-      clearTimeout(timer);
-      reject(new DOMException("Aborted", "AbortError"));
-    };
-    signal.addEventListener("abort", onAbort, { once: true });
-  });
-}
-
-function jitter(ms: number): number {
-  // ±20%
-  const factor = 0.8 + Math.random() * 0.4;
-  return Math.max(0, Math.round(ms * factor));
-}
-
-function pickBackoff(table: readonly number[], attempt: number): number {
-  // attempt: 1, 2, 3, ...
-  return table[attempt - 1] ?? table[table.length - 1] ?? 5_000;
-}
-
-interface ServerResultRow {
-  id: string;
-  status: "done" | "failed" | "skipped";
-  base64?: string;
-  mimeType?: string;
-  reasonCode?: ReasonCode;
-  retryable?: boolean;
-  retryAfterMs?: number;
-  error?: string;
-}
-
-interface ServerResponseBody {
-  results?: ServerResultRow[];
-  reasonCode?: ReasonCode;
-  retryAfterMs?: number;
-  error?: string;
-}
-
-function parseRetryAfter(
-  headers: Headers,
-  json: ServerResponseBody | null
-): number | undefined {
-  // 우선: HTTP Retry-After 헤더 (초 단위 정수 또는 HTTP-date)
-  const h = headers.get("retry-after");
-  if (h) {
-    const s = parseInt(h, 10);
-    if (!Number.isNaN(s)) return s * 1000;
-    const d = Date.parse(h);
-    if (!Number.isNaN(d)) return Math.max(0, d - Date.now());
-  }
-  // 본문의 retryAfterMs
-  if (json?.retryAfterMs && typeof json.retryAfterMs === "number") {
-    return json.retryAfterMs;
-  }
-  // results[0].retryAfterMs
-  if (json?.results?.[0]?.retryAfterMs && typeof json.results[0].retryAfterMs === "number") {
-    return json.results[0].retryAfterMs;
-  }
-  return undefined;
-}
-
-function mapStatusToReason(httpStatus: number, hintFromJson?: ReasonCode): ReasonCode {
-  if (hintFromJson) return hintFromJson;
-  switch (httpStatus) {
-    case 429:
-      return "quota";
-    case 503:
-      return "unavailable";
-    case 504:
-      return "deadline";
-    case 500:
-      return "internal";
-    case 403:
-      return "permission";
-    case 404:
-      return "not_found";
-    case 401:
-      return "auth";
-    case 400:
-      return "bad_request";
-    default:
-      return "unknown";
-  }
 }
 
 async function runOneSlotWithRetry(
@@ -437,10 +328,14 @@ export function reasonCodeToLabel(code: ReasonCode): string {
       return "SAFETY 차단 (재시도 권장)";
     case "quota":
       return "쿼터 초과 (잠시 후 재시도)";
+    case "quota_free_tier":
+      return "무료 등급 한도 (키 재발급 필요)";
     case "unavailable":
       return "Gemini 일시 장애";
     case "internal":
       return "Gemini 내부 오류";
+    case "unprocessable":
+      return "일시 처리 실패 (재시도)";
     case "deadline":
       return "응답 너무 큼 (프롬프트 단순화 필요)";
     case "timeout":
@@ -457,6 +352,8 @@ export function reasonCodeToLabel(code: ReasonCode): string {
       return "지역/요금제 조건 불충족";
     case "auth":
       return "API 키 오류";
+    case "bad_request":
+      return "잘못된 요청";
     case "unknown":
     default:
       return "알 수 없는 오류";

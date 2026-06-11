@@ -7,6 +7,8 @@ export interface NextServerOptions {
   sessionToken: string;
   geminiApiKey?: string;
   openaiApiKey?: string;
+  // fal 키 — 블로그 이미지(fal 우선) + 유튜브 공용. 키 변경은 재시작 후 반영(Gemini 키와 동일).
+  falKey?: string;
   // provider/모델은 부팅 env 가 아니라, Next 가 매 요청 읽는 파일 경로로 전달(즉시 전환).
   aiProviderConfigPath?: string;
   // youtube-backend(쇼츠 생성기) origin — "유튜브" 탭 iframe src 로 클라이언트에 노출.
@@ -50,6 +52,10 @@ export class NextServerManager {
     // 블로그 ChatGPT 모드 — OpenAI 키는 부팅 시 env 로 주입(키 변경은 재시작 후 반영).
     if (this.opts.openaiApiKey) {
       env.OPENAI_API_KEY = this.opts.openaiApiKey;
+    }
+    // fal 키 — 블로그 이미지(fal 우선)가 getServerFalKey()로 읽는다. 유튜브와 공용 키.
+    if (this.opts.falKey) {
+      env.FAL_API_KEY = this.opts.falKey;
     }
     // provider/모델은 userData 의 파일 경로만 알려준다. Next 가 매 요청 이 파일을 읽어
     // 토글이 재시작 없이 즉시 반영된다.

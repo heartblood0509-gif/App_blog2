@@ -1,9 +1,16 @@
 import { buildTitlePrompt } from "@/lib/prompts/title";
 import { generateText } from "@/lib/gemini";
 import { CONFIG } from "@/lib/config";
+import { withRetryAsync } from "@/lib/ai/with-retry";
+import { geminiErrorResponse } from "@/lib/ai/retry-classify";
+import { withProviderSnapshot } from "@/lib/ai/provider-context";
 import type { NarrativeType, ProductInfo, ToneType, SelectedProduct } from "@/types";
 
 export async function POST(request: Request) {
+  return withProviderSnapshot(() => handlePost(request));
+}
+
+async function handlePost(request: Request): Promise<Response> {
   try {
     const body = await request.json();
     const {
@@ -39,7 +46,10 @@ export async function POST(request: Request) {
       customProductInfoById,
     });
 
-    const result = await generateText(prompt, CONFIG.GENERATION_MODEL, apiKey);
+    const result = await withRetryAsync(
+      () => generateText(prompt, CONFIG.GENERATION_MODEL, apiKey),
+      { retries: CONFIG.TEXT_TRANSIENT_RETRIES, backoffMs: CONFIG.TEXT_BACKOFF_MS }
+    );
 
     // JSON 파싱 (마크다운 코드블록 감싸기 처리)
     let jsonStr = result.trim();
@@ -50,8 +60,6 @@ export async function POST(request: Request) {
     const suggestions = JSON.parse(jsonStr);
     return Response.json({ suggestions });
   } catch (error) {
-    const message =
-      error instanceof Error ? error.message : "제목 생성 중 오류가 발생했습니다.";
-    return Response.json({ error: message }, { status: 500 });
+    return geminiErrorResponse(error);
   }
 }

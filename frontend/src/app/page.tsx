@@ -43,6 +43,7 @@ import type {
 } from "@/types";
 import { initialThreadsState } from "@/types";
 import { fetchUserProducts, PRODUCTS } from "@/lib/products";
+import { showGenErrorToast, parseGenErrorResponse } from "@/lib/ai/reason-text";
 import { buildCustomProductInfo } from "@/lib/prompts/brand-context";
 import { exportZip, detectImageMime } from "@/lib/export-zip";
 import {
@@ -788,10 +789,7 @@ export default function Home() {
               : undefined,
           }),
         });
-        if (!res.ok) {
-          const err = await res.json();
-          throw new Error(err.error || "제목 생성에 실패했습니다.");
-        }
+        if (!res.ok) throw await parseGenErrorResponse(res, "제목 생성에 실패했습니다.");
         const data = await res.json();
         if (!Array.isArray(data.suggestions)) {
           throw new Error("응답 형식이 올바르지 않습니다. 다시 시도해주세요.");
@@ -824,10 +822,7 @@ export default function Home() {
             templateType: state.selectedTemplateType,
           }),
         });
-        if (!res.ok) {
-          const err = await res.json();
-          throw new Error(err.error || "제목 생성에 실패했습니다.");
-        }
+        if (!res.ok) throw await parseGenErrorResponse(res, "제목 생성에 실패했습니다.");
         const data = await res.json();
         if (!Array.isArray(data.suggestions)) {
           throw new Error("응답 형식이 올바르지 않습니다. 다시 시도해주세요.");
@@ -851,18 +846,14 @@ export default function Home() {
           customProductInfoById,
         }),
       });
-      if (!res.ok) {
-        const err = await res.json();
-        throw new Error(err.error || "제목 생성에 실패했습니다.");
-      }
+      if (!res.ok) throw await parseGenErrorResponse(res, "제목 생성에 실패했습니다.");
       const data = await res.json();
       if (!Array.isArray(data.suggestions)) {
         throw new Error("응답 형식이 올바르지 않습니다. 다시 시도해주세요.");
       }
       updateState({ titleSuggestions: data.suggestions, isLoading: false });
     } catch (err) {
-      const msg = err instanceof Error ? err.message : "제목 생성 실패";
-      toast.error(msg);
+      showGenErrorToast(err);
       updateState({ isLoading: false });
     }
     // getEffectiveMainKeyword(state)가 state 전체를 읽어 룰은 whole-object(state)를 요구하지만,
@@ -1083,10 +1074,7 @@ export default function Home() {
         });
       }
 
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
-        throw new Error(err.error || "글 생성에 실패했습니다.");
-      }
+      if (!res.ok) throw await parseGenErrorResponse(res, "글 생성에 실패했습니다.");
 
       if (!res.body) throw new Error("스트림 응답을 받을 수 없습니다.");
       const reader = res.body.getReader();
@@ -1132,8 +1120,7 @@ export default function Home() {
       updateState({ isLoading: false });
       await runValidation(content);
     } catch (err) {
-      const msg = err instanceof Error ? err.message : "글 생성 실패";
-      toast.error(msg);
+      showGenErrorToast(err);
       updateState({ isLoading: false });
     }
     // fetchContent는 useEffect(…, [fetchContent]) (1181·1883)에 묶여 있어, 전체 state나
@@ -1906,7 +1893,7 @@ export default function Home() {
   }, [state.generatedContent]);
 
   // 본문 + 이미지를 ZIP 한 묶음으로 다운로드.
-  // Electron 은 will-download 핸들러가 다운로드 폴더로 자동 저장(다이얼로그 없음).
+  // Electron 은 will-download 핸들러가 저장 위치 선택 창을 띄움(기본 위치=다운로드 폴더).
   const handleExportZip = useCallback(async () => {
     if (!state.generatedContent) return;
     setIsExportingZip(true);
@@ -1917,7 +1904,6 @@ export default function Home() {
         imageSlots: state.imageSlots,
         generatedImages: state.generatedImages,
       });
-      toast.success("ZIP 다운로드를 시작했습니다.");
     } catch (err) {
       const msg = err instanceof Error ? err.message : "ZIP 생성에 실패했습니다.";
       toast.error(msg);
@@ -2144,7 +2130,6 @@ export default function Home() {
         generatedImages,
         mimeBySlot,
       });
-      toast.success("ZIP 다운로드를 시작했습니다.");
     } catch {
       toast.error("ZIP 생성에 실패했습니다.");
     }
@@ -2186,10 +2171,7 @@ export default function Home() {
           words: bannedWords,
         }),
       });
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({ error: "대체어 요청 실패" }));
-        throw new Error(err.error || "대체어 요청 실패");
-      }
+      if (!res.ok) throw await parseGenErrorResponse(res, "대체어 요청 실패");
       const data = (await res.json()) as {
         replacements: Record<string, string>;
         skipped: string[];
@@ -2201,8 +2183,7 @@ export default function Home() {
       setReplacementPreview(data);
       setReplacementDialogOpen(true);
     } catch (err) {
-      const msg = err instanceof Error ? err.message : "대체어 요청 실패";
-      toast.error(msg);
+      showGenErrorToast(err);
     } finally {
       setIsReplacingForbidden(false);
     }

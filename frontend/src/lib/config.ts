@@ -40,6 +40,16 @@ export const CONFIG = {
   /** AIMD: 성공 N개 연속 시 동시성 +1 회복 */
   IMAGE_AIMD_RECOVERY_AFTER_N: 4,
 
+  // ── fal.ai 이미지 (nano-banana — 블로그 이미지 fal 우선 경로) ──
+  /** fal 기본 이미지 모델 (= gemini-3.1-flash-image, $0.08/장). */
+  FAL_IMAGE_MODEL: "fal-ai/nano-banana-2",
+  /** fal 고품질 이미지 모델 (= gemini-3-pro-image, $0.15/장 — 사진변환 Pro 전용). */
+  FAL_IMAGE_MODEL_PRO: "fal-ai/nano-banana-pro",
+  /** fal 사진 변환(image-to-image, 기본) 엔드포인트. image_urls 에 base64 data URI 입력. */
+  FAL_IMAGE_EDIT_MODEL: "fal-ai/nano-banana-2/edit",
+  /** fal 사진 변환 Pro 엔드포인트. */
+  FAL_IMAGE_EDIT_MODEL_PRO: "fal-ai/nano-banana-pro/edit",
+
   // ── OpenAI(ChatGPT) 제공자 ──
   /** OpenAI 텍스트 모델 (사용자가 ChatGPT 모드에서 둘 중 선택). */
   OPENAI_TEXT_MODELS: { mini: "gpt-5.4-mini", full: "gpt-5.5" },
@@ -47,6 +57,17 @@ export const CONFIG = {
   OPENAI_IMAGE_MODEL: "gpt-image-2",
   /** OpenAI 이미지 품질 — 기본 슬롯 / 고품질(useProModel) 슬롯. */
   OPENAI_IMAGE_QUALITY: { default: "medium", pro: "high" },
+
+  // ── 텍스트 생성 재시도 (제목·본문·분석 등) ──
+  /** 429/503/500 일시 에러 재시도 횟수 (첫 시도 + N회 = 총 N+1회).
+   *  Electron standalone이라 서버리스 시간제한이 없어 넉넉히 둘 수 있으나,
+   *  사용자 대기 체감을 고려해 이미지(3)보다 약간 보수적으로. */
+  TEXT_TRANSIENT_RETRIES: 2,
+  /** retryAfter(서버가 준 대기시간)가 없을 때 fallback 지수 백오프 (ms). */
+  TEXT_BACKOFF_MS: [4_000, 12_000] as readonly number[],
+  /** 본문 품질 재생성(2차 생성) 시 재시도 상한 — (재생성 2회)×(재시도)로 인한
+   *  누적 대기 폭증을 막기 위해 1차보다 짧게. */
+  TEXT_REGEN_RETRIES: 1,
 
   /** Python 자동 포스팅 백엔드 URL */
   BACKEND_URL: process.env.BACKEND_URL || "http://localhost:8000",
