@@ -13,6 +13,11 @@ import {
 import { extractIdentificationContext } from "@/lib/image/marker-parser";
 import { CONFIG } from "@/lib/config";
 import { withProviderSnapshot } from "@/lib/ai/provider-context";
+import {
+  type ReasonCode,
+  parseGeminiError,
+  buildHeaders,
+} from "@/lib/ai/retry-classify";
 
 // Vercel 등 지원 플랫폼에서만 적용(standalone Node 서버에선 무효). 클라 슬롯 timeout(120초)보다
 // 약간 길게 둬, 플랫폼이 강제하더라도 클라가 먼저 마감을 판단하게 한다.
@@ -36,19 +41,6 @@ interface SlotRequest {
   excluded?: boolean;
 }
 
-type ReasonCode =
-  | "safety"
-  | "empty"
-  | "quota"
-  | "unavailable"
-  | "internal"
-  | "deadline"
-  | "permission"
-  | "not_found"
-  | "precondition"
-  | "auth"
-  | "bad_request"
-  | "unknown";
 
 interface SlotResultDone {
   id: string;
@@ -121,118 +113,6 @@ async function generateOneSlot(
   return await generateImage(prompt, CONFIG.IMAGE_MODEL, apiKey);
 }
 
-interface ParsedGeminiError {
-  status: number;
-  reasonCode: ReasonCode;
-  retryable: boolean;
-  retryAfterMs?: number;
-  message: string;
-}
-
-// Google GenAI SDK 에러는 보통 message 안에 JSON이 들어있거나
-// "[<status>] ... <reason>" 형태로 옴. 방어적으로 파싱.
-function parseGeminiError(err: unknown): ParsedGeminiError {
-  const message = err instanceof Error ? err.message : String(err);
-
-  // 1) HTTP status code 추출 (여러 패턴)
-  let httpStatus = 0;
-  const errObj = err as { status?: unknown; code?: unknown } | null;
-  if (errObj && typeof errObj === "object") {
-    if (typeof errObj.status === "number") httpStatus = errObj.status;
-    else if (typeof errObj.code === "number") httpStatus = errObj.code;
-  }
-  if (!httpStatus) {
-    const m = message.match(/\b(429|503|500|504|403|404|400|401)\b/);
-    if (m) httpStatus = parseInt(m[1], 10);
-  }
-
-  // 2) GenAI 에러 message가 JSON일 수 있음
-  let statusText = "";
-  let retryAfterMs: number | undefined;
-  try {
-    const jsonStart = message.indexOf("{");
-    if (jsonStart >= 0) {
-      const parsed = JSON.parse(message.slice(jsonStart));
-      const errBlock = (parsed?.error ?? parsed) as Record<string, unknown>;
-      if (typeof errBlock?.code === "number" && !httpStatus) {
-        httpStatus = errBlock.code as number;
-      }
-      if (typeof errBlock?.status === "string") {
-        statusText = errBlock.status as string;
-      }
-      const details = (errBlock?.details ?? []) as Array<Record<string, unknown>>;
-      for (const d of details) {
-        const t = (d?.["@type"] as string) || "";
-        if (t.includes("RetryInfo") && typeof d?.retryDelay === "string") {
-          const m = (d.retryDelay as string).match(/^([\d.]+)s$/);
-          if (m) retryAfterMs = Math.ceil(parseFloat(m[1]) * 1000);
-        }
-      }
-    }
-  } catch {
-    // ignore
-  }
-
-  // 3) "retry in Xs" 텍스트 보조 파싱
-  if (retryAfterMs == null) {
-    const m = message.match(/retry\s+(?:in|after)\s+(\d+)\s*s/i);
-    if (m) retryAfterMs = parseInt(m[1], 10) * 1000;
-  }
-
-  // 4) 분류
-  const upper = `${statusText} ${message}`.toUpperCase();
-  let reasonCode: ReasonCode = "unknown";
-  let status = httpStatus || 500;
-  let retryable = false;
-
-  if (httpStatus === 429 || /RESOURCE_EXHAUSTED|QUOTA/.test(upper)) {
-    reasonCode = "quota";
-    status = 429;
-    retryable = true;
-  } else if (httpStatus === 503 || /UNAVAILABLE/.test(upper)) {
-    reasonCode = "unavailable";
-    status = 503;
-    retryable = true;
-  } else if (httpStatus === 504 || /DEADLINE_EXCEEDED/.test(upper)) {
-    reasonCode = "deadline";
-    status = 504;
-    retryable = false; // payload 과다 가능성, 같은 입력 재시도 위험
-  } else if (httpStatus === 500 || /INTERNAL/.test(upper)) {
-    reasonCode = "internal";
-    status = 500;
-    retryable = true;
-  } else if (httpStatus === 403 || /PERMISSION_DENIED/.test(upper)) {
-    reasonCode = "permission";
-    status = 403;
-    retryable = false;
-  } else if (httpStatus === 404 || /NOT_FOUND/.test(upper)) {
-    reasonCode = "not_found";
-    status = 404;
-    retryable = false;
-  } else if (httpStatus === 401 || /UNAUTHENTICATED|API.?KEY/.test(upper)) {
-    reasonCode = "auth";
-    status = 401;
-    retryable = false;
-  } else if (httpStatus === 400 && /FAILED_PRECONDITION/.test(upper)) {
-    reasonCode = "precondition";
-    status = 400;
-    retryable = false;
-  } else if (httpStatus === 400 || /INVALID_ARGUMENT/.test(upper)) {
-    reasonCode = "bad_request";
-    status = 400;
-    retryable = false;
-  }
-
-  return { status, reasonCode, retryable, retryAfterMs, message };
-}
-
-function buildHeaders(parsed: ParsedGeminiError): HeadersInit {
-  const h: Record<string, string> = {};
-  if (parsed.retryAfterMs != null) {
-    h["Retry-After"] = String(Math.ceil(parsed.retryAfterMs / 1000));
-  }
-  return h;
-}
 
 export async function POST(request: Request): Promise<Response> {
   // 한 요청(=한 슬롯) 안에서 describeImageSubject→transformImage 가 같은 provider 를

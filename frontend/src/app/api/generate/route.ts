@@ -1,6 +1,9 @@
 import { buildGenerationPrompt } from "@/lib/prompts/generation";
 import { generateStream } from "@/lib/gemini";
 import { CONFIG } from "@/lib/config";
+import { withRetryAsync } from "@/lib/ai/with-retry";
+import { geminiErrorResponse } from "@/lib/ai/retry-classify";
+import { withProviderSnapshot } from "@/lib/ai/provider-context";
 import { validateNarrativeOpening } from "@/lib/quality/narrative-validator";
 import type { NarrativeType, ProductInfo, ToneType, SelectedProduct } from "@/types";
 
@@ -66,6 +69,12 @@ function placeProductUrlsBeforeHashtags(content: string, urls: string[]): string
  *  5. 청크 단위 스트리밍으로 클라이언트 전송 (기존 클라이언트 인터페이스 유지)
  */
 export async function POST(request: Request) {
+  // 한 요청 내내 provider(gemini/openai)·모델을 고정 — 재시도/품질 재생성 사이에
+  // 사용자가 토글을 바꿔도 한 글이 섞이지 않게 (이미지 라우트와 동일 패턴).
+  return withProviderSnapshot(() => handlePost(request));
+}
+
+async function handlePost(request: Request): Promise<Response> {
   try {
     const body = await request.json();
     const {
@@ -122,8 +131,11 @@ export async function POST(request: Request) {
       productPlacementMode,
     });
 
-    // 1차 생성 (버퍼)
-    const firstContent = await collectStream(prompt, apiKey);
+    // 1차 생성 (버퍼) — 429/503/500은 서버에서 재시도(통째 버퍼링이라 클라 중복 없음)
+    const firstContent = await withRetryAsync(
+      () => collectStream(prompt, apiKey),
+      { retries: CONFIG.TEXT_TRANSIENT_RETRIES, backoffMs: CONFIG.TEXT_BACKOFF_MS }
+    );
     if (!firstContent) {
       throw new Error("생성된 내용이 없습니다. 다시 시도해주세요.");
     }
@@ -135,7 +147,10 @@ export async function POST(request: Request) {
     if (!firstCheck.passed) {
       // 재생성 시도 (1회만)
       try {
-        const secondContent = await collectStream(prompt, apiKey);
+        const secondContent = await withRetryAsync(
+          () => collectStream(prompt, apiKey),
+          { retries: CONFIG.TEXT_REGEN_RETRIES, backoffMs: CONFIG.TEXT_BACKOFF_MS }
+        );
         if (secondContent) {
           const secondCheck = validateNarrativeOpening(
             secondContent,
@@ -186,9 +201,8 @@ export async function POST(request: Request) {
       },
     });
   } catch (error) {
-    const message =
-      error instanceof Error ? error.message : "글 생성 중 오류가 발생했습니다.";
-    return Response.json({ error: message }, { status: 500 });
+    // 429/무료등급/서버오류를 reasonCode와 함께 분류 응답 → 프론트가 원인별 안내.
+    return geminiErrorResponse(error);
   }
 }
 

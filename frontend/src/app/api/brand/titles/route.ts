@@ -8,6 +8,9 @@ import { generateText } from "@/lib/gemini";
 import { CONFIG } from "@/lib/config";
 import { backendFetch } from "@/lib/backend-fetch";
 import { buildBrandTitlePrompt } from "@/lib/brand/prompts/title";
+import { withRetryAsync } from "@/lib/ai/with-retry";
+import { geminiErrorResponse } from "@/lib/ai/retry-classify";
+import { withProviderSnapshot } from "@/lib/ai/provider-context";
 import type {
   BrandProfile,
   BrandTemplateId,
@@ -39,6 +42,10 @@ interface ParsedSuggestion {
 }
 
 export async function POST(request: Request) {
+  return withProviderSnapshot(() => handlePost(request));
+}
+
+async function handlePost(request: Request): Promise<Response> {
   try {
     const body = (await request.json()) as RequestBody;
 
@@ -81,10 +88,9 @@ export async function POST(request: Request) {
       return Response.json({ suggestions: [] });
     }
 
-    const raw = await generateText(
-      prompt,
-      CONFIG.GENERATION_MODEL,
-      body.apiKey
+    const raw = await withRetryAsync(
+      () => generateText(prompt, CONFIG.GENERATION_MODEL, body.apiKey),
+      { retries: CONFIG.TEXT_TRANSIENT_RETRIES, backoffMs: CONFIG.TEXT_BACKOFF_MS }
     );
 
     // LLM이 마크다운 코드블록으로 감싸는 경우 제거
@@ -110,11 +116,6 @@ export async function POST(request: Request) {
 
     return Response.json({ suggestions });
   } catch (error) {
-    const message =
-      error instanceof Error ? error.message : "제목 생성 실패";
-    return Response.json(
-      { suggestions: [], error: message },
-      { status: 500 }
-    );
+    return geminiErrorResponse(error);
   }
 }

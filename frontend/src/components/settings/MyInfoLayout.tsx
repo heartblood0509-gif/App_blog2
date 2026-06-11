@@ -180,8 +180,8 @@ function ApiGenerationSection() {
   return (
     <div className="mx-auto max-w-3xl space-y-3">
       <SectionDivider label="AI 생성 설정" />
-      <AiProviderPanel className="max-w-none" />
       <ApiKeyPanel className="max-w-none" />
+      <AiProviderPanel className="max-w-none" />
       {YOUTUBE_FEATURE_ENABLED && <YoutubeKeysPanel className="max-w-none" />}
     </div>
   );

@@ -120,19 +120,27 @@ contextBridge.exposeInMainWorld("electronAPI", {
       ipcRenderer.invoke("settings:setTypecastKey", plaintext),
     setFalKey: (plaintext: string): Promise<{ ok: boolean; encryption_available: boolean }> =>
       ipcRenderer.invoke("settings:setFalKey", plaintext),
+    // fal 키 상태(블로그 통합 키 패널이 Electron 에서 표시).
+    getFalMasked: (): Promise<{ hasKey: boolean; masked: string | null; encryption_available: boolean }> =>
+      ipcRenderer.invoke("settings:getFalMasked"),
     // OpenAI 키 + AI 제공자 토글 (블로그 ChatGPT 모드). 빈 문자열=지우기.
     setOpenAIKey: (plaintext: string): Promise<{ ok: boolean; encryption_available: boolean }> =>
       ipcRenderer.invoke("settings:setOpenAIKey", plaintext),
     getOpenAIMasked: (): Promise<{ hasKey: boolean; masked: string | null; encryption_available: boolean }> =>
       ipcRenderer.invoke("settings:getOpenAIMasked"),
-    getAiProvider: (): Promise<{ provider: "gemini" | "openai"; openaiTextModel: "gpt-5.4-mini" | "gpt-5.5" }> =>
-      ipcRenderer.invoke("settings:getAiProvider"),
+    getAiProvider: (): Promise<{
+      provider: "gemini" | "openai";
+      imageProvider?: "gemini" | "openai";
+      openaiTextModel: "gpt-5.4-mini" | "gpt-5.5";
+    }> => ipcRenderer.invoke("settings:getAiProvider"),
     setAiProvider: (cfg: {
       provider?: "gemini" | "openai";
+      imageProvider?: "gemini" | "openai";
       openaiTextModel?: "gpt-5.4-mini" | "gpt-5.5";
     }): Promise<{
       ok: boolean;
       provider: "gemini" | "openai";
+      imageProvider?: "gemini" | "openai";
       openaiTextModel: "gpt-5.4-mini" | "gpt-5.5";
     }> => ipcRenderer.invoke("settings:setAiProvider", cfg),
   },

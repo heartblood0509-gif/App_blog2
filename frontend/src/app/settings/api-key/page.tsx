@@ -24,8 +24,8 @@ export default function ApiKeySettingsPage() {
               </div>
               <div className="h-px flex-1 bg-primary/25" />
             </div>
-            <AiProviderPanel className="max-w-none" />
             <ApiKeyPanel className="max-w-none" />
+            <AiProviderPanel className="max-w-none" />
             {YOUTUBE_FEATURE_ENABLED && <YoutubeKeysPanel className="max-w-none" />}
           </section>
 
