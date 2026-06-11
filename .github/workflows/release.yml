@@ -297,18 +297,23 @@ jobs:
           EOF
           sed -i.bak "s/VERSION_PLACEHOLDER/${VERSION}/g" "$NOTES_FILE" && rm -f "${NOTES_FILE}.bak"
 
-          # --latest 를 명시해 GitHub 의 "Latest" 마킹이 새 release 로 이동하게 강제.
-          # 기본 동작은 보통 새 release 를 latest 로 잡지만, 동시 publish / draft 순서
-          # 변화 시 어긋날 수 있어 electron-updater 가 자동 업데이트 시 잘못된 yml 을
-          # 받게 됨.
+          # 프리릴리스(RC) 안전장치: 태그에 '-'(예: v0.3.0-rc1)가 있으면 --prerelease 로 게시하고
+          # 'Latest' 로 마킹하지 않는다 → electron-updater(github provider, allowPrerelease=false)가
+          # 무시하므로 기존 사용자에게 자동 배포되지 않는다. 정식 태그(v0.3.0)만 --latest 로 게시.
+          if [[ "${TAG}" == *-* ]]; then
+            RELEASE_FLAG="--prerelease"
+            echo "[publish] prerelease 태그 감지(${TAG}) → --prerelease (사용자 자동배포 안 함)"
+          else
+            RELEASE_FLAG="--latest"
+          fi
           if gh release view "${TAG}" --repo "${REPO}" >/dev/null 2>&1; then
-            gh release edit "${TAG}" --repo "${REPO}" --notes-file "$NOTES_FILE" --latest
+            gh release edit "${TAG}" --repo "${REPO}" --notes-file "$NOTES_FILE" ${RELEASE_FLAG}
           else
             gh release create "${TAG}" \
               --repo "${REPO}" \
               --title "${TAG}" \
               --notes-file "$NOTES_FILE" \
-              --latest
+              ${RELEASE_FLAG}
           fi
 
           while IFS= read -r file; do
