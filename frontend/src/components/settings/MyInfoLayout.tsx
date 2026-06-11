@@ -22,10 +22,9 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { AiProviderPanel } from "@/components/settings/AiProviderPanel";
-import { ApiKeyPanel } from "@/components/settings/ApiKeyPanel";
-import { YoutubeKeysPanel } from "@/components/settings/YoutubeKeysPanel";
+import { AiKeysPanel } from "@/components/settings/AiKeysPanel";
 import { YOUTUBE_FEATURE_ENABLED } from "@/lib/youtube-feature";
+import { useAuthContext } from "@/lib/auth/auth-context";
 import { BlogAccountManager } from "@/components/accounts/BlogAccountManager";
 import { DevicesPanel } from "@/components/settings/DevicesPanel";
 import { ProductManager } from "@/components/settings/ProductManager";
@@ -177,12 +176,14 @@ function SectionDivider({
 }
 
 function ApiGenerationSection() {
+  // 채널 선택 화면과 동일한 게이팅: 킬스위치 ON & plan 이 명시적 'blog'(쇼츠 미구매)가 아닐 때만
+  // 쇼츠 전용 키(Typecast)를 노출. dev(plan=null/blog_youtube)는 풀액세스.
+  const { plan } = useAuthContext();
+  const youtubeAllowed = YOUTUBE_FEATURE_ENABLED && plan !== "blog";
   return (
     <div className="mx-auto max-w-3xl space-y-3">
       <SectionDivider label="AI 생성 설정" />
-      <ApiKeyPanel className="max-w-none" />
-      <AiProviderPanel className="max-w-none" />
-      {YOUTUBE_FEATURE_ENABLED && <YoutubeKeysPanel className="max-w-none" />}
+      <AiKeysPanel youtubeAllowed={youtubeAllowed} className="max-w-none" />
     </div>
   );
 }

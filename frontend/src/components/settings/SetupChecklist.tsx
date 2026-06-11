@@ -13,6 +13,9 @@ import { useCallback, useEffect, useState } from "react";
 import { ArrowRight, CheckCircle2, Circle, Rocket } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
+import { useAuthContext } from "@/lib/auth/auth-context";
+import { YOUTUBE_FEATURE_ENABLED } from "@/lib/youtube-feature";
+import { getApiKeys } from "@/lib/youtube/endpoints";
 
 interface SetupChecklistProps {
   /** 사이드바 탭으로 이동시키는 콜백. id 는 MyInfoLayout 의 TabId 와 동일 */
@@ -24,6 +27,8 @@ interface ChecklistState {
   hasApiKey: boolean;
   hasBlogAccount: boolean;
   hasAnyProfile: boolean;
+  /** 쇼츠 구매자일 때만 의미 있음 — Typecast(음성) 키 등록 여부 */
+  hasTypecast: boolean;
 }
 
 const INITIAL_STATE: ChecklistState = {
@@ -31,10 +36,14 @@ const INITIAL_STATE: ChecklistState = {
   hasApiKey: false,
   hasBlogAccount: false,
   hasAnyProfile: false,
+  hasTypecast: false,
 };
 
 export function SetupChecklist({ onGoToTab }: SetupChecklistProps) {
   const [state, setState] = useState<ChecklistState>(INITIAL_STATE);
+  // 쇼츠 구매자(plan!=='blog')에게만 Typecast(음성) 키를 필수 항목으로 추가.
+  const { plan } = useAuthContext();
+  const youtubeAllowed = YOUTUBE_FEATURE_ENABLED && plan !== "blog";
 
   const checkAll = useCallback(async () => {
     // 4개 fetch 를 병렬 — 한 군데 실패해도 다른 항목은 표시.
@@ -90,8 +99,19 @@ export function SetupChecklist({ onGoToTab }: SetupChecklistProps) {
       (Array.isArray(brandRes) && brandRes.length > 0) ||
       (Array.isArray(aeoRes) && aeoRes.length > 0);
 
-    setState({ loaded: true, hasApiKey, hasBlogAccount, hasAnyProfile });
-  }, []);
+    // 쇼츠 구매자만 Typecast 상태 확인(youtube 백엔드). 미가동/실패 시 false 로 두되,
+    // 아래 allDone 에는 youtubeAllowed 일 때만 반영하므로 블로그 사용자엔 영향 없음.
+    let hasTypecast = false;
+    if (youtubeAllowed) {
+      try {
+        hasTypecast = Boolean((await getApiKeys()).typecast);
+      } catch {
+        hasTypecast = false;
+      }
+    }
+
+    setState({ loaded: true, hasApiKey, hasBlogAccount, hasAnyProfile, hasTypecast });
+  }, [youtubeAllowed]);
 
   useEffect(() => {
     // checkAll 내부 setState는 병렬 fetch await 이후 비동기로 실행 → effect 동기 구간이 아니라
@@ -102,8 +122,9 @@ export function SetupChecklist({ onGoToTab }: SetupChecklistProps) {
 
   // 다 완료됐거나 아직 로드 안 됐으면 카드 자체 숨김.
   if (!state.loaded) return null;
+  const typecastOk = !youtubeAllowed || state.hasTypecast;
   const allDone =
-    state.hasApiKey && state.hasBlogAccount && state.hasAnyProfile;
+    state.hasApiKey && state.hasBlogAccount && state.hasAnyProfile && typecastOk;
   if (allDone) return null;
 
   return (
@@ -123,9 +144,18 @@ export function SetupChecklist({ onGoToTab }: SetupChecklistProps) {
           done={state.hasApiKey}
           required
           title="AI API 키 등록"
-          description="글·이미지 생성에 필요한 키 (선택한 제공자에 맞춰)"
+          description="글·이미지 생성에 필요한 키 (Gemini 필수, fal 권장)"
           onClick={() => onGoToTab("api-generation")}
         />
+        {youtubeAllowed && (
+          <ChecklistItem
+            done={state.hasTypecast}
+            required
+            title="Typecast 키 등록 (쇼츠 음성)"
+            description="쇼츠 영상의 나레이션 음성(TTS)을 만드는 데 필요한 키"
+            onClick={() => onGoToTab("api-generation")}
+          />
+        )}
         <ChecklistItem
           done={state.hasBlogAccount}
           required
