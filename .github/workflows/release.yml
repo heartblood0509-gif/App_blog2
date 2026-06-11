@@ -85,7 +85,7 @@ jobs:
         run: npx electron-builder install-app-deps
 
       - name: Build backend
-        run: npm run build:backend:win
+        run: npm run build:backend
 
       - name: Build Electron main process
         run: npm run build:electron
@@ -93,8 +93,30 @@ jobs:
       - name: Build Next frontend
         run: npm run build:next
 
+      - name: Fetch bundled ffmpeg (win64 LGPL static)
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p build/ffmpeg
+          curl -L -o ffmpeg.zip https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-lgpl.zip
+          unzip -q ffmpeg.zip -d ffmpeg-extract
+          cp ffmpeg-extract/*/bin/ffmpeg.exe build/ffmpeg/ffmpeg.exe
+          cp ffmpeg-extract/*/bin/ffprobe.exe build/ffmpeg/ffprobe.exe
+
+      - name: Verify bundled ffmpeg (libfreetype + exec)
+        run: node scripts/check-ffmpeg.js
+
       - name: Package Windows
         run: npx electron-builder --win --x64 --publish never
+
+      - name: Assert shorts engine + ffmpeg bundled
+        shell: bash
+        run: |
+          set -euo pipefail
+          res="release/win-unpacked/resources"
+          test -f "$res/youtube-backend/YoutubeGenerator.exe" || { echo "::error::youtube engine missing from package"; exit 1; }
+          test -f "$res/ffmpeg/ffmpeg.exe" || { echo "::error::ffmpeg missing from package"; exit 1; }
+          echo "OK: shorts engine + ffmpeg bundled"
 
       - name: Upload Windows release assets
         uses: actions/upload-artifact@v5
@@ -147,7 +169,7 @@ jobs:
         run: npx electron-builder install-app-deps
 
       - name: Build backend
-        run: npm run build:backend:mac
+        run: npm run build:backend
 
       - name: Build Electron main process
         run: npm run build:electron
@@ -155,8 +177,35 @@ jobs:
       - name: Build Next frontend
         run: npm run build:next
 
+      - name: Fetch bundled ffmpeg (macOS arm64 static)
+        run: |
+          set -euo pipefail
+          mkdir -p build/ffmpeg
+          # ⚠️ arm64 + libfreetype 는 아래 Verify 단계가 강제 검증한다(틀리면 RC 빌드 실패 → 소스 교체).
+          curl -L -o ffmpeg.zip https://evermeet.cx/ffmpeg/getrelease/ffmpeg/zip
+          curl -L -o ffprobe.zip https://evermeet.cx/ffmpeg/getrelease/ffprobe/zip
+          unzip -o -q ffmpeg.zip -d build/ffmpeg
+          unzip -o -q ffprobe.zip -d build/ffmpeg
+          chmod +x build/ffmpeg/ffmpeg build/ffmpeg/ffprobe
+
+      - name: Verify bundled ffmpeg (libfreetype + exec + arch)
+        run: |
+          set -euo pipefail
+          node scripts/check-ffmpeg.js
+          file build/ffmpeg/ffmpeg | grep -qi arm64 || { echo "::error::bundled ffmpeg is not arm64 — pick an arm64 static build (osxexperts.net 등)"; exit 1; }
+
       - name: Build macOS .app (unpacked)
         run: npx electron-builder --mac --${{ matrix.arch }} --dir --publish never
+
+      - name: Assert shorts engine + ffmpeg bundled (.app)
+        run: |
+          set -euo pipefail
+          APP=$(find release -maxdepth 3 -type d -name "Blog Pick.app" | head -1)
+          res="$APP/Contents/Resources"
+          test -f "$res/youtube-backend/YoutubeGenerator" || { echo "::error::youtube engine missing from .app"; exit 1; }
+          test -f "$res/ffmpeg/ffmpeg" || { echo "::error::ffmpeg missing from .app"; exit 1; }
+          file "$res/youtube-backend/YoutubeGenerator" | grep -qi arm64 || { echo "::error::engine not arm64"; exit 1; }
+          echo "OK: shorts engine + ffmpeg bundled (arm64)"
 
       - name: Apply clean ad-hoc signature
         shell: bash

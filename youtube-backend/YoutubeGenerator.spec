@@ -16,9 +16,13 @@ from PyInstaller.utils.hooks import (
 )
 
 # 런타임에 파일시스템에서 직접 읽는 리소스.
+# ⚠️ core/ 안의 비-파이썬 데이터 파일은 hiddenimports(submodules)로는 동봉되지 않으므로
+#    여기 datas 에 명시해야 한다. (gemini_client.py 가 __file__ 기준으로 직접 read)
 datas = [
     ("static", "static"),
     ("fonts", "fonts"),
+    ("core/nb2_prompt_guide.txt", "core"),
+    ("core/prompts", "core/prompts"),
 ]
 binaries = []
 hiddenimports = []
