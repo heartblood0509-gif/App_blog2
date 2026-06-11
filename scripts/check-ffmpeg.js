@@ -69,6 +69,18 @@ if (!/libfreetype/.test(ffmpegOut)) {
 }
 console.log("[check-ffmpeg] ffmpeg 실행 OK + libfreetype 포함 (한글 자막/제목 렌더 가능)");
 
+// 1-b) libx264(H.264 인코더) 포함 여부. LGPL 빌드엔 libx264 가 없어 영상 인코딩이 전부 실패한다
+//      (AI 클립 처리·합치기·자막 입히기 모두 -c:v libx264 사용 → 윈도우 영상생성 불가, 0.3.0 버그).
+//      dev 시스템 ffmpeg 엔 보통 있어 안 드러나고 배포본(win64-lgpl)에서만 터지므로 여기서 막는다.
+if (!/libx264/.test(ffmpegOut)) {
+  console.error("\n[check-ffmpeg] 번들 ffmpeg 에 libx264(H.264 인코더) 가 없습니다.");
+  console.error("  → 영상 인코딩(클립 처리·합치기·자막)이 전부 실패합니다.");
+  console.error("  GPL 정적 빌드로 교체하세요 (LGPL 빌드엔 libx264 가 없음).");
+  console.error("  확인: `build/ffmpeg/ffmpeg -version | grep libx264`\n");
+  process.exit(1);
+}
+console.log("[check-ffmpeg] libx264(H.264 인코더) 포함 (영상 인코딩 가능)");
+
 // 2) ffprobe 실행 확인(길이 추출·검증에 사용). 실행 안 되면 하드 페일.
 const ffprobePath = path.join(dir, needed[1]);
 try {
