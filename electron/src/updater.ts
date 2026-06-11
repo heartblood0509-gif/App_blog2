@@ -26,6 +26,7 @@ import { BrowserWindow, ipcMain, shell, app } from "electron";
 import { autoUpdater } from "electron-updater";
 import { CancellationToken } from "builder-util-runtime";
 import log from "electron-log";
+import { spawn } from "node:child_process";
 import { paths } from "./paths";
 
 autoUpdater.logger = log;
@@ -237,14 +238,55 @@ function cleanupAfterFailure(message: string): void {
   send("error", message);
 }
 
+// 앱이 종료되면 진행창도 사라지고, 그 뒤 NSIS 가 조용히(/S) 설치하는 동안 화면이 빈다 →
+// 사용자가 "멈췄나?" 하고 프로그램을 다시 켜는 혼란이 생긴다. 앱과 "독립된"(별도 OS 프로세스)
+// 안내창을 띄워 설치 내내 떠 있게 한다. PowerShell+WinForms 로 띄우고 detached 로 분리하므로
+// Electron 종료/NSIS 설치를 막지 않는다. 실패해도(차단/오류) 그냥 무시 → 설치엔 영향 없음.
+// (윈도우 전용. 맥은 애초에 자동 설치를 안 하고 다운로드 페이지만 연다.)
+function showWindowsInstallingPopup(): void {
+  if (process.platform !== "win32") return;
+  try {
+    const ps = [
+      "Add-Type -AssemblyName System.Windows.Forms;",
+      "Add-Type -AssemblyName System.Drawing;",
+      "$f = New-Object System.Windows.Forms.Form;",
+      "$f.Text = 'Blog Pick 업데이트';",
+      "$f.ClientSize = New-Object System.Drawing.Size(470,150);",
+      "$f.StartPosition = 'CenterScreen';",
+      "$f.FormBorderStyle = 'FixedDialog';",
+      "$f.MaximizeBox = $false; $f.MinimizeBox = $false; $f.ControlBox = $false;",
+      "$f.TopMost = $true;",
+      "$f.BackColor = [System.Drawing.Color]::FromArgb(26,26,26);",
+      "$l = New-Object System.Windows.Forms.Label;",
+      "$l.Text = '업데이트를 설치하고 있어요. 잠시만 기다려 주세요.' + [Environment]::NewLine + [Environment]::NewLine + '자동으로 다시 시작됩니다 (최대 1분).' + [Environment]::NewLine + '프로그램을 직접 실행하지 마세요. 이 창은 자동으로 닫힙니다.';",
+      "$l.ForeColor = [System.Drawing.Color]::White;",
+      "$l.Font = New-Object System.Drawing.Font('Malgun Gothic',11);",
+      "$l.TextAlign = 'MiddleCenter'; $l.Dock = 'Fill';",
+      "$f.Controls.Add($l);",
+      "$t = New-Object System.Windows.Forms.Timer; $t.Interval = 120000; $t.Add_Tick({ $f.Close() }); $t.Start();",
+      "[void]$f.ShowDialog();",
+    ].join(" ");
+    const child = spawn(
+      "powershell.exe",
+      ["-NoProfile", "-WindowStyle", "Hidden", "-Command", ps],
+      { detached: true, stdio: "ignore", windowsHide: true },
+    );
+    child.unref();
+  } catch (e) {
+    log.warn(`[updater] 설치 안내창 표시 실패(무시): ${(e as Error).message}`);
+  }
+}
+
 function proceedToInstall(): void {
   if (!progressWin || progressWin.isDestroyed()) openProgressWindow();
   // 1) 먼저 "설치 중" 단계를 약 2.5초 노출 — 사용자가 진행 단계를 인지할 시간 확보.
   sendProgress({ phase: "installing" });
   setTimeout(() => {
-    // 2) "재시작" 단계를 약 0.5초 노출한 뒤 실제 quitAndInstall 호출.
+    // 2) "재시작 안내" 를 약 1.5초 노출 — "화면이 잠깐 사라졌다 자동 재시작" 을 읽을 시간 확보.
     sendProgress({ phase: "restarting" });
     setTimeout(() => {
+      // 3) 앱 종료 직전, 설치 동안 떠 있을 독립 안내창을 띄운다(윈도우 전용).
+      showWindowsInstallingPopup();
       try {
         // 핵심: isSilent=true → NsisUpdater 가 `/S --force-run` 으로 인스톨러 호출.
         autoUpdater.quitAndInstall(true, true);
@@ -252,7 +294,7 @@ function proceedToInstall(): void {
         log.error(`[updater] quitAndInstall 실패: ${(e as Error).message}`);
         cleanupAfterFailure((e as Error).message);
       }
-    }, 500);
+    }, 1500);
   }, 2500);
 }
 

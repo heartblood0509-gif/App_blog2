@@ -230,7 +230,9 @@
             } else if (payload.phase === "restarting") {
               setStep(3);
               bar.classList.add("indeterminate");
-              sub.textContent = "재시작 중…";
+              // 곧 앱이 종료되며 이 창도 사라진다. 빈 화면 구간에 사용자가 멈춘 줄 알고
+              // 재실행하지 않도록, 사라지기 전에 "자동 재시작" 을 분명히 안내한다.
+              sub.textContent = "곧 자동으로 다시 시작돼요. 화면이 잠깐 사라져도 정상이에요 — 직접 실행하지 마세요";
               cancelBtn.disabled = true;
             }
           });

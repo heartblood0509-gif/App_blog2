@@ -11,13 +11,19 @@ import soundfile as sf
 from core.ffmpeg import FFMPEG_Q
 
 
-def run(cmd, desc=""):
-    """ffmpeg 명령 실행"""
+def run(cmd, desc="", cwd=None):
+    """ffmpeg 명령 실행.
+
+    cwd: 서브프로세스 작업 폴더. drawtext 의 fontfile 을 "파일명만"으로 넘기고 cwd 를
+    폰트 폴더로 지정하면, 윈도우 경로(C:\\...\\font.otf)의 드라이브 콜론·역슬래시가 ffmpeg
+    필터 파서에서 깨지는 문제를 원천 회피한다(맥/윈도우 동일 동작). 입력/출력은 절대경로라
+    cwd 변경에 영향받지 않는다.
+    """
     if sys.platform == "win32":
         args = cmd
     else:
         args = shlex.split(cmd)
-    result = subprocess.run(args, capture_output=True, text=True, encoding="utf-8")
+    result = subprocess.run(args, capture_output=True, text=True, encoding="utf-8", cwd=cwd)
     if result.returncode != 0:
         raise RuntimeError(f"ffmpeg 에러: {result.stderr[-1000:]}")
     return result

@@ -289,15 +289,20 @@ async def assemble_shorts(job_id: str, config: dict, progress_callback=None):
                 .replace("%", "\\%")
         )
 
-    def _escape_fontpath(path):
-        """Windows 드라이브 콜론(C:)을 ffmpeg 필터용으로 이스케이프"""
-        return path.replace(":", "\\:")
+    # drawtext 의 fontfile 은 "파일명만" 으로 넘기고, ffmpeg 를 폰트 폴더(cwd)에서 실행한다.
+    # 윈도우 절대경로(C:\...\font.otf)를 필터에 직접 넣으면 드라이브 콜론·역슬래시가 ffmpeg
+    # 필터 파서에서 깨져 폰트 로드 실패 → fontconfig 폴백 → 윈도우엔 fontconfig 설정이 없어
+    # 필터 초기화 실패가 난다(0.3.1 윈도우 자막 버그). 파일명만 쓰면 특수문자가 없어 맥/윈도우
+    # 동일하게 안전하다. (동봉 폰트는 모두 같은 fonts/ 폴더에 있으므로 cwd 하나로 충분)
+    font_dir = os.path.dirname(font_sub or font_title) or "."
+    font_sub_name = os.path.basename(font_sub) if font_sub else ""
+    font_title_name = os.path.basename(font_title) if font_title else ""
 
     sub_filters = []
     for start, end, text in subtitles:
         escaped = _escape_filter(text)
         sub_filters.append(
-            f"drawtext=expansion=none:fontfile='{_escape_fontpath(font_sub)}':text='{escaped}':"
+            f"drawtext=expansion=none:fontfile='{font_sub_name}':text='{escaped}':"
             f"fontsize=55:fontcolor=white:borderw=3:bordercolor=black:"
             f"x=(w-text_w)/2:y={sub_y}:"
             f"enable='between(t,{start},{end})'"
@@ -314,7 +319,7 @@ async def assemble_shorts(job_id: str, config: dict, progress_callback=None):
         title_fontsize = 120
         title_line_gap = 130
         title_colors = ["white", "#E8D44D"]  # 윗줄 흰색, 아랫줄 톤다운 노란색
-        font_path_escaped = _escape_fontpath(font_title)
+        font_path_escaped = font_title_name
         for j, line in enumerate(title_lines):
             escaped = _escape_filter(line)
             if len(title_lines) == 1:
@@ -362,6 +367,7 @@ async def assemble_shorts(job_id: str, config: dict, progress_callback=None):
                 f'{FFMPEG_Q} -y -i "{audio_out}" '
                 f'-filter_script:v "{filter_script}" '
                 f'-c:v libx264 -preset fast -crf 18 -c:a copy "{tmp_output}"',
+                cwd=font_dir,
             )
         else:
             await asyncio.to_thread(
