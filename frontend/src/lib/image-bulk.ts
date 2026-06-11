@@ -334,6 +334,8 @@ export function reasonCodeToLabel(code: ReasonCode): string {
       return "Gemini 일시 장애";
     case "internal":
       return "Gemini 내부 오류";
+    case "unprocessable":
+      return "일시 처리 실패 (재시도)";
     case "deadline":
       return "응답 너무 큼 (프롬프트 단순화 필요)";
     case "timeout":

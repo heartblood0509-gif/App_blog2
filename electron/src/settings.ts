@@ -93,6 +93,8 @@ export function loadOpenAIApiKey(): string | undefined {
 // Next 가 AI_PROVIDER_CONFIG_PATH 로 이 파일을 매 요청 읽어, 재시작 없이 전환된다.
 export type AiProviderConfig = {
   provider: "gemini" | "openai";
+  // 이미지 provider(미설정 시 provider 를 따름 — 블로그 façade 가 ?? provider 로 해석).
+  imageProvider?: "gemini" | "openai";
   openaiTextModel: "gpt-5.4-mini" | "gpt-5.5";
 };
 
@@ -104,10 +106,14 @@ export function readAiProviderConfig(): AiProviderConfig {
   try {
     const raw = fs.readFileSync(aiProviderConfigPath(), "utf-8");
     const p = JSON.parse(raw);
-    return {
+    const cfg: AiProviderConfig = {
       provider: p?.provider === "openai" ? "openai" : "gemini",
       openaiTextModel: p?.openaiTextModel === "gpt-5.4-mini" ? "gpt-5.4-mini" : "gpt-5.5",
     };
+    if (p?.imageProvider === "gemini" || p?.imageProvider === "openai") {
+      cfg.imageProvider = p.imageProvider;
+    }
+    return cfg;
   } catch {
     return { provider: "gemini", openaiTextModel: "gpt-5.5" };
   }
@@ -250,10 +256,12 @@ export function registerSettingsIpc(): void {
     return { ok: true, encryption_available: true };
   });
 
-  // 유튜브 전용 키(다음 부팅 시 youtube-backend 에 env 시드용). 빈 문자열=지우기.
+  // Typecast: 유튜브 전용 키(다음 부팅 시 youtube-backend 에 env 시드용). 빈 문자열=지우기.
   ipcMain.handle("settings:setTypecastKey", async (_e, plaintext: string) =>
     setEncryptedYoutubeKey("typecast_api_key_encrypted", plaintext),
   );
+  // fal: 블로그 이미지(fal 우선) + 유튜브 공용 키. 같은 저장소(fal_key_encrypted)를 공유하고,
+  //      블로그 next-server 는 부팅 시 FAL_API_KEY 로 주입받는다(키 변경은 재시작 후 반영).
   ipcMain.handle("settings:setFalKey", async (_e, plaintext: string) =>
     setEncryptedYoutubeKey("fal_key_encrypted", plaintext),
   );
@@ -285,12 +293,25 @@ export function registerSettingsIpc(): void {
     };
   });
 
+  // fal 키 상태(블로그 통합 키 패널이 Electron 에서 표시). fal 은 블로그+유튜브 공용 저장소를 읽는다.
+  ipcMain.handle("settings:getFalMasked", async () => {
+    const plain = loadFalKey();
+    return {
+      hasKey: Boolean(plain),
+      masked: plain ? mask(plain) : null,
+      encryption_available: safeStorage.isEncryptionAvailable(),
+    };
+  });
+
   ipcMain.handle("settings:getAiProvider", async () => readAiProviderConfig());
 
   // provider/모델 토글 — userData/ai-provider.json 에 즉시 기록. Next 가 매 요청 읽어 재시작 불필요.
   ipcMain.handle(
     "settings:setAiProvider",
-    async (_e, cfg: { provider?: string; openaiTextModel?: string }) => {
+    async (
+      _e,
+      cfg: { provider?: string; imageProvider?: string; openaiTextModel?: string },
+    ) => {
       const current = readAiProviderConfig();
       const next: AiProviderConfig = {
         provider:
@@ -300,6 +321,12 @@ export function registerSettingsIpc(): void {
             ? cfg.openaiTextModel
             : current.openaiTextModel,
       };
+      // imageProvider: 명시되면 저장, 아니면 기존 값 유지(미설정이면 undefined 유지 = provider 따름).
+      if (cfg?.imageProvider === "gemini" || cfg?.imageProvider === "openai") {
+        next.imageProvider = cfg.imageProvider;
+      } else if (current.imageProvider) {
+        next.imageProvider = current.imageProvider;
+      }
       writeAiProviderConfig(next);
       return { ok: true, ...next };
     },

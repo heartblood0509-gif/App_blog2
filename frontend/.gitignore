@@ -40,6 +40,9 @@ yarn-error.log*
 .openai-key.local
 .ai-provider.local
 
+# fal API 키 로컬 저장 (웹 dev 모드에서 통합 키 패널이 작성. git 절대 금지)
+.fal-key.local
+
 # vercel
 .vercel
 

@@ -21,7 +21,6 @@ interface SetupChecklistProps {
 
 interface ChecklistState {
   loaded: boolean;
-  provider: "gemini" | "openai";
   hasApiKey: boolean;
   hasBlogAccount: boolean;
   hasAnyProfile: boolean;
@@ -29,7 +28,6 @@ interface ChecklistState {
 
 const INITIAL_STATE: ChecklistState = {
   loaded: false,
-  provider: "gemini",
   hasApiKey: false,
   hasBlogAccount: false,
   hasAnyProfile: false,
@@ -50,29 +48,49 @@ export function SetupChecklist({ onGoToTab }: SetupChecklistProps) {
       }
     };
 
-    const [provRes, geminiKeyRes, openaiKeyRes, accRes, prodRes, brandRes, aeoRes] =
-      await Promise.all([
-        safeFetch("/api/settings/ai-provider"),
-        safeFetch("/api/settings/gemini-key"),
-        safeFetch("/api/settings/openai-key"),
-        safeFetch("/api/accounts"),
-        safeFetch("/api/products"),
-        safeFetch("/api/brand/profiles"),
-        safeFetch("/api/aeo/profiles"),
-      ]);
+    const [
+      provRes,
+      geminiKeyRes,
+      openaiKeyRes,
+      falKeyRes,
+      accRes,
+      prodRes,
+      brandRes,
+      aeoRes,
+    ] = await Promise.all([
+      safeFetch("/api/settings/ai-provider"),
+      safeFetch("/api/settings/gemini-key"),
+      safeFetch("/api/settings/openai-key"),
+      safeFetch("/api/settings/fal-key"),
+      safeFetch("/api/accounts"),
+      safeFetch("/api/products"),
+      safeFetch("/api/brand/profiles"),
+      safeFetch("/api/aeo/profiles"),
+    ]);
 
-    // 활성 provider 의 키만 "등록됨"으로 본다 — ChatGPT 모드인데 Gemini 키만 있으면 미완료.
-    const provider =
-      (provRes as { provider?: string } | null)?.provider === "openai" ? "openai" : "gemini";
-    const keyRes = provider === "openai" ? openaiKeyRes : geminiKeyRes;
-    const hasApiKey = Boolean((keyRes as { hasKey?: boolean } | null)?.hasKey);
+    // 2축 provider — 글 키 AND 이미지 키가 모두 있어야 "등록됨".
+    //   글=ChatGPT → OpenAI 키 / 글=Gemini → Gemini 키
+    //   이미지=ChatGPT → OpenAI 키 / 이미지=Gemini → fal 키 또는 Gemini 키
+    const cfg = provRes as { provider?: string; imageProvider?: string } | null;
+    const textProvider = cfg?.provider === "openai" ? "openai" : "gemini";
+    const imageProvider =
+      (cfg?.imageProvider ?? cfg?.provider) === "openai" ? "openai" : "gemini";
+    const hasGemini = Boolean((geminiKeyRes as { hasKey?: boolean } | null)?.hasKey);
+    const hasOpenai = Boolean((openaiKeyRes as { hasKey?: boolean } | null)?.hasKey);
+    const hasFal = Boolean((falKeyRes as { hasKey?: boolean } | null)?.hasKey);
+
+    const textKeyOk = textProvider === "openai" ? hasOpenai : hasGemini;
+    const imageKeyOk =
+      imageProvider === "openai" ? hasOpenai : hasFal || hasGemini;
+    const hasApiKey = textKeyOk && imageKeyOk;
+
     const hasBlogAccount = Array.isArray(accRes) && accRes.length > 0;
     const hasAnyProfile =
       (Array.isArray(prodRes) && prodRes.length > 0) ||
       (Array.isArray(brandRes) && brandRes.length > 0) ||
       (Array.isArray(aeoRes) && aeoRes.length > 0);
 
-    setState({ loaded: true, provider, hasApiKey, hasBlogAccount, hasAnyProfile });
+    setState({ loaded: true, hasApiKey, hasBlogAccount, hasAnyProfile });
   }, []);
 
   useEffect(() => {
@@ -104,8 +122,8 @@ export function SetupChecklist({ onGoToTab }: SetupChecklistProps) {
         <ChecklistItem
           done={state.hasApiKey}
           required
-          title={state.provider === "openai" ? "OpenAI API 키 등록" : "Gemini API 키 등록"}
-          description="글과 이미지 생성을 위한 핵심 설정"
+          title="AI API 키 등록"
+          description="글·이미지 생성에 필요한 키 (선택한 제공자에 맞춰)"
           onClick={() => onGoToTab("api-generation")}
         />
         <ChecklistItem

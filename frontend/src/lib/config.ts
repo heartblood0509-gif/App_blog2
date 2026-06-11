@@ -40,6 +40,16 @@ export const CONFIG = {
   /** AIMD: 성공 N개 연속 시 동시성 +1 회복 */
   IMAGE_AIMD_RECOVERY_AFTER_N: 4,
 
+  // ── fal.ai 이미지 (nano-banana — 블로그 이미지 fal 우선 경로) ──
+  /** fal 기본 이미지 모델 (= gemini-3.1-flash-image, $0.08/장). */
+  FAL_IMAGE_MODEL: "fal-ai/nano-banana-2",
+  /** fal 고품질 이미지 모델 (= gemini-3-pro-image, $0.15/장 — 사진변환 Pro 전용). */
+  FAL_IMAGE_MODEL_PRO: "fal-ai/nano-banana-pro",
+  /** fal 사진 변환(image-to-image, 기본) 엔드포인트. image_urls 에 base64 data URI 입력. */
+  FAL_IMAGE_EDIT_MODEL: "fal-ai/nano-banana-2/edit",
+  /** fal 사진 변환 Pro 엔드포인트. */
+  FAL_IMAGE_EDIT_MODEL_PRO: "fal-ai/nano-banana-pro/edit",
+
   // ── OpenAI(ChatGPT) 제공자 ──
   /** OpenAI 텍스트 모델 (사용자가 ChatGPT 모드에서 둘 중 선택). */
   OPENAI_TEXT_MODELS: { mini: "gpt-5.4-mini", full: "gpt-5.5" },

@@ -37,8 +37,9 @@ export function reasonToToast(
       };
     case "unavailable":
     case "internal":
+    case "unprocessable":
       return {
-        title: "Gemini가 일시적으로 불안정해요",
+        title: "AI 서버가 일시적으로 불안정해요",
         description: "잠시 후 다시 시도해주세요.",
       };
     case "auth":

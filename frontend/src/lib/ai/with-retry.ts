@@ -31,6 +31,11 @@ export async function withRetryAsync<T>(
       // 비재시도(quota_free_tier/auth/bad_request/deadline 등) 또는 소진 → 원본 throw
       if (!parsed.retryable || attempt > opts.retries) throw err;
       const wait = parsed.retryAfterMs ?? pickBackoff(opts.backoffMs, attempt);
+      // 429/일시 오류를 재시도로 흡수하는 순간을 가시화(429 작업의 핵심 동작 확인용).
+      console.log(
+        "[ai-retry]",
+        JSON.stringify({ attempt, reasonCode: parsed.reasonCode, waitMs: Math.round(wait) })
+      );
       await sleep(jitter(wait));
     }
   }

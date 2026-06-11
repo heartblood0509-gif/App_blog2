@@ -80,6 +80,16 @@ describe("parseGeminiError", () => {
     expect(d.retryable).toBe(false);
   });
 
+  it("422(fal 일시 처리실패) → unprocessable (retryable, status 보존)", () => {
+    const p = parseGeminiError(
+      Object.assign(new Error("[fal] "), { status: 422, provider: "fal" })
+    );
+    expect(p.reasonCode).toBe("unprocessable");
+    expect(p.retryable).toBe(true);
+    expect(p.status).toBe(422);
+    expect(NON_RETRYABLE.has("unprocessable")).toBe(false);
+  });
+
   it("401 → auth, 400 → bad_request (모두 non-retryable)", () => {
     expect(parseGeminiError(apiError(401, { code: 401 })).reasonCode).toBe("auth");
     expect(parseGeminiError(apiError(400, { code: 400 })).reasonCode).toBe(
@@ -95,6 +105,7 @@ describe("mapStatusToReason / pickBackoff / jitter / parseRetryAfter", () => {
     expect(mapStatusToReason(429, "quota_free_tier")).toBe("quota_free_tier");
     expect(mapStatusToReason(429)).toBe("quota");
     expect(mapStatusToReason(503)).toBe("unavailable");
+    expect(mapStatusToReason(422)).toBe("unprocessable");
   });
 
   it("pickBackoff: attempt 인덱싱, 초과 시 마지막 값", () => {

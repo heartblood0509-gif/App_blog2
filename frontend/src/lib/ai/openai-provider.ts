@@ -14,7 +14,7 @@
 
 import OpenAI, { toFile } from "openai";
 import { getServerOpenAIKey } from "@/lib/server/openai-key";
-import { getAiProviderConfig } from "@/lib/server/ai-provider";
+import { resolveProviderConfig } from "@/lib/ai/provider-context";
 import { CONFIG } from "@/lib/config";
 import { roleFromModel, aspectToSize } from "./model-map";
 import type {
@@ -52,9 +52,10 @@ async function getOpenAI(): Promise<OpenAI> {
   return inst;
 }
 
-/** 텍스트 역할(generation/analysis 등)은 모두 사용자가 고른 단일 텍스트 모델을 쓴다. */
+/** 텍스트 역할(generation/analysis 등)은 모두 사용자가 고른 단일 텍스트 모델을 쓴다.
+ *  요청 스냅샷(withProviderSnapshot)이 있으면 그 값을 따라 한 요청 내 모델 일관성을 보장한다. */
 async function resolveTextModel(): Promise<string> {
-  const { openaiTextModel } = await getAiProviderConfig();
+  const { openaiTextModel } = await resolveProviderConfig();
   return openaiTextModel;
 }
 

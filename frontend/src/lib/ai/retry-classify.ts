@@ -8,14 +8,18 @@
  * 동작 보존 원칙: 여기로 옮긴 함수들의 구현은 원본과 동일하다(quota_free_tier 분기만 추가).
  */
 
+import { maskSecrets } from "./log";
+
 // ── 실패 원인 코드 ──────────────────────────────────────────
-// image-bulk(14종) ∪ images/route(12종) 합집합 + quota_free_tier(무료등급 묶임/유료 잔액 소진).
+// image-bulk(14종) ∪ images/route(12종) 합집합 + quota_free_tier(무료등급 묶임/유료 잔액 소진)
+// + unprocessable(fal 422 일시 처리실패, 재시도 가능).
 export type ReasonCode =
   | "safety"
   | "quota"
   | "quota_free_tier"
   | "unavailable"
   | "internal"
+  | "unprocessable"
   | "deadline"
   | "timeout"
   | "network"
@@ -129,6 +133,9 @@ export function mapStatusToReason(
       return "quota";
     case 503:
       return "unavailable";
+    case 422:
+      // fal 일시 처리실패(검증오류처럼 보이나 같은 입력 재시도로 복구됨) → 재시도 가능.
+      return "unprocessable";
     case 504:
       return "deadline";
     case 500:
@@ -173,7 +180,7 @@ export function parseGeminiError(err: unknown): ParsedGeminiError {
     else if (typeof errObj.code === "number") httpStatus = errObj.code;
   }
   if (!httpStatus) {
-    const m = message.match(/\b(429|503|500|504|403|404|400|401)\b/);
+    const m = message.match(/\b(429|503|500|504|422|403|404|400|401)\b/);
     if (m) httpStatus = parseInt(m[1], 10);
   }
 
@@ -235,6 +242,14 @@ export function parseGeminiError(err: unknown): ParsedGeminiError {
     reasonCode = "unavailable";
     status = 503;
     retryable = true;
+  } else if (httpStatus === 422) {
+    // fal(@fal-ai/client) 일시 처리실패. 422는 보통 "검증오류"(비재시도)지만, 실측상
+    // fal은 43초 처리 후 빈 메시지 422 → 같은 입력 재시도로 복구됨(transient). 그래서
+    // 재시도 가능으로 둔다. status는 422로 보존해 로그에서 일반 unknown과 구분되게 한다.
+    // (텍스트 경로의 Gemini/OpenAI 422는 드묾 + 재시도 budget 상한으로 빠르게 종료되어 안전.)
+    reasonCode = "unprocessable";
+    status = 422;
+    retryable = true;
   } else if (httpStatus === 504 || /DEADLINE_EXCEEDED/.test(upper)) {
     reasonCode = "deadline";
     status = 504;
@@ -284,9 +299,22 @@ export function buildHeaders(parsed: ParsedGeminiError): HeadersInit {
  */
 export function geminiErrorResponse(err: unknown): Response {
   const parsed = parseGeminiError(err);
+  // 로그/응답에 싣기 전 키로 보이는 토큰을 가린다(방어적).
+  const safeMessage = maskSecrets(parsed.message);
+  // 텍스트 생성 최종 에러를 서버 로그에 빠짐없이 남긴다(클라 토스트만으론 진단 불가).
+  // reasonCode/status 로 "분류가 맞게 됐는지"까지 같이 확인된다(에러 로그 → 릴리스에서도 유지).
+  console.log(
+    "[ai-error]",
+    JSON.stringify({
+      reasonCode: parsed.reasonCode,
+      status: parsed.status,
+      retryable: parsed.retryable,
+      message: safeMessage.slice(0, 200),
+    })
+  );
   return Response.json(
     {
-      error: parsed.message.slice(0, 500),
+      error: safeMessage.slice(0, 500),
       reasonCode: parsed.reasonCode,
       retryAfterMs: parsed.retryAfterMs,
     },

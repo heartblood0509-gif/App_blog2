@@ -175,6 +175,9 @@ export function ApiKeyPanel({ className }: ApiKeyPanelProps) {
         </CardTitle>
         <CardDescription className="pl-10">
           글과 이미지 생성을 위한 설정입니다. 한 번 등록해두면 이후 생성 단계에서 자동으로 사용됩니다.
+          <span className="mt-1 block text-xs text-muted-foreground">
+            사용처: 블로그 · 유튜브 (공용 키)
+          </span>
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4 px-5 pt-1">

@@ -1,4 +1,5 @@
 import { generateImageWithAspect } from "@/lib/gemini";
+import { withProviderSnapshot } from "@/lib/ai/provider-context";
 import {
   buildThreadsImageGenerationPrompt,
   type ImageStyle,
@@ -23,7 +24,12 @@ const SUPPORTED_RATIOS = [
 
 const IMAGE_MODEL = "gemini-3.1-flash-image";
 
+// 한 요청에서 최대 2장을 순차 생성 → provider 를 1회 스냅샷으로 고정해 섞임 방지(코덱스 High ③).
 export async function POST(request: Request) {
+  return withProviderSnapshot(() => handlePost(request));
+}
+
+async function handlePost(request: Request) {
   const { success } = rateLimit(getClientId(request), 10, 60_000);
   if (!success) return rateLimitResponse();
 

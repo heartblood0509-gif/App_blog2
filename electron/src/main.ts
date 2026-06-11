@@ -1774,6 +1774,7 @@ async function boot(): Promise<void> {
     sessionToken: APP_SESSION_TOKEN,
     geminiApiKey,
     openaiApiKey,
+    falKey: loadFalKey(),
     aiProviderConfigPath: aiProviderConfigPath(),
     youtubeUrl: youtubeOrigin,
   });

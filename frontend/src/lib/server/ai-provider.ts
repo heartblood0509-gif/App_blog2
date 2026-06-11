@@ -2,10 +2,14 @@
 // 비밀이 아닌 설정이라 JSON 파일로 저장. gemini-key.ts 의 파일/atomic write 패턴을 따른다.
 //
 // 우선순위:
-//   1. frontend/.ai-provider.local  (JSON: {provider, openaiTextModel})
-//   2. process.env.AI_PROVIDER / OPENAI_TEXT_MODEL  (Electron 부팅 시 주입)
+//   1. frontend/.ai-provider.local  (JSON: {provider, imageProvider?, openaiTextModel})
+//   2. process.env.AI_PROVIDER / AI_IMAGE_PROVIDER / OPENAI_TEXT_MODEL  (Electron 부팅 시 주입)
 //   3. 기본값 {provider:"gemini", openaiTextModel:"gpt-5.5"}
 //      — 미설정 시 기존 동작(Gemini) 보존이 핵심.
+//
+// 2축 provider: provider = 글·제목·분석(텍스트 축). imageProvider = 이미지 축(신규).
+//   imageProvider 는 "선택적" — 미설정이면 provider 를 따른다(effImageProvider = imageProvider ?? provider).
+//   이렇게 두면 분리 전부터 ChatGPT 로 이미지를 쓰던 사용자 동작이 보존된다(조용한 변경 방지).
 //
 // 매 호출 디스크/env 재읽기(상태 없음). 단, "한 요청 안에서 provider 가 섞이지 않도록"
 // 일관성이 필요한 호출 측(이미지 라우트 등)은 요청 시작 시 1회 스냅샷으로 고정해 사용한다.
@@ -18,7 +22,14 @@ export type OpenAiTextModel = "gpt-5.4-mini" | "gpt-5.5";
 
 export interface AiProviderConfig {
   provider: AiProvider;
+  /** 이미지 생성 provider. 미설정(undefined)이면 provider 를 따름 — 기존 동작 보존. */
+  imageProvider?: AiProvider;
   openaiTextModel: OpenAiTextModel;
+}
+
+/** 이미지 축의 실효 provider — imageProvider 미설정 시 텍스트 provider 를 따른다. */
+export function effectiveImageProvider(cfg: AiProviderConfig): AiProvider {
+  return cfg.imageProvider ?? cfg.provider;
 }
 
 const DEFAULT_CONFIG: AiProviderConfig = {
@@ -49,6 +60,7 @@ async function readFileConfig(): Promise<Partial<AiProviderConfig> | null> {
     const obj = parsed as Record<string, unknown>;
     const out: Partial<AiProviderConfig> = {};
     if (isProvider(obj.provider)) out.provider = obj.provider;
+    if (isProvider(obj.imageProvider)) out.imageProvider = obj.imageProvider;
     if (isTextModel(obj.openaiTextModel)) out.openaiTextModel = obj.openaiTextModel;
     return out;
   } catch (err) {
@@ -64,6 +76,8 @@ function readEnvConfig(): Partial<AiProviderConfig> {
   const out: Partial<AiProviderConfig> = {};
   const p = process.env.AI_PROVIDER?.trim();
   if (isProvider(p)) out.provider = p;
+  const ip = process.env.AI_IMAGE_PROVIDER?.trim();
+  if (isProvider(ip)) out.imageProvider = ip;
   const m = process.env.OPENAI_TEXT_MODEL?.trim();
   if (isTextModel(m)) out.openaiTextModel = m;
   return out;
@@ -89,6 +103,9 @@ export async function writeAiProviderConfig(
   const current = await getAiProviderConfig();
   const merged: AiProviderConfig = {
     provider: isProvider(partial.provider) ? partial.provider : current.provider,
+    imageProvider: isProvider(partial.imageProvider)
+      ? partial.imageProvider
+      : current.imageProvider,
     openaiTextModel: isTextModel(partial.openaiTextModel)
       ? partial.openaiTextModel
       : current.openaiTextModel,
