@@ -421,7 +421,11 @@ export default function AdminPage() {
       });
       const data = await res.json();
       if (!res.ok || !data?.ok) {
-        toast.error(data?.error ?? "사전 등록 실패");
+        const msg =
+          typeof data?.error === "string" && data.error.includes("already_registered")
+            ? "이미 등록된 사용자입니다. 이름/메모를 바꾸려면 사용자 목록에서 수정하세요."
+            : (data?.error ?? "사전 등록 실패");
+        toast.error(msg);
         return;
       }
       toast.success(`${preauthEmail.trim()} 사전 등록 완료`);

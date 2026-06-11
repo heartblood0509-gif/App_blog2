@@ -445,7 +445,6 @@ set search_path = public
 as $$
 declare
   v_email text := lower(trim(p_email));
-  v_before jsonb;
   v_after jsonb;
 begin
   perform public._admin_require();
@@ -454,21 +453,21 @@ begin
     raise exception 'invalid-email' using errcode = '22023';
   end if;
 
-  select to_jsonb(e) into v_before
-  from public.email_entitlements e where lower(e.email) = v_email;
-
   insert into public.email_entitlements (email, status, note, display_name, memo)
   values (v_email, 'active', '사전 등록', p_display_name, p_memo)
-  on conflict (email) do update
-    set status = 'active',
-        display_name = coalesce(excluded.display_name, public.email_entitlements.display_name),
-        memo = coalesce(excluded.memo, public.email_entitlements.memo),
-        updated_at = now();
+  on conflict (email) do nothing;
+
+  if not found then
+    -- 이미 등록된 이메일이면 거부한다. (기존 status·이름·메모를 덮어쓰지 않음 →
+    --  차단/만료 사용자가 active 로 되살아나는 사고도 함께 방지. 정보 수정은
+    --  admin_update_entitlement 경로 사용.)
+    raise exception 'already_registered' using errcode = 'P0001';
+  end if;
 
   select to_jsonb(e) into v_after
   from public.email_entitlements e where lower(e.email) = v_email;
 
-  perform public._admin_log('preauth_email', null, v_email, v_before, v_after);
+  perform public._admin_log('preauth_email', null, v_email, null, v_after);
 
   return jsonb_build_object('ok', true, 'email', v_email);
 end;
