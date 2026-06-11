@@ -179,7 +179,8 @@ export function TtsConfig() {
           line_ids: lines.map((l) => l.line_id ?? null),
           existing_session_id: state.ttsSessionId,
         });
-        update({ ttsSessionId: data.session_id, screen: "bgm" });
+        // 음성 재빌드 완료 → dirty 해제(이제 자막과 음성이 일치).
+        update({ ttsSessionId: data.session_id, ttsDirty: false, screen: "bgm" });
       } catch (e) {
         toast.error(errMessage(e, "음성 생성에 실패했습니다."));
       } finally {
@@ -217,6 +218,7 @@ export function TtsConfig() {
       });
       update({
         ttsSessionId: data.session_id,
+        ttsDirty: false,
         expandedSentences: data.expanded_sentences ?? sentences,
         screen: "bgm",
       });

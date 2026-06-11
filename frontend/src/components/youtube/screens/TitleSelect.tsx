@@ -13,9 +13,11 @@ import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
 import { useYt } from "../state";
 import { TITLE_MAX, autoSplitTitle, combineTitle } from "@/lib/youtube/title";
-
-const STROKE = "0.7px rgba(0,0,0,0.8)";
-const SHADOW = "1px 1px 0 rgba(0,0,0,0.7), -1px -1px 0 rgba(0,0,0,0.3)";
+import {
+  TITLE_STROKE as STROKE,
+  TITLE_SHADOW as SHADOW,
+  TITLE_LINE2_COLOR,
+} from "../ShortsPreviewFrame";
 
 export function TitleSelect() {
   const { state, update } = useYt();
@@ -138,7 +140,7 @@ export function TitleSelect() {
                 ref={line2Ref}
                 className="absolute top-[50px] w-full whitespace-nowrap text-center text-[22px] font-extrabold"
                 style={{
-                  color: "#E8D44D",
+                  color: TITLE_LINE2_COLOR,
                   WebkitTextStroke: STROKE,
                   textShadow: SHADOW,
                 }}

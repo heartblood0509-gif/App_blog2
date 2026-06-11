@@ -120,8 +120,14 @@ export function BgmConfig() {
         toast.error("작업을 찾을 수 없어요. 대본 단계부터 다시 진행해주세요.");
         return;
       }
-      if (!state.ttsSessionId) {
-        toast.error("나레이션 음성을 먼저 만들어주세요. (음성 단계)");
+      // 음성이 아직 없거나(ttsSessionId 없음), 줄을 고쳐 음성이 낡았으면(ttsDirty) 음성 단계로 보낸다.
+      // → 거기서 incremental 재빌드(바뀐 줄만)로 자막·음성을 맞춘 뒤 다시 진행. (stale 음성 렌더 방지)
+      if (!state.ttsSessionId || state.ttsDirty) {
+        toast.error(
+          state.ttsDirty
+            ? "대본이 바뀌었어요. 음성을 다시 만들어주세요. (음성 단계)"
+            : "나레이션 음성을 먼저 만들어주세요. (음성 단계)",
+        );
         update({ screen: "tts" });
         return;
       }

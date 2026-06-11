@@ -32,7 +32,9 @@ export function ProgressView() {
   useJobStream(state.jobId, (f) => {
     setFrame(f);
     if (routedRef.current) return;
-    if (f.status === "preview_ready") {
+    // preview_ready 확인 화면(ImagePreview)은 Card A 전용. Card B 는 confirm 직후
+    // (이미 awaiting_confirmation) 진입하므로 정상 흐름엔 안 닿지만, 만일을 대비한 가드.
+    if (f.status === "preview_ready" && state.mode !== "user_assets") {
       routedRef.current = true;
       update({ screen: "preview" });
     } else if (f.status === "clips_ready") {

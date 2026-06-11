@@ -44,6 +44,7 @@ class JobStatus(str, Enum):
     CLIPS_READY = "clips_ready"
     GENERATING_TTS = "generating_tts"
     ASSEMBLING_VIDEO = "assembling_video"
+    REGENERATING_IMAGE = "regenerating_image"
     COMPLETED = "completed"
     FAILED = "failed"
 
@@ -171,6 +172,9 @@ class SplitScriptResponse(BaseModel):
 class DraftJobRequest(BaseModel):
     """카드 B용 draft Job 생성 요청 (쪼개진 대본 보유)."""
     lines: list[str] = Field(..., min_length=1, max_length=50)
+    # 제목(2줄)도 함께 저장해, 중단한 draft 를 작업이력에서 다시 열 때 제목이 복원되게 한다.
+    title_line1: str = ""
+    title_line2: str = ""
 
 
 class DraftJobResponse(BaseModel):
@@ -264,6 +268,12 @@ class JobResponse(BaseModel):
     # 작업이력 UI의 "편집 계속" 버튼 노출 여부.
     # reopen_job 라우트 검증 조건과 일치하게 _job_to_response에서 계산. 활성 task는 N+1 회피 위해 생략.
     can_reopen: bool = False
+    # 작업이력 카드 표시용 (목록 조회 시 채움). 단건/SSE 경로에선 None 일 수 있다.
+    title: Optional[str] = None
+    title_line1: Optional[str] = None
+    title_line2: Optional[str] = None
+    generation_mode: Optional[str] = None
+    size_bytes: Optional[int] = None
 
 
 class PreviewResponse(BaseModel):
