@@ -1,6 +1,6 @@
 {
   "name": "frontend",
-  "version": "0.3.0-rc3",
+  "version": "0.3.0-rc4",
   "private": true,
   "scripts": {
     "predev": "node scripts/check-whats-new-version.mjs && node scripts/build-chatbot-knowledge.mjs",
