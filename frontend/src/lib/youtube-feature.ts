@@ -6,4 +6,4 @@
 //           그 외(null/blog_youtube)는 허용.
 //
 // 유튜브 이식이 완성되면 이 값을 true 로 되돌리면 끝. 다른 코드는 손대지 않는다.
-export const YOUTUBE_FEATURE_ENABLED = false;
+export const YOUTUBE_FEATURE_ENABLED = true;

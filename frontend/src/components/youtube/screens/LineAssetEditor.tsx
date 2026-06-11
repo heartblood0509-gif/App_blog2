@@ -1,10 +1,11 @@
 "use client";
 
-// Card B 2단계(M3a) — 줄별 자산 편집(이미지 전용).
-// 대본을 쪼갠 줄마다: AI 그림 생성/재생성 + 내 사진 올리기. 진행 상태는 draft-state 폴링으로 추적.
+// Card B 2단계 — 줄별 자산 편집(이미지 + 영상).
+// 대본을 쪼갠 줄마다: AI 이미지 생성/재생성, 내 이미지 올리기, 내 영상 올리기,
+// 그리고 준비된 이미지를 움직이는 영상으로 바꾸는 AI 영상 변환. 진행 상태는 draft-state 폴링으로 추적.
 //
-// M3a 범위: 줄 구조는 고정(엔터 분할/합치기/삭제·텍스트 인라인 수정은 M3c). 영상 클립은 M3d.
-//   → 줄 index 가 바뀌지 않으므로 index 기반 업로드/재생성의 레이스 걱정이 없다.
+// 줄 구조 편집(엔터 분할/합치기/삭제·텍스트 인라인 수정)은 index 가 바뀌므로 호출 직전 line_id 로
+// 현재 index 를 재해석한다(업로드/변환의 레이스 방지).
 //
 // 줄별 비동기 생성은 job.status 가 아니라 **줄별 status**(pending→ready/failed)로 끝나므로,
 // draft-state(lines[].status / asset_step / asset_version)를 2초마다 폴링해 갱신한다.
@@ -16,6 +17,7 @@ import {
   ArrowUpToLine,
   CheckCircle2,
   CornerDownLeft,
+  Film,
   ImageIcon,
   ImageUp,
   Loader2,
@@ -23,6 +25,7 @@ import {
   RotateCcw,
   Sparkles,
   Trash2,
+  Video,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
@@ -30,14 +33,18 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { initialYtState, useYt } from "../state";
 import { ytUrl } from "@/lib/youtube/api";
+import { cn } from "@/lib/utils";
+import { ShortsPreviewFrame } from "../ShortsPreviewFrame";
 import {
   deleteLine,
   editLine,
   generateMissingImages,
   getDraftState,
   mergeLine,
+  regenerateClip,
   regenerateImage,
   splitLine,
+  uploadClip,
   uploadImage,
   type LineSource,
   type ScriptLine,
@@ -46,10 +53,22 @@ import {
 const ACCEPT = "image/png,image/jpeg,image/webp";
 const ALLOWED_TYPES = ["image/png", "image/jpeg", "image/webp"];
 const MAX_BYTES = 10 * 1024 * 1024;
+// 영상 업로드(백엔드와 동일: MP4/MOV/WebM/AVI, 50MB). MP4 외 포맷은 서버가 FFmpeg 로 변환.
+const CLIP_ACCEPT = "video/mp4,video/quicktime,video/webm,video/x-msvideo";
+const CLIP_ALLOWED_TYPES = [
+  "video/mp4",
+  "video/quicktime",
+  "video/webm",
+  "video/x-msvideo",
+  "video/avi",
+];
+const CLIP_MAX_BYTES = 50 * 1024 * 1024;
 const POLL_MS = 2000;
 // 정체 감지: 한 줄이라도 완료되면 연장. 이 시간 동안 진척이 전혀 없으면 폴링 중단(영구 잠금 방지).
 // Card B 이미지는 순서대로 생성(~16~32초/줄)이라 첫 줄도 이 안에 든다.
 const STALL_MS = 150_000;
+// AI 영상 변환(fal.ai)은 한 줄에 수 분 걸릴 수 있어, 변환 중엔 정체 창을 넉넉히 잡는다(가짜 타임아웃 방지).
+const CLIP_STALL_MS = 660_000;
 
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
@@ -58,6 +77,9 @@ const isFailed = (l: ScriptLine) => l.status === "failed";
 // 생성/업로드 진행 중: 아직 pending 인데 단계(asset_step)가 찍혀 있음.
 const isWorking = (l: ScriptLine) => l.status === "pending" && !!l.asset_step;
 const anyWorking = (ls: ScriptLine[]) => ls.some(isWorking);
+// AI 영상 변환 진행 중(fal.ai) — 폴링 정체 창을 넉넉히 잡을지 판단용.
+const anyAiClipWorking = (ls: ScriptLine[]) =>
+  ls.some((l) => isWorking(l) && l.asset_action === "ai_clip");
 
 const SOURCE_LABEL: Record<LineSource, string> = {
   ai: "AI",
@@ -81,10 +103,14 @@ export function LineAssetEditor() {
   const [deleting, setDeleting] = useState<Set<string>>(new Set());
   // 나누기/합치기(구조 변경) 진행 중인 줄. 끝나면 응답의 재정렬 전체로 교체.
   const [structuring, setStructuring] = useState<Set<string>>(new Set());
+  // 우측 프리뷰에 띄울 선택 줄(line_id 기준). index 로 잡으면 split/merge/delete 재인덱싱 후
+  // 다른 줄을 가리킨다 — 백엔드 /images/{idx} 도 lines[idx].line_id 로 파일을 찾으므로.
+  const [activeLineId, setActiveLineId] = useState<string>("");
 
   const mountedRef = useRef(true);
   const pollingRef = useRef(false);
   const fileRef = useRef<HTMLInputElement>(null);
+  const clipFileRef = useRef<HTMLInputElement>(null);
   // 업로드 대상 줄의 line_id. 파일 대화상자가 열린 사이 split/delete 로 순서가 바뀌어도
   // 전송 직전 line_id → 현재 index 로 재해석해 엉뚱한 줄에 안 올라가게 한다(Codex #7).
   const uploadTargetRef = useRef<string>("");
@@ -94,6 +120,30 @@ export function LineAssetEditor() {
   useEffect(() => {
     linesRef.current = lines;
   }, [lines]);
+
+  // split 로 새로 생긴 줄에 포커스/캐럿을 옮기려는 "예약". 단발 rAF 는 줄 교체(setLines)+잠금
+  // 해제(finally) 재렌더와 타이밍이 어긋나 끝-Enter 에서 빗나갔다(readOnly 로 원래 줄이 포커스를
+  // 쥐고 있어 더 두드러짐). 줄 목록이 커밋된 뒤 아래 useEffect 에서 결정적으로 적용한다.
+  const pendingFocusRef = useRef<{ lineId: string; pos: number } | null>(null);
+  useEffect(() => {
+    const pf = pendingFocusRef.current;
+    if (!pf) return;
+    const ta = document.querySelector<HTMLTextAreaElement>(
+      `textarea[data-line-id="${pf.lineId}"]`,
+    );
+    if (!ta) return; // 아직 미렌더 — 다음 lines 변경 때 재시도
+    pendingFocusRef.current = null;
+    ta.focus();
+    const p = Math.max(0, Math.min(pf.pos, ta.value.length));
+    ta.setSelectionRange(p, p);
+  }, [lines]);
+
+  // 선택 줄이 비었거나 사라지면(초기 진입·삭제·재인덱싱) 첫 줄로 회복.
+  useEffect(() => {
+    if (!lines.length) return;
+    const exists = lines.some((l) => String(l.line_id ?? "") === activeLineId);
+    if (!exists) setActiveLineId(String(lines[0].line_id ?? ""));
+  }, [lines, activeLineId]);
 
   function indexOfLine(lineId: string): number {
     return linesRef.current.findIndex((l) => String(l.line_id ?? "") === lineId);
@@ -140,6 +190,9 @@ export function LineAssetEditor() {
     setPolling(true);
     let doneCount = lines.filter((l) => isReady(l) || isFailed(l)).length;
     let stallAt = Date.now() + STALL_MS;
+    // AI 영상 변환은 한 줄에 수 분 걸려 줄 완료(진척)가 한동안 없을 수 있다. 변환을 처음 본 시점에
+    // 한 번만 넉넉한 마감을 따로 잡아 두고(끝나면 해제) 가짜 타임아웃을 막는다.
+    let clipDeadline = 0;
     while (mountedRef.current && pollingRef.current) {
       await sleep(POLL_MS);
       if (!mountedRef.current) break;
@@ -150,9 +203,14 @@ export function LineAssetEditor() {
           doneCount = done;
           stallAt = Date.now() + STALL_MS; // 진척 있으면 정체 타이머 연장
         }
+        if (anyAiClipWorking(ls)) {
+          if (!clipDeadline) clipDeadline = Date.now() + CLIP_STALL_MS;
+        } else {
+          clipDeadline = 0; // 변환이 끝났으면 변환용 마감 해제
+        }
         if (!anyWorking(ls)) break;
       }
-      if (Date.now() > stallAt) {
+      if (Date.now() > Math.max(stallAt, clipDeadline)) {
         toast.error("생성이 예상보다 오래 걸려요. 잠시 후 다시 시도하거나 새로고침해 주세요.");
         break;
       }
@@ -203,6 +261,19 @@ export function LineAssetEditor() {
     startPolling();
   }
 
+  // 준비된 이미지를 AI 로 움직이는 영상으로 변환(비동기, fal.ai). 상태는 폴링으로 추적.
+  async function convertToClip(i: number) {
+    if (!jobId) return;
+    try {
+      await regenerateClip(jobId, i);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "영상 변환 요청에 실패했어요.");
+      return;
+    }
+    await refresh();
+    startPolling();
+  }
+
   // 텍스트 편집 저장(blur 시). 재정렬 없는 edit-line — line_id 로 현재 index 재해석 후 전송.
   async function saveText(lineId: string) {
     if (!jobId) return;
@@ -229,6 +300,8 @@ export function LineAssetEditor() {
         ),
       );
       clearDraft(lineId);
+      // 줄 텍스트가 바뀌었으니 음성 재빌드 필요 표시(세션은 유지 = incremental: 바뀐 줄만 재합성).
+      update({ ttsDirty: true });
     } catch (e) {
       // 실패 시 draft 를 남겨 입력을 보존(다시 blur 하면 재시도).
       if (mountedRef.current) {
@@ -261,6 +334,7 @@ export function LineAssetEditor() {
       setLines(res.lines);
       setSources(res.sources);
       clearDraft(lineId);
+      update({ ttsDirty: true }); // 줄 삭제(구조 변경) → 음성 재빌드 필요
     } catch (e) {
       if (mountedRef.current) {
         toast.error(e instanceof Error ? e.message : "삭제에 실패했어요.");
@@ -288,6 +362,16 @@ export function LineAssetEditor() {
       setLines(res.lines);
       setSources(res.sources);
       clearDraft(lineId); // 서버 텍스트가 before 로 확정됨
+      update({ ttsDirty: true }); // 줄 나누기(구조 변경) → 음성 재빌드 필요
+      // 엔터 직후 커서를 "뒷부분(after)" 줄로 이동 — 일반 에디터 Enter 동작.
+      // 백엔드 split 3분기 모두 뒷부분이 idx+1 에 온다(가운데=second, 끝=새 빈 줄, 맨 앞=기존 텍스트가 밀려남).
+      // 성공 경로에서만 이동한다(실패 시 원래 줄 포커스 유지).
+      const afterId = String(res.lines[idx + 1]?.line_id ?? "");
+      if (afterId) {
+        setActiveLineId(afterId); // 미리보기도 새 줄로 동기화
+        // 새 줄은 방금 setLines 로 추가됨 — 커밋 후 useEffect 가 포커스/캐럿(맨 앞)을 적용.
+        pendingFocusRef.current = { lineId: afterId, pos: 0 };
+      }
     } catch (e) {
       if (mountedRef.current) {
         toast.error(e instanceof Error ? e.message : "줄 나누기에 실패했어요.");
@@ -321,6 +405,7 @@ export function LineAssetEditor() {
       setSources(res.sources);
       clearDraft(lineId);
       if (prevId) clearDraft(prevId);
+      update({ ttsDirty: true }); // 줄 합치기(구조 변경) → 음성 재빌드 필요
     } catch (e) {
       if (mountedRef.current) {
         toast.error(e instanceof Error ? e.message : "줄 합치기에 실패했어요.");
@@ -341,13 +426,35 @@ export function LineAssetEditor() {
     uploadTargetRef.current = lineId;
     fileRef.current?.click();
   }
+  function pickUploadClip(lineId: string) {
+    if (!jobId || !lineId) return;
+    uploadTargetRef.current = lineId;
+    clipFileRef.current?.click();
+  }
 
-  async function onFileChosen(e: React.ChangeEvent<HTMLInputElement>) {
+  function onFileChosen(e: React.ChangeEvent<HTMLInputElement>) {
     const input = e.target;
     const file = input.files?.[0];
     input.value = "";
     const lineId = uploadTargetRef.current;
     uploadTargetRef.current = "";
+    void doUpload(lineId, file, "image");
+  }
+  function onClipChosen(e: React.ChangeEvent<HTMLInputElement>) {
+    const input = e.target;
+    const file = input.files?.[0];
+    input.value = "";
+    const lineId = uploadTargetRef.current;
+    uploadTargetRef.current = "";
+    void doUpload(lineId, file, "clip");
+  }
+
+  // 이미지/영상 공통 업로드. kind 에 따라 검증·업로드함수·소스·메시지만 다르다.
+  async function doUpload(
+    lineId: string,
+    file: File | undefined,
+    kind: "image" | "clip",
+  ) {
     if (!file || !lineId || !jobId) return;
     // 파일 고르는 사이 순서가 바뀌었을 수 있으니 line_id 로 현재 index 를 다시 구한다.
     const i = indexOfLine(lineId);
@@ -355,20 +462,35 @@ export function LineAssetEditor() {
       toast.error("그 줄이 사라졌어요. 다시 시도해 주세요.");
       return;
     }
-    if (!ALLOWED_TYPES.includes(file.type)) {
-      toast.error("PNG, JPG, WebP 이미지만 올릴 수 있어요.");
-      return;
-    }
-    if (file.size > MAX_BYTES) {
-      toast.error("파일은 10MB 이하만 올릴 수 있어요.");
-      return;
+    if (kind === "image") {
+      if (!ALLOWED_TYPES.includes(file.type)) {
+        toast.error("PNG, JPG, WebP 이미지만 올릴 수 있어요.");
+        return;
+      }
+      if (file.size > MAX_BYTES) {
+        toast.error("이미지는 10MB 이하만 올릴 수 있어요.");
+        return;
+      }
+    } else {
+      // 영상은 일부 브라우저가 MIME 을 비워 줄 수 있어, 빈 타입은 통과시키고 서버 검증에 맡긴다.
+      if (file.type && !CLIP_ALLOWED_TYPES.includes(file.type)) {
+        toast.error("MP4, MOV, WebM, AVI 영상만 올릴 수 있어요.");
+        return;
+      }
+      if (file.size > CLIP_MAX_BYTES) {
+        toast.error("영상은 50MB 이하만 올릴 수 있어요.");
+        return;
+      }
     }
     setUploading((s) => new Set(s).add(lineId));
     try {
-      const res = await uploadImage(jobId, i, file);
+      const res =
+        kind === "image"
+          ? await uploadImage(jobId, i, file)
+          : await uploadClip(jobId, i, file);
       if (!mountedRef.current) return;
-      // 낙관적 반영(line_id 기준): 업로드 응답의 asset_version 으로 즉시 캐시버스팅 + 소스 image 전환.
-      // (뒤이은 refresh 가 실패해도 새 그림이 보장된다.)
+      // 낙관적 반영(line_id 기준): 업로드 응답의 asset_version 으로 즉시 캐시버스팅 + 소스 전환.
+      // (뒤이은 refresh 가 실패해도 새 자산이 보장된다.)
       setLines((prev) =>
         prev.map((l) =>
           String(l.line_id ?? "") === lineId
@@ -385,12 +507,13 @@ export function LineAssetEditor() {
       );
       setSources((prev) => {
         const j = indexOfLine(lineId);
-        return j < 0 ? prev : prev.map((s, idx) => (idx === j ? "image" : s));
+        return j < 0 ? prev : prev.map((s, idx) => (idx === j ? kind : s));
       });
       await refresh();
       if (mountedRef.current) {
         const j = indexOfLine(lineId);
-        toast.success(`${(j < 0 ? i : j) + 1}번째 줄 이미지를 올렸어요.`);
+        const what = kind === "image" ? "이미지" : "영상";
+        toast.success(`${(j < 0 ? i : j) + 1}번째 줄 ${what}을 올렸어요.`);
       }
     } catch (err) {
       if (mountedRef.current) {
@@ -410,6 +533,9 @@ export function LineAssetEditor() {
   function imgSrc(i: number, l: ScriptLine): string {
     return `${ytUrl(`/api/jobs/${jobId}/images/${i}`)}?v=${l.asset_version ?? 0}`;
   }
+  function clipSrc(i: number, l: ScriptLine): string {
+    return `${ytUrl(`/api/jobs/${jobId}/clips/${i}`)}?v=${l.asset_version ?? 0}`;
+  }
 
   const readyCount = lines.filter(isReady).length;
   const allReady = lines.length > 0 && readyCount === lines.length;
@@ -427,13 +553,26 @@ export function LineAssetEditor() {
     );
   }
 
+  // 우측 프리뷰용 선택 줄 해석(line_id → 현재 index, 없으면 첫 줄).
+  const activeIndex = (() => {
+    const j = lines.findIndex((l) => String(l.line_id ?? "") === activeLineId);
+    return j >= 0 ? j : lines.length ? 0 : -1;
+  })();
+  const activeLine = activeIndex >= 0 ? lines[activeIndex] : undefined;
+  const activeSource: LineSource =
+    activeIndex >= 0 ? sources[activeIndex] ?? "ai" : "ai";
+  const activeWorking =
+    !!activeLine &&
+    (isWorking(activeLine) || uploading.has(String(activeLine.line_id ?? "")));
+
   return (
-    <div className="rounded-xl border border-border bg-card p-6 text-card-foreground">
+    <div className="lg:grid lg:grid-cols-[minmax(0,1fr)_390px] lg:items-start lg:gap-5">
+      <div className="rounded-xl border border-border bg-card p-6 text-card-foreground">
       <div className="flex items-start justify-between gap-3">
         <div>
           <h2 className="text-lg font-semibold">줄별 이미지·대본</h2>
           <p className="mt-1 text-sm text-muted-foreground">
-            줄마다 AI 그림을 만들거나 내 사진을 올리세요.{" "}
+            줄마다 AI 이미지를 만들거나 내 이미지·영상을 올리세요. 이미지는 AI로 영상 변환도 돼요.{" "}
             <b className="text-foreground">
               {readyCount}/{lines.length}
             </b>{" "}
@@ -464,6 +603,13 @@ export function LineAssetEditor() {
         className="hidden"
         onChange={onFileChosen}
       />
+      <input
+        ref={clipFileRef}
+        type="file"
+        accept={CLIP_ACCEPT}
+        className="hidden"
+        onChange={onClipChosen}
+      />
 
       <ul className="mt-5 space-y-2.5">
         {lines.map((l, i) => {
@@ -472,22 +618,45 @@ export function LineAssetEditor() {
           const lineId = String(l.line_id ?? "");
           const hasId = lineId !== "";
           const working = isWorking(l) || uploading.has(lineId);
+          // 어떤 작업으로 바쁜지(버튼별 스피너/라벨용). 업로드는 동기라 thumbnail 오버레이로 표시.
+          const genImageBusy = isWorking(l) && l.asset_action === "ai_image";
+          const convertBusy = isWorking(l) && l.asset_action === "ai_clip";
           const src: LineSource = sources[i] ?? "ai";
           const savingThis = savingText.has(lineId);
           const deletingThis = deleting.has(lineId);
           const structuringThis = structuring.has(lineId);
           const editLocked = working || deletingThis || structuringThis || !hasId;
+          // 주의: 텍스트칸은 구조 변경(structuringThis) 중 disabled 가 아니라 readOnly 로 둔다(아래 Textarea).
+          // disabled 면 포커스를 잃고 onBlur→saveText(edit-line)가 split-line 과 경쟁해 결과를 덮어쓴다(Codex).
           // 구조 변경(나누기/합치기/삭제)은 생성 폴링·업로드 진행 중엔 막는다(재인덱싱 레이스 방지).
           const structLocked = editLocked || busyGlobal;
           const textValue = drafts[lineId] ?? l.text;
           return (
             <li
               key={l.line_id ?? i}
-              className="flex gap-3 rounded-lg border border-border bg-background p-2.5"
+              className={cn(
+                "flex gap-3 rounded-lg border bg-background p-2.5 transition-colors",
+                lineId === activeLineId
+                  ? "border-primary ring-1 ring-primary"
+                  : "border-border",
+              )}
             >
-              {/* 썸네일 */}
-              <div className="relative aspect-[9/16] w-14 shrink-0 overflow-hidden rounded-md border border-border bg-muted">
-                {ready && src !== "clip" ? (
+              {/* 썸네일 (클릭 시 이 줄을 우측 미리보기로 선택) */}
+              <button
+                type="button"
+                onClick={() => hasId && setActiveLineId(lineId)}
+                aria-label={`${i + 1}번째 줄 미리보기로 보기`}
+                className="relative aspect-[9/16] w-14 shrink-0 cursor-pointer overflow-hidden rounded-md border border-border bg-muted"
+              >
+                {ready && src === "clip" ? (
+                  <video
+                    src={clipSrc(i, l)}
+                    muted
+                    playsInline
+                    preload="metadata"
+                    className="h-full w-full object-cover"
+                  />
+                ) : ready ? (
                   // eslint-disable-next-line @next/next/no-img-element -- 프록시 경유 동적 이미지(서버 최적화 부적합)
                   <img
                     src={imgSrc(i, l)}
@@ -496,7 +665,11 @@ export function LineAssetEditor() {
                   />
                 ) : (
                   <div className="flex h-full w-full items-center justify-center text-muted-foreground">
-                    <ImageIcon className="h-5 w-5" />
+                    {src === "clip" ? (
+                      <Film className="h-5 w-5" />
+                    ) : (
+                      <ImageIcon className="h-5 w-5" />
+                    )}
                   </div>
                 )}
                 {working && (
@@ -504,7 +677,7 @@ export function LineAssetEditor() {
                     <Loader2 className="h-4 w-4 animate-spin" />
                   </div>
                 )}
-              </div>
+              </button>
 
               {/* 본문 */}
               <div className="min-w-0 flex-1">
@@ -558,6 +731,7 @@ export function LineAssetEditor() {
                     setDrafts((d) => ({ ...d, [lineId]: e.target.value }))
                   }
                   onBlur={() => saveText(lineId)}
+                  onFocus={() => hasId && setActiveLineId(lineId)}
                   onKeyDown={(e) => {
                     // Enter = 커서 위치에서 줄 나누기. Shift+Enter = 줄바꿈, IME 조합 중 Enter = 글자 확정(무시).
                     if (
@@ -610,8 +784,42 @@ export function LineAssetEditor() {
                         void mergeUp(lineId).then(restoreCaret); // 윗줄과 병합
                       }
                     }
+                    // 화살표 위/아래로 줄 간 커서 이동. 각 줄이 독립 textarea 라 기본으론 한 칸에 갇힌다.
+                    // 줄 맨 앞에서 ↑ → 윗줄 끝, 줄 맨 끝에서 ↓ → 아랫줄 맨 앞. 그 외엔 기본 동작(텍스트 내 이동).
+                    if (e.key === "ArrowUp" && !e.nativeEvent.isComposing && i > 0) {
+                      const ta = e.currentTarget;
+                      if (ta.selectionStart === 0 && ta.selectionEnd === 0) {
+                        e.preventDefault();
+                        const prevId = String(
+                          linesRef.current[i - 1]?.line_id ?? "",
+                        );
+                        const prevText =
+                          prevId && drafts[prevId] !== undefined
+                            ? drafts[prevId]
+                            : linesRef.current[i - 1]?.text ?? "";
+                        if (prevId) focusLineCaret(prevId, prevText.length);
+                      }
+                      return;
+                    }
+                    if (
+                      e.key === "ArrowDown" &&
+                      !e.nativeEvent.isComposing &&
+                      i < linesRef.current.length - 1
+                    ) {
+                      const ta = e.currentTarget;
+                      const end = ta.value.length;
+                      if (ta.selectionStart === end && ta.selectionEnd === end) {
+                        e.preventDefault();
+                        const nextId = String(
+                          linesRef.current[i + 1]?.line_id ?? "",
+                        );
+                        if (nextId) focusLineCaret(nextId, 0);
+                      }
+                      return;
+                    }
                   }}
-                  disabled={editLocked || savingThis}
+                  readOnly={structuringThis}
+                  disabled={working || deletingThis || !hasId || savingThis}
                   rows={2}
                   className="mt-1 min-h-0 resize-y py-1.5 text-sm"
                   aria-label={`${i + 1}번째 줄 텍스트`}
@@ -629,12 +837,14 @@ export function LineAssetEditor() {
                     onClick={() => regen(i)}
                     disabled={working}
                   >
-                    {ready ? (
+                    {genImageBusy ? (
+                      <Loader2 className="size-3 animate-spin" />
+                    ) : ready ? (
                       <RefreshCw className="size-3" />
                     ) : (
                       <Sparkles className="size-3" />
                     )}
-                    {ready ? "다시" : "AI 그림"}
+                    {genImageBusy ? "생성 중..." : "AI 이미지 생성"}
                   </Button>
                   <Button
                     variant="outline"
@@ -642,8 +852,33 @@ export function LineAssetEditor() {
                     onClick={() => pickUpload(lineId)}
                     disabled={working}
                   >
-                    <ImageUp className="size-3" /> 올리기
+                    <ImageUp className="size-3" /> 이미지 업로드
                   </Button>
+                  <Button
+                    variant="outline"
+                    size="xs"
+                    onClick={() => pickUploadClip(lineId)}
+                    disabled={working}
+                  >
+                    <Film className="size-3" /> 영상 업로드
+                  </Button>
+                  {((ready && (src === "ai" || src === "image")) ||
+                    convertBusy) && (
+                    <Button
+                      variant="outline"
+                      size="xs"
+                      onClick={() => convertToClip(i)}
+                      disabled={working}
+                      title="이 줄의 이미지를 AI로 움직이는 영상으로 바꿔요"
+                    >
+                      {convertBusy ? (
+                        <Loader2 className="size-3 animate-spin" />
+                      ) : (
+                        <Video className="size-3" />
+                      )}
+                      {convertBusy ? "변환 중..." : "AI 영상 변환"}
+                    </Button>
+                  )}
                   {i > 0 && (
                     <Button
                       variant="ghost"
@@ -685,6 +920,71 @@ export function LineAssetEditor() {
           {allReady ? "다음: 음성" : `다음: 음성 (${readyCount}/${lines.length})`}
         </Button>
       </div>
+      </div>
+
+      {/* 우측: 선택 줄 프리뷰 (최종 쇼츠 모습 흉내 — 이미지 위 제목 오버레이) */}
+      <aside className="mt-4 lg:mt-0 lg:sticky lg:top-4">
+        <div className="rounded-xl border border-border bg-card p-4 text-card-foreground">
+          <div className="flex items-center justify-between gap-2">
+            <p className="text-xs font-medium text-muted-foreground">
+              선택 줄 프리뷰
+            </p>
+            {activeLine && (
+              <Badge variant="outline" className="px-1.5 py-0 text-[0.7rem]">
+                {SOURCE_LABEL[activeSource]}
+              </Badge>
+            )}
+          </div>
+          <p className="mt-0.5 text-sm font-semibold">
+            {activeIndex >= 0 ? `${activeIndex + 1}번 줄` : "—"}
+          </p>
+          <div className="mt-3 flex justify-center">
+            <ShortsPreviewFrame
+              titleLine1={state.titleLine1}
+              titleLine2={state.titleLine2}
+              width={350}
+            >
+              {!activeLine ? (
+                <div className="flex h-full w-full items-center justify-center text-xs text-white/50">
+                  생성·업로드 대기
+                </div>
+              ) : isReady(activeLine) && activeSource !== "clip" ? (
+                // eslint-disable-next-line @next/next/no-img-element -- 프록시 경유 동적 이미지(서버 최적화 부적합)
+                <img
+                  src={imgSrc(activeIndex, activeLine)}
+                  alt={`${activeIndex + 1}번 줄 미리보기`}
+                  className="h-full w-full object-cover"
+                />
+              ) : isReady(activeLine) && activeSource === "clip" ? (
+                <video
+                  key={clipSrc(activeIndex, activeLine)}
+                  src={clipSrc(activeIndex, activeLine)}
+                  autoPlay
+                  muted
+                  loop
+                  playsInline
+                  className="h-full w-full object-cover"
+                />
+              ) : activeWorking ? (
+                <div className="flex h-full w-full items-center justify-center">
+                  <Loader2 className="h-5 w-5 animate-spin text-white/70" />
+                </div>
+              ) : isFailed(activeLine) ? (
+                <div className="flex h-full w-full items-center justify-center text-xs text-red-300">
+                  생성 실패
+                </div>
+              ) : (
+                <div className="flex h-full w-full items-center justify-center text-xs text-white/50">
+                  생성·업로드 대기
+                </div>
+              )}
+            </ShortsPreviewFrame>
+          </div>
+          <p className="mt-2 text-center text-xs text-muted-foreground">
+            최종 쇼츠에 표시될 모습이에요.
+          </p>
+        </div>
+      </aside>
     </div>
   );
 }

@@ -32,6 +32,8 @@
                 <h2>어떻게 만들까요?</h2>
                 <p class="subtitle">대본·이미지·영상을 AI에 맡길지,<br>직접 제공할지 골라주세요.</p>
                 <div class="mode-card-grid">
+                    <!-- "AI가 모두 생성"(Card A) 숨김: 출시 기준 비활성화. 복원 시 이 주석을 풀고
+                         FE(youtube-ai-full-feature.ts)/BE(config.py)의 YT_AI_FULL_ENABLED 도 true 로.
                     <div class="mode-card" onclick="selectGenerationMode('ai_full')">
                         <div class="mode-card-icon-wrap">
                             <i data-lucide="sparkles" class="mode-card-icon"></i>
@@ -39,6 +41,7 @@
                         <h3>AI가 모두 생성</h3>
                         <p>주제만 입력하면<br>제목·나레이션·이미지·영상까지<br>AI가 자동으로 만들어줍니다.</p>
                     </div>
+                    -->
                     <div class="mode-card" onclick="selectGenerationMode('user_assets')">
                         <div class="mode-card-icon-wrap">
                             <i data-lucide="pen-tool" class="mode-card-icon"></i>
