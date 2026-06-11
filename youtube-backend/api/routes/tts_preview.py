@@ -56,9 +56,12 @@ _SAFE_FILENAME = re.compile(r"^[\w\-]+$")
 
 def _cache_path(user_id: str, engine: str, voice_id: str, speed: float, emotion: str) -> str:
     safe_id = voice_id.replace("-", "_")
+    # Typecast 응답은 실제로 WAV 다. 예전엔 .mp3 로 저장+audio/mpeg 로 서빙해
+    # "내용은 WAV 인데 라벨은 MP3" 가 되어 엄격한 브라우저(Safari/WebKit)가
+    # "no supported source" 로 재생 거부했다. 정직하게 .wav 로 저장 → audio/wav 서빙.
     return os.path.join(
         PREVIEW_DIR,
-        f"{user_id}_{engine}_{safe_id}_s{speed}_{emotion}.mp3"
+        f"{user_id}_{engine}_{safe_id}_s{speed}_{emotion}.wav"
     )
 
 
