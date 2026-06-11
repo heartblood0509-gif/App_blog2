@@ -7,6 +7,8 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { Textarea } from "@/components/ui/textarea";
+import { toast } from "sonner";
+import { ImageSourceDialog } from "@/components/image-source-dialog";
 import {
   RefreshCw,
   Copy,
@@ -214,9 +216,14 @@ function SlotCard({
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [isPromptOpen, setIsPromptOpen] = useState(false);
   const [lightboxSrc, setLightboxSrc] = useState<string | null>(null);
+  const [pickerOpen, setPickerOpen] = useState(false);
   const [menuPos, setMenuPos] = useState<{ x: number; y: number } | null>(null);
 
   const handleFile = async (file: File) => {
+    if (!file.type.startsWith("image/")) {
+      toast.error("이미지 파일을 올려주세요");
+      return;
+    }
     const { base64, mimeType } = await fileToBase64(file);
     onUserPhotoChange({
       base64,
@@ -313,6 +320,12 @@ function SlotCard({
               e.target.value = "";
             }}
           />
+          <ImageSourceDialog
+            open={pickerOpen}
+            onOpenChange={setPickerOpen}
+            onUpload={() => fileInputRef.current?.click()}
+            onPasteFile={handleFile}
+          />
 
           {/* 액션 버튼: AI 생성 + (내 사진 | AI 변환) */}
           <div className="mb-2 flex gap-2">
@@ -359,7 +372,7 @@ function SlotCard({
                 size="sm"
                 variant="outline"
                 className="flex-1 h-8 gap-1 text-xs"
-                onClick={() => fileInputRef.current?.click()}
+                onClick={() => setPickerOpen(true)}
                 disabled={isGenerating}
               >
                 <Upload className="h-3 w-3" />
@@ -467,7 +480,7 @@ function SlotCard({
                   className="absolute bottom-1 right-1 h-6 px-2 text-[10px]"
                   onClick={(e) => {
                     e.stopPropagation();
-                    fileInputRef.current?.click();
+                    setPickerOpen(true);
                   }}
                   title="다른 사진으로 교체"
                 >
