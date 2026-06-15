@@ -27,6 +27,17 @@ async def lifespan(app: FastAPI):
 
     # 시작 시 초기화
     init_db()
+
+    # 백필: 과거 버전에서 intermediates_purged 기본값(True) 때문에 작업이력 재진입이
+    # 막힌 카드 B '편집 중' 작업을 복구. 실패해도 서버 기동은 막지 않는다.
+    try:
+        from db.database import repair_card_b_preview_ready_purged
+        _repaired = repair_card_b_preview_ready_purged()
+        if _repaired:
+            logging.info(f"[startup] '편집 중' 작업 재진입 복구: {_repaired}건")
+    except Exception as e:
+        logging.warning(f"[startup] intermediates_purged 백필 실패(무시): {e}")
+
     os.makedirs(settings.STORAGE_DIR, exist_ok=True)
     os.makedirs(settings.BGM_DIR, exist_ok=True)
 

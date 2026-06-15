@@ -305,6 +305,9 @@ async def create_draft_job(
         line_sources_json=json.dumps(["ai"] * n, ensure_ascii=False),
         status="preview_ready",
         current_step="자산 편집 대기 중",
+        # intermediates_purged 컬럼 기본값이 True라, 명시하지 않으면 '편집 중'으로
+        # 남긴 작업이 작업이력 재진입(can_reopen)에서 막힌다. 카드 B는 False로 생성.
+        intermediates_purged=False,
     )
     db.add(job)
     db.commit()
