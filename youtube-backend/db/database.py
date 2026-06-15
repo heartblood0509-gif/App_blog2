@@ -128,6 +128,37 @@ def init_db():
     _run_migrations()
 
 
+def repair_card_b_preview_ready_purged() -> int:
+    """백필: 카드 B '편집 중'(preview_ready) 작업의 재진입 차단 버그 복구.
+
+    intermediates_purged 컬럼 기본값이 True라, 과거 버전에서 생성된 카드 B 작업은
+    영상을 완성하기 전이면 이 값이 True로 박혀 작업이력에서 can_reopen=false →
+    '이어서 편집' 버튼이 안 떴다. 영상 미완성(preview_ready)이고 삭제(files_expired_at)
+    되지 않은 행만 False로 되돌린다.
+
+    매 부팅 idempotent — 0건이면 무동작. raw SQL이 아니라 ORM으로 작성해 SQLite/PostgreSQL
+    양쪽에서 안전하다. 갱신 건수를 반환한다."""
+    from db.models import Job
+
+    db = SessionLocal()
+    try:
+        rows = (
+            db.query(Job)
+            .filter(Job.generation_mode == "user_assets")
+            .filter(Job.status == "preview_ready")
+            .filter(Job.intermediates_purged.is_(True))
+            .filter(Job.files_expired_at.is_(None))
+            .all()
+        )
+        for job in rows:
+            job.intermediates_purged = False
+        if rows:
+            db.commit()
+        return len(rows)
+    finally:
+        db.close()
+
+
 def get_db():
     """FastAPI Depends용 DB 세션 제너레이터"""
     db = SessionLocal()
