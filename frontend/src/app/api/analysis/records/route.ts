@@ -30,7 +30,10 @@ export async function GET(request: Request) {
         );
       }
       return Response.json(
-        { error: (data as { detail?: string }).detail || "분석 레코드 목록을 불러오지 못했습니다." },
+        {
+          error: (data as { detail?: string }).detail || "분석 레코드 목록을 불러오지 못했습니다.",
+          code: (data as { code?: string }).code,
+        },
         { status: res.status }
       );
     }

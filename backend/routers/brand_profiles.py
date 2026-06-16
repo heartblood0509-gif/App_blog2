@@ -6,12 +6,12 @@
 - 데이터 구조: 풍부한 자유형(dict). 필수 필드만 검증, 나머지는 그대로 저장하여
   사용자가 동일 양식으로 새 프로필 등록 시 모든 항목이 유지되도록 함.
 """
-import json
 from typing import Any, Optional
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, ConfigDict, Field
 
+import storage
 from config import BRAND_PROFILES_FILE
 
 router = APIRouter()
@@ -22,19 +22,8 @@ router = APIRouter()
 # ─────────────────────────────────────────────
 
 def _load_profiles() -> list[dict]:
-    if not BRAND_PROFILES_FILE.exists():
-        return []
-    try:
-        return json.loads(BRAND_PROFILES_FILE.read_text(encoding="utf-8"))
-    except Exception:
-        return []
-
-
-def _save_profiles(profiles: list[dict]):
-    BRAND_PROFILES_FILE.write_text(
-        json.dumps(profiles, ensure_ascii=False, indent=2),
-        encoding="utf-8",
-    )
+    """읽기 전용 로드(손상 시 자동복구, 복구 불가면 CorruptStoreError → 503)."""
+    return storage.read(BRAND_PROFILES_FILE)
 
 
 def find_profile(profile_id: str) -> Optional[dict]:
@@ -102,41 +91,44 @@ async def get_profile(profile_id: str) -> dict:
 
 @router.post("/")
 async def create_profile(req: BrandProfileUpsert) -> dict:
-    profiles = _load_profiles()
+    with storage.transaction(BRAND_PROFILES_FILE) as txn:
+        profiles = txn.items
 
-    existing_ids = {p.get("id") for p in profiles}
-    idx = 1
-    while f"brand{idx}" in existing_ids:
-        idx += 1
-    new_id = f"brand{idx}"
+        existing_ids = {p.get("id") for p in profiles}
+        idx = 1
+        while f"brand{idx}" in existing_ids:
+            idx += 1
+        new_id = f"brand{idx}"
 
-    for p in profiles:
-        if p.get("name") == req.name:
-            raise HTTPException(400, f"이미 등록된 브랜드명입니다: {req.name}")
+        for p in profiles:
+            if p.get("name") == req.name:
+                raise HTTPException(400, f"이미 등록된 브랜드명입니다: {req.name}")
 
-    new_profile = {"id": new_id, **req.model_dump()}
-    profiles.append(new_profile)
-    _save_profiles(profiles)
+        new_profile = {"id": new_id, **req.model_dump()}
+        profiles.append(new_profile)
+        txn.commit(profiles)
     return new_profile
 
 
 @router.put("/{profile_id}")
 async def update_profile(profile_id: str, req: BrandProfileUpsert) -> dict:
-    profiles = _load_profiles()
-    for i, p in enumerate(profiles):
-        if p.get("id") == profile_id:
-            updated = {"id": profile_id, **req.model_dump()}
-            profiles[i] = updated
-            _save_profiles(profiles)
-            return updated
+    with storage.transaction(BRAND_PROFILES_FILE) as txn:
+        profiles = txn.items
+        for i, p in enumerate(profiles):
+            if p.get("id") == profile_id:
+                updated = {"id": profile_id, **req.model_dump()}
+                profiles[i] = updated
+                txn.commit(profiles)
+                return updated
     raise HTTPException(404, "해당 브랜드 프로필을 찾을 수 없습니다.")
 
 
 @router.delete("/{profile_id}")
 async def delete_profile(profile_id: str) -> dict:
-    profiles = _load_profiles()
-    new_profiles = [p for p in profiles if p.get("id") != profile_id]
-    if len(new_profiles) == len(profiles):
-        raise HTTPException(404, "해당 브랜드 프로필을 찾을 수 없습니다.")
-    _save_profiles(new_profiles)
+    with storage.transaction(BRAND_PROFILES_FILE) as txn:
+        profiles = txn.items
+        new_profiles = [p for p in profiles if p.get("id") != profile_id]
+        if len(new_profiles) == len(profiles):
+            raise HTTPException(404, "해당 브랜드 프로필을 찾을 수 없습니다.")
+        txn.commit(new_profiles)
     return {"message": f"브랜드 프로필 '{profile_id}'이 삭제되었습니다."}

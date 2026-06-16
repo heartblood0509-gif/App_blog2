@@ -3,13 +3,24 @@ import { backendFetch } from "@/lib/backend-fetch";
 export async function GET() {
   try {
     const res = await backendFetch("/products/", { cache: "no-store" });
+    const data = await res.json().catch(() => ({}));
     if (!res.ok) {
-      return Response.json([], { status: 200 });
+      // 백엔드 실패(특히 503 store_corrupt)를 빈 목록으로 숨기지 않고 그대로 노출 —
+      // "제품 없음"으로 오인해 빈 상태로 덮어쓰는 사고 방지.
+      return Response.json(
+        {
+          error: (data as { detail?: string }).detail || "제품 목록을 불러오지 못했습니다.",
+          code: (data as { code?: string }).code,
+        },
+        { status: res.status }
+      );
     }
-    const data = await res.json();
     return Response.json(data);
   } catch {
-    return Response.json([], { status: 200 });
+    return Response.json(
+      { error: "백엔드 서버에 연결할 수 없습니다." },
+      { status: 502 }
+    );
   }
 }
 

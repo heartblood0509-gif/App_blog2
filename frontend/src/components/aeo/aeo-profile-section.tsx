@@ -12,6 +12,9 @@ import { AeoProfileForm } from "./aeo-profile-form";
 import { AeoProfileAssistant } from "./aeo-profile-assistant";
 import { BrandProfileAssistant } from "@/components/brand/brand-profile-assistant";
 import { ProfileBridgeDialog } from "@/components/profile-bridge-dialog";
+import { ProfileBundleDialog } from "@/components/profile-bundle-dialog";
+import { StoreCorruptPanel } from "@/components/store-corrupt-panel";
+import { fetchStoreList, StoreCorruptError } from "@/lib/store-fetch";
 import {
   copyAeoToBrandPrefill,
   hasCounterpartProfile,
@@ -28,6 +31,8 @@ export function AeoProfileSection({ selectedProfileId, onSelect }: AeoProfileSec
   const [formOpen, setFormOpen] = useState(false);
   const [editing, setEditing] = useState<AeoProfile | null>(null);
   const [assistantOpen, setAssistantOpen] = useState(false);
+  const [corrupt, setCorrupt] = useState(false);
+  const [bundleOpen, setBundleOpen] = useState(false);
 
   // ── 양방향 연동 상태 ──
   const [bridgeOpen, setBridgeOpen] = useState(false);
@@ -38,13 +43,15 @@ export function AeoProfileSection({ selectedProfileId, onSelect }: AeoProfileSec
   const fetchProfiles = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await fetch("/api/aeo/profiles", { cache: "no-store" });
-      if (!res.ok) throw new Error("AEO 프로필을 불러오지 못했습니다.");
-      const data = await res.json();
-      setProfiles(Array.isArray(data) ? data : []);
+      const data = await fetchStoreList<AeoProfile>("/api/aeo/profiles");
+      setProfiles(data);
+      setCorrupt(false);
     } catch (err) {
-      const msg = err instanceof Error ? err.message : "오류";
-      toast.error(msg);
+      if (err instanceof StoreCorruptError) {
+        setCorrupt(true);
+      } else {
+        toast.error(err instanceof Error ? err.message : "오류");
+      }
     } finally {
       setLoading(false);
     }
@@ -181,7 +188,13 @@ export function AeoProfileSection({ selectedProfileId, onSelect }: AeoProfileSec
         </div>
       </div>
 
-      {loading && profiles.length === 0 ? (
+      {corrupt ? (
+        <StoreCorruptPanel
+          kind="AEO 프로필"
+          onRetry={() => void fetchProfiles()}
+          onImport={() => setBundleOpen(true)}
+        />
+      ) : loading && profiles.length === 0 ? (
         <p className="text-sm text-muted-foreground">불러오는 중...</p>
       ) : profiles.length === 0 ? (
         <Card className="p-8 text-center">
@@ -280,6 +293,13 @@ export function AeoProfileSection({ selectedProfileId, onSelect }: AeoProfileSec
           setBrandPrefill(null);
         }}
         onSaved={handleBrandSavedFromBridge}
+      />
+
+      {/* 저장소 손상 시 복구용 — 백업 파일에서 복원 진입 */}
+      <ProfileBundleDialog
+        open={bundleOpen}
+        onClose={() => setBundleOpen(false)}
+        onImported={() => void fetchProfiles()}
       />
     </section>
   );

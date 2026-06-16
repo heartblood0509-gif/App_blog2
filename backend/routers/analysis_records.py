@@ -16,14 +16,18 @@ ID 자동 생성:
 - 내장: "builtin-<slug>" (시드 함수에서 명시)
 """
 import json
+import logging
 from datetime import datetime, timezone
 from typing import Optional
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
+import storage
 from config import ANALYSIS_RECORDS_FILE
 from paths import _default_data_source_dir
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -33,19 +37,8 @@ router = APIRouter()
 # ─────────────────────────────────────────────
 
 def _load_records() -> list[dict]:
-    if not ANALYSIS_RECORDS_FILE.exists():
-        return []
-    try:
-        return json.loads(ANALYSIS_RECORDS_FILE.read_text(encoding="utf-8"))
-    except Exception:
-        return []
-
-
-def _save_records(records: list[dict]):
-    ANALYSIS_RECORDS_FILE.write_text(
-        json.dumps(records, ensure_ascii=False, indent=2),
-        encoding="utf-8",
-    )
+    """읽기 전용 로드(손상 시 자동복구, 복구 불가면 CorruptStoreError → 503)."""
+    return storage.read(ANALYSIS_RECORDS_FILE)
 
 
 def _now_iso() -> str:
@@ -115,54 +108,57 @@ async def create_record(req: AnalysisRecordUpsert) -> dict:
     if req.sourceType == "builtin":
         raise HTTPException(400, "builtin 레코드는 사용자가 생성할 수 없습니다.")
 
-    records = _load_records()
+    with storage.transaction(ANALYSIS_RECORDS_FILE) as txn:
+        records = txn.items
 
-    existing_ids = {r.get("id") for r in records}
-    idx = 1
-    while f"analysis-{idx}" in existing_ids:
-        idx += 1
-    new_id = f"analysis-{idx}"
+        existing_ids = {r.get("id") for r in records}
+        idx = 1
+        while f"analysis-{idx}" in existing_ids:
+            idx += 1
+        new_id = f"analysis-{idx}"
 
-    new_record = {
-        "id": new_id,
-        "isBuiltin": False,
-        "createdAt": _now_iso(),
-        **req.model_dump(),
-    }
-    records.append(new_record)
-    _save_records(records)
+        new_record = {
+            "id": new_id,
+            "isBuiltin": False,
+            "createdAt": _now_iso(),
+            **req.model_dump(),
+        }
+        records.append(new_record)
+        txn.commit(records)
     return new_record
 
 
 @router.put("/{record_id}")
 async def update_record(record_id: str, req: AnalysisRecordUpsert) -> dict:
-    records = _load_records()
-    for i, r in enumerate(records):
-        if r.get("id") == record_id:
-            if r.get("isBuiltin"):
-                raise HTTPException(400, "내장 분석 레코드는 수정할 수 없습니다.")
-            updated = {
-                "id": record_id,
-                "isBuiltin": False,
-                "createdAt": r.get("createdAt", _now_iso()),
-                **req.model_dump(),
-            }
-            records[i] = updated
-            _save_records(records)
-            return updated
+    with storage.transaction(ANALYSIS_RECORDS_FILE) as txn:
+        records = txn.items
+        for i, r in enumerate(records):
+            if r.get("id") == record_id:
+                if r.get("isBuiltin"):
+                    raise HTTPException(400, "내장 분석 레코드는 수정할 수 없습니다.")
+                updated = {
+                    "id": record_id,
+                    "isBuiltin": False,
+                    "createdAt": r.get("createdAt", _now_iso()),
+                    **req.model_dump(),
+                }
+                records[i] = updated
+                txn.commit(records)
+                return updated
     raise HTTPException(404, "해당 분석 레코드를 찾을 수 없습니다.")
 
 
 @router.delete("/{record_id}")
 async def delete_record(record_id: str) -> dict:
-    records = _load_records()
-    target = next((r for r in records if r.get("id") == record_id), None)
-    if not target:
-        raise HTTPException(404, "해당 분석 레코드를 찾을 수 없습니다.")
-    if target.get("isBuiltin"):
-        raise HTTPException(400, "내장 분석 레코드는 삭제할 수 없습니다.")
-    new_records = [r for r in records if r.get("id") != record_id]
-    _save_records(new_records)
+    with storage.transaction(ANALYSIS_RECORDS_FILE) as txn:
+        records = txn.items
+        target = next((r for r in records if r.get("id") == record_id), None)
+        if not target:
+            raise HTTPException(404, "해당 분석 레코드를 찾을 수 없습니다.")
+        if target.get("isBuiltin"):
+            raise HTTPException(400, "내장 분석 레코드는 삭제할 수 없습니다.")
+        new_records = [r for r in records if r.get("id") != record_id]
+        txn.commit(new_records)
     return {"message": f"분석 레코드 '{record_id}'이 삭제되었습니다."}
 
 
@@ -492,28 +488,35 @@ def ensure_builtin_seeds():
     - builtin 5장(정보성글)에 titleFormula가 없으면 BUILTIN_TITLE_FORMULAS에서 매칭 ID로 자동 보강.
       사용자 user 레코드는 건드리지 않음.
     """
-    records = _load_records()
-    existing_ids = {r.get("id") for r in records}
-    changed = False
-    for seed in BUILTIN_SEEDS:
-        if seed["id"] not in existing_ids:
-            records.append(seed)
-            changed = True
-    # templateScope 누락 보강 — 기존 데이터는 모두 정보성글로 간주
-    for r in records:
-        if "templateScope" not in r or r.get("templateScope") is None:
-            r["templateScope"] = "info"
-            changed = True
-    # titleFormula 누락 보강 — builtin 정보성글 카드에만 매칭 ID로 주입.
-    # 사용자(user) 레코드는 AI 분석 단계에서 채워지므로 여기서 건드리지 않음.
-    for r in records:
-        if not r.get("isBuiltin"):
-            continue
-        if r.get("titleFormula"):
-            continue
-        formula = BUILTIN_TITLE_FORMULAS.get(r.get("id"))
-        if formula:
-            r["titleFormula"] = formula
-            changed = True
-    if changed:
-        _save_records(records)
+    # 손상 시 시드 저장을 스킵 — 빈/시드만으로 사용자 레코드를 덮어쓰지 않기 위함.
+    try:
+        with storage.transaction(ANALYSIS_RECORDS_FILE) as txn:
+            records = txn.items
+            existing_ids = {r.get("id") for r in records}
+            changed = False
+            for seed in BUILTIN_SEEDS:
+                if seed["id"] not in existing_ids:
+                    records.append(seed)
+                    changed = True
+            # templateScope 누락 보강 — 기존 데이터는 모두 정보성글로 간주
+            for r in records:
+                if "templateScope" not in r or r.get("templateScope") is None:
+                    r["templateScope"] = "info"
+                    changed = True
+            # titleFormula 누락 보강 — builtin 정보성글 카드에만 매칭 ID로 주입.
+            # 사용자(user) 레코드는 AI 분석 단계에서 채워지므로 여기서 건드리지 않음.
+            for r in records:
+                if not r.get("isBuiltin"):
+                    continue
+                if r.get("titleFormula"):
+                    continue
+                formula = BUILTIN_TITLE_FORMULAS.get(r.get("id"))
+                if formula:
+                    r["titleFormula"] = formula
+                    changed = True
+            if changed:
+                txn.commit(records)
+    except storage.CorruptStoreError:
+        logger.warning(
+            "ensure_builtin_seeds: 분석 저장소 손상·복구 불가 — 시드 스킵(사용자 데이터 보호)"
+        )

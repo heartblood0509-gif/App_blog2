@@ -24,6 +24,7 @@ from routers.analysis_records import router as analysis_records_router, ensure_b
 from routers.products import router as products_router
 from routers.profile_bundle import router as profile_bundle_router
 from config import HOST, PORT
+from storage import CorruptStoreError
 from auth import verify_app_token
 from log_redactor import RedactingFilter, _redact
 from paths import LOG_DIR
@@ -149,6 +150,25 @@ app.include_router(aeo_profiles_router, prefix="/aeo-profiles", tags=["aeo-profi
 app.include_router(analysis_records_router, prefix="/analysis-records", tags=["analysis-records"], dependencies=_protected)
 app.include_router(products_router, prefix="/products", tags=["products"], dependencies=_protected)
 app.include_router(profile_bundle_router, prefix="/profile-bundle", tags=["profile-bundle"], dependencies=_protected)
+
+
+@app.exception_handler(CorruptStoreError)
+async def _corrupt_store_handler(request: Request, exc: CorruptStoreError) -> JSONResponse:
+    """저장소 파일 손상 + 백업 복구 불가 → 503. 조용한 [] 대신 명시적 오류로 노출.
+
+    원본·손상본은 storage 가 보존하므로(.corrupt-<ts>) 데이터가 삭제되진 않는다.
+    프런트는 이 503(code=store_corrupt)을 받아 "불러오기 실패/복구" 안내를 띄운다.
+    """
+    logging.getLogger(__name__).error(
+        "store corrupt on %s %s: %s", request.method, request.url.path, exc
+    )
+    return JSONResponse(
+        status_code=503,
+        content={
+            "detail": "저장소 파일이 손상되어 불러올 수 없습니다. 백업 복구가 필요합니다.",
+            "code": "store_corrupt",
+        },
+    )
 
 
 @app.exception_handler(Exception)

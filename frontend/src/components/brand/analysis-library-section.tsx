@@ -14,6 +14,8 @@ import { toast } from "sonner";
 import type { AnalysisRecord, AnalysisRecordUpsert } from "@/types/brand";
 import { extractFlowFromMarkdownBody } from "@/lib/analysis-parser";
 import { AnalysisRecordForm } from "./analysis-record-form";
+import { fetchStoreList, StoreCorruptError } from "@/lib/store-fetch";
+import { StoreCorruptPanel } from "@/components/store-corrupt-panel";
 
 interface AnalysisLibrarySectionProps {
   selectedRecordId: string | null;
@@ -28,17 +30,20 @@ export function AnalysisLibrarySection({
   const [loading, setLoading] = useState(false);
   const [formOpen, setFormOpen] = useState(false);
   const [editing, setEditing] = useState<AnalysisRecord | null>(null);
+  const [corrupt, setCorrupt] = useState(false);
 
   const fetchRecords = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await fetch("/api/analysis/records", { cache: "no-store" });
-      if (!res.ok) throw new Error("분석 보관함을 불러오지 못했습니다.");
-      const data = await res.json();
-      setRecords(Array.isArray(data) ? data : []);
+      const data = await fetchStoreList<AnalysisRecord>("/api/analysis/records");
+      setRecords(data);
+      setCorrupt(false);
     } catch (err) {
-      const msg = err instanceof Error ? err.message : "오류";
-      toast.error(msg);
+      if (err instanceof StoreCorruptError) {
+        setCorrupt(true);
+      } else {
+        toast.error(err instanceof Error ? err.message : "오류");
+      }
     } finally {
       setLoading(false);
     }
@@ -117,7 +122,9 @@ export function AnalysisLibrarySection({
         </p>
       </div>
 
-      {loading && userRecords.length === 0 ? (
+      {corrupt ? (
+        <StoreCorruptPanel kind="분석 보관함" onRetry={() => void fetchRecords()} />
+      ) : loading && userRecords.length === 0 ? (
         <p className="text-sm text-muted-foreground">불러오는 중...</p>
       ) : userRecords.length === 0 ? (
         <Card className="p-6 text-center border-dashed">
