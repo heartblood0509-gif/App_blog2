@@ -14,6 +14,7 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import type { Verbosity } from "@/lib/chatbot/knowledge";
+import { remarkChatLinkify, safeUrl } from "@/lib/chatbot/linkify";
 
 /** 첨부 이미지 (자동 축소 후). base64 는 data URL prefix 없는 순수 값. */
 interface Attachment {
@@ -337,6 +338,7 @@ export function ChatWidget() {
   );
 
   // 도움말 딥링크(/help/...)는 새로고침 없이 앱 내에서 이동하고 패널을 닫는다.
+  // href 는 safeUrl 로 검증 — javascript:/data: 등은 링크가 아니라 평문으로 렌더(보안).
   const renderLink = ({
     href,
     children,
@@ -344,18 +346,20 @@ export function ChatWidget() {
     href?: string;
     children?: React.ReactNode;
   }) => {
-    const isInternal = href?.startsWith("/");
+    const safe = href ? safeUrl(href) : null;
+    if (!safe) return <>{children}</>;
+    const isInternal = safe.startsWith("/");
     return (
       <a
-        href={href}
+        href={safe}
         onClick={(e) => {
-          if (isInternal && href) {
+          if (isInternal) {
             e.preventDefault();
-            router.push(href);
+            router.push(safe);
             setOpen(false);
           }
         }}
-        {...(isInternal ? {} : { target: "_blank", rel: "noreferrer" })}
+        {...(isInternal ? {} : { target: "_blank", rel: "noopener noreferrer" })}
       >
         {children}
       </a>
@@ -541,7 +545,11 @@ export function ChatWidget() {
                       m.content ? (
                         <div className="chat-markdown">
                           <ReactMarkdown
-                            remarkPlugins={[remarkGfm]}
+                            remarkPlugins={
+                              isStreaming && i === messages.length - 1
+                                ? [remarkGfm]
+                                : [remarkGfm, remarkChatLinkify]
+                            }
                             components={{ a: renderLink }}
                           >
                             {m.content}
