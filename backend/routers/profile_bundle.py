@@ -26,22 +26,11 @@ from typing import Any, Literal
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, ValidationError
 
+import storage
 from paths import DATA_DIR, BRAND_PROFILES_FILE, AEO_PROFILES_FILE, PRODUCTS_FILE
-from routers.brand_profiles import (
-    BrandProfileUpsert,
-    _load_profiles as _load_brand,
-    _save_profiles as _save_brand,
-)
-from routers.aeo_profiles import (
-    AeoProfileUpsert,
-    _load_profiles as _load_aeo,
-    _save_profiles as _save_aeo,
-)
-from routers.products import (
-    ProductUpsert,
-    _load_products,
-    _save_products,
-)
+from routers.brand_profiles import BrandProfileUpsert
+from routers.aeo_profiles import AeoProfileUpsert
+from routers.products import ProductUpsert
 
 router = APIRouter()
 
@@ -139,79 +128,82 @@ def _import_one_type(
     selection: list[str],
     unique_key: str,
     upsert_model: type[BaseModel],
-    load_fn,
-    save_fn,
+    store_file: Path,
     id_prefix: str,
     policy: str,
     display_key: str | None = None,
 ) -> ImportResult:
-    """한 종류(브랜드/AEO/제품)에 대해 import 루프."""
+    """한 종류(브랜드/AEO/제품)에 대해 import 루프.
+
+    저장소 락(transaction)으로 load→수정→save 전체를 직렬화 — CRUD 와 같은 잠금.
+    """
     result = ImportResult()
 
     # selection 비어있으면 처리 없음
     if not selection:
         return result
 
-    current = load_fn()
-    existing_by_key: dict[str, dict] = {}
-    for p in current:
-        v = p.get(unique_key)
-        if isinstance(v, str):
-            existing_by_key[v] = p
+    with storage.transaction(store_file) as txn:
+        current = txn.items
+        existing_by_key: dict[str, dict] = {}
+        for p in current:
+            v = p.get(unique_key)
+            if isinstance(v, str):
+                existing_by_key[v] = p
 
-    selection_set = set(selection)
-    dirty = False
+        selection_set = set(selection)
+        dirty = False
 
-    for raw in incoming_items:
-        if not isinstance(raw, dict):
-            result.errors.append("객체가 아닌 항목이 포함되어 있습니다.")
-            continue
-        key_value = raw.get(unique_key)
-        if not isinstance(key_value, str) or not key_value:
-            result.errors.append(f"'{unique_key}' 값이 없는 항목이 있습니다.")
-            continue
-        if key_value not in selection_set:
-            continue
-
-        label = raw.get(display_key) if display_key else key_value
-        if not isinstance(label, str) or not label:
-            label = key_value
-
-        # Pydantic 검증 (id 등 서버 부여 필드는 제외하고 검증)
-        payload = {k: v for k, v in raw.items() if k != "id"}
-        try:
-            validated = upsert_model(**payload)
-        except ValidationError as ve:
-            result.errors.append(_format_validation_error(ve, label))
-            continue
-
-        existing = existing_by_key.get(key_value)
-        if existing is not None:
-            # 중복 — 정책 적용
-            if policy == "skip":
-                result.skipped += 1
+        for raw in incoming_items:
+            if not isinstance(raw, dict):
+                result.errors.append("객체가 아닌 항목이 포함되어 있습니다.")
                 continue
-            # overwrite — 기존 ID 유지
-            updated = {"id": existing["id"], **validated.model_dump()}
-            existing_by_key[key_value] = updated
-            for i, p in enumerate(current):
-                if p.get("id") == existing["id"]:
-                    current[i] = updated
-                    break
-            result.overwritten += 1
-            dirty = True
-        else:
-            # 신규 — 새 ID 발급
-            existing_ids = {p.get("id") for p in current if isinstance(p.get("id"), str)}
-            new_id = _next_id(existing_ids, id_prefix)
-            new_profile = {"id": new_id, **validated.model_dump()}
-            current.append(new_profile)
-            existing_by_key[key_value] = new_profile
-            result.added += 1
-            dirty = True
+            key_value = raw.get(unique_key)
+            if not isinstance(key_value, str) or not key_value:
+                result.errors.append(f"'{unique_key}' 값이 없는 항목이 있습니다.")
+                continue
+            if key_value not in selection_set:
+                continue
 
-    if dirty:
-        save_fn(current)
+            label = raw.get(display_key) if display_key else key_value
+            if not isinstance(label, str) or not label:
+                label = key_value
+
+            # Pydantic 검증 (id 등 서버 부여 필드는 제외하고 검증)
+            payload = {k: v for k, v in raw.items() if k != "id"}
+            try:
+                validated = upsert_model(**payload)
+            except ValidationError as ve:
+                result.errors.append(_format_validation_error(ve, label))
+                continue
+
+            existing = existing_by_key.get(key_value)
+            if existing is not None:
+                # 중복 — 정책 적용
+                if policy == "skip":
+                    result.skipped += 1
+                    continue
+                # overwrite — 기존 ID 유지
+                updated = {"id": existing["id"], **validated.model_dump()}
+                existing_by_key[key_value] = updated
+                for i, p in enumerate(current):
+                    if p.get("id") == existing["id"]:
+                        current[i] = updated
+                        break
+                result.overwritten += 1
+                dirty = True
+            else:
+                # 신규 — 새 ID 발급
+                existing_ids = {p.get("id") for p in current if isinstance(p.get("id"), str)}
+                new_id = _next_id(existing_ids, id_prefix)
+                new_profile = {"id": new_id, **validated.model_dump()}
+                current.append(new_profile)
+                existing_by_key[key_value] = new_profile
+                result.added += 1
+                dirty = True
+
+        if dirty:
+            txn.commit(current)
 
     return result
 
@@ -268,8 +260,7 @@ async def import_bundle(req: ImportRequest) -> ImportResponse:
         selection=req.selection.brand,
         unique_key="name",
         upsert_model=BrandProfileUpsert,
-        load_fn=_load_brand,
-        save_fn=_save_brand,
+        store_file=BRAND_PROFILES_FILE,
         id_prefix="brand",
         policy=req.conflictPolicy,
     )
@@ -278,8 +269,7 @@ async def import_bundle(req: ImportRequest) -> ImportResponse:
         selection=req.selection.aeo,
         unique_key="label",
         upsert_model=AeoProfileUpsert,
-        load_fn=_load_aeo,
-        save_fn=_save_aeo,
+        store_file=AEO_PROFILES_FILE,
         id_prefix="aeo",
         policy=req.conflictPolicy,
         display_key="name",
@@ -289,8 +279,7 @@ async def import_bundle(req: ImportRequest) -> ImportResponse:
         selection=req.selection.product,
         unique_key="name",
         upsert_model=ProductUpsert,
-        load_fn=_load_products,
-        save_fn=_save_products,
+        store_file=PRODUCTS_FILE,
         id_prefix="product",
         policy=req.conflictPolicy,
     )

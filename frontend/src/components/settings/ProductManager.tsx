@@ -13,22 +13,30 @@ import { Package, Pencil, Plus, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import type { UserProduct } from "@/types";
 import { ProductForm } from "@/components/steps/product-form";
+import { fetchStoreList, StoreCorruptError } from "@/lib/store-fetch";
+import { StoreCorruptPanel } from "@/components/store-corrupt-panel";
+import { ProfileBundleDialog } from "@/components/profile-bundle-dialog";
 
 export function ProductManager() {
   const [products, setProducts] = useState<UserProduct[]>([]);
   const [loading, setLoading] = useState(false);
   const [formOpen, setFormOpen] = useState(false);
   const [editing, setEditing] = useState<UserProduct | null>(null);
+  const [corrupt, setCorrupt] = useState(false);
+  const [bundleOpen, setBundleOpen] = useState(false);
 
   const fetchProducts = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await fetch("/api/products", { cache: "no-store" });
-      if (!res.ok) throw new Error("제품 목록을 불러오지 못했습니다.");
-      const data = await res.json();
-      setProducts(Array.isArray(data) ? data : []);
+      const data = await fetchStoreList<UserProduct>("/api/products");
+      setProducts(data);
+      setCorrupt(false);
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "오류");
+      if (err instanceof StoreCorruptError) {
+        setCorrupt(true);
+      } else {
+        toast.error(err instanceof Error ? err.message : "오류");
+      }
     } finally {
       setLoading(false);
     }
@@ -110,7 +118,13 @@ export function ProductManager() {
       </div>
 
       {/* 카드 그리드 */}
-      {loading && products.length === 0 ? (
+      {corrupt ? (
+        <StoreCorruptPanel
+          kind="제품"
+          onRetry={() => void fetchProducts()}
+          onImport={() => setBundleOpen(true)}
+        />
+      ) : loading && products.length === 0 ? (
         <div className="rounded-lg border bg-muted/30 p-6 text-center text-sm text-muted-foreground">
           불러오는 중…
         </div>
@@ -168,6 +182,13 @@ export function ProductManager() {
           setEditing(null);
         }}
         onSave={handleSave}
+      />
+
+      {/* 저장소 손상 시 복구용 — 백업 파일에서 복원 진입 */}
+      <ProfileBundleDialog
+        open={bundleOpen}
+        onClose={() => setBundleOpen(false)}
+        onImported={() => void fetchProducts()}
       />
     </div>
   );

@@ -7,12 +7,12 @@
   이 라우터는 사용자가 직접 등록하는 제품만 다룸.
 - 모든 메타데이터 필드를 필수로 받아 시드와 동일한 프롬프트 품질 보장.
 """
-import json
 from typing import Optional
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
+import storage
 from config import PRODUCTS_FILE
 
 router = APIRouter()
@@ -23,19 +23,8 @@ router = APIRouter()
 # ─────────────────────────────────────────────
 
 def _load_products() -> list[dict]:
-    if not PRODUCTS_FILE.exists():
-        return []
-    try:
-        return json.loads(PRODUCTS_FILE.read_text(encoding="utf-8"))
-    except Exception:
-        return []
-
-
-def _save_products(products: list[dict]):
-    PRODUCTS_FILE.write_text(
-        json.dumps(products, ensure_ascii=False, indent=2),
-        encoding="utf-8",
-    )
+    """읽기 전용 로드(손상 시 자동복구, 복구 불가면 CorruptStoreError → 503)."""
+    return storage.read(PRODUCTS_FILE)
 
 
 def find_product(product_id: str) -> Optional[dict]:
@@ -103,44 +92,47 @@ async def get_product(product_id: str) -> dict:
 
 @router.post("/")
 async def create_product(req: ProductUpsert) -> dict:
-    products = _load_products()
+    with storage.transaction(PRODUCTS_FILE) as txn:
+        products = txn.items
 
-    for p in products:
-        if p.get("name") == req.name:
-            raise HTTPException(400, f"이미 등록된 제품 이름입니다: {req.name}")
+        for p in products:
+            if p.get("name") == req.name:
+                raise HTTPException(400, f"이미 등록된 제품 이름입니다: {req.name}")
 
-    existing_ids = {p.get("id") for p in products}
-    idx = 1
-    while f"product{idx}" in existing_ids:
-        idx += 1
-    new_id = f"product{idx}"
+        existing_ids = {p.get("id") for p in products}
+        idx = 1
+        while f"product{idx}" in existing_ids:
+            idx += 1
+        new_id = f"product{idx}"
 
-    new_product = {"id": new_id, **req.model_dump()}
-    products.append(new_product)
-    _save_products(products)
+        new_product = {"id": new_id, **req.model_dump()}
+        products.append(new_product)
+        txn.commit(products)
     return new_product
 
 
 @router.put("/{product_id}")
 async def update_product(product_id: str, req: ProductUpsert) -> dict:
-    products = _load_products()
-    for i, p in enumerate(products):
-        if p.get("id") == product_id:
-            for other in products:
-                if other.get("id") != product_id and other.get("name") == req.name:
-                    raise HTTPException(400, f"이미 등록된 제품 이름입니다: {req.name}")
-            updated = {"id": product_id, **req.model_dump()}
-            products[i] = updated
-            _save_products(products)
-            return updated
+    with storage.transaction(PRODUCTS_FILE) as txn:
+        products = txn.items
+        for i, p in enumerate(products):
+            if p.get("id") == product_id:
+                for other in products:
+                    if other.get("id") != product_id and other.get("name") == req.name:
+                        raise HTTPException(400, f"이미 등록된 제품 이름입니다: {req.name}")
+                updated = {"id": product_id, **req.model_dump()}
+                products[i] = updated
+                txn.commit(products)
+                return updated
     raise HTTPException(404, "해당 제품을 찾을 수 없습니다.")
 
 
 @router.delete("/{product_id}")
 async def delete_product(product_id: str) -> dict:
-    products = _load_products()
-    new_products = [p for p in products if p.get("id") != product_id]
-    if len(new_products) == len(products):
-        raise HTTPException(404, "해당 제품을 찾을 수 없습니다.")
-    _save_products(new_products)
+    with storage.transaction(PRODUCTS_FILE) as txn:
+        products = txn.items
+        new_products = [p for p in products if p.get("id") != product_id]
+        if len(new_products) == len(products):
+            raise HTTPException(404, "해당 제품을 찾을 수 없습니다.")
+        txn.commit(new_products)
     return {"message": f"제품 '{product_id}'이 삭제되었습니다."}
