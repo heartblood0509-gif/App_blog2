@@ -10,6 +10,7 @@ const ALLOWED_EXTERNAL_HOSTS = new Set([
   "fal.ai", // FAL 영상 생성 키/대시보드
   "typecast.ai", // Typecast TTS API
   "studio.youtube.com", // YouTube 오디오 보관함
+  "pf.kakao.com", // 1:1 채팅 문의(카카오 채널) — 챗봇/도움말의 CS 링크
 ]);
 
 /**

@@ -91,7 +91,7 @@ export default function HelpShortsPickPage() {
           </span>
         </Callout>
         <p className="text-foreground/70">
-          접속 링크·계정 승인 등은 카카오 채널로 문의해주세요. (평일 오전 11시 ~
+          접속 링크·계정 승인 등은 카카오 채널로 문의해주세요. (평일 오전 10시 ~
           오후 5시)
         </p>
       </Section>

@@ -6,13 +6,10 @@
 // 시스템 프롬프트를 조립한다.
 
 import { HELP_MANUAL_TEXT } from "./knowledge.generated";
+// 연락처 상수는 의존성 없는 ./support 로 분리(클라이언트 번들 오염 방지). 재노출만 한다.
+import { SUPPORT_CONTACT } from "./support";
 
-/**
- * 고객 문의 시 안내할 연락처.
- * 운영자가 실제 채널을 정하면 이 값만 바꾸면 챗봇 답변에 자동 반영된다.
- * (비워두면 "도움말 페이지 확인"만 안내한다.)
- */
-export const SUPPORT_CONTACT = "카카오 채널: http://pf.kakao.com/_QkxmxbG/chat";
+export { SUPPORT_CONTACT } from "./support";
 
 /** 통합 브랜드명 — 답변 톤 일관성용. (블로그픽·쇼츠픽 등을 아우름) */
 export const PRODUCT_NAME = "So-Pick (쏘-픽)";
@@ -68,7 +65,7 @@ export function buildSystemPrompt(
         ? `\n\n[이번 답변 지시 — 위 지식 베이스보다 우선]\n사용자가 "짧게"를 눌렀습니다. 바로 위 사용자 메시지가 가리키는 "직전 답변"을 핵심만 1~3줄로 아주 간결하게 요약해 답하세요.`
         : "";
 
-  return `당신은 "${PRODUCT_NAME}"의 고객 지원 챗봇 "So-Pick 도우미"입니다. 사용자의 문의에 친절하고 간결한 한국어 존댓말로 답하세요.
+  return `당신은 "${PRODUCT_NAME}"의 고객 지원 챗봇 "Blog Pick 도우미"입니다. 사용자의 문의에 친절하고 간결한 한국어 존댓말로 답하세요.
 So-Pick(쏘-픽)은 1인 브랜드를 위한 콘텐츠 자동화 제품군입니다. 블로그픽(네이버 블로그 글을 AI로 생성·자동 발행하는 데스크톱 앱)과 쇼츠픽(대본으로 숏폼 영상을 만드는 도구) 등을 제공합니다. 당신은 주로 이 블로그픽 앱 사용자를 돕지만, 쇼츠픽 등 다른 So-Pick 제품 질문에도 답할 수 있습니다.
 
 [답변 범위]

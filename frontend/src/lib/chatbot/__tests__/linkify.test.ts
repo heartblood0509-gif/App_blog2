@@ -55,6 +55,14 @@ describe("findUrls", () => {
   it("www. 도 링크", () => {
     expect(findUrls("www.naver.com 으로")[0].href).toBe("https://www.naver.com");
   });
+  it("1:1 채팅 문의 카카오 링크(언더스코어 경로) 보존", () => {
+    expect(safeUrl("https://pf.kakao.com/_QkxmxbG/chat")).toBe(
+      "https://pf.kakao.com/_QkxmxbG/chat"
+    );
+    expect(findUrls("문의: https://pf.kakao.com/_QkxmxbG/chat 로")[0].href).toBe(
+      "https://pf.kakao.com/_QkxmxbG/chat"
+    );
+  });
 });
 
 describe("remarkChatLinkify (mdast)", () => {
