@@ -10,9 +10,8 @@
 // 다크모드 자동 호환.
 
 import { useCallback, useEffect, useState } from "react";
-import { ArrowRight, CheckCircle2, Circle, Rocket } from "lucide-react";
+import { CheckCircle2, Circle, Rocket } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { Button } from "@/components/ui/button";
 import { useAuthContext } from "@/lib/auth/auth-context";
 import { YOUTUBE_FEATURE_ENABLED } from "@/lib/youtube-feature";
 import { getApiKeys } from "@/lib/youtube/endpoints";
@@ -128,15 +127,15 @@ export function SetupChecklist({ onGoToTab }: SetupChecklistProps) {
   if (allDone) return null;
 
   return (
-    <div className="rounded-lg border-2 border-primary/30 bg-primary/[0.04] p-5">
+    <div className="max-w-3xl rounded-lg border-2 border-primary/30 bg-primary/[0.04] p-5">
       <div className="mb-3 flex items-center gap-2">
         <Rocket className="h-5 w-5 text-primary" />
         <h3 className="text-base font-semibold text-foreground">
-          🚀 시작 가이드
+          시작 가이드
         </h3>
       </div>
       <p className="mb-4 text-sm text-muted-foreground">
-        글을 만들 준비를 마쳐주세요. 필수 항목을 채우면 바로 글 작성이 가능합니다.
+        콘텐츠를 생산할 준비를 마쳐주세요. 필수 항목을 채우면 바로 글 작성이 가능합니다.
       </p>
 
       <ul className="space-y-2.5">
@@ -144,7 +143,7 @@ export function SetupChecklist({ onGoToTab }: SetupChecklistProps) {
           done={state.hasApiKey}
           required
           title="AI API 키 등록"
-          description="글·이미지 생성에 필요한 키 (Gemini 필수, fal 권장)"
+          description="글·이미지 생성에 필요한 키 (Gemini, Fal.ai)"
           onClick={() => onGoToTab("api-generation")}
         />
         {youtubeAllowed && (
@@ -189,7 +188,13 @@ function ChecklistItem({
   onClick: () => void;
 }) {
   return (
-    <li className="flex items-start gap-3 rounded-md bg-background/60 px-3 py-2.5">
+    <li
+      className={cn(
+        "flex items-start gap-3 rounded-md border border-border bg-background/60 px-3 py-2.5",
+        !done && "cursor-pointer hover:bg-background"
+      )}
+      onClick={done ? undefined : onClick}
+    >
       {done ? (
         <CheckCircle2 className="mt-0.5 h-5 w-5 shrink-0 text-emerald-500" />
       ) : (
@@ -218,12 +223,6 @@ function ChecklistItem({
         </div>
         <p className="mt-0.5 text-xs text-muted-foreground">{description}</p>
       </div>
-      {!done && (
-        <Button size="sm" variant="ghost" className="shrink-0 gap-1" onClick={onClick}>
-          등록하러 가기
-          <ArrowRight className="h-3 w-3" />
-        </Button>
-      )}
     </li>
   );
 }
