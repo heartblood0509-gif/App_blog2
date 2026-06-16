@@ -87,11 +87,8 @@ export function MyInfoLayout() {
   );
 
   return (
-    <div className="mt-8 space-y-6">
-      {/* 상단: 시작 가이드 (미완료 항목 있을 때만 자동 표시) */}
-      <SetupChecklist onGoToTab={(id) => handleTabClick(id as TabId)} />
-
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-[220px_1fr]">
+    <div className="mt-8">
+      <div className="grid grid-cols-1 gap-10 lg:mx-auto lg:max-w-[64.25rem] lg:grid-cols-[220px_1fr]">
       {/* ───── 좌측 사이드바 (모바일: 상단 가로 스크롤) ───── */}
       <aside className="lg:sticky lg:top-8 lg:self-start">
         <nav
@@ -132,7 +129,9 @@ export function MyInfoLayout() {
       </aside>
 
       {/* ───── 우측 컨텐츠 ───── */}
-      <section className="min-w-0">
+      <section className="min-w-0 space-y-10">
+        {/* 시작 가이드 (미완료 항목 있을 때만 자동 표시) — 콘텐츠 카드와 같은 폭 */}
+        <SetupChecklist onGoToTab={(id) => handleTabClick(id as TabId)} />
         {activeTab === "api-generation" && <ApiGenerationSection />}
         {activeTab === "blog-account" && <BlogAccountSection />}
         {activeTab === "devices" && <DevicesSection />}
@@ -181,8 +180,7 @@ function ApiGenerationSection() {
   const { plan } = useAuthContext();
   const youtubeAllowed = YOUTUBE_FEATURE_ENABLED && plan !== "blog";
   return (
-    <div className="mx-auto max-w-3xl space-y-3">
-      <SectionDivider label="AI 생성 설정" />
+    <div className="max-w-3xl space-y-3">
       <AiKeysPanel youtubeAllowed={youtubeAllowed} className="max-w-none" />
     </div>
   );
@@ -190,7 +188,7 @@ function ApiGenerationSection() {
 
 function BlogAccountSection() {
   return (
-    <div className="mx-auto max-w-3xl space-y-3">
+    <div className="max-w-3xl space-y-3">
       <SectionDivider label="블로그 계정 설정" color="emerald" />
       <BlogAccountManager className="max-w-none" />
     </div>
@@ -199,7 +197,7 @@ function BlogAccountSection() {
 
 function DevicesSection() {
   return (
-    <div className="mx-auto max-w-3xl space-y-3">
+    <div className="max-w-3xl space-y-3">
       <SectionDivider label="등록된 기기" />
       <DevicesPanel />
     </div>
@@ -213,7 +211,7 @@ function DevicesSection() {
 
 function ProductsPlaceholderSection() {
   return (
-    <div className="mx-auto max-w-3xl space-y-3">
+    <div className="max-w-3xl space-y-3">
       <SectionDivider label="제품 프로필" />
       <ProductManager />
     </div>
@@ -222,7 +220,7 @@ function ProductsPlaceholderSection() {
 
 function BrandProfilesPlaceholderSection() {
   return (
-    <div className="mx-auto max-w-3xl space-y-3">
+    <div className="max-w-3xl space-y-3">
       <SectionDivider label="브랜드 프로필" />
       <BrandProfileManager />
     </div>
@@ -231,7 +229,7 @@ function BrandProfilesPlaceholderSection() {
 
 function AeoProfilesPlaceholderSection() {
   return (
-    <div className="mx-auto max-w-3xl space-y-3">
+    <div className="max-w-3xl space-y-3">
       <SectionDivider label="AEO 프로필" />
       <AeoProfileManager />
     </div>
@@ -240,7 +238,7 @@ function AeoProfilesPlaceholderSection() {
 
 function DraftLibrarySection() {
   return (
-    <div className="mx-auto max-w-3xl space-y-3">
+    <div className="max-w-3xl space-y-3">
       <SectionDivider label="글 보관함" />
       <DraftLibraryPanel />
     </div>
@@ -249,7 +247,7 @@ function DraftLibrarySection() {
 
 function ImportExportPlaceholderSection() {
   return (
-    <div className="mx-auto max-w-3xl space-y-3">
+    <div className="max-w-3xl space-y-3">
       <SectionDivider label="가져오기 / 내보내기" />
       <ImportExportPanel />
     </div>
