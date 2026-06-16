@@ -43,6 +43,7 @@ import type {
 } from "@/types";
 import { initialThreadsState } from "@/types";
 import { fetchUserProducts, PRODUCTS } from "@/lib/products";
+import { canAttachBrandProduct } from "@/lib/brand/prompts/policy";
 import { showGenErrorToast, parseGenErrorResponse } from "@/lib/ai/reason-text";
 import { buildCustomProductInfo } from "@/lib/prompts/brand-context";
 import { exportZip, detectImageMime } from "@/lib/export-zip";
@@ -1717,6 +1718,8 @@ export default function Home() {
         selectedBrandValueProofVariant: null,
         selectedBrandDetailVariant: null,
         selectedAnalysisRecordId: null,
+        // 소개글·가치입증글은 제품 첨부 비활성(D1) — 잔여 선택을 비워 생성 시 전송 차단.
+        ...(canAttachBrandProduct(template) ? {} : { selectedBrandProductId: undefined }),
         ...(isCustomEntry ? {} : { referenceUrl: "", referenceText: "", referenceAnalysis: "" }),
       });
     },

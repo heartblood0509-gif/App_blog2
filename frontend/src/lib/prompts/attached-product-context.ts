@@ -22,7 +22,7 @@ const TONE_GUIDES: Record<AttachMode, string> = {
   "brand-intro":
     "이 제품은 브랜드 정체성의 일부로만 자연스럽게 언급. 글의 주된 소재는 여전히 브랜드 자체.",
   "brand-info":
-    "이 제품을 정보의 주된 소재로 활용. 단, 브랜드 화자의 톤·시점은 유지.",
+    "이 제품의 특징·정보를 도메인 지식으로 익명 활용. 제품명·브랜드명은 비노출 (정보성글 익명 정책).",
   "brand-value-proof":
     "이 제품을 브랜드 가치를 입증하는 구체 사례로 활용.",
   "brand-detail":
@@ -77,9 +77,33 @@ function naturalizeProductFacts(product: UserProduct): string[] {
   return facts;
 }
 
+/**
+ * 익명 모드(정보성글)용 — 후기 문자열에서 제품명·브랜드명 토큰을 실제로 제거.
+ * LLM 지시만으론 누수하므로 코드 레벨에서 1차 차단한다.
+ */
+function stripBrandTokens(text: string, tokens: (string | undefined)[]): string {
+  let out = text;
+  for (const tok of tokens) {
+    const t = (tok || "").trim();
+    if (t.length < 2) continue; // 1글자 토큰은 오탐 위험 — 스킵
+    const escaped = t.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    out = out.replace(new RegExp(escaped, "g"), "○○");
+  }
+  return out;
+}
+
+/** 후기 소스 선택 — 출시 제품은 realReviews, 신상품은 expectedReactions. 대표 2~3개만. */
+function collectReviews(product: UserProduct): string[] {
+  const useReal = product.hasReviews !== false;
+  const src = useReal ? product.realReviews : product.expectedReactions;
+  return (src || []).map((s) => s.trim()).filter(Boolean).slice(0, 3);
+}
+
 export interface BuildAttachedProductBlockOptions {
   /** AEO 모드에서 사용자가 별도로 reference URL/노트를 첨부했는지 (A4) */
   hasReference?: boolean;
+  /** 익명 모드(정보성글)에서 후기·블록에서 제거할 브랜드명 (generation.ts가 profile.name 전달) */
+  brandName?: string;
 }
 
 export function buildAttachedProductBlock(
@@ -88,20 +112,50 @@ export function buildAttachedProductBlock(
   options: BuildAttachedProductBlockOptions = {},
 ): string {
   const isAeo = mode.startsWith("aeo-");
+  // 정보성글(brand-info)만 익명. AEO는 disclosure로 실명 노출이 정책이므로 익명 아님.
+  const isAnonymous = mode === "brand-info";
   const factLines = naturalizeProductFacts(product);
+  const reviews = collectReviews(product);
+  const isExpected = product.hasReviews === false;
 
   const sections: string[] = [];
 
   sections.push("---");
   sections.push("## 📎 첨부 제품 정보 (V1 — 작성자가 자기 브랜드의 특정 제품을 글에 활용)");
   sections.push("");
-  sections.push(`제품명: ${product.name}`);
-  sections.push(`카테고리: ${product.category}`);
+  if (isAnonymous) {
+    sections.push(`제품 분류: ${product.category} (이 분야의 한 제품 — 제품명·브랜드명 비공개)`);
+  } else {
+    sections.push(`제품명: ${product.name}`);
+    sections.push(`카테고리: ${product.category}`);
+  }
   sections.push("");
 
   if (factLines.length > 0) {
     sections.push("이 제품에 관한 사실들 (참고용):");
     factLines.forEach((line) => sections.push(`- ${line}`));
+    sections.push("");
+  }
+
+  // 실제 후기·사례 (5-B) — 익명 모드면 제품명·브랜드명을 코드 레벨에서 제거.
+  if (reviews.length > 0) {
+    const lines = isAnonymous
+      ? reviews.map((r) => stripBrandTokens(r, [product.name, options.brandName]))
+      : reviews;
+    sections.push(
+      isExpected
+        ? "예상 사용자 반응 (제3자 관점 사례로 자연스럽게 활용):"
+        : "실제 사용자 후기·사례 (제3자 증명으로 자연스럽게 인용):",
+    );
+    lines.forEach((line) => sections.push(`- ${line}`));
+    sections.push(
+      "- 후기성 블로그 톤이 아니라, 이 글의 **제3자 증명 근거**로 녹여 쓸 것. 통째 나열·복붙 금지.",
+    );
+    if (isAnonymous) {
+      sections.push(
+        "- 후기를 인용하더라도 제품명·브랜드명·작성자 식별 정보는 본문에 **절대 노출 금지**.",
+      );
+    }
     sections.push("");
   }
 
@@ -113,6 +167,12 @@ export function buildAttachedProductBlock(
   sections.push(
     "- \"효능:\", \"성분:\", \"사용감:\", \"차별점:\" 같은 콜론 라벨 형식은 본문에 **절대 금지**.",
   );
+
+  if (isAnonymous) {
+    sections.push(
+      "- **제품명·브랜드명은 본문에 노출 금지** (정보성글 95% 익명 정책). 제품 정보는 이 분야의 도메인 지식처럼만 풀어쓸 것.",
+    );
+  }
 
   if (isAeo) {
     sections.push("");

@@ -112,6 +112,13 @@ ${opts.freeformInput.trim()}
 - targets.primary : 주 고객 한 줄. (secondary/tertiary는 빈 문자열로 두기)
 - differentiators : 차별점 배열 ★중요
 - villains : 공통의 적 배열 (예: ["미끼형 여행사", "거품형 패키지"]) ★중요. 3~5개 권장.
+- customerCases : 실제 고객 후기·사례 배열 (가치입증글의 제3자 증명 재료).
+  ★ 입력에 **실제 고객 반응 단서**가 있으면 '고객 반응' 문장으로 재구성해 1~3개 채운다:
+    · 재구매율·재구매 언급 → 예: "꾸준히 재구매로 이어지는 단골 고객이 많음"
+    · 입소문·"먼저 알아챔"·"다시 사러 옴" → 예: "광고 없이 입소문으로 다시 찾아주시는 고객"
+    · 고객 피드백·후기 언급(story.encounter 등) → 그 취지를 일반적 고객 반응 문장으로
+  ★ **절대 금지**: 존재하지 않는 구체적 후기·가짜 고객 이름·지어낸 수치·만들어낸 일화. 입력 단서를 일반화만 하라(없는 사실 창작 금지 — 가짜 후기는 브랜드 신뢰를 해친다).
+  ★ 입력에 고객 반응 단서가 전혀 없으면 **빈 배열**.
 
 ## 금기 (안전장치)
 - forbidden.competitorNames : true (경쟁사 실명 검출 활성, 기본값)
@@ -175,6 +182,7 @@ ${opts.freeformInput.trim()}
   },
   "differentiators": [<문자열 배열>],
   "villains": [<문자열 배열>],
+  "customerCases": [<문자열 배열>],
   "recommendedRoutes": [],
   "cta": { "channels": [] },
   "forbidden": {

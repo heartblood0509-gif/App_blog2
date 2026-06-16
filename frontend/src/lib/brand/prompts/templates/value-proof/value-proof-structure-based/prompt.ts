@@ -14,7 +14,7 @@
  * - VALUE_PROOF_SKELETON → analysisRecord.analysis로 교체
  */
 import type { BrandProfile, AnalysisRecord } from "@/types/brand";
-import { buildBrandContext } from "../../../brand-context";
+import { buildBrandContext, buildBrandDataMap } from "../../../brand-context";
 import { buildNarratorRule } from "../../../narrator";
 import { buildSharedRules, buildTopicSection } from "../../../shared";
 
@@ -64,7 +64,7 @@ export function buildValueProofStructureBasedPrompt(
   }
 
   // ★ 가치입증글은 자사 노출 유지 (1인칭 대표 본인 톤, 권위·수치 강조)
-  sections.push(buildBrandContext(profile));
+  sections.push(buildBrandContext(profile, "value-proof"));
   sections.push(buildNarratorRule(profile, "value-proof"));
 
   // 분석본 (서사 구조·소제목·톤 가이드)
@@ -82,6 +82,9 @@ export function buildValueProofStructureBasedPrompt(
 - 브랜드명·자사 서비스·시그니처 표현은 본문 전반에 자연스럽게 녹여낸다 (정보성글의 95% 지점 차단 정책 미적용).
 - 권위는 수치·구체 사례·결과 데이터로 입증한다. 추상 자랑 X.
 - 광고 직접 표현("꼭 결제하세요" 등)은 금지. 부드러운 CTA + "감사·희망" 톤으로 닫는다.`);
+
+  // 데이터 활용 지도 — 분석본·핵심 지시 뒤 마지막에 배치 (탄생스토리 10% 캡이 최종 지시로 우선).
+  sections.push(buildBrandDataMap("value-proof"));
 
   sections.push(buildSharedRules());
 
