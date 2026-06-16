@@ -88,7 +88,7 @@ export function MyInfoLayout() {
 
   return (
     <div className="mt-8">
-      <div className="grid grid-cols-1 gap-10 lg:grid-cols-[220px_1fr]">
+      <div className="grid grid-cols-1 gap-10 lg:mx-auto lg:max-w-[64.25rem] lg:grid-cols-[220px_1fr]">
       {/* ───── 좌측 사이드바 (모바일: 상단 가로 스크롤) ───── */}
       <aside className="lg:sticky lg:top-8 lg:self-start">
         <nav
