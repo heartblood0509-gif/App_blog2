@@ -15,6 +15,7 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import type { Verbosity } from "@/lib/chatbot/knowledge";
 import { remarkChatLinkify, safeUrl } from "@/lib/chatbot/linkify";
+import { SUPPORT_CHAT_URL, SUPPORT_HOURS_NOTE } from "@/lib/chatbot/support";
 
 /** 첨부 이미지 (자동 축소 후). base64 는 data URL prefix 없는 순수 값. */
 interface Attachment {
@@ -32,7 +33,7 @@ interface ChatMessage {
 const GREETING: ChatMessage = {
   role: "assistant",
   content:
-    "안녕하세요! So-Pick 도우미예요. 😊\n블로그픽·쇼츠픽 사용법, 발행/제작 오류, API 키 등 궁금한 점을 물어보세요.\n에러 화면은 캡처해서 붙여넣어(또는 끌어다 놓아) 주셔도 됩니다.",
+    "안녕하세요! Blog Pick 도우미예요. 😊 24시간 언제든 바로 답해드려요.\n블로그픽·쇼츠픽 사용법, 발행/제작 오류, API 키 등 무엇이든 물어보세요.\n에러가 나면 그 화면을 캡처해 붙여넣어(또는 끌어다 놓아) 주세요 — 바로 분석해 드릴게요.",
 };
 
 // 빠른 질문 칩 — 첫 진입 시 사용자가 클릭만으로 시작할 수 있게.
@@ -154,6 +155,8 @@ export function ChatWidget() {
   // 플로팅 버튼 안내 말풍선 — 호버 시 / 첫 방문 자동 노출.
   const [hovered, setHovered] = useState(false);
   const [autoHinted, setAutoHinted] = useState(false);
+  // 아래로 스크롤하면 라벨 알약을 동그라미로 접는다(본문 가림 최소화).
+  const [collapsed, setCollapsed] = useState(false);
   const reduceMotion = useReducedMotion();
 
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -204,6 +207,26 @@ export function ChatWidget() {
       clearTimeout(t1);
       clearTimeout(t2);
     };
+  }, []);
+
+  // 스크롤 감지 → 버튼 접힘. 메인/도움말은 window 스크롤, 블로그 분할 모드는
+  // body가 잠기고 [data-blog-pick-root]가 스크롤한다. capture 리스너 하나로
+  // 두 경우(내부 요소 스크롤 포함)를 모두 잡는다.
+  useEffect(() => {
+    const THRESHOLD = 80;
+    const read = () => {
+      const root = document.querySelector<HTMLElement>("[data-blog-pick-root]");
+      const y =
+        root && root.scrollHeight > root.clientHeight
+          ? root.scrollTop
+          : window.scrollY;
+      const next = y > THRESHOLD;
+      setCollapsed((prev) => (prev === next ? prev : next));
+    };
+    read();
+    const opts: AddEventListenerOptions = { passive: true, capture: true };
+    window.addEventListener("scroll", read, opts);
+    return () => window.removeEventListener("scroll", read, opts);
   }, []);
 
   // 파일(이미지)을 받아 축소 후 첨부로 등록.
@@ -474,7 +497,12 @@ export function ChatWidget() {
   };
 
   const canSend = (!!input.trim() || !!attachment) && !isStreaming;
-  const showBubble = !open && (hovered || autoHinted);
+  // 알약(라벨 노출) 상태에선 라벨 자체가 안내라 말풍선을 띄우지 않는다.
+  // (접힌 동그라미 상태에서만 호버/첫방문 말풍선 — 모바일 좌측 오버플로도 방지)
+  const showBubble = !open && collapsed && (hovered || autoHinted);
+
+  // 하단 "1:1 채팅 문의" 링크 — 순수 <a>라 linkify를 안 거치므로 safeUrl로 검증.
+  const supportHref = safeUrl(SUPPORT_CHAT_URL);
 
   // "더 자세히/짧게"는 마지막이 정상(에러 아님) 답변이고, 재답할 질문이 있을 때만 노출.
   const lastMsg = messages[messages.length - 1];
@@ -531,8 +559,13 @@ export function ChatWidget() {
             {/* 헤더 */}
             <div className="flex items-center justify-between border-b border-border bg-primary px-4 py-3 text-primary-foreground">
               <div className="flex items-center gap-2">
-                <MessageCircle className="size-4" />
-                <span className="text-sm font-semibold">So-Pick 도우미</span>
+                <MessageCircle className="size-4 shrink-0" />
+                <div className="flex flex-col leading-tight">
+                  <span className="text-sm font-semibold">Blog Pick 도우미</span>
+                  <span className="text-[11px] font-normal text-primary-foreground/80">
+                    24시간 즉시 답변
+                  </span>
+                </div>
               </div>
               <button
                 type="button"
@@ -713,6 +746,23 @@ export function ChatWidget() {
                 )}
               </Button>
             </form>
+
+            {/* 1:1 채팅 문의 — 챗봇으로 해결 안 될 때의 확실한 경로(항상 노출) */}
+            <div className="border-t border-border bg-muted/30 px-3 py-2 text-center">
+              {supportHref && (
+                <a
+                  href={supportHref}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-xs font-medium text-primary underline-offset-2 hover:underline"
+                >
+                  해결이 안 되나요? 1:1 채팅 문의 →
+                </a>
+              )}
+              <p className="mt-0.5 text-[11px] leading-snug text-foreground/45">
+                {SUPPORT_HOURS_NOTE}
+              </p>
+            </div>
           </motion.div>
         )}
       </AnimatePresence>
@@ -736,7 +786,7 @@ export function ChatWidget() {
               aria-hidden
               className="pointer-events-none absolute right-full top-1/2 mr-3 w-max max-w-[min(15rem,calc(100vw-5rem))] -translate-y-1/2 whitespace-normal break-keep rounded-xl bg-primary px-3.5 py-2 text-sm font-medium text-primary-foreground shadow-lg"
             >
-              So-Pick 도우미예요. 도와드릴게요!
+              막히면 여기서 바로 물어보세요. 24시간 즉시 답해드려요 🙂
               {/* 꼬리 — 버튼 쪽을 가리킴 */}
               <span className="absolute right-0 top-1/2 size-2.5 -translate-y-1/2 translate-x-1/2 rotate-45 bg-primary" />
             </motion.div>
@@ -748,8 +798,8 @@ export function ChatWidget() {
           onClick={() => setOpen((v) => !v)}
           onMouseEnter={() => setHovered(true)}
           onMouseLeave={() => setHovered(false)}
-          className="flex size-14 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-lg transition-transform hover:scale-105 active:scale-95"
-          aria-label={open ? "챗봇 닫기" : "챗봇 열기"}
+          className="flex h-14 items-center justify-center rounded-full bg-primary px-4 text-primary-foreground shadow-lg transition-transform hover:scale-105 active:scale-95"
+          aria-label={open ? "챗봇 닫기" : "도움이 필요하세요? — 챗봇 열기"}
         >
           <AnimatePresence mode="wait" initial={false}>
             <motion.span
@@ -758,6 +808,7 @@ export function ChatWidget() {
               animate={{ opacity: 1, rotate: 0 }}
               exit={{ opacity: 0, rotate: 45 }}
               transition={{ duration: 0.15 }}
+              className="shrink-0"
             >
               {open ? (
                 <X className="size-6" />
@@ -765,6 +816,21 @@ export function ChatWidget() {
                 <MessageCircle className="size-6" />
               )}
             </motion.span>
+          </AnimatePresence>
+          {/* 닫혀 있고 페이지 상단일 때만 라벨 노출(알약). 스크롤하면 동그라미로 접힘. */}
+          <AnimatePresence initial={false}>
+            {!open && !collapsed && (
+              <motion.span
+                key="fab-label"
+                initial={reduceMotion ? { opacity: 0 } : { opacity: 0, width: 0 }}
+                animate={reduceMotion ? { opacity: 1 } : { opacity: 1, width: "auto" }}
+                exit={reduceMotion ? { opacity: 0 } : { opacity: 0, width: 0 }}
+                transition={{ duration: reduceMotion ? 0.12 : 0.2, ease: "easeOut" }}
+                className="overflow-hidden whitespace-nowrap text-sm font-semibold"
+              >
+                <span className="pl-2 pr-0.5">도움이 필요하세요?</span>
+              </motion.span>
+            )}
           </AnimatePresence>
         </button>
       </div>

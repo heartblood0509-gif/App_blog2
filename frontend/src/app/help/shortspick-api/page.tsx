@@ -182,7 +182,7 @@ export default function HelpShortsApiPage() {
 
       <ManualFooterNote>
         키를 모두 등록했다면 “영상 만들기” 카테고리로 돌아가 첫 영상을
-        만들어보세요. 쇼츠픽 관련 문의는 카카오 채널(평일 11~17시)을 이용해주세요.
+        만들어보세요. 쇼츠픽 관련 문의는 카카오 채널(평일 오전 10시~오후 5시)을 이용해주세요.
       </ManualFooterNote>
     </ManualArticle>
   );
