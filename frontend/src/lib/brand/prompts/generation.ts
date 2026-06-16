@@ -23,6 +23,7 @@ import { buildValueProofPrompt } from "./templates/value-proof/prompt";
 import { buildValueProofStructureBasedPrompt } from "./templates/value-proof/value-proof-structure-based/prompt";
 import { buildDetailStructureBasedPrompt } from "./templates/detail/detail-structure-based/prompt";
 import { buildCustomPrompt } from "./templates/custom";
+import { canAttachBrandProduct } from "./policy";
 import type { UserProduct } from "@/types";
 import {
   buildAttachedProductBlock,
@@ -126,13 +127,16 @@ function buildBaseBrandPrompt(opts: BuildBrandPromptOptions): string {
 export function buildBrandGenerationPrompt(opts: BuildBrandPromptOptions): string {
   const basePrompt = buildBaseBrandPrompt(opts);
 
-  if (!opts.attachedProduct) {
+  // 소개글·가치입증글은 제품 첨부 비활성(D1) — 서버 최종 가드.
+  // UI/상태 초기화를 우회한 직접 API 호출까지 여기서 막는다.
+  if (!opts.attachedProduct || !canAttachBrandProduct(opts.template)) {
     return basePrompt;
   }
 
   const attachedBlock = buildAttachedProductBlock(
     opts.attachedProduct,
     brandTemplateToAttachMode(opts.template),
+    { brandName: opts.profile.name },
   );
 
   return `${basePrompt}\n\n${attachedBlock}`;

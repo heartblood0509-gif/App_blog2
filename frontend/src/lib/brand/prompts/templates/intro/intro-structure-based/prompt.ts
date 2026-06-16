@@ -12,7 +12,7 @@
  * 이를 통해 LLM에 전달되는 prompt 텍스트가 마이그레이션 전후 글자 단위로 동일하도록 보장.
  */
 import type { BrandProfile, AnalysisRecord } from "@/types/brand";
-import { buildBrandContext } from "../../../brand-context";
+import { buildBrandContext, buildBrandDataMap } from "../../../brand-context";
 import { buildNarratorRule } from "../../../narrator";
 import { buildToneRule } from "../../../tone-extractor";
 import { buildSharedRules, buildTopicSection } from "../../../shared";
@@ -64,7 +64,7 @@ export function buildIntroStructureBasedPrompt(
     sections.push(`[추가 요구사항]\n${requirements.trim()}`);
   }
 
-  sections.push(buildBrandContext(profile));
+  sections.push(buildBrandContext(profile, "intro"));
   sections.push(buildNarratorRule(profile, "intro"));
 
   // 레퍼런스 견본 글이 있을 때만 톤 학습 + 레퍼런스 섹션 주입 (기존 buildIntroPrompt와 동일 처리)
@@ -78,6 +78,9 @@ ${INTRO_REFERENCE}`);
   // 보관함 카드의 analysis 필드에는 기존 INTRO_SKELETON 텍스트가 그대로 복사되어 있으므로
   // 결과적으로 LLM에 전달되는 prompt 텍스트는 마이그레이션 전과 100% 동일하다.
   sections.push(analysisRecord.analysis);
+
+  // 데이터 활용 지도 — 분석본 뒤에 배치해 최종 지시로 우선되게.
+  sections.push(buildBrandDataMap("intro"));
 
   sections.push(buildSharedRules());
 

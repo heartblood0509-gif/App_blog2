@@ -66,4 +66,10 @@ export const BRAND_INTERVIEW_QUESTIONS: InterviewQuestion[] = [
     example: "성분 표기 속임\n과장 광고\n자연유래 소량만 첨가하고 주성분처럼 광고\n자극 성분을 '천연'으로 포장",
     kind: "list",
   },
+  {
+    id: "customerCases",
+    label: "실제 고객 후기·사례가 있나요? (가치입증글의 '제3자 증명' 재료, 한 줄에 하나씩)",
+    example: "두피 진정 효과 봤다며 재구매하신 분 많아요\n트러블 가라앉았다는 후기 다수\n온 가족이 같이 쓰는 단골님 사례",
+    kind: "list",
+  },
 ];

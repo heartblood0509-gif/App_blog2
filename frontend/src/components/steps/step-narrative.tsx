@@ -43,6 +43,7 @@ import { BrandProfileSection } from "@/components/brand/brand-profile-section";
 import { BrandTemplateSection } from "@/components/brand/brand-template-section";
 import { AeoProfileSection } from "@/components/aeo/aeo-profile-section";
 import { AttachedProductSection } from "@/components/shared/attached-product-section";
+import { canAttachBrandProduct } from "@/lib/brand/prompts/policy";
 import { ProfileBundleDialog } from "@/components/profile-bundle-dialog";
 import {
   INTENT_LABELS,
@@ -865,7 +866,7 @@ export function StepNarrative({
             </motion.div>
           )}
 
-          {/* 브랜드 모드 — 제품 첨부 (선택, V1) */}
+          {/* 브랜드 모드 — 제품 첨부 (선택, V1). 소개글·가치입증글은 숨기지 않고 비활성+안내(D1). */}
           {postCategory === "brand" && selectedBrandProfileId && PRODUCT_ATTACH_ENABLED && onBrandProductAttach && (
             <motion.div
               key="brand-attached-product-section"
@@ -880,6 +881,8 @@ export function StepNarrative({
                 value={selectedBrandProductId}
                 onChange={onBrandProductAttach}
                 userProducts={userProducts}
+                disabled={!canAttachBrandProduct(selectedBrandTemplate)}
+                disabledReason="소개글·가치입증글은 제품 프로필을 선택할 수 없습니다. 브랜드 프로필만으로 글이 작성됩니다."
               />
             </motion.div>
           )}

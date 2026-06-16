@@ -40,6 +40,7 @@ const EMPTY_PAYLOAD = (): Omit<BrandProfile, "id"> => ({
   targets: { primary: "", secondary: "", tertiary: "" },
   differentiators: [],
   villains: [],
+  customerCases: [],
   recommendedRoutes: [],
   cta: { channels: [] },
   forbidden: { competitorNames: true, forbiddenWords: [], adStyle: true },
@@ -51,6 +52,7 @@ const arrayToLines = (a: string[] | undefined): string => (a ?? []).join("\n");
 const EMPTY_LIST_TEXT = {
   differentiators: "",
   villains: "",
+  customerCases: "",
   coreValues: "",
   forbiddenWords: "",
 };
@@ -94,6 +96,7 @@ export function BrandProfileForm({ open, initial, onClose, onSave }: BrandProfil
         setListText({
           differentiators: arrayToLines(merged.differentiators),
           villains: arrayToLines(merged.villains),
+          customerCases: arrayToLines(merged.customerCases),
           coreValues: arrayToLines(merged.coreValues),
           forbiddenWords: arrayToLines(merged.forbidden.forbiddenWords),
         });
@@ -119,6 +122,7 @@ export function BrandProfileForm({ open, initial, onClose, onSave }: BrandProfil
       ...payload,
       differentiators: linesToArray(listText.differentiators),
       villains: linesToArray(listText.villains),
+      customerCases: linesToArray(listText.customerCases),
       coreValues: linesToArray(listText.coreValues),
       forbidden: {
         ...payload.forbidden,
@@ -285,6 +289,24 @@ export function BrandProfileForm({ open, initial, onClose, onSave }: BrandProfil
                     />
                   </div>
                 </div>
+              </Section>
+
+              <Section
+                title="실제 고객 사례·후기"
+                hint="소개글·가치입증글의 '제3자 증명' 재료 (안 적어도 됩니다)"
+              >
+                <Textarea
+                  rows={4}
+                  value={listText.customerCases}
+                  onChange={(e) => {
+                    setListText((prev) => ({ ...prev, customerCases: e.target.value }));
+                    update("customerCases", linesToArray(e.target.value));
+                  }}
+                  placeholder={"한 줄에 하나씩\n\n예:\n두피 진정 효과 봤다며 재구매하신 분 많아요\n트러블 가라앉았다는 후기 다수\n온 가족이 같이 쓴다는 단골님 사례"}
+                />
+                <p className="text-[11px] text-muted-foreground mt-1">
+                  ※ 가치입증글에서 고객 후기·사례로 신뢰를 입증할 때 쓰입니다.
+                </p>
               </Section>
             </div>
 

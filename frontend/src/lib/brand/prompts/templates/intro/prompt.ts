@@ -5,7 +5,7 @@
  * 경력 자랑보다 '어떤 마음으로 일하는가'에 무게.
  */
 import type { BrandProfile } from "@/types/brand";
-import { buildBrandContext } from "../../brand-context";
+import { buildBrandContext, buildBrandDataMap } from "../../brand-context";
 import { buildNarratorRule } from "../../narrator";
 import { buildToneRule } from "../../tone-extractor";
 import { buildSharedRules, buildTopicSection } from "../../shared";
@@ -116,7 +116,7 @@ export function buildIntroPrompt(opts: BuildIntroPromptOptions): string {
     sections.push(`[추가 요구사항]\n${requirements.trim()}`);
   }
 
-  sections.push(buildBrandContext(profile));
+  sections.push(buildBrandContext(profile, "intro"));
   sections.push(buildNarratorRule(profile, "intro"));
 
   // 레퍼런스 견본 글이 있을 때만 톤 학습 + 레퍼런스 섹션 주입
@@ -127,6 +127,7 @@ ${INTRO_REFERENCE}`);
   }
 
   sections.push(INTRO_SKELETON);
+  sections.push(buildBrandDataMap("intro"));
   sections.push(buildSharedRules());
 
   sections.push(`[출력 — 마크다운 본문만, 설명·코드블록 마커 X]`);

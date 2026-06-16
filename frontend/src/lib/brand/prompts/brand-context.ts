@@ -5,6 +5,7 @@
  * - 빈 항목은 자동 생략 (글 품질에 영향 X)
  */
 import type { BrandProfile } from "@/types/brand";
+import type { BrandContextMode } from "./policy";
 
 const list = (items?: string[]): string =>
   items && items.length > 0 ? items.map((s) => `- ${s}`).join("\n") : "";
@@ -29,7 +30,20 @@ const renderAuthority = (authority?: string): string => {
   return "\n" + lines.map((s) => `  · ${s}`).join("\n");
 };
 
-export function buildBrandContext(profile: BrandProfile): string {
+/**
+ * 브랜드 프로필 → 프롬프트 텍스트 블록.
+ *
+ * @param mode 글 종류별 데이터 필터링 (기본 "full" = 기존 동작 100% 동일).
+ *   - "full": 프로필 전체 (detail/custom/fix(full)/info-legacy)
+ *   - "intro": 소개글 — 스토리·경력 중심, 업계 폭로(villains) 제외, 고객 사례 포함
+ *   - "value-proof": 가치입증글 — 탄생 스토리 1줄 압축, 폭로·숫자·제3자 증명 중심, 고객 사례 포함
+ *
+ * 서사 단락 배치 지침은 buildBrandDataMap(mode)가 담당 — 빌더가 골격/분석본 *뒤*에 배치한다.
+ */
+export function buildBrandContext(
+  profile: BrandProfile,
+  mode: BrandContextMode = "full"
+): string {
   const sections: string[] = [];
 
   // 기본 정보
@@ -45,6 +59,7 @@ export function buildBrandContext(profile: BrandProfile): string {
   }
 
   // 인물 (v2: 1인칭 화자 1명. supportingPersona / character 제거됨)
+  // 화자의 경력·자격(누적판매·재구매율 등 숫자)은 모든 모드에서 필요 — 항상 주입.
   if (profile.narrator?.name) {
     sections.push(
       `[1인칭 화자 (글의 주인공)]
@@ -54,15 +69,25 @@ export function buildBrandContext(profile: BrandProfile): string {
     );
   }
 
-  // 스토리
+  // 스토리 — 가치입증글은 탄생 비화를 펼치지 않는다 (D3: 본문 10% 미만, 1줄 압축).
   if (profile.story && Object.values(profile.story).some(Boolean)) {
-    sections.push(
-      `[브랜드 스토리]
+    if (mode === "value-proof") {
+      const seed = (profile.story.origin || profile.story.crisis || "").trim();
+      if (seed) {
+        sections.push(
+          `[브랜드 탄생 배경 — 참고용, 본문 10% 미만·한 문장 이내로만 인용 (길게 서술 금지)]
+- ${seed}`
+        );
+      }
+    } else {
+      sections.push(
+        `[브랜드 스토리]
 - 시작: ${profile.story.origin || ""}
 - 위기: ${profile.story.crisis || ""}
 - 부활: ${profile.story.revival || ""}
 - 만남/결합: ${profile.story.encounter || ""}`
-    );
+      );
+    }
   }
 
   // 에피소드
@@ -92,8 +117,13 @@ ${profile.episodes.map((e) => `- [${e.type}] ${e.content}`).join("\n")}`
   if (profile.differentiators?.length) {
     sections.push(`[차별점]\n${list(profile.differentiators)}`);
   }
-  if (profile.villains?.length) {
-    sections.push(`[공통의 적 (자주 폭로하는 빌런)]\n${list(profile.villains)}`);
+  // 업계 관행 폭로(villains): 소개글에서는 제외(D4 — 폭로톤은 가치입증글 전용).
+  if (profile.villains?.length && mode !== "intro") {
+    const villainHeader =
+      mode === "value-proof"
+        ? "[업계 관행 — '한계 인식 · 시장 폭로' 단락의 핵심 재료]"
+        : "[공통의 적 (자주 폭로하는 빌런)]";
+    sections.push(`${villainHeader}\n${list(profile.villains)}`);
   }
 
   // 추천 코스
@@ -106,6 +136,15 @@ ${profile.episodes.map((e) => `- [${e.type}] ${e.content}`).join("\n")}`
     sections.push(
       `[CTA — 글 끝에서 자연스럽게 유도할 채널]\n${list(profile.cta.channels)}`
     );
+  }
+
+  // 실제 고객 사례·후기 (신설) — 소개글·가치입증글에서만 렌더 (allow-list).
+  if ((mode === "intro" || mode === "value-proof") && profile.customerCases?.length) {
+    const caseHeader =
+      mode === "value-proof"
+        ? "[실제 고객 사례·후기 — '극적 사례 후킹 / 감정 후기(제3자 증명)' 단락의 뼈대]"
+        : "[실제 고객 사례·후기 — 신뢰 보강 근거로 자연스럽게 인용]";
+    sections.push(`${caseHeader}\n${list(profile.customerCases)}`);
   }
 
   // 금기
@@ -126,6 +165,33 @@ ${profile.episodes.map((e) => `- [${e.type}] ${e.content}`).join("\n")}`
   }
 
   return sections.join("\n\n");
+}
+
+/**
+ * 데이터 → 서사 단락 배치 지도.
+ *
+ * buildBrandContext와 분리한 이유: 이 지침은 글 골격/분석본보다 *뒤*에 와야
+ * (analysisRecord.analysis가 스토리를 강조해도) 최종 지시로서 우선된다.
+ * 빌더가 골격/분석본 다음, buildSharedRules 앞에 배치한다.
+ *
+ * "full" 모드는 빈 문자열 — 호출부에서 빈 값은 push하지 않으면 된다.
+ */
+export function buildBrandDataMap(mode: BrandContextMode): string {
+  if (mode === "intro") {
+    return `[데이터 활용 지도 — 소개글]
+- [브랜드 스토리]와 화자의 경력·자격을 '시행착오 → 현장 감정' 흐름에 풍성히 녹여 신뢰를 쌓는다.
+- 업계 폭로·시장 고발 톤은 쓰지 않는다(그건 가치입증글의 몫). 이 글은 '사람과 신념' 중심이다.
+- [실제 고객 사례·후기]가 있으면 신뢰를 보강하는 근거로 자연스럽게 인용한다.`;
+  }
+  if (mode === "value-proof") {
+    return `[데이터 활용 지도 — 가치입증글 (절대 준수)]
+- 개인적 탄생 스토리(계기·어려움)는 본문 10% 미만, 한 문장 이내로만 인용한다. 길게 서술 금지.
+- [업계 관행]은 '한계 인식 → 시장 폭로' 단락에서 강하게 활용한다.
+- 화자의 경력·자격 중 누적 판매량·재구매율 등 숫자 지표는 '결과 데이터 / 권위 입증' 단락에서 명확히 드러낸다.
+- [실제 고객 사례·후기]와 추가 요구사항 속 사례는 '극적 사례 후킹 / 감정 후기' 단락에서 제3자 증명의 뼈대로 삼는다.
+- 차별점은 권위 입증의 보조 근거로만 쓴다.`;
+  }
+  return "";
 }
 
 /**

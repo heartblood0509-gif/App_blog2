@@ -132,6 +132,9 @@ function mapAnsweredInterviewIdsToFieldKeys(
       case "villains":
         set.add("villains");
         break;
+      case "customerCases":
+        set.add("customerCases");
+        break;
     }
   }
   return set;
@@ -641,13 +644,19 @@ export function BrandProfileAssistant({ open, onClose, onSaved, prefill }: Brand
                   aiSuggested={isAiSuggested("villains", (draft.villains ?? []).length > 0)}
                 />
                 <PreviewListField
-                  label="[14] 핵심 가치 (선택)"
+                  label="[14] 실제 고객 사례·후기 (선택)"
+                  values={draft.customerCases ?? []}
+                  onChange={(arr) => updateDraft("customerCases", arr)}
+                  aiSuggested={isAiSuggested("customerCases", (draft.customerCases ?? []).length > 0)}
+                />
+                <PreviewListField
+                  label="[15] 핵심 가치 (선택)"
                   values={draft.coreValues ?? []}
                   onChange={(arr) => updateDraft("coreValues", arr)}
                   aiSuggested={isAiSuggested("coreValues", (draft.coreValues ?? []).length > 0)}
                 />
                 <PreviewField
-                  label="[15] 절대 쓰지 않는 단어 (쉼표로 구분)"
+                  label="[16] 절대 쓰지 않는 단어 (쉼표로 구분)"
                   value={(draft.forbidden?.forbiddenWords ?? []).join(", ")}
                   onChange={(v) =>
                     updateDraft("forbidden", {

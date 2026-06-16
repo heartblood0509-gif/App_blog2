@@ -6,6 +6,7 @@
  */
 import type { BrandProfile, BrandProposition, BrandTemplateId } from "@/types/brand";
 import { buildBrandContext } from "./brand-context";
+import { getBrandContextMode } from "./policy";
 import { getTemplateReference, getTemplateLabel } from "./template-loader";
 import { buildToneRule } from "./tone-extractor";
 import { buildSharedRules } from "./shared";
@@ -31,7 +32,8 @@ export function buildBrandFixPrompt(opts: BuildFixPromptOptions): string {
 
   sections.push(`[브랜드: ${profile.name} / 템플릿: ${getTemplateLabel(template)} / 메인 키워드: ${keyword}]`);
 
-  sections.push(buildBrandContext(profile));
+  // 품질 보정 재생성도 글 종류별 필터를 따라야 중복 비화가 되살아나지 않음.
+  sections.push(buildBrandContext(profile, getBrandContextMode(template)));
 
   if (reference) {
     sections.push(buildToneRule(reference));

@@ -21,6 +21,10 @@ interface AttachedProductSectionProps {
   value: ProductId | undefined;
   onChange: (productId: ProductId | undefined) => void;
   userProducts: UserProduct[];
+  /** true면 카드 선택 비활성 + 빨간 안내 문구 (소개글·가치입증글). 섹션은 숨기지 않는다. */
+  disabled?: boolean;
+  /** disabled일 때 빨갛게 표시할 안내 문구 */
+  disabledReason?: string;
 }
 
 export function AttachedProductSection({
@@ -28,6 +32,8 @@ export function AttachedProductSection({
   value,
   onChange,
   userProducts,
+  disabled = false,
+  disabledReason,
 }: AttachedProductSectionProps) {
   // 시드 제품 + 사용자 등록 제품 모두 첨부 후보로 노출
   const allOptions = [
@@ -50,9 +56,15 @@ export function AttachedProductSection({
           제품 프로필 (선택)
           <Badge variant="secondary" className="text-[10px]">선택</Badge>
         </h2>
-        <p className="mt-1 text-sm font-medium text-red-600 dark:text-red-400">
-          이 {modeLabel} 글에서 다룰 특정 제품이 있나요? 첨부하면 글의 컨텍스트로 활용됩니다. {fallbackDescription}.
-        </p>
+        {disabled ? (
+          <p className="mt-1 text-sm font-semibold text-red-600 dark:text-red-400">
+            🔒 {disabledReason ?? "이 글 종류에서는 제품 프로필을 선택할 수 없습니다."}
+          </p>
+        ) : (
+          <p className="mt-1 text-sm font-medium text-red-600 dark:text-red-400">
+            이 {modeLabel} 글에서 다룰 특정 제품이 있나요? 첨부하면 글의 컨텍스트로 활용됩니다. {fallbackDescription}.
+          </p>
+        )}
       </div>
 
       {isEmpty ? (
@@ -66,13 +78,19 @@ export function AttachedProductSection({
           </CardContent>
         </Card>
       ) : (
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 md:grid-cols-3">
+        <div
+          className={`grid grid-cols-1 gap-3 sm:grid-cols-2 md:grid-cols-3 ${
+            disabled ? "opacity-50 cursor-not-allowed" : ""
+          }`}
+        >
           {/* "없음" 카드 — 디폴트 */}
           <Card
-            onClick={() => onChange(undefined)}
-            className={`cursor-pointer transition-all ${
+            onClick={disabled ? undefined : () => onChange(undefined)}
+            className={`transition-all ${disabled ? "pointer-events-none" : "cursor-pointer"} ${
               !value
                 ? "ring-2 ring-primary bg-primary/5"
+                : disabled
+                ? ""
                 : "hover:ring-1 hover:ring-muted-foreground/30"
             }`}
           >
@@ -96,10 +114,12 @@ export function AttachedProductSection({
             return (
               <Card
                 key={opt.id}
-                onClick={() => onChange(opt.id)}
-                className={`cursor-pointer transition-all ${
+                onClick={disabled ? undefined : () => onChange(opt.id)}
+                className={`transition-all ${disabled ? "pointer-events-none" : "cursor-pointer"} ${
                   selected
                     ? "ring-2 ring-primary bg-primary/5"
+                    : disabled
+                    ? ""
                     : "hover:ring-1 hover:ring-muted-foreground/30"
                 }`}
               >

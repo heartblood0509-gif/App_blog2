@@ -80,6 +80,12 @@ export interface BrandProfile {
   // 빌런 — 정보성글 구조기반 모드의 핵심 입력. 3~5개 권장.
   villains: string[];
 
+  /**
+   * 실제 고객 사례·후기 — 소개글·가치입증글의 제3자 증명 재료. 한 줄에 하나씩.
+   * 옵셔널: 기존 저장 프로필·AI 어시스턴트(Omit<BrandProfile,"id"> 반환) 하위호환.
+   */
+  customerCases?: string[];
+
   // 추가
   recommendedRoutes: string[];
   cta: BrandCta;

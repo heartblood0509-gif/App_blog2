@@ -5,7 +5,7 @@
  * 권위는 수치·구체 사례·시장 폭로로 자연스럽게 입증.
  */
 import type { BrandProfile } from "@/types/brand";
-import { buildBrandContext } from "../../brand-context";
+import { buildBrandContext, buildBrandDataMap } from "../../brand-context";
 import { buildNarratorRule } from "../../narrator";
 import { buildToneRule } from "../../tone-extractor";
 import { buildSharedRules, buildTopicSection } from "../../shared";
@@ -72,7 +72,7 @@ export function buildValueProofPrompt(opts: BuildValueProofPromptOptions): strin
     sections.push(`[추가 요구사항]\n${requirements.trim()}`);
   }
 
-  sections.push(buildBrandContext(profile));
+  sections.push(buildBrandContext(profile, "value-proof"));
   sections.push(buildNarratorRule(profile, "value-proof"));
   sections.push(buildToneRule(VALUE_PROOF_REFERENCE));
 
@@ -80,6 +80,7 @@ export function buildValueProofPrompt(opts: BuildValueProofPromptOptions): strin
 ${VALUE_PROOF_REFERENCE}`);
 
   sections.push(VALUE_PROOF_SKELETON);
+  sections.push(buildBrandDataMap("value-proof"));
   sections.push(buildSharedRules());
 
   sections.push(`[출력 — 마크다운 본문만, 설명·코드블록 마커 X]`);
