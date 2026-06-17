@@ -6,13 +6,14 @@
 // 매번 사람(또는 Claude)이 직접 절차를 짜지 않고 한 줄로 끝내는 게 목적.
 //
 // 하는 일:
-//   1) 메인 체크아웃의 의존성 디렉토리(node_modules, playwright-cache 등) 를 OS 별 최적 방식으로 빌려옴
-//        - macOS  : `cp -cR` (APFS clone, CoW, 거의 즉시)
-//        - Linux  : `cp -lR` (hardlink copy, 즉시)
-//        - Windows: `mklink /J` (junction, 즉시; Turbopack 이 symlink 와 달리 진짜 dir 로 인식)
-//        - 실패시 : `fs.cpSync(recursive)` 전체 복사 (느리지만 어디서나 동작)
-//      → 진짜 디렉토리로 보이므로 Turbopack 이 reject 하지 않음. dev/prod 빌드 도구 parity 유지.
-//      → playwright-cache 는 Electron dev 가 PLAYWRIGHT_BROWSERS_PATH 로 워크트리 경로를 주입하므로 필수.
+//   1) 워크트리에서 의존성을 직접 설치 (메인에서 복사하지 않음)
+//        - JS      : 워크트리 브랜치의 lockfile 기준으로 `npm ci` (frontend·루트 각각)
+//          → 메인 node_modules 를 복사하던 과거 방식은 메인이 lockfile 보다 낡으면
+//            그 누락이 워크트리로 전파됐다(예: 새 의존성 Module not found). npm ci 는
+//            항상 lockfile 대로 정확히 설치하므로 그 문제가 원천적으로 없다.
+//        - Python  : backend/requirements.txt 를 전역(또는 활성 venv) python 에 설치
+//        - Playwright: 발행용 chromium 을 워크트리-로컬 playwright-cache 에 설치
+//          (Electron/Python 백엔드가 PLAYWRIGHT_BROWSERS_PATH 로 이 경로를 사용)
 //   2) frontend/.env.local 자동 생성
 //        - 메인 .env.local 복사 + BACKEND_URL + ALLOW_INSECURE_DEV_AUTH 오버라이드
 //        - 이미 있으면 건드리지 않음
@@ -74,8 +75,8 @@ console.log(`[dev-worktree] mode    =${isElectron ? "electron" : "web"}`);
 
 // ─────────────────────────────────────────────────────── 메인 흐름
 (async () => {
-  // 1. 의존성 디렉토리 빌려오기 (node_modules + playwright-cache)
-  await prepareDeps(mainRoot, worktreeRoot);
+  // 1. 의존성 설치 (npm ci + Python + Playwright)
+  await prepareDeps(worktreeRoot);
 
   if (depsOnly) {
     console.log("\n✓ dev-worktree --deps-only 완료 (서버 미기동). typecheck/lint 실행 가능.");
@@ -167,35 +168,17 @@ function findWorktreeRoot(from) {
   return null;
 }
 
-async function prepareDeps(mainRoot, worktreeRoot) {
-  // 메인 체크아웃에서 빌려올 의존성 디렉토리 목록.
-  // - node_modules (root): Electron 빌드/spawn 에 필요
-  // - frontend/node_modules: Next.js dev 서버에 필요
-  // - playwright-cache: Electron dev 가 PLAYWRIGHT_BROWSERS_PATH 로 이 경로를 백엔드에 주입.
-  //   없으면 발행 시 "Executable doesn't exist at .../chromium-XXXX/..." 로 실패.
-  const sharedDeps = [
-    { rel: "node_modules",          hint: "메인에서 `npm install` 실행 필요" },
-    { rel: "frontend/node_modules", hint: "메인에서 `npm install --prefix frontend` 실행 필요" },
-    { rel: "playwright-cache",      hint: "메인에서 `cd frontend && npx playwright install chromium` 실행 필요" },
-  ];
-  console.log("\n[dev-worktree] 의존성 디렉토리 준비");
-  for (const { rel, hint } of sharedDeps) {
-    const src = path.join(mainRoot, rel);
-    const dst = path.join(worktreeRoot, rel);
-    if (fs.existsSync(dst)) {
-      console.log(`  ${rel}: 이미 존재 — 건너뜀`);
-      continue;
-    }
-    if (!fs.existsSync(src)) {
-      console.log(`  ${rel}: 메인에 없음 — 건너뜀 (${hint})`);
-      continue;
-    }
-    const method = fastCopy(src, dst);
-    console.log(`  ${rel}: ${method} 완료`);
-  }
+async function prepareDeps(worktreeRoot) {
+  // JS 의존성은 복사하지 않고 워크트리에서 직접 설치한다(npm ci).
+  // frontend 는 typecheck/lint/dev 모두 필요하므로 항상 설치.
+  console.log("\n[dev-worktree] JS 의존성 설치 (npm ci)");
+  runNpmInstall(path.join(worktreeRoot, "frontend"), "frontend");
 
-  // --deps-only: JS 의존성만 빌려오면 충분 (typecheck/lint). Python/venv 설치 생략.
+  // --deps-only: typecheck/lint 용 — frontend 만으로 충분. 루트/Python/Playwright 생략.
   if (depsOnly) return;
+
+  // 루트(Electron 빌드·spawn, cross-env 등). 웹 dev 엔 불필요할 수 있으나 단순화를 위해 설치.
+  runNpmInstall(worktreeRoot, "루트");
 
   // Python 의존성 설치. requirements.txt 의 모든 패키지를 글로벌(또는 활성화된 venv) python 에 설치.
   // 미설치 상태에서 백엔드가 import 시점에 죽는 걸 막는다. 이미 설치되어 있으면 pip 가 빠르게 통과.
@@ -210,9 +193,49 @@ async function prepareDeps(mainRoot, worktreeRoot) {
     die(`pip install 실패 — 수동으로 \`${pythonCmd} -m pip install -r backend/requirements.txt\` 실행 후 다시 시도`);
   }
 
+  // 발행용 Playwright 크로미움을 워크트리-로컬 playwright-cache 에 설치.
+  // backend 의 python playwright 가 PLAYWRIGHT_BROWSERS_PATH(=이 경로)에서 브라우저를 찾는다.
+  ensurePlaywrightChromium(worktreeRoot, pythonCmd);
+
   // youtube-backend(쇼츠 생성기) 전용 venv + 의존성.
   // 블로그 백엔드와 패키지(google-genai 버전 등)가 충돌할 수 있어 격리한다.
   setupYoutubeVenv(worktreeRoot);
+}
+
+// package-lock.json 있으면 npm ci(정확 재현), 없으면 npm install 폴백.
+function runNpmInstall(dir, label) {
+  if (!fs.existsSync(path.join(dir, "package.json"))) {
+    console.log(`  ${label}: package.json 없음 — 건너뜀`);
+    return;
+  }
+  const hasLock = fs.existsSync(path.join(dir, "package-lock.json"));
+  const sub = hasLock ? "ci" : "install";
+  if (!hasLock) console.log(`  ${label}: package-lock.json 없음 → npm install 로 대체`);
+  console.log(`  ${label}: npm ${sub} …`);
+  const r = spawnSync(npmCmd(), [sub], {
+    cwd: dir,
+    stdio: "inherit",
+    shell: process.platform === "win32",
+  });
+  if (r.status !== 0) die(`${label} npm ${sub} 실패: ${dir}`);
+}
+
+// 워크트리-로컬 playwright-cache 에 발행용 크로미움 설치.
+// 매번 실행한다: playwright install 은 idempotent 라 이미 올바른 버전이 있으면
+// 즉시 통과하고, 없거나 버전이 다르거나 캐시가 깨졌으면 그때만 내려받는다.
+// (존재 여부만 보고 건너뛰면 버전 불일치·손상 캐시를 놓친다.)
+function ensurePlaywrightChromium(worktreeRoot, pythonCmd) {
+  const cacheDir = path.join(worktreeRoot, "playwright-cache");
+  console.log("\n[dev-worktree] 발행용 Playwright 크로미움 설치 (playwright-cache)");
+  const r = spawnSync(pythonCmd, ["-m", "playwright", "install", "chromium"], {
+    cwd: worktreeRoot,
+    stdio: "inherit",
+    shell: process.platform === "win32",
+    env: { ...process.env, PLAYWRIGHT_BROWSERS_PATH: cacheDir },
+  });
+  if (r.status !== 0) {
+    die(`playwright 크로미움 설치 실패 — 수동: PLAYWRIGHT_BROWSERS_PATH="${cacheDir}" ${pythonCmd} -m playwright install chromium`);
+  }
 }
 
 // youtube-backend 는 Python >=3.10 필요 (fastapi>=0.135 등). 시스템 python3 가 3.9 처럼
@@ -273,29 +296,6 @@ function youtubeVenvPython(worktreeRoot) {
   return process.platform === "win32"
     ? path.join(venvDir, "Scripts", "python.exe")
     : path.join(venvDir, "bin", "python");
-}
-
-// OS 별 최적 빠른 복사. 진짜 디렉토리로 보이도록 (Turbopack 호환).
-function fastCopy(src, dst) {
-  const platform = process.platform;
-  try {
-    if (platform === "darwin") {
-      const r = spawnSync("cp", ["-cR", src, dst], { stdio: "pipe" });
-      if (r.status === 0) return "APFS clone";
-    } else if (platform === "linux") {
-      const r = spawnSync("cp", ["-lR", src, dst], { stdio: "pipe" });
-      if (r.status === 0) return "hardlink";
-    } else if (platform === "win32") {
-      // mklink /J 는 admin 권한 불필요. junction 은 디렉토리 symlink 와 달리 진짜 dir 로 인식됨.
-      // Git Bash / PowerShell / cmd 어디서든 cmd.exe 직접 호출.
-      const r = spawnSync("cmd", ["/c", "mklink", "/J", dst, src], { stdio: "pipe" });
-      if (r.status === 0) return "junction";
-    }
-  } catch (_) { /* fallthrough */ }
-  // 폴백: 느리지만 어디서나 동작
-  console.log(`  (fast copy 실패 — 전체 복사 폴백, 1~3분 소요)`);
-  fs.cpSync(src, dst, { recursive: true });
-  return "full copy";
 }
 
 function ensureEnvLocal(mainRoot, worktreeRoot, backendPort) {
