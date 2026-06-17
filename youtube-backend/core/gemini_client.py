@@ -1024,13 +1024,30 @@ async def generate_image(
     job_id: str = None,
     api_key: str = None,
     reference_images: list = None,
+    fal_api_key: str = None,
 ) -> str:
     """
     Nano Banana 2 (Gemini 3.1 Flash Image)로 이미지 생성.
     429 할당량 초과 시 자동 재시도 (최대 max_retries회).
     reference_images: PIL.Image 리스트. 제공 시 contents에 함께 전달되어 이미지 편집/합성에 사용.
+    fal_api_key: 제공되면 Gemini 대신 fal(nano-banana)로 라우팅 (Gemini 429 오프로드, 블로그와 동일).
     반환: 저장된 파일 경로
     """
+    # fal 키가 있으면 이미지 생성을 fal 큐로 오프로드. 텍스트 생성은 그대로 Gemini.
+    # (style 접미사는 fal_image 내부에서 동일하게 재적용하므로 가공 전 prompt/style을 넘긴다.)
+    if fal_api_key:
+        from core import fal_image
+        return await fal_image.generate_image(
+            prompt,
+            style,
+            output_path,
+            api_key=fal_api_key,
+            reference_images=reference_images,
+            max_retries=max_retries,
+            progress_callback=progress_callback,
+            job_id=job_id,
+        )
+
     client = get_client(api_key)
     style_suffix = STYLE_SUFFIXES.get(style, "")
     full_prompt = f"{prompt}, {style_suffix}" if style_suffix else prompt
@@ -1116,6 +1133,7 @@ async def generate_all_images(
     progress_callback=None,
     api_key: str = None,
     product_image=None,
+    fal_api_key: str = None,
 ) -> list[str]:
     """대본의 모든 이미지를 생성. 반환: 이미지 경로 목록
 
@@ -1136,14 +1154,18 @@ async def generate_all_images(
         )
 
     completed = 0
-    # 동시 생성 장수 제한 (무료 티어 분당 한도 보호)
-    sem = asyncio.Semaphore(max(1, settings.IMAGE_GEN_CONCURRENCY))
+    # 동시 생성 장수 제한. Gemini 는 무료 티어 분당 한도 보호로 1장씩 + 간격을 두지만,
+    # fal 경로는 큐라 한도 부담이 적어 동시성을 올리고 장 사이 간격을 생략한다.
+    use_fal = bool(fal_api_key)
+    concurrency = settings.FAL_IMAGE_CONCURRENCY if use_fal else settings.IMAGE_GEN_CONCURRENCY
+    interval_sec = 0.0 if use_fal else settings.IMAGE_GEN_INTERVAL_SEC
+    sem = asyncio.Semaphore(max(1, concurrency))
 
     async def _generate_and_track(i):
         nonlocal completed
-        # 장마다 출발을 IMAGE_GEN_INTERVAL_SEC초씩 늦춰, 분당 요청이 몰리지 않게 분산.
-        # (동시 1장이면 사실상 i번째 장은 i*간격 시점에 시작)
-        start_delay = i * settings.IMAGE_GEN_INTERVAL_SEC
+        # 장마다 출발을 interval_sec초씩 늦춰, 분당 요청이 몰리지 않게 분산.
+        # (동시 1장이면 사실상 i번째 장은 i*간격 시점에 시작. fal 경로는 interval_sec=0이라 즉시 시작.)
+        start_delay = i * interval_sec
         if start_delay > 0:
             await asyncio.sleep(start_delay)
         output_path = os.path.join(storage_dir, "images", f"img_{i:02d}.png")
@@ -1165,6 +1187,7 @@ async def generate_all_images(
                 job_id=job_id,
                 api_key=api_key,
                 reference_images=refs,
+                fal_api_key=fal_api_key,
             )
         completed += 1
         if progress_callback:

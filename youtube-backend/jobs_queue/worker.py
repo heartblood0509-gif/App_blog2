@@ -255,6 +255,7 @@ async def generate_images_for_job(job_id: str):
                 progress_callback=update_job_progress,
                 api_key=keys["gemini"],
                 product_image=product_image,
+                fal_api_key=keys["fal"],
             )
 
             # R2 업로드
@@ -741,6 +742,7 @@ async def regenerate_image_for_job(job_id: str, line_index: int, korean_request:
                 output_path=output_path,
                 api_key=keys["gemini"],
                 reference_images=refs,
+                fal_api_key=keys["fal"],
             )
 
             # 사용자 업로드 영상이 있던 줄에 AI 이미지를 새로 생성한 경우 정리

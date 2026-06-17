@@ -34,11 +34,21 @@ class Settings(BaseSettings):
     GEMINI_TEXT_MODEL: str = "gemini-3-flash-preview"
     GEMINI_IMAGE_MODEL: str = "gemini-3.1-flash-image-preview"
 
+    # fal.ai 이미지 모델 (사용자 fal 키가 있으면 이미지 생성을 Gemini 대신 fal로 오프로드).
+    # nano-banana = Gemini 이미지 모델을 fal 큐로 호출하는 것이라 결과물은 동일하고,
+    # fal 큐는 분당 한도(429) 부담이 적어 Gemini 한도 회피용으로 쓴다. (블로그와 동일 라우팅)
+    FAL_IMAGE_MODEL: str = "fal-ai/nano-banana-2"
+    FAL_IMAGE_MODEL_PRO: str = "fal-ai/nano-banana-pro"
+    FAL_IMAGE_EDIT_MODEL: str = "fal-ai/nano-banana-2/edit"
+    FAL_IMAGE_EDIT_MODEL_PRO: str = "fal-ai/nano-banana-pro/edit"
+
     # 이미지 생성 속도 조절 (무료 티어 분당 한도 보호용)
     # 동시 생성 장수와 장 사이 간격(초). 무료 티어는 분당 요청 수가 적어
     # 한꺼번에 보내면 429(요청 횟수 초과)가 나므로 천천히 순차 전송한다.
     IMAGE_GEN_CONCURRENCY: int = 1
     IMAGE_GEN_INTERVAL_SEC: float = 12.0
+    # fal 경로는 큐라 분당 한도 부담이 적어 동시성을 올리고 장 사이 간격(12초)도 생략한다.
+    FAL_IMAGE_CONCURRENCY: int = 3
 
     # JWT 인증
     JWT_SECRET: str = ""
