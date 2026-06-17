@@ -32,6 +32,8 @@ yarn-error.log*
 
 # env files (can opt-in for committing if needed)
 .env*
+# 단, 키가 없는 견본 템플릿은 커밋한다 (새 머신 셋업 가이드).
+!.env.example
 
 # Gemini API 키 로컬 저장 (웹 dev 모드에서 ApiKeyPanel 이 작성. git 절대 금지)
 .gemini-key.local
