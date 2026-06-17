@@ -323,7 +323,49 @@ export default function HelpUsagePage() {
           </span>
         </Callout>
 
+        <p>
+          글이 생성되면, <strong>이미지를 만들기 전에 글을 먼저 한 번 읽어봐
+          주세요.</strong> AI가 작성하다 보니 대부분은 잘 나오지만, 가끔 규칙을
+          어겨 가독성이 떨어질 때가 있습니다. (해외에서는 AI를 두고{" "}
+          <strong>&apos;단기 기억상실증에 걸린 천재 신입사원&apos;</strong>이라
+          부를 정도예요. 그래서 제작사들도 &apos;AI는 실수할 수 있습니다&apos;라고
+          안내합니다.)
+        </p>
+        <p>
+          다행히 글 생성 비용은 거의 들지 않으니, 아래 경우엔 부담 없이{" "}
+          <strong>&quot;재생성&quot;</strong>을 한 번 눌러주세요. 보통 깔끔하게 다시
+          나옵니다.
+        </p>
+        <ul>
+          <li>
+            <strong>문장이 너무 길게 이어질 때</strong> — 온라인 글은 문장을 짧게
+            끊어 줄바꿈을 해줘야 읽기 편합니다.
+          </li>
+          <li>
+            <strong>긴 문단·문장 사이에 이미지 자리가 잘 들어갔는지</strong>{" "}
+            확인해 주세요.
+          </li>
+        </ul>
+        <p className="text-foreground/70">
+          💡 이미지를 만들기 전에 확인하면, 재생성할 때 이미지를 다시 만드는
+          수고를 줄일 수 있어요.
+        </p>
+
         <StageHeading id="wizard-review-step-5" step="5" title="발행" />
+        <Callout tone="warning">
+          <strong className="block text-foreground">
+            ⚠️ 발행 중에는 그 창 안의 어떤 것도 클릭하지 마세요 (가장 중요)
+          </strong>
+          <span className="mt-1 block text-foreground/80">
+            발행 버튼을 누르면 크롬 창이 뜨면서 글이{" "}
+            <strong>한 글자씩 자동으로 입력</strong>됩니다(사람이 직접
+            타이핑하듯 천천히). 이때 그 창 안에서 뜬 팝업이나 본문 등을 클릭하면{" "}
+            <strong>입력 위치가 틀어져 글이 엉키고 일부가 사라집니다.</strong>
+            <br />❌ 입력 중인 그 창 안에서의 모든 클릭 금지 (팝업·본문 등)
+            <br />✅ 입력 중인 창에서 다른 탭을 띄우거나, 평소 쓰시던 다른 크롬
+            창에서 작업하시는 건 괜찮습니다.
+          </span>
+        </Callout>
         <ol>
           <li>
             발행할 <strong>네이버 계정 선택</strong>
@@ -335,14 +377,23 @@ export default function HelpUsagePage() {
             <strong>&quot;발행&quot;</strong> 버튼 클릭
           </li>
           <li>
-            자동화 창이 잠깐 떴다가 닫힙니다 →{" "}
-            <strong>그 동안 키보드·마우스 건드리지 마세요</strong>
+            크롬 창이 뜨고 글이 한 글자씩 자동 입력됩니다 →{" "}
+            <strong>입력이 끝날 때까지 그 창을 클릭하지 마세요</strong>
           </li>
           <li>
             발행 완료되면 토스트 메시지와 함께 <strong>글 URL</strong>이
             표시됩니다
           </li>
         </ol>
+        <p>
+          <strong>입력이 다 끝나면, 바로 발행하지 말고 직접 한 번 검수해
+          주세요.</strong> 이때는 클릭·수정·엔터 등을 자유롭게 하셔도 됩니다.
+          실제 사람이 글을 읽고 수정하고 머문 시간이 네이버에 함께 기록되면서{" "}
+          <strong>&quot;사람이 직접 쓴 글&quot;로 인식</strong>되거든요. 프로그램이
+          글을 사람처럼 한 글자씩 천천히 입력하도록 만든 것도 같은 이유입니다.
+          그래서 검수 겸 직접 움직여 주시면 글도 더 깔끔해지고 계정도 안전하게
+          운영하실 수 있습니다. 🙂
+        </p>
       </Section>
 
       {/* ─────────── 브랜드 블로그 ─────────── */}
@@ -431,9 +482,15 @@ export default function HelpUsagePage() {
 
         <StageHeading id="wizard-brand-step-5" step="5" title="발행" />
         <p>
-          네이버 계정 선택 → 카테고리·태그·공개 설정 → 발행. 자동화 창이 떴다
-          닫히는 동안 <strong>키보드·마우스 건드리지 마세요</strong>. 완료되면
-          글 URL이 표시됩니다.
+          네이버 계정 선택 → 카테고리·태그·공개 설정 → 발행. 발행을 누르면 글이{" "}
+          <strong>한 글자씩 자동 입력</strong>되는데, 그 동안{" "}
+          <strong>그 창 안을 클릭하지 마세요</strong>(클릭하면 입력 위치가
+          틀어져 글이 엉킵니다). 다른 크롬 창에서의 작업은 괜찮습니다. 입력이
+          끝나면 바로 발행하지 말고 한 번 검수해 주세요. 완료되면 글 URL이
+          표시됩니다.{" "}
+          <span className="text-foreground/70">
+            (자세한 내용은 위 &quot;후기성 블로그 5단계&quot;의 발행 설명을 참고하세요.)
+          </span>
         </p>
       </Section>
 
@@ -533,15 +590,46 @@ export default function HelpUsagePage() {
 
         <StageHeading id="wizard-aeo-step-5" step="5" title="발행" />
         <p>
-          네이버 계정 선택 → 카테고리·태그·공개 설정 → 발행. 자동화 창이 떴다
-          닫히는 동안 <strong>키보드·마우스 건드리지 마세요</strong>. 완료되면
-          글 URL이 표시됩니다.
+          네이버 계정 선택 → 카테고리·태그·공개 설정 → 발행. 발행을 누르면 글이{" "}
+          <strong>한 글자씩 자동 입력</strong>되는데, 그 동안{" "}
+          <strong>그 창 안을 클릭하지 마세요</strong>(클릭하면 입력 위치가
+          틀어져 글이 엉킵니다). 다른 크롬 창에서의 작업은 괜찮습니다. 입력이
+          끝나면 바로 발행하지 말고 한 번 검수해 주세요. 완료되면 글 URL이
+          표시됩니다.{" "}
+          <span className="text-foreground/70">
+            (자세한 내용은 위 &quot;후기성 블로그 5단계&quot;의 발행 설명을 참고하세요.)
+          </span>
         </p>
       </Section>
 
       {/* ─────────── 자주 막히는 함정 ─────────── */}
       <Section id="pitfalls" number="05" title="자주 막히는 함정">
         <p className="text-foreground/70">꼭 한번 읽어주세요.</p>
+
+        <SubHeading>AI가 글을 너무 길게 써서 읽기 불편해요</SubHeading>
+        <ul>
+          <li>
+            AI 특성상 가끔 문장을 짧게 끊지 않고 길게 이어 쓸 때가 있습니다.
+            온라인 글은 짧게 끊어 줄바꿈해야 읽기 편해요.
+          </li>
+          <li>
+            <strong>이미지를 만들기 전에</strong> 글을 한 번 확인하고, 문장이
+            너무 길면 <strong>&quot;재생성&quot;</strong>을 눌러주세요. 보통 다시
+            깔끔하게 나옵니다.
+          </li>
+        </ul>
+
+        <SubHeading>발행 중 글이 틀어졌어요 / 실수로 창을 클릭했어요</SubHeading>
+        <ul>
+          <li>
+            자동 입력 중에 그 창을 클릭하면 입력 위치가 틀어져 글이 엉킵니다.
+            입력이 끝날 때까지 그 창은 클릭하지 마세요.
+          </li>
+          <li>
+            이미 틀어진 게 보이면 <strong>그 크롬 창을 닫으면 발행이 취소</strong>
+            됩니다. 프로그램은 멀쩡하니 <strong>다시 발행</strong>하시면 됩니다.
+          </li>
+        </ul>
 
         <SubHeading>네이버 2단계 인증을 켜뒀어요</SubHeading>
         <ul>
