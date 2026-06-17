@@ -51,8 +51,18 @@ step "[3/5] 백엔드 Python 의존성 설치 (backend/requirements.txt)"
 if ! command -v python3 >/dev/null 2>&1; then
   echo -e "${RED}    ✗ python3 가 없습니다. https://www.python.org 에서 설치 후 다시 실행.${NC}"; exit 1
 fi
-python3 -m pip install -r backend/requirements.txt
-ok "백엔드 의존성 설치 완료 ($(python3 --version 2>&1))"
+# Plan A: 평소대로 전역(또는 활성화된 venv) python3 에 설치.
+# Plan B(폴백): Homebrew 관리형 python 은 PEP 668 로 전역 설치를 거부한다
+#   (error: externally-managed-environment). 이 경우 사용자 영역(~/Library/Python/...)에만
+#   설치 → Homebrew 가 관리하는 패키지는 안 건드리고, `python3 main.py` 는 user site 를
+#   자동으로 읽으므로 그대로 동작한다. PEP 668 안내문이 권장하는 --user 동반 우회.
+if python3 -m pip install -r backend/requirements.txt; then
+  ok "백엔드 의존성 설치 완료 ($(python3 --version 2>&1))"
+else
+  warn "전역 설치가 막힘(Homebrew/PEP 668 추정) → 사용자 영역(--user)으로 재시도"
+  python3 -m pip install --user --break-system-packages -r backend/requirements.txt
+  ok "백엔드 의존성 설치 완료 — 사용자 영역 ($(python3 --version 2>&1))"
+fi
 
 # ── 4. 발행용 Playwright 브라우저 (backend python playwright) ────────
 step "[4/5] Playwright 크로미움 설치 (발행 기능용 → playwright-cache)"
