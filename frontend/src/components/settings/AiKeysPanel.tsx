@@ -22,6 +22,9 @@ import {
   ChevronUp,
   CreditCard,
   ExternalLink,
+  Eye,
+  EyeOff,
+  HelpCircle,
   ImageIcon,
   Info,
   KeyRound,
@@ -229,6 +232,37 @@ export function AiKeysPanel({ youtubeAllowed, className }: AiKeysPanelProps) {
     }
   };
 
+  const deleteGemini = async () => {
+    const api = window.electronAPI?.settings;
+    if (!api) {
+      const res = await fetch("/api/settings/gemini-key", {
+        method: "DELETE",
+        cache: "no-store",
+      });
+      const r = (await res.json()) as {
+        ok: boolean;
+        hasKey?: boolean;
+        masked?: string | null;
+        source?: "local-file" | "env" | "none";
+      };
+      if (r.ok) {
+        setGHasKey(!!r.hasKey);
+        setGMasked(r.masked ?? null);
+        if (r.source) setGSource(r.source);
+        await pushGeminiToYoutube("");
+        toast.success("삭제되었습니다.");
+      }
+      return;
+    }
+    const r = await api.setGeminiKey("");
+    if (r.ok) {
+      setGHasKey(false);
+      setGMasked(null);
+      await pushGeminiToYoutube("");
+      toast.success("삭제되었습니다. 재시작 후 적용됩니다.");
+    }
+  };
+
   // ── fal 저장/삭제 ──
   const saveFal = async () => {
     if (!fPlain) {
@@ -403,6 +437,7 @@ export function AiKeysPanel({ youtubeAllowed, className }: AiKeysPanelProps) {
           onChange={setGPlain}
           placeholder="AIza..."
           onSave={saveGemini}
+          onDelete={gHasKey ? deleteGemini : undefined}
           saving={gSaving}
           saveLabel={saveLabel(gSaving)}
           disabled={!encryptionAvailable}
@@ -468,8 +503,7 @@ export function AiKeysPanel({ youtubeAllowed, className }: AiKeysPanelProps) {
             }
             loading={loading}
             hasKey={!!tcSet}
-            masked={tcSet ? "설정됨" : null}
-            maskedIsLabel
+            masked={tcSet}
             envBadge={false}
             value={tcPlain}
             onChange={setTcPlain}
@@ -495,7 +529,257 @@ export function AiKeysPanel({ youtubeAllowed, className }: AiKeysPanelProps) {
         )}
       </CardContent>
       </Card>
+
+      <FaqCard />
     </div>
+  );
+}
+
+// ─────────────────────────────────────────────
+// 자주 묻는 질문 (FAQ) — 키 입력 카드 아래. 각 질문은 <details> 토글로 펼침/접힘.
+// ─────────────────────────────────────────────
+function FaqCard() {
+  const items: { q: string; a: ReactNode }[] = [
+    {
+      q: "API 키가 뭔가요? 꼭 입력해야 하나요?",
+      a: (
+        <>
+          API 키는 AI 서비스(구글 Gemini 등)에 “이 사람이 쓴다”고 알려주는{" "}
+          <strong>비밀번호 같은 출입증</strong>이에요. 글·이미지·쇼츠를 AI로
+          만들기 때문에, 키가 없으면 생성 기능을 쓸 수 없어요. 그래서 꼭 필요해요.
+        </>
+      ),
+    },
+    {
+      q: "생성 중에 오류가 나면서 멈췄어요",
+      a: (
+        <>
+          당황하지 마세요. 이건 <strong>프로그램(앱) 고장이 아니에요.</strong> 생성이 안 될
+          때는 90% 이상이 아래 세 가지 중 하나예요.
+          <ul className="mt-1.5 list-disc space-y-1 pl-5">
+            <li><strong>API 키를 잘못 입력</strong>한 경우</li>
+            <li><strong>결제가 제대로 안 된</strong> 경우</li>
+            <li>
+              <strong>구글 측 시스템 반영이 지연</strong>되는 경우 (최소 3일 ~ 일주일 — 이때는
+              기다리면 해결돼요)
+            </li>
+          </ul>
+          <p className="mt-2">대부분 아래 방법으로 해결되니 순서대로 확인해보세요.</p>
+          <ul className="mt-1 list-disc space-y-1 pl-5">
+            <li>
+              먼저 <strong>오류 화면을 스크린샷</strong>으로 찍어두세요(원인 확인·문의에 도움).
+            </li>
+            <li>
+              오류에 적힌 <strong>숫자 코드</strong>를 확인하고 아래 <strong>400·429</strong>{" "}
+              항목을 보세요.
+            </li>
+          </ul>
+        </>
+      ),
+    },
+    {
+      q: "오류에 'code: 400' 이 떠요",
+      a: (
+        <>
+          <strong>Gemini 키를 잘못 입력</strong>한 거예요(가장 흔함).
+          <p className="mt-2 font-medium text-foreground">이런 경우예요</p>
+          <ul className="mt-1 list-disc space-y-1 pl-5">
+            <li>복사할 때 앞뒤 공백·줄바꿈이 섞이거나 키 일부만 붙여넣어진 경우</li>
+            <li>
+              fal 등 다른 서비스 키를 Gemini 칸에 넣었거나, Google AI Studio가 아닌 다른 키를
+              넣은 경우
+            </li>
+          </ul>
+          <p className="mt-2 font-medium text-foreground">해결</p>
+          <ul className="mt-1 list-disc space-y-1 pl-5">
+            <li>
+              Gemini 입력칸 위 미리보기가 <strong>“AIza…”로 시작</strong>하는지 확인하세요.
+            </li>
+            <li>발급받은 API 키와 입력한 API 키가 <strong>동일한지</strong> 확인하세요.</li>
+            <li>다르다면 Google AI Studio에서 키를 <strong>다시 복사</strong>해 붙여넣으세요.</li>
+          </ul>
+        </>
+      ),
+    },
+    {
+      q: "오류에 'code: 429' 가 떠요",
+      a: (
+        <>
+          키는 정상인데 <strong>사용량 한도를 넘은</strong> 거예요.
+          <p className="mt-2 font-medium text-foreground">이런 경우예요</p>
+          <ul className="mt-1 list-disc space-y-1 pl-5">
+            <li>
+              무료 등급 한도 초과 (짧은 시간에 여러 번 생성, 구글 정책상 무료로는 원활치 않음)
+            </li>
+            <li>결제는 했는데 <strong>유료 등급 반영이 지연</strong>되는 경우</li>
+          </ul>
+          <p className="mt-2 font-medium text-foreground">해결</p>
+          <ul className="mt-1 list-disc space-y-1 pl-5">
+            <li>
+              유료(Tier 1) 결제를 안 했다면 <strong>카드를 등록하고 크레딧을 충전</strong>
+              해주세요.
+            </li>
+            <li>
+              크레딧이 떨어지면 또 에러가 발생합니다. <strong>자동 충전도 꼭! 등록</strong>
+              해주세요.
+            </li>
+            <li>
+              이미 결제했다면 구글 측 시스템 지연으로 유료 등급이 제대로 반영되기까지{" "}
+              <strong>최소 3일 ~ 일주일</strong> 정도 걸릴 수 있어요. 대부분 그 사이 기다리면 정상
+              반영되어 글 생성이 다시 잘 됩니다.
+            </li>
+          </ul>
+        </>
+      ),
+    },
+    {
+      q: "오류에 'code: 503' 이 떠요",
+      a: (
+        <>
+          <strong>구글 측 AI 서버가 일시적으로 몰려서(과부하)</strong> 생긴 거예요. 키나 결제
+          문제가 아니니 안심하세요.
+          <p className="mt-2 font-medium text-foreground">이런 경우예요</p>
+          <ul className="mt-1 list-disc space-y-1 pl-5">
+            <li>이용자가 몰리는 시간대에 구글 AI 서버가 잠시 바쁠 때</li>
+            <li>대부분 금방 풀리는 <strong>일시적인 현상</strong>이에요</li>
+          </ul>
+          <p className="mt-2 font-medium text-foreground">해결</p>
+          <ul className="mt-1 list-disc space-y-1 pl-5">
+            <li>
+              키·결제를 건드릴 필요 없어요. <strong>잠시(1~2분) 기다렸다가 다시 시도</strong>
+              하세요.
+            </li>
+            <li>계속 뜨면 시간을 조금 더 두거나, 이용자가 적은 시간대에 다시 해보세요.</li>
+          </ul>
+        </>
+      ),
+    },
+    {
+      q: "이미지/동영상 생성 실패가 떠요",
+      a: (
+        <>
+          이미지는 <strong>fal 키</strong>로 만들어져서, 이것도 대부분 fal 키 문제예요. 아래
+          순서로 확인하세요.
+          <ul className="mt-1.5 list-disc space-y-1 pl-5">
+            <li>
+              <strong>fal.ai</strong>에 접속해 <strong>크레딧이 충전</strong>돼 있는지
+              확인하세요(잔액이 없으면 생성되지 않아요).
+            </li>
+            <li>
+              크레딧이 있다면 fal.ai의 키와 앱에 입력된 키가 <strong>같은지</strong> 확인하세요.
+              복사 실수로 Gemini·Typecast 키가 fal 칸에 들어갔을 수 있어요(입력칸{" "}
+              <strong>눈 아이콘</strong>으로 확인).
+            </li>
+            <li>
+              키가 같은데도 계속 실패하면 fal.ai에서 <strong>기존 키를 삭제</strong>하고{" "}
+              <strong>“Add key”로 새 키를 발급</strong>해 앱에 다시 입력·저장하세요. 99%
+              해결됩니다.
+            </li>
+          </ul>
+        </>
+      ),
+    },
+    {
+      q: "글이 이상하게 나오거나 가독성이 떨어져요",
+      a: (
+        <>
+          AI 특성상 가끔 규칙을 어겨, <strong>프롬프트(생성 지시문)가 글에 섞이거나</strong>{" "}
+          줄바꿈이 안 돼 가독성이 떨어질 때가 있어요. AI도 가끔 실수해요(제작사들도 “AI는 실수할
+          수 있다”고 안내하죠). 해결은 두 가지예요.
+          <p className="mt-2 font-medium text-foreground">① 간단한 수정이면 — 직접 고치기 (권장)</p>
+          <ul className="mt-1 list-disc space-y-1 pl-5">
+            <li>
+              스마트에디터에 글이 다 입력된 뒤, 이상한 부분을 <strong>백스페이스로 직접
+              지우세요.</strong>
+            </li>
+            <li>
+              오히려 계정 운영에 도움이 돼요 — 글 입력 후 마우스·휠·엔터·백스페이스 등 모든
+              행동이 데이터로 네이버에 전달되거든요. <strong>마지막엔 꼭 직접 검토</strong>하시는
+              걸 권장해요.
+            </li>
+            <li>
+              프로그램이 글을 <strong>사람처럼 한 글자씩 천천히 입력</strong>하도록 만든 것도 같은
+              이유예요 — 실제 사람이 쓴 글처럼 인식돼 계정이 더 안전해지거든요.
+            </li>
+          </ul>
+          <p className="mt-2 font-medium text-foreground">② 많이 이상하면 — 재생성</p>
+          <ul className="mt-1 list-disc space-y-1 pl-5">
+            <li>
+              <strong>글 생성은 비용이 거의 들지 않으니</strong> 부담 없이{" "}
+              <strong>재생성</strong>을 한 번 눌러보세요. 보통 깔끔하게 다시 나와요.
+            </li>
+            <li>
+              단, 재생성하면 <strong>이미지가 사라져요.</strong> 이미지를 먼저 다운로드해
+              두세요.
+            </li>
+          </ul>
+          <p className="mt-2">
+            <strong>글 가독성을 먼저 쭉 훑어본 뒤</strong> 이미지를 업로드·변환하시는 걸
+            권장해요.
+          </p>
+        </>
+      ),
+    },
+    {
+      q: "발행하면 글이 엉키거나 일부가 사라져요",
+      a: (
+        <>
+          발행 중에는 <strong>자동 입력 창(크롬)을 절대 건드리지 마세요.</strong> 클릭하면 글이
+          틀어져요.
+          <p className="mt-2 font-medium text-foreground">왜 그런가요</p>
+          <ul className="mt-1 list-disc space-y-1 pl-5">
+            <li>발행을 누르면 크롬 창이 뜨고 글이 <strong>한 글자씩 자동 입력</strong>돼요.</li>
+            <li>
+              이때 그 창 안의 <strong>팝업·본문 등을 클릭하면</strong> 입력 위치가 틀어져 글이
+              엉키고 일부가 사라져요.
+            </li>
+            <li><strong>아이디·비밀번호 저장 팝업</strong>도 누르지 마세요.</li>
+          </ul>
+          <p className="mt-2 font-medium text-foreground">이렇게 하세요</p>
+          <ul className="mt-1 list-disc space-y-1 pl-5">
+            <li>입력이 끝날 때까지 그 창을 <strong>클릭하지 말고 기다리세요.</strong></li>
+            <li>
+              다른 탭을 띄우거나 <strong>평소 쓰던 다른 크롬 창</strong>에서 작업하는 건
+              괜찮아요.
+            </li>
+            <li>
+              실수로 건드려 <strong>글이 꼬이기 시작했다면</strong>, 그 창을 닫으면 발행이
+              취소돼요. 프로그램은 멀쩡하니 <strong>다시 발행</strong>을 누르면 됩니다.
+            </li>
+          </ul>
+        </>
+      ),
+    },
+  ];
+
+  return (
+    <Card className="bg-card pt-0 shadow-sm">
+      <CardHeader className="border-b bg-primary/[0.045] px-5 py-4">
+        <CardTitle className="flex items-center gap-2 text-base">
+          <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/10 text-primary">
+            <HelpCircle className="h-4 w-4" />
+          </span>
+          자주 묻는 질문 (FAQ)
+        </CardTitle>
+      </CardHeader>
+
+      <CardContent className="px-5 py-1.5">
+        {items.map((it, i) => (
+          <details
+            key={i}
+            className="group border-b border-border/60 py-3 last:border-b-0"
+          >
+            <summary className="flex cursor-pointer list-none items-center justify-between gap-3 text-sm font-medium [&::-webkit-details-marker]:hidden">
+              <span>{it.q}</span>
+              <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground transition-transform group-open:rotate-180" />
+            </summary>
+            <div className="pt-2.5 text-sm leading-relaxed text-muted-foreground">
+              {it.a}
+            </div>
+          </details>
+        ))}
+      </CardContent>
+    </Card>
   );
 }
 
@@ -671,6 +955,8 @@ function KeyRow(props: {
     issueOpen,
   } = props;
 
+  const [showKey, setShowKey] = useState(false);
+
   return (
     <div className="space-y-2 rounded-lg border p-4">
       <div className="flex flex-wrap items-center gap-2">
@@ -706,14 +992,32 @@ function KeyRow(props: {
       )}
 
       <div className="space-y-1.5 pl-6">
-        <Input
-          type="password"
-          autoComplete="off"
-          placeholder={hasKey ? "새 키 입력 시 교체" : placeholder}
-          value={value}
-          onChange={(e) => onChange(e.target.value)}
-          disabled={saving || disabled}
-        />
+        <div className="relative">
+          <Input
+            type={showKey ? "text" : "password"}
+            autoComplete="off"
+            placeholder={hasKey ? "새 키 입력 시 교체" : placeholder}
+            value={value}
+            onChange={(e) => onChange(e.target.value)}
+            disabled={saving || disabled}
+            className={cn(value && "pr-10", showKey && "font-mono")}
+          />
+          {value && (
+            <button
+              type="button"
+              onClick={() => setShowKey((s) => !s)}
+              aria-label={showKey ? "키 가리기" : "키 전체 보기"}
+              aria-pressed={showKey}
+              className="absolute inset-y-0 right-0 flex items-center px-3 text-muted-foreground hover:text-foreground"
+            >
+              {showKey ? (
+                <EyeOff className="h-4 w-4" aria-hidden />
+              ) : (
+                <Eye className="h-4 w-4" aria-hidden />
+              )}
+            </button>
+          )}
+        </div>
         <div className="flex items-center justify-between">
           <button
             type="button"

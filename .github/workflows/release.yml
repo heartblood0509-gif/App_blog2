@@ -121,7 +121,7 @@ jobs:
           echo "OK: shorts engine + ffmpeg bundled"
 
       - name: Upload Windows release assets
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v7
         with:
           name: windows-release-assets
           if-no-files-found: error
@@ -137,8 +137,15 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          # 애플실리콘(M1~M4). macos-latest 는 현재 arm64 지만 미래에 바뀔 수 있어 버전 핀.
           - arch: arm64
-            runner: macos-latest
+            runner: macos-14
+            label: AppleSilicon
+          # 인텔(x86_64). macos-13 은 2025-12-04 제거됨 → macos-15-intel(2027-08 까지 지원)이 유일한
+          # GitHub 호스팅 인텔 러너. PyInstaller 엔진은 크로스빌드 불가라 반드시 네이티브 인텔 러너에서 빌드.
+          - arch: x64
+            runner: macos-15-intel
+            label: Intel
     env:
       PLAYWRIGHT_BROWSERS_PATH: ${{ github.workspace }}/playwright-cache
     steps:
@@ -179,18 +186,27 @@ jobs:
       - name: Build Next frontend
         run: npm run build:next
 
-      - name: Fetch bundled ffmpeg (macOS arm64 static)
+      - name: Fetch bundled ffmpeg (macOS ${{ matrix.arch }} static)
         run: |
           set -euo pipefail
           mkdir -p build/ffmpeg
-          # ⚠️ arm64 + libfreetype 는 아래 Verify 단계가 강제 검증한다(틀리면 RC 빌드 실패 → 소스 교체).
-          # evermeet.cx 는 x86_64 만 제공 → arm64 단언 실패(RC2). osxexperts.net 의 Apple Silicon 정적 빌드(8.1)로 교체.
-          # SHA256 고정: 압축 푼 "바이너리" 기준(사이트 공개값). 다운로드가 변조/손상되면 즉시 실패한다.
-          # zip 해시가 아니라 바이너리 해시를 고정한다 — 재압축돼도 실제 실행 파일만 같으면 통과.
-          FFMPEG_BIN_SHA256="9a08d61f9328e8164ba560ee7a79958e357307fcfeea6fe626b7d66cdc287028"
-          FFPROBE_BIN_SHA256="aab17ac7379c1178aaf400c3ef36cdb67db0b75b1a23eeef2cb9f658be8844e6"
-          curl -L -o ffmpeg.zip https://www.osxexperts.net/ffmpeg81arm.zip
-          curl -L -o ffprobe.zip https://www.osxexperts.net/ffprobe81arm.zip
+          # ⚠️ libfreetype/libx264 + 아키텍처는 아래 Verify 단계가 강제 검증한다(틀리면 RC 빌드 실패 → 소스 교체).
+          # 두 칩 모두 osxexperts.net 정적 빌드 사용(arm=8.1 / intel=8.0). evermeet.cx 는 x86_64 만 제공하고
+          # /pub 이 타 호스트로 리다이렉트돼 CI 고정 URL 로 불안정 → 같은 소스(osxexperts)로 일관 유지.
+          # SHA256 고정: 압축 푼 "바이너리" 기준(다운로드해 계산). zip 이 재압축돼도 실제 실행 파일만 같으면 통과.
+          if [ "${{ matrix.arch }}" = "arm64" ]; then
+            FFMPEG_URL="https://www.osxexperts.net/ffmpeg81arm.zip"
+            FFPROBE_URL="https://www.osxexperts.net/ffprobe81arm.zip"
+            FFMPEG_BIN_SHA256="9a08d61f9328e8164ba560ee7a79958e357307fcfeea6fe626b7d66cdc287028"
+            FFPROBE_BIN_SHA256="aab17ac7379c1178aaf400c3ef36cdb67db0b75b1a23eeef2cb9f658be8844e6"
+          else
+            FFMPEG_URL="https://www.osxexperts.net/ffmpeg80intel.zip"
+            FFPROBE_URL="https://www.osxexperts.net/ffprobe80intel.zip"
+            FFMPEG_BIN_SHA256="df3f1e3facdc1ae0ad0bd898cdfb072fbc9641bf47b11f172844525a05db8d11"
+            FFPROBE_BIN_SHA256="5228e651e2bd67bb55819b27f6138351587b16d2b87446007bf35b7cf930d891"
+          fi
+          curl -L -o ffmpeg.zip "$FFMPEG_URL"
+          curl -L -o ffprobe.zip "$FFPROBE_URL"
           unzip -o -q ffmpeg.zip -d build/ffmpeg -x "__MACOSX/*"
           unzip -o -q ffprobe.zip -d build/ffmpeg -x "__MACOSX/*"
           echo "${FFMPEG_BIN_SHA256}  build/ffmpeg/ffmpeg" | shasum -a 256 -c -
@@ -201,7 +217,10 @@ jobs:
         run: |
           set -euo pipefail
           node scripts/check-ffmpeg.js
-          file build/ffmpeg/ffmpeg | grep -qi arm64 || { echo "::error::bundled ffmpeg is not arm64 — pick an arm64 static build (osxexperts.net 등)"; exit 1; }
+          # 네이티브 러너에서 빌드하므로 칩과 ffmpeg/ffprobe 아키텍처가 일치해야 한다(불일치 시 배포본에서 실행 불가).
+          EXPECT_ARCH="arm64"; [ "${{ matrix.arch }}" = "x64" ] && EXPECT_ARCH="x86_64"
+          file build/ffmpeg/ffmpeg  | grep -qi "$EXPECT_ARCH" || { echo "::error::bundled ffmpeg arch mismatch (expected $EXPECT_ARCH)"; exit 1; }
+          file build/ffmpeg/ffprobe | grep -qi "$EXPECT_ARCH" || { echo "::error::bundled ffprobe arch mismatch (expected $EXPECT_ARCH)"; exit 1; }
 
       - name: Build macOS .app (unpacked)
         run: npx electron-builder --mac --${{ matrix.arch }} --dir --publish never
@@ -212,9 +231,13 @@ jobs:
           APP=$(find release -maxdepth 3 -type d -name "Blog Pick.app" | head -1)
           res="$APP/Contents/Resources"
           test -f "$res/youtube-backend/YoutubeGenerator" || { echo "::error::youtube engine missing from .app"; exit 1; }
+          test -f "$res/backend/BlogPublisher" || { echo "::error::blog engine missing from .app"; exit 1; }
           test -f "$res/ffmpeg/ffmpeg" || { echo "::error::ffmpeg missing from .app"; exit 1; }
-          file "$res/youtube-backend/YoutubeGenerator" | grep -qi arm64 || { echo "::error::engine not arm64"; exit 1; }
-          echo "OK: shorts engine + ffmpeg bundled (arm64)"
+          # 두 PyInstaller 엔진 모두 빌드 러너 칩과 동일 아키텍처여야 한다(섞이면 배포본에서 실행 불가).
+          EXPECT_ARCH="arm64"; [ "${{ matrix.arch }}" = "x64" ] && EXPECT_ARCH="x86_64"
+          file "$res/youtube-backend/YoutubeGenerator" | grep -qi "$EXPECT_ARCH" || { echo "::error::shorts engine arch mismatch (expected $EXPECT_ARCH)"; exit 1; }
+          file "$res/backend/BlogPublisher"            | grep -qi "$EXPECT_ARCH" || { echo "::error::blog engine arch mismatch (expected $EXPECT_ARCH)"; exit 1; }
+          echo "OK: shorts+blog engine + ffmpeg bundled (${EXPECT_ARCH})"
 
       - name: Apply clean ad-hoc signature
         shell: bash
@@ -242,8 +265,23 @@ jobs:
           APP_PATH=$(find release -maxdepth 3 -type d -name "Blog Pick.app" | head -1)
           codesign --verify --deep --strict --verbose=2 "$APP_PATH"
 
+      - name: Rename dmg to human-friendly name
+        shell: bash
+        run: |
+          set -euo pipefail
+          # 일반 사용자가 칩 종류를 알아보도록 파일명에 Intel / AppleSilicon 라벨을 붙인다.
+          # (electron-builder 기본 artifactName 은 칩별 분기를 못 하므로 빌드 후 CI 에서 rename.)
+          # 괄호·공백은 다운로드/공유 시 깨질 수 있어 하이픈으로 잇는다.
+          VERSION="${{ needs.validate.outputs.version }}"
+          LABEL="${{ matrix.label }}"
+          SRC=$(find release -maxdepth 1 -name "*.dmg" | head -1)
+          test -n "$SRC" || { echo "::error::dmg not found in release/"; exit 1; }
+          DEST="release/Blog-Pick-Mac-${LABEL}-${VERSION}.dmg"
+          mv "$SRC" "$DEST"
+          echo "renamed: $(basename "$SRC") -> $(basename "$DEST")"
+
       - name: Upload macOS release assets
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v7
         with:
           name: macos-${{ matrix.arch }}-release-assets
           if-no-files-found: error
@@ -259,7 +297,7 @@ jobs:
       - build-macos
     steps:
       - name: Download release assets
-        uses: actions/download-artifact@v5
+        uses: actions/download-artifact@v8
         with:
           path: artifacts
 
@@ -284,7 +322,9 @@ jobs:
           **"확인되지 않은 개발자" 또는 "손상되었기 때문에 열 수 없습니다"** 경고가 나타날 수 있습니다.
           아래 절차(클릭만)로 정상 실행됩니다.
 
-          1. `Blog-Pick-Mac-VERSION_PLACEHOLDER.dmg` 다운로드 (Apple Silicon · M1~M4 칩)
+          1. 내 맥 칩에 맞는 `.dmg` 를 다운로드하세요. (칩 확인: 화면 좌측 상단 🍎 → **"이 Mac에 관하여"** → "칩" 또는 "프로세서" 항목)
+             - **Apple Silicon (M1~M4 칩):** `Blog-Pick-Mac-AppleSilicon-VERSION_PLACEHOLDER.dmg`
+             - **Intel 칩:** `Blog-Pick-Mac-Intel-VERSION_PLACEHOLDER.dmg`
           2. `.dmg`를 더블클릭 → 앱을 **응용 프로그램(Applications)** 폴더로 드래그
           3. **응용 프로그램**에서 `Blog Pick` 실행 → 경고가 뜨면 **"취소"** (휴지통으로 보내지 마세요)
           4. 화면 좌측 상단 **🍎 → "시스템 설정" → "개인정보 보호 및 보안"** 으로 이동

@@ -124,17 +124,38 @@ export default function HelpInstallPage() {
           <li>네이버 계정 · Gemini API 키 · 안정적인 인터넷</li>
         </ul>
 
-        <StageHeading step="1" title="받을 파일 확인" />
+        <StageHeading step="1" title="내 맥 칩 확인 (Intel / Apple Silicon)" />
         <p>
-          블로그픽 맥 버전은 <strong>Apple Silicon(M1~M4 칩)</strong> 용 하나예요.
-          요즘 맥은 대부분 여기에 해당합니다.
+          맥은 칩 종류에 따라 설치 파일이 둘로 나뉘어요. 화면 좌측 상단{" "}
+          <strong>🍎 → “이 Mac에 관하여”</strong>를 열어 “칩”(또는 “프로세서”)
+          항목을 확인하세요.
         </p>
+        <ul>
+          <li>
+            <strong>Apple Silicon</strong> (M1·M2·M3·M4 등) — 요즘 맥 대부분
+          </li>
+          <li>
+            <strong>Intel</strong> (Intel Core i5/i7 등) — 보통 2020년 이전 맥
+          </li>
+        </ul>
 
-        <StageHeading step="2" title="설치 파일 다운로드" />
+        <StageHeading step="2" title="내 칩에 맞는 설치 파일 다운로드" />
         <p>
-          공식 배포처(GitHub Releases)에서{" "}
-          <Code>Blog-Pick-Mac-….dmg</Code> 파일을 받습니다.
+          공식 배포처(GitHub Releases)에서 <strong>내 칩에 맞는</strong>{" "}
+          <Code>.dmg</Code> 파일을 받습니다.
         </p>
+        <ul>
+          <li>
+            Apple Silicon: <Code>Blog-Pick-Mac-AppleSilicon-….dmg</Code>
+          </li>
+          <li>
+            Intel: <Code>Blog-Pick-Mac-Intel-….dmg</Code>
+          </li>
+        </ul>
+        <Callout tone="warning">
+          칩과 다른 파일을 받으면 실행되지 않거나 느릴 수 있어요. 꼭 내 칩에 맞는
+          파일을 받으세요.
+        </Callout>
 
         <StageHeading step="3" title=".dmg 열고 응용 프로그램으로 드래그" />
         <ol>

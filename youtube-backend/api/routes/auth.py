@@ -196,10 +196,14 @@ async def google_callback(code: str, state: str = "", db: Session = Depends(get_
 # ── API 키 관리 ──
 
 def _mask_key(key: str) -> str:
-    """API 키 마스킹: 앞4자 + *** + 뒤3자"""
-    if not key or len(key) < 8:
-        return "***"
-    return key[:4] + "***" + key[-3:]
+    """API 키 마스킹: 앞4 + •••••• + 뒤4 (12자 미만은 전부 •).
+    프론트(frontend/src/lib/server/gemini-key.ts 의 maskKey)와 동일 규칙 →
+    Gemini/fal/Typecast 가 화면에서 같은 형식으로 보인다."""
+    if not key:
+        return "••••"
+    if len(key) < 12:
+        return "•" * max(len(key), 4)
+    return key[:4] + "••••••" + key[-4:]
 
 
 @router.get("/api-keys")
