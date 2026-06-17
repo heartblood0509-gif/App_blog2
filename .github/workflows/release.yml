@@ -121,7 +121,7 @@ jobs:
           echo "OK: shorts engine + ffmpeg bundled"
 
       - name: Upload Windows release assets
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v7
         with:
           name: windows-release-assets
           if-no-files-found: error
@@ -281,7 +281,7 @@ jobs:
           echo "renamed: $(basename "$SRC") -> $(basename "$DEST")"
 
       - name: Upload macOS release assets
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v7
         with:
           name: macos-${{ matrix.arch }}-release-assets
           if-no-files-found: error
@@ -297,7 +297,7 @@ jobs:
       - build-macos
     steps:
       - name: Download release assets
-        uses: actions/download-artifact@v5
+        uses: actions/download-artifact@v8
         with:
           path: artifacts
 
