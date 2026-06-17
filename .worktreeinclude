@@ -1,0 +1,7 @@
+# git worktree로 새 세션을 만들 때 자동 복사할 파일 목록.
+# 문법은 .gitignore와 동일. gitignore돼서 워크트리에 안 따라오지만
+# 실행/빌드에 꼭 필요한 로컬 환경변수·시크릿만 포함한다.
+# (node_modules / .next / dist / build / 캐시는 설치·재빌드로 생기므로 제외)
+
+# 프론트엔드 환경변수 (GEMINI_API_KEY 등). 없으면 dev/build가 키를 못 찾음.
+frontend/.env.local
