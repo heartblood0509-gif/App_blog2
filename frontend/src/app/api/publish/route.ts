@@ -10,6 +10,7 @@ interface ImagePayload {
 }
 
 export async function POST(request: Request) {
+  const startedAt = Date.now();
   try {
     const body = await request.json();
     const { title, content, account_id, images, auto_publish } = body as {
@@ -29,6 +30,10 @@ export async function POST(request: Request) {
 
     const res = await backendFetch("/publish/", {
       method: "POST",
+      // 발행은 브라우저 자동화(로그인→에디터→본문/이미지 입력)가 끝나야 응답한다.
+      // 본문이 길거나 이미지가 많으면 5분(undici 기본 headersTimeout)을 넘겨 멀쩡한 발행이
+      // "fetch failed"로 끊기던 버그가 있어 longRunning 으로 timeout 상한을 넉넉히 둔다.
+      longRunning: true,
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         title,
@@ -90,10 +95,35 @@ export async function POST(request: Request) {
     const result = await res.json();
     return Response.json(result);
   } catch (error) {
-    const message =
-      error instanceof Error
-        ? error.message
-        : "발행 서버에 연결할 수 없습니다. Python 백엔드가 실행 중인지 확인하세요.";
-    return Response.json({ error: message }, { status: 502 });
+    // backendFetch 가 throw 한 경우(연결 실패/타임아웃). causeCode 로 원인을 구분해
+    // 정확한 안내를 돌려준다 — 예전엔 timeout 도 "백엔드 미실행"으로 싸잡아 오진했음.
+    const e = error as {
+      name?: string;
+      message?: string;
+      cause?: { code?: string; message?: string };
+    };
+    const code = e?.cause?.code;
+    console.error("[publish] backendFetch failed", {
+      name: e?.name,
+      message: e?.message,
+      causeCode: code,
+      elapsedMs: Date.now() - startedAt,
+    });
+
+    let message: string;
+    if (code === "ECONNREFUSED" || code === "ENOTFOUND" || code === "ECONNRESET") {
+      message = "발행 서버에 연결할 수 없습니다. 앱을 재시작한 뒤 다시 시도해 주세요.";
+    } else if (
+      code === "UND_ERR_HEADERS_TIMEOUT" ||
+      code === "UND_ERR_BODY_TIMEOUT" ||
+      e?.name === "TimeoutError"
+    ) {
+      // longRunning(30분)으로 사실상 도달하기 어렵지만, 초과 시엔 정확히 안내.
+      message =
+        "발행 처리가 예상보다 오래 걸리고 있습니다. 열린 Chrome 창에서 글 상태를 확인하고, 필요하면 직접 '발행'을 눌러주세요.";
+    } else {
+      message = e?.message || "발행 서버 호출 중 오류가 발생했습니다.";
+    }
+    return Response.json({ error: message, error_code: code ?? null }, { status: 502 });
   }
 }

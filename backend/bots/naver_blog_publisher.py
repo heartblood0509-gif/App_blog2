@@ -318,6 +318,7 @@ class NaverBlogPublisher:
         self.browser: Browser | None = None
         self.page: Page | None = None
         self.editor_frame: Frame | None = None
+        self._pw = None  # Playwright 인스턴스 (launch 시 설정, 실패/종료 시 stop)
         self._image_failures: int = 0
         self._heading_count: int = 0
 
@@ -348,21 +349,104 @@ class NaverBlogPublisher:
                 pass
 
     def _kill_stale_chrome(self, profile: str):
-        """해당 프로필을 사용 중인 기존 크롬 프로세스 종료"""
+        """이 프로필(user-data-dir)을 쓰는 기존 브라우저 프로세스 종료 (크로스플랫폼).
+
+        macOS/Linux 는 `ps`, Windows 는 PowerShell 로 프로세스 목록을 받아
+        --user-data-dir 값이 이 프로필과 *정확히* 일치하는 것만 종료한다.
+        (예전 pgrep/SIGKILL 은 Windows 에서 통째 no-op 이었음 → 잔존 창이 프로필을
+        점유해 다음 발행의 브라우저 실행이 실패하는 연쇄의 근본 원인.)
+        """
         try:
-            result = subprocess.run(
-                ["pgrep", "-f", profile],
-                capture_output=True, text=True, timeout=5,
+            procs = self._list_browser_processes()
+        except Exception:
+            procs = []
+        for pid, cmdline in procs:
+            if self._profile_matches_cmdline(profile, cmdline):
+                self._kill_pid(pid)
+
+    @staticmethod
+    def _profile_matches_cmdline(profile: str, cmdline: str) -> bool:
+        """cmdline 에 이 프로필 디렉터리가 user-data-dir 로 들어 있으면 True.
+
+        - 셸이 아니라 Python 에서 부분일치 → 한글·공백 경로 이스케이프 문제 없음.
+        - 경계 검사로 'blog4' 가 'blog42' 같은 형제 프로필을 오매칭하지 않게 한다.
+        """
+        if not cmdline or not profile:
+            return False
+        is_win = platform.system() == "Windows"
+
+        def norm(s: str) -> str:
+            s = s.replace("/", "\\") if is_win else s
+            return s.lower() if is_win else s
+
+        target = norm(os.path.normpath(profile))
+        hay = norm(cmdline)
+        start = 0
+        while True:
+            idx = hay.find(target, start)
+            if idx == -1:
+                return False
+            after = hay[idx + len(target): idx + len(target) + 1]
+            # 프로필명 바로 뒤가 이름 글자(영숫자/_/-)면 형제 프로필 → 무시하고 계속.
+            if after == "" or not (after.isalnum() or after in "_-"):
+                return True
+            start = idx + 1
+
+    @staticmethod
+    def _list_browser_processes() -> "list[tuple[int, str]]":
+        """(pid, cmdline) 목록. 크로스플랫폼."""
+        if platform.system() == "Windows":
+            # ConvertTo-Json 이 비-ASCII 를 \uXXXX 로 이스케이프 → 한글 CommandLine 도 안전.
+            ps_script = (
+                "[Console]::OutputEncoding=[Text.Encoding]::UTF8; "
+                "Get-CimInstance Win32_Process "
+                "-Filter \"Name='chrome.exe' or Name='msedge.exe'\" "
+                "| Select-Object ProcessId,CommandLine | ConvertTo-Json -Compress"
             )
-            pids = result.stdout.strip().split("\n")
-            for pid in pids:
-                pid = pid.strip()
-                if pid and pid.isdigit():
-                    try:
-                        os.kill(int(pid), signal.SIGKILL)
-                        print(f"  기존 프로세스 종료: PID {pid}")
-                    except ProcessLookupError:
-                        pass
+            out = subprocess.run(
+                ["powershell", "-NoProfile", "-NonInteractive", "-Command", ps_script],
+                capture_output=True, timeout=15,
+            )
+            text = out.stdout.decode("utf-8", errors="replace").strip()
+            if not text:
+                return []
+            data = json.loads(text)
+            if isinstance(data, dict):
+                data = [data]
+            procs = []
+            for item in data:
+                pid = item.get("ProcessId")
+                cmd = item.get("CommandLine") or ""
+                if isinstance(pid, int):
+                    procs.append((pid, cmd))
+            return procs
+        # POSIX — 전체 인자 포함(-ww: 잘림 방지)
+        out = subprocess.run(
+            ["ps", "-axww", "-o", "pid=,command="],
+            capture_output=True, text=True, timeout=10,
+        )
+        procs = []
+        for line in out.stdout.splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            parts = line.split(None, 1)
+            if len(parts) == 2 and parts[0].isdigit():
+                procs.append((int(parts[0]), parts[1]))
+        return procs
+
+    @staticmethod
+    def _kill_pid(pid: int) -> None:
+        try:
+            if platform.system() == "Windows":
+                # /T: 자식(렌더러) 프로세스까지 트리 종료.
+                subprocess.run(
+                    ["taskkill", "/F", "/T", "/PID", str(pid)],
+                    capture_output=True, timeout=10,
+                )
+            else:
+                os.kill(pid, signal.SIGKILL)
+            print(f"  기존 프로세스 종료: PID {pid}")
         except Exception:
             pass
 
@@ -375,6 +459,36 @@ class NaverBlogPublisher:
                 print(f"📸 에러 스크린샷: {path}")
             except Exception:
                 pass
+
+    @staticmethod
+    def _launch_error_message(err: Exception) -> str:
+        """브라우저 실행 실패 원인을 사용자용 메시지로 변환. raw 원인은 로그(stdout)에만 남긴다
+        (예전엔 Playwright 의 긴 실행커맨드 덩어리가 토스트로 그대로 노출됐음)."""
+        raw = str(err)
+        print(f"  ❌ 브라우저 실행 실패 원인(raw): {raw}")
+        low = raw.lower()
+        lock_signs = ("exitcode=0", "process did exit", "already", "in use", "singletonlock")
+        if any(s in low for s in lock_signs) or "사용" in raw:
+            return (
+                "발행용 브라우저를 열지 못했습니다. 같은 계정으로 이미 열려 있는 발행 창이 "
+                "있으면 닫고 잠시 후 다시 시도해 주세요."
+            )
+        return "발행용 브라우저를 열지 못했습니다. 잠시 후 다시 시도하거나 앱을 재시작해 주세요."
+
+    async def _safe_close_browser(self) -> None:
+        """브라우저 + Playwright 인스턴스를 안전 종료. finally 에서 호출되므로 절대 raise 하지
+        않는다(원래 예외를 덮지 않도록). browser.close() 가 _detached_contexts 정리도 트리거."""
+        if self.browser is not None:
+            try:
+                await asyncio.wait_for(self.browser.close(), timeout=15)
+            except Exception:
+                pass
+        if self._pw is not None:
+            try:
+                await asyncio.wait_for(self._pw.stop(), timeout=15)
+            except Exception:
+                pass
+            self._pw = None
 
     # ===== 브라우저 실행 =====
     async def _launch_browser(self, profile_path: str = ""):
@@ -390,17 +504,38 @@ class NaverBlogPublisher:
         pw = await async_playwright().start()
         self._pw = pw  # GC 방지용 참조 (auto_publish=False 시 사용)
         browser_profile = _realistic_browser_profile()
-        self.browser = await pw.chromium.launch_persistent_context(
-            user_data_dir=str(profile_dir),
-            headless=False,
-            args=STEALTH_ARGS,
-            viewport={"width": 1280, "height": 900},
-            locale="ko-KR",
-            timezone_id="Asia/Seoul",
-            user_agent=browser_profile["user_agent"],
-            extra_http_headers=browser_profile["extra_http_headers"],
-            ignore_default_args=["--enable-automation"],
-        )
+
+        async def _do_launch():
+            return await pw.chromium.launch_persistent_context(
+                user_data_dir=str(profile_dir),
+                headless=False,
+                args=STEALTH_ARGS,
+                viewport={"width": 1280, "height": 900},
+                locale="ko-KR",
+                timezone_id="Asia/Seoul",
+                user_agent=browser_profile["user_agent"],
+                extra_http_headers=browser_profile["extra_http_headers"],
+                ignore_default_args=["--enable-automation"],
+            )
+
+        try:
+            self.browser = await _do_launch()
+        except Exception as first_err:
+            # 프로필 점유(잔존 창) 등으로 실행 실패 → 정리 후 1회 재시도.
+            print(f"  ⚠ 브라우저 실행 실패 — 정리 후 재시도 ({type(first_err).__name__})")
+            self._kill_stale_chrome(str(profile_dir))
+            await asyncio.sleep(1.5)
+            self._clear_profile_locks(str(profile_dir))
+            try:
+                self.browser = await _do_launch()
+            except Exception as second_err:
+                # 드라이버(Playwright) 누수 방지 — 실패 시 pw 정리.
+                try:
+                    await pw.stop()
+                except Exception:
+                    pass
+                self._pw = None
+                raise RuntimeError(self._launch_error_message(second_err)) from second_err
 
         # playwright-stealth: launch_persistent_context는 공식 미지원이라 컨텍스트에 수동 적용.
         # 정책: 위조 자국(toString 누설)이 남는 evasion 은 끄고 Chromium 기본값에 맡긴다.
@@ -440,6 +575,44 @@ class NaverBlogPublisher:
             self.page = self.browser.pages[0]
         else:
             self.page = await self.browser.new_page()
+
+    async def _handle_new_device_prompt(self) -> bool:
+        """네이버 '새로운 기기(브라우저)에서 로그인되었습니다' 화면이면 '등록'을 눌러 통과.
+
+        반환: '등록'을 실제로 눌렀으면 True. (등록 뒤 캡차/2단계가 더 올 수 있어 즉시 성공
+        처리하지 않고, 호출부가 루프를 돌며 로그인 완료를 재확인한다.)
+        """
+        if not self.page:
+            return False
+        # 이 화면이 맞는지 먼저 확인 — '새로운 기기' 문구가 있어야 진짜.
+        try:
+            has_prompt = await self.page.evaluate(
+                "() => (document.body && document.body.innerText || '').includes('새로운 기기')"
+            )
+        except Exception:
+            return False
+        if not has_prompt:
+            return False
+        # '등록' 클릭. id(점 포함 → [id=...] 표기) → 정확 텍스트(버튼/링크) 순.
+        # exact=True 로 '등록안함'과 확실히 구분.
+        try:
+            el = await self.page.query_selector('[id="new.save"]')
+            if el and await el.is_visible():
+                await el.click()
+                print("  ✓ '새로운 기기 등록' 화면 — '등록' 클릭")
+                return True
+        except Exception:
+            pass
+        for role in ("button", "link"):
+            try:
+                loc = self.page.get_by_role(role, name="등록", exact=True)
+                if await loc.count() > 0:
+                    await loc.first.click()
+                    print("  ✓ '새로운 기기 등록' 화면 — '등록' 클릭")
+                    return True
+            except Exception:
+                pass
+        return False
 
     # ===== 자동 로그인 (키스트로크 전용 + 폼 자동 탐지) =====
     async def _auto_login(self, naver_id: str, naver_pw: str):
@@ -507,6 +680,10 @@ class NaverBlogPublisher:
         # === 로그인 결과 대기 (최대 30초) ===
         for _ in range(30):
             await asyncio.sleep(1)
+            # '새로운 기기 등록' 화면이면 '등록'을 눌러 통과 — URL 성공판정보다 *먼저*.
+            # 이 화면은 nid.naver.com 도메인이라 URL 체크만으론 못 걸러 오탐 성공이 날 수 있음.
+            if await self._handle_new_device_prompt():
+                continue  # 클릭 후 다음 루프에서 로그인 완료 여부 재확인
             url = self.page.url.lower()
             if "nidlogin" not in url and "/login" not in url:
                 print(f"  ✓ 자동 로그인 성공: {naver_id}")
@@ -3257,6 +3434,9 @@ class NaverBlogPublisher:
         self._theme = pick_formatting_theme()
         content = strip_body_quotes(content)
 
+        # finally 의 '창을 닫을지 열어둘지' 판정용.
+        reached_body = False      # 본문 입력 단계 도달 여부(회수 가치 판단)
+        publish_succeeded = False  # try 가 끝까지 성공했는지
         try:
             print("=" * 60)
             print(f"🚀 네이버 블로그 발행 시작 ({naver_id or '수동 로그인'})")
@@ -3292,6 +3472,7 @@ class NaverBlogPublisher:
             # publish 라우터가 마커 순서대로 정렬해서 전달함
             image_paths = [Path(slot["path"]) for slot in (image_slots or [])]
             print(f"  📦 블록: {len(sequence.blocks)}개, 이미지: {len(image_paths)}장")
+            reached_body = True  # 여기부턴 작성분이 생겨 실패해도 회수 가치가 있음
             await self._input_body(frame, sequence.blocks, image_paths)
 
             # 7. 발행 — auto_publish 에 따라 분기
@@ -3318,6 +3499,7 @@ class NaverBlogPublisher:
                     print(f"⚠ 이미지 {self._image_failures}장 업로드 실패 (해당 자리 공백)")
                 print("━" * 60)
 
+            publish_succeeded = True
             return {
                 "url": current_url,
                 "success": True,
@@ -3330,9 +3512,15 @@ class NaverBlogPublisher:
             raise RuntimeError(f"네이버 블로그 발행 실패: {str(e)}")
         finally:
             if self.browser:
-                if auto_publish:
-                    # browser.close() → _launch_browser 에서 단 on("close") 가 _detached_contexts 정리.
-                    await self.browser.close()
+                # 창을 열어둘 조건: 수동발행이고 (성공했거나 || 본문 입력까지 갔거나).
+                #  - 성공(수동): 사용자가 직접 '발행'을 눌러야 하므로 열어둠.
+                #  - 본문 이후 실패: 작성분 회수 위해 열어둠(다음 발행의 _kill_stale_chrome 가 정리).
+                #  - 그 전(launch/login/editor) 실패: 닫는다. 안 닫으면 프로필을 점유해
+                #    다음 발행의 브라우저 실행이 실패하는 연쇄가 생김(특히 Windows).
+                #  - 자동발행: 성공/실패 무관 닫음.
+                keep_open = (not auto_publish) and (publish_succeeded or reached_body)
+                if not keep_open:
+                    await self._safe_close_browser()
                 else:
                     # Chrome 열어둠 — 등록은 _launch_browser 에서 이미 완료.
                     print(f"  (열린 Chrome {len(_detached_contexts)}개 유지 중)")

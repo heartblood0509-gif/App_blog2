@@ -3,10 +3,30 @@
 //
 // 단일 진입점으로 두면 헤더 누락이 lint/PR 리뷰로 잡힘.
 
+import { Agent } from "undici";
 import { CONFIG } from "@/lib/config";
 
 interface BackendFetchInit extends Omit<RequestInit, "headers"> {
   headers?: Record<string, string>;
+  /**
+   * 발행처럼 수 분 동안 응답 헤더가 안 오는 동기 백엔드 작업용.
+   * Node fetch(undici)의 기본 headersTimeout(300초)에 걸려 멀쩡한 작업이
+   * "fetch failed"로 오인되는 걸 막는다. (브라우저 자동화는 글 길이/이미지에 따라 5분 초과 가능)
+   */
+  longRunning?: boolean;
+}
+
+// 긴 동기 작업 전용 dispatcher. 0(무제한)은 진짜 hang 시 영구 대기라 위험 →
+// 넉넉한 상한(30분)만 둔다. lazy 싱글톤(요청마다 새 커넥션 풀을 만들지 않음).
+let _longRunningDispatcher: Agent | undefined;
+function longRunningDispatcher(): Agent {
+  if (!_longRunningDispatcher) {
+    _longRunningDispatcher = new Agent({
+      headersTimeout: 30 * 60_000,
+      bodyTimeout: 30 * 60_000,
+    });
+  }
+  return _longRunningDispatcher;
 }
 
 function appToken(): string {
@@ -30,9 +50,15 @@ export function backendFetch(
     throw new Error(`backendFetch path must start with '/': ${path}`);
   }
   const url = `${CONFIG.BACKEND_URL}${path}`;
+  const { longRunning, ...rest } = init;
   const headers: Record<string, string> = {
     ...(init.headers ?? {}),
     "X-App-Token": appToken(),
   };
-  return fetch(url, { ...init, headers });
+  // dispatcher 는 표준 RequestInit 엔 없지만 Node(undici) fetch 가 런타임에 읽는다.
+  const requestInit: RequestInit & { dispatcher?: Agent } = { ...rest, headers };
+  if (longRunning) {
+    requestInit.dispatcher = longRunningDispatcher();
+  }
+  return fetch(url, requestInit);
 }
