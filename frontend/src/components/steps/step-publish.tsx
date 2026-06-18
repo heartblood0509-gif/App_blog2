@@ -441,13 +441,13 @@ export function StepPublish({
         toast.warning(data.warning);
       }
     } catch (err) {
-      const msg = err instanceof Error ? err.message : "발행 실패";
-      if (msg.includes("연결할 수 없습니다") || msg.includes("fetch")) {
-        toast.error(
-          "Python 백엔드 서버가 실행 중이 아닙니다. backend/ 디렉토리에서 python main.py를 실행하세요."
-        );
+      // fetch() 자체가 실패(TypeError)면 앱 내부(Next) 서버에 못 붙은 것. 그 외엔
+      // route 가 내려준 사용자용 메시지를 그대로 보여준다. (예전의 "fetch 문자열이면
+      // 백엔드 미실행" 휴리스틱은 정상 발행의 timeout 까지 싸잡아 오진해서 제거.)
+      if (err instanceof TypeError) {
+        toast.error("앱 내부 서버에 연결할 수 없습니다. 앱을 재시작해 주세요.");
       } else {
-        toast.error(msg);
+        toast.error(err instanceof Error ? err.message : "발행에 실패했습니다.");
       }
     } finally {
       setIsPublishing(false);

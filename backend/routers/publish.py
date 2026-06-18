@@ -188,6 +188,9 @@ async def publish_to_naver(req: PublishRequest):
                 manual_session_id=manual_session_id if mode == "awaiting_manual_publish" else None,
             )
         except Exception as e:
+            # 실패 시 미리 만들어 둔 수동 세션 정리 (TTL 만료까지 고아로 남지 않게).
+            if manual_session_id:
+                _manual_sessions.pop(manual_session_id, None)
             raise HTTPException(status_code=500, detail=str(e))
 
 
