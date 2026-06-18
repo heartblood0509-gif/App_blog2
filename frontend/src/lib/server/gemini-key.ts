@@ -1,8 +1,9 @@
 // 웹(Next dev) 환경에서 사용 중인 Gemini API 키의 서버측 단일 진실 소스.
 //
-// 우선순위:
-//   1. 로컬 비밀 파일 (frontend/.gemini-key.local) — ApiKeyPanel 의 [저장] 동작이 기록
-//   2. process.env.GEMINI_API_KEY (.env 또는 OS env)
+// 우선순위(실행 환경별, runtime.ts 의 isElectronRuntime 로 분기):
+//   - Electron 앱:  process.env.GEMINI_API_KEY(settings.json 복호화 주입) → .gemini-key.local
+//   - 웹 dev:       .gemini-key.local(ApiKeyPanel 저장) → process.env.GEMINI_API_KEY
+//   환경별로 "그 환경의 UI 저장 위치"를 우선해, 다른 환경 잔재가 가리지 않게 한다.
 //
 // 보안:
 //   - 평문 키는 이 모듈 밖으로 절대 노출하지 않는다. 외부에는 마스킹된 형태만 제공.
@@ -15,6 +16,7 @@
 
 import { promises as fs } from "node:fs";
 import path from "node:path";
+import { isElectronRuntime } from "./runtime";
 
 // frontend/ 워킹 디렉터리 기준. Next dev 는 process.cwd() 가 frontend 폴더.
 function keyFilePath(): string {
@@ -52,10 +54,17 @@ export async function getServerGeminiKey(): Promise<{
   source: KeySource;
 }> {
   const fileKey = await readFileKey();
-  if (fileKey) return { key: fileKey, source: "local-file" };
-
   const envKey = readEnvKey();
-  if (envKey) return { key: envKey, source: "env" };
+
+  // Electron 에선 settings.json→env 주입이 정본이라 env 우선(웹 dev 잔재 .local 이 가리지 않게).
+  // 웹 dev 에선 UI 저장이 .gemini-key.local 에 기록되므로 파일 우선. (판별: runtime.ts)
+  if (isElectronRuntime()) {
+    if (envKey) return { key: envKey, source: "env" };
+    if (fileKey) return { key: fileKey, source: "local-file" };
+  } else {
+    if (fileKey) return { key: fileKey, source: "local-file" };
+    if (envKey) return { key: envKey, source: "env" };
+  }
 
   return { key: null, source: "none" };
 }

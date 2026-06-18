@@ -42,6 +42,9 @@ export class NextServerManager {
       APP_TOKEN: this.opts.appToken,
       // §A-2 Next proxy.ts 가 Set-Cookie + /api/* 검증에 사용.
       APP_SESSION_TOKEN: this.opts.sessionToken,
+      // 서버측 키 리졸버(gemini/openai/fal-key)가 "env(앱 금고 주입) vs .local 파일"
+      // 우선순위를 가르는 마커. Electron 에선 settings.json→env 가 정본이라 env 우선.
+      APP_RUNTIME: "electron",
     };
 
     // §F GEMINI_API_KEY — settings.json 에서 복호화한 평문이 있을 때만 주입.
