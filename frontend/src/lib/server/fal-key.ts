@@ -1,10 +1,11 @@
 // 블로그 이미지 생성(fal 우선)이 사용하는 fal API 키의 서버측 단일 진실 소스.
 // gemini-key.ts 패턴을 그대로 복제한다. fal 키는 블로그(이 모듈)와 유튜브 백엔드가 공용으로 쓴다.
 //
-// 우선순위:
-//   1. 로컬 비밀 파일 (frontend/.fal-key.local) — 통합 키 패널의 [저장] 동작이 기록(web dev)
-//   2. process.env.FAL_API_KEY — Electron 부팅 시 블로그 next-server 에 주입
-//   3. process.env.FAL_KEY     — 유튜브 백엔드와 공유되는 env 명(같은 키). 둘 다 지원.
+// 우선순위(실행 환경별, runtime.ts 의 isElectronRuntime 로 분기):
+//   - Electron 앱:  env(FAL_API_KEY ?? FAL_KEY, settings.json 복호화 주입) → .fal-key.local
+//   - 웹 dev:       .fal-key.local(통합 키 패널 저장) → env(FAL_API_KEY ?? FAL_KEY)
+//   FAL_API_KEY=블로그 next-server 주입명, FAL_KEY=유튜브 백엔드 공유명(같은 키). 둘 다 지원.
+//   환경별로 "그 환경의 UI 저장 위치"를 우선해, 다른 환경 잔재가 가리지 않게 한다.
 //
 // 보안:
 //   - 평문 키는 이 모듈 밖으로 노출하지 않는다. 외부에는 마스킹만 제공.
@@ -16,6 +17,7 @@
 
 import { promises as fs } from "node:fs";
 import path from "node:path";
+import { isElectronRuntime } from "./runtime";
 
 // frontend/ 워킹 디렉터리 기준. Next dev 는 process.cwd() 가 frontend 폴더.
 function keyFilePath(): string {
@@ -53,10 +55,17 @@ export async function getServerFalKey(): Promise<{
   source: FalKeySource;
 }> {
   const fileKey = await readFileKey();
-  if (fileKey) return { key: fileKey, source: "local-file" };
-
   const envKey = readEnvKey();
-  if (envKey) return { key: envKey, source: "env" };
+
+  // Electron 에선 settings.json→env 주입이 정본이라 env 우선(웹 dev 잔재 .local 이 가리지 않게).
+  // 웹 dev 에선 UI 저장이 .fal-key.local 에 기록되므로 파일 우선. (판별: runtime.ts)
+  if (isElectronRuntime()) {
+    if (envKey) return { key: envKey, source: "env" };
+    if (fileKey) return { key: fileKey, source: "local-file" };
+  } else {
+    if (fileKey) return { key: fileKey, source: "local-file" };
+    if (envKey) return { key: envKey, source: "env" };
+  }
 
   return { key: null, source: "none" };
 }

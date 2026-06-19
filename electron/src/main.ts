@@ -366,6 +366,10 @@ interface BlogSplitAnchorResult {
   reason: string;
   trailingText: boolean;
   cursorAtAppend: boolean;
+  // 커서가 놓인 append/trailing text 컴포넌트가 "비어 있는가".
+  // 구조물(이미지/인용구) paste 는 반드시 빈 칸에서 일어나야 한다(invariant).
+  // non-empty 본문 위에서 paste 하면 본문이 분할/밀림 → 누적·순서역전 사고.
+  trailingEmpty: boolean;
   componentOrder: string[];
 }
 
@@ -394,6 +398,8 @@ function trustedCursorResult(reason = "trusted_current"): BlogSplitAnchorResult 
     reason,
     trailingText: true,
     cursorAtAppend: true,
+    // trusted 는 현재 커서를 검증 없이 신뢰하는 경로라 빈칸 여부를 보장하지 못한다.
+    trailingEmpty: false,
     componentOrder: [],
   };
 }
@@ -464,6 +470,13 @@ function parsePasteBlocks(content: string): BlogSplitPasteBlock[] {
     const line = raw.trim();
     if (!line) {
       textLines.push("");
+      continue;
+    }
+
+    // H1(# 제목)은 글 제목 → 본문에서 제외 (title 은 별도 입력됨).
+    // backend parse_markdown(markdown_converter.py)과 동일 규칙. '##'/'###' 소제목은 건드리지 않음.
+    if (/^#\s+/.test(line) && !line.startsWith("##")) {
+      flushText();
       continue;
     }
 
@@ -770,6 +783,7 @@ async function placeCursorAtAppendTarget(frame: WebFrameMain): Promise<BlogSplit
       if (!target) {
         return { ok: false, reason: "no_text_component", trailingText: false, cursorAtAppend: false, componentOrder: componentOrder() };
       }
+      const targetEmpty = (target.textContent || "").replace(/[\\u200b\\uFEFF\\u00a0]/g, "").trim().length === 0;
       const placed = placeAtEnd(target);
       const components = Array.from(root.querySelectorAll(".se-component"))
         .filter((component) => !component.closest(".se-documentTitle"));
@@ -780,6 +794,7 @@ async function placeCursorAtAppendTarget(frame: WebFrameMain): Promise<BlogSplit
         reason: placed.ok ? "ok" : placed.reason,
         trailingText: true,
         cursorAtAppend,
+        trailingEmpty: targetEmpty,
         componentOrder: componentOrder(),
       };
     })()
@@ -789,13 +804,14 @@ async function placeCursorAtAppendTarget(frame: WebFrameMain): Promise<BlogSplit
 
 function normalizeAnchorResult(value: unknown): BlogSplitAnchorResult {
   if (!value || typeof value !== "object") {
-    return { ok: false, reason: "invalid_result", trailingText: false, cursorAtAppend: false, componentOrder: [] };
+    return { ok: false, reason: "invalid_result", trailingText: false, cursorAtAppend: false, trailingEmpty: false, componentOrder: [] };
   }
   const result = value as {
     ok?: unknown;
     reason?: unknown;
     trailingText?: unknown;
     cursorAtAppend?: unknown;
+    trailingEmpty?: unknown;
     componentOrder?: unknown;
   };
   return {
@@ -803,6 +819,7 @@ function normalizeAnchorResult(value: unknown): BlogSplitAnchorResult {
     reason: typeof result.reason === "string" ? result.reason : "unknown",
     trailingText: result.trailingText === true,
     cursorAtAppend: result.cursorAtAppend === true,
+    trailingEmpty: result.trailingEmpty === true,
     componentOrder: Array.isArray(result.componentOrder)
       ? result.componentOrder.filter((item): item is string => typeof item === "string")
       : [],
@@ -877,11 +894,23 @@ async function placeCursorAfterComponent(
         .filter((component) => !component.closest(".se-documentTitle"));
       const textIndex = components.indexOf(next);
       const cursorAtAppend = textIndex >= components.length - 2;
+      // invariant: 구조물 다음 trailing text 는 "빈 칸"이어야 한다.
+      // 본문(non-empty)을 잡으면 거기에 다음 블록이 누적되므로 성공으로 보면 안 된다.
+      // SmartEditor 빈 문단은 zero-width space(​)/BOM/nbsp 등 비표시 문자를 담을 수 있어,
+      // 단순 trim 으론 "비었는데 non-empty"로 오판한다 → 비표시 문자 제거 후 판정.
+      const rawTrailing = next.textContent || "";
+      const trailingEmpty = rawTrailing.replace(/[\\u200b\\uFEFF\\u00a0]/g, "").trim().length === 0;
+      // 옵션 A: trailingEmpty 를 ok 판정에서 분리(정보로만 유지).
+      // text 를 빈칸에 넣으면 그 칸이 차는 게 정상이라, afterCursor 에까지 빈칸을 강제하면
+      // 과잉 실패가 난다. 빈칸 invariant 는 추후 "구조물 paste 직전"에만 적용(옵션 B).
       return {
         ok: cursorAtAppend,
-        reason: cursorAtAppend ? "ok" : "not_append_target",
+        reason: cursorAtAppend
+          ? "ok"
+          : "not_append_target" + (trailingEmpty ? "" : ":non_empty"),
         trailingText: true,
         cursorAtAppend,
+        trailingEmpty,
         componentOrder: componentOrder(),
       };
     })(${JSON.stringify(selector)}, ${JSON.stringify(index)})
@@ -901,6 +930,7 @@ async function waitForPastedComponentAndPlaceCursor(
     reason: "timeout",
     trailingText: false,
     cursorAtAppend: false,
+    trailingEmpty: false,
     componentOrder: [],
   };
 
@@ -999,6 +1029,30 @@ async function getSelectionDiagnostics(frame: WebFrameMain, label: string): Prom
         ? focusNode.textContent.length
         : null;
       const focusOffset = sel && sel.rangeCount > 0 ? sel.focusOffset : null;
+      // node-type aware 끝 판정: focusOffset 의 단위가 노드 타입마다 다르므로
+      // (text=글자 위치, element=자식 노드 인덱스) 직접 비교는 부정확하다.
+      // Range 로 "커서 위치 ~ 현재 문단 끝" 사이 텍스트를 추출해 비었는지로 판정한다.
+      const focusNodeType = focusNode
+        ? (focusNode.nodeType === Node.TEXT_NODE
+            ? "text"
+            : focusNode.nodeType === Node.ELEMENT_NODE
+              ? "element"
+              : "other")
+        : null;
+      let caretTail = null;
+      let atParaEnd = null;
+      if (focusNode && para && sel && sel.rangeCount > 0) {
+        try {
+          const tailRange = document.createRange();
+          tailRange.setStart(focusNode, sel.focusOffset);
+          tailRange.setEndAfter(para.lastChild || para);
+          caretTail = tailRange.toString();
+          atParaEnd = caretTail.length === 0;
+        } catch (err) {
+          caretTail = null;
+          atParaEnd = null;
+        }
+      }
       const componentType = component
         ? component.classList.contains("se-image")
           ? "image"
@@ -1022,6 +1076,9 @@ async function getSelectionDiagnostics(frame: WebFrameMain, label: string): Prom
           nearNodeEnd: typeof focusOffset === "number" && typeof focusTextLength === "number"
             ? focusOffset >= focusTextLength
             : null,
+          focusNodeType,
+          atParaEnd,
+          caretTail: typeof caretTail === "string" ? caretTail.slice(0, 30) : caretTail,
           firstText: text(paragraphs[0]).slice(0, 60),
           currentText: text(para).slice(0, 60),
           lastText: text(paragraphs[paragraphs.length - 1]).slice(0, 60),
@@ -1053,6 +1110,9 @@ function compactSelectionDiagnostics(value: unknown): string {
       paragraphCount?: unknown;
       atLastParagraph?: unknown;
       nearNodeEnd?: unknown;
+      atParaEnd?: unknown;
+      focusNodeType?: unknown;
+      caretTail?: unknown;
       currentText?: unknown;
       lastText?: unknown;
     };
@@ -1069,6 +1129,9 @@ function compactSelectionDiagnostics(value: unknown): string {
     `p=${String(sel.paragraphIndex)}/${String(sel.paragraphCount)}`,
     `lastP=${String(sel.atLastParagraph)}`,
     `end=${String(sel.nearNodeEnd)}`,
+    `atParaEnd=${String(sel.atParaEnd)}`,
+    `fnode=${String(sel.focusNodeType)}`,
+    `tail="${typeof sel.caretTail === "string" ? sel.caretTail : ""}"`,
     `cur="${currentText}"`,
     `last="${lastText}"`,
     `order=${order}`,
@@ -1209,110 +1272,70 @@ async function runBlogSplitPasteProbe(input: unknown): Promise<BlogSplitPastePro
     });
 
     if (blocks.length === 0) {
-      const beforeCursor = await ensureAppendCursor(frame);
       const fallbackLines = [firstMeaningfulParagraph(content)];
       clipboard.write({
         text: plainTextFromLines(fallbackLines),
         html: renderParagraphHtml(fallbackLines),
       });
-      if (beforeCursor.ok) await pasteClipboardIntoFocusedBlogSplit();
-      const afterCursor = beforeCursor.ok ? await placeCursorAtAppendTarget(frame) : beforeCursor;
+      await pasteClipboardIntoFocusedBlogSplit();
       steps.push({
         name: "body:fallbackTextPaste",
-        ok: beforeCursor.ok && afterCursor.ok,
-        detail: `fallback paragraph pasted cursorAfter=${afterCursor.ok} reason=${afterCursor.reason}`,
+        ok: true,
+        detail: "fallback paragraph pasted (no cursor reposition)",
       });
     }
 
-    let cursorTrusted = titleToBody.ok;
-    let lastStructuralAnchor: BlogSplitStructuralAnchor | null = null;
-
-    const cursorForPaste = async (): Promise<{
-      cursor: BlogSplitAnchorResult;
-      source: "trusted" | "anchor" | "fallback" | "anchor:fallback";
-    }> => {
-      if (cursorTrusted) {
-        if (lastStructuralAnchor) {
-          const anchored = await placeCursorAfterComponent(
-            frame,
-            lastStructuralAnchor.kind,
-            lastStructuralAnchor.index,
-          );
-          if (anchored.ok) return { cursor: anchored, source: "anchor" };
-          const fallback = await ensureAppendCursor(frame);
-          return { cursor: fallback, source: "anchor:fallback" };
-        }
-        return { cursor: trustedCursorResult(), source: "trusted" };
-      }
-
-      const fallback = await ensureAppendCursor(frame);
-      return { cursor: fallback, source: "fallback" };
-    };
-
+    // 1차 단순화(사람 흉내): 블록 사이 커서 재배치(placeCursor*)를 전면 제거한다.
+    // 사용자 수동 실험 결과 — paste 후 SmartEditor 가 커서를 결과물 밑에 자동으로 둔다.
+    // 따라서 그 자연 커서를 신뢰하고, DOM 은 count/selection "읽기 진단"으로만 사용한다.
+    // (코덱스 보강: 쓰기=실제 입력[paste/Enter], DOM=읽기 전용, 검증[count]은 유지)
     for (const [blockIndex, block] of blocks.entries()) {
       if (block.type === "text") {
-        const before = await cursorForPaste();
-        const beforeCursor = before.cursor;
-        const beforeCursorSource = before.source;
-        const textAnchor = lastStructuralAnchor;
-        const shouldEnterAfterText = blockIndex < blocks.length - 1;
+        // 이미지 다음 본문: 빈 줄 확보를 위해 본문 paste 전 엔터1.
+        const prevBlock = blockIndex > 0 ? blocks[blockIndex - 1] : null;
+        let preSpacer = "";
+        if (prevBlock && prevBlock.type === "image") {
+          await pressEnterInBlogSplit(300);
+          preSpacer = " pre=enter1";
+        }
         clipboard.write({
           text: plainTextFromLines(block.lines),
           html: renderParagraphHtml(block.lines),
         });
-        if (beforeCursor.ok) await pasteClipboardIntoFocusedBlogSplit();
-        const afterCursor = beforeCursor.ok
-          ? textAnchor
-            ? await placeCursorAfterComponent(frame, textAnchor.kind, textAnchor.index)
-            : await placeCursorAtAppendTarget(frame)
-          : beforeCursor;
-        const afterCursorSource = textAnchor ? "anchor" : "append";
-        const afterPasteDiag = blockIndex === 1
-          ? await logSelectionDiagnostics(frame, `after block:${blockIndex}:textPaste`)
-          : "";
-        let enteredAfterText = false;
-        let enterReason = "not_needed";
-        let afterEnterDiag = "";
-        if (afterCursor.ok && shouldEnterAfterText) {
-          await sleep(300);
-          await pressEnterInBlogSplit(500);
-          const enterCursor = textAnchor
-            ? trustedCursorResult("trusted_after_enter")
-            : await placeCursorAtAppendTarget(frame);
-          enteredAfterText = enterCursor.ok;
-          enterReason = enterCursor.reason;
-          afterEnterDiag = blockIndex === 1
-            ? await logSelectionDiagnostics(frame, `after block:${blockIndex}:textEnter`)
-            : "";
-        }
-        cursorTrusted = shouldEnterAfterText ? enteredAfterText : afterCursor.ok;
-        lastStructuralAnchor = null;
+        await pasteClipboardIntoFocusedBlogSplit();
+        // 본문 입력 후 무조건 엔터 1번: 커서가 본문 끝 글자에 머물지 않고 새 빈 줄로 이동한다.
+        // → 이미지 다음(에디터가 빈 줄+커서 자동 생성)과 동일한 시작 상태가 되어,
+        //   뒤따르는 인용구 앞 여백(엔터3)이 본문/이미지에서 동일하게 적용된다.
+        await pressEnterInBlogSplit(300);
+        const diag = await logSelectionDiagnostics(frame, `after block:${blockIndex}:textPaste`);
         steps.push({
           name: `block:${blockIndex}:textHtmlPaste`,
-          ok: beforeCursor.ok && afterCursor.ok && (!shouldEnterAfterText || enteredAfterText),
-          detail: `lines=${block.lines.length} beforeCursorSource=${beforeCursorSource} cursorAfter=${afterCursor.ok} afterCursorSource=${afterCursorSource} reason=${afterCursor.reason} enteredAfterText=${enteredAfterText} enterReason=${enterReason}${afterPasteDiag ? ` afterPasteDiag=[${afterPasteDiag}]` : ""}${afterEnterDiag ? ` afterEnterDiag=[${afterEnterDiag}]` : ""}`,
+          ok: true,
+          detail: `lines=${block.lines.length}${preSpacer} +enter1 [${diag}]`,
         });
         continue;
       }
 
       if (block.type === "quote") {
         const before = await countEditorComponents(frame);
+        // 이미지/본문 다음에 인용구가 올 때, 인용구 앞에 여백(진짜 엔터 3번)을 넣는다.
+        // sendInputEvent 기반 실제 입력이라 커서를 망치지 않는다(1차 성공 흐름 유지).
+        const prevBlock = blockIndex > 0 ? blocks[blockIndex - 1] : null;
+        let spacerInfo = "";
+        if (prevBlock && (prevBlock.type === "image" || prevBlock.type === "text")) {
+          for (let i = 0; i < 3; i++) await pressEnterInBlogSplit(300);
+          spacerInfo = " spacer=enter3";
+        }
         const quoteLines = block.text.split("\n").map((line) => line.trim()).filter(Boolean);
         const quoteHtml = `<blockquote>${renderParagraphHtml(quoteLines.length ? quoteLines : [block.text])}</blockquote>`;
         clipboard.write({ text: block.text, html: quoteHtml });
-        const beforePlacement = await cursorForPaste();
-        const beforeCursor = beforePlacement.cursor;
-        if (beforeCursor.ok) await pasteClipboardIntoFocusedBlogSplit();
-        const afterCursor = beforeCursor.ok
-          ? await waitForPastedComponentAndPlaceCursor(frame, "quote", before.quotes, 5000)
-          : beforeCursor;
+        await pasteClipboardIntoFocusedBlogSplit();
         const after = await countEditorComponents(frame);
-        cursorTrusted = afterCursor.ok;
-        lastStructuralAnchor = after.quotes > before.quotes ? { kind: "quote", index: before.quotes } : null;
+        const diag = await logSelectionDiagnostics(frame, `after block:${blockIndex}:quotePaste`);
         steps.push({
           name: `block:${blockIndex}:quoteHtmlPaste`,
-          ok: beforeCursor.ok && after.quotes > before.quotes && afterCursor.ok,
-          detail: `quotes ${before.quotes}->${after.quotes} beforeCursorSource=${beforePlacement.source} cursorAfter=${afterCursor.ok} trailingText=${afterCursor.trailingText} reason=${afterCursor.reason}`,
+          ok: after.quotes > before.quotes,
+          detail: `quotes ${before.quotes}->${after.quotes}${spacerInfo} [${diag}]`,
         });
         continue;
       }
@@ -1329,42 +1352,45 @@ async function runBlogSplitPasteProbe(input: unknown): Promise<BlogSplitPastePro
         continue;
       }
 
+      // 본문 다음 이미지: 본문 직후 엔터1(커서 내림)만으론 이미지가 본문에 딱 붙으므로,
+      // 빈 줄 확보를 위해 엔터 1번 더 친다.
+      // (이미지 다음 본문은 커서가 자동으로 이미지 밑에 가므로 불필요 — 사용자 확인)
+      const prevBlock = blockIndex > 0 ? blocks[blockIndex - 1] : null;
+      let imgSpacerInfo = "";
+      if (prevBlock && prevBlock.type === "text") {
+        await pressEnterInBlogSplit(300);
+        imgSpacerInfo = " spacer=enter1";
+      }
       const mimeType = imagePayload.mimeType || "image/png";
       const image = createNativeImageFromBase64(imagePayload.base64, mimeType);
       const imageSize = image.getSize();
       clipboard.write({ image });
-      const beforePlacement = await cursorForPaste();
-      const beforeCursor = beforePlacement.cursor;
-      const beforeImageDiag = blockIndex === 2
-        ? await logSelectionDiagnostics(frame, `before block:${blockIndex}:imagePaste`)
-        : "";
-      if (beforeCursor.ok) await pasteClipboardIntoFocusedBlogSplit(3000);
-      const afterCursor = beforeCursor.ok
-        ? await waitForPastedComponentAndPlaceCursor(frame, "image", before.images)
-        : beforeCursor;
-      if (afterCursor.ok && blockIndex < blocks.length - 1) {
-        await sleep(700);
-      }
-      const afterImageDiag = blockIndex === 0
-        ? await logSelectionDiagnostics(frame, `after block:${blockIndex}:imagePaste`)
-        : "";
+      await pasteClipboardIntoFocusedBlogSplit(3000);
       const after = await countEditorComponents(frame);
-      cursorTrusted = afterCursor.ok;
-      lastStructuralAnchor = after.images > before.images ? { kind: "image", index: before.images } : null;
+      const diag = await logSelectionDiagnostics(frame, `after block:${blockIndex}:imagePaste`);
       steps.push({
         name: `block:${blockIndex}:imagePngPaste`,
-        ok: beforeCursor.ok && !image.isEmpty() && after.images > before.images && afterCursor.ok,
-        detail: `imageEmpty=${image.isEmpty()} size=${imageSize.width}x${imageSize.height} images ${before.images}->${after.images} beforeCursorSource=${beforePlacement.source} cursorAfter=${afterCursor.ok} trailingText=${afterCursor.trailingText} reason=${afterCursor.reason}${beforeImageDiag ? ` beforeImageDiag=[${beforeImageDiag}]` : ""}${afterImageDiag ? ` afterImageDiag=[${afterImageDiag}]` : ""}`,
+        ok: !image.isEmpty() && after.images > before.images,
+        detail: `imageEmpty=${image.isEmpty()} size=${imageSize.width}x${imageSize.height} images ${before.images}->${after.images}${imgSpacerInfo} [${diag}]`,
       });
     }
 
     const snapshot = await getBlogEditorSnapshot(frame);
+    log.info(`[pasteProbe][result] ok=${steps.every((step) => step.ok)} blocks=${blocks.length}`);
+    for (const s of steps) {
+      log.info(`[pasteProbe][step] ${s.name} ok=${s.ok}${s.skipped ? " skipped" : ""} | ${s.detail}`);
+    }
+    log.info(`[pasteProbe][snapshot] ${JSON.stringify(snapshot)}`);
     return {
       ok: steps.every((step) => step.ok),
       steps,
       snapshot,
     };
   } catch (e) {
+    log.error(`[pasteProbe][error] ${e instanceof Error ? e.message : String(e)}`);
+    for (const s of steps) {
+      log.info(`[pasteProbe][step] ${s.name} ok=${s.ok}${s.skipped ? " skipped" : ""} | ${s.detail}`);
+    }
     return {
       ok: false,
       error: e instanceof Error ? e.message : String(e),
