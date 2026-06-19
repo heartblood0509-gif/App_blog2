@@ -19,8 +19,11 @@ import {
   Target,
   Download,
   BookOpen,
+  FolderOpen,
   type LucideIcon,
 } from "lucide-react";
+import { toast } from "sonner";
+import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { AiKeysPanel } from "@/components/settings/AiKeysPanel";
 import { YOUTUBE_FEATURE_ENABLED } from "@/lib/youtube-feature";
@@ -200,6 +203,50 @@ function DevicesSection() {
     <div className="max-w-3xl space-y-3">
       <SectionDivider label="등록된 기기" />
       <DevicesPanel />
+      <DiagnosticsCard />
+    </div>
+  );
+}
+
+/** 문제 해결 — 진단 로그 폴더를 버튼 한 번으로 열어준다(Win/mac 공통).
+ *  사용자가 Win+R·경로입력 없이 폴더를 열고, 그 안의 log 파일을 그대로 문의에 첨부할 수 있다. */
+function DiagnosticsCard() {
+  const handleOpenLogs = async () => {
+    const api = window.electronAPI?.app;
+    if (!api?.openLogsFolder) {
+      toast.error("앱에서만 진단 로그 폴더를 열 수 있습니다.");
+      return;
+    }
+    const result = await api.openLogsFolder().catch(() => null);
+    if (result?.ok) {
+      toast.success("진단 로그 폴더를 열었어요. 안의 파일을 문의에 첨부해 주세요.");
+    } else {
+      toast.error(result?.error || "로그 폴더를 열지 못했어요.");
+    }
+  };
+
+  return (
+    <div className="mt-6 space-y-3">
+      <SectionDivider label="문제 해결" />
+      <div className="rounded-lg border bg-card p-4">
+        <h3 className="flex items-center gap-2 text-sm font-medium text-foreground">
+          <FolderOpen className="h-[18px] w-[18px] text-muted-foreground" />
+          진단 로그
+        </h3>
+        <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
+          문제가 있을 때 아래 버튼을 누르면 진단 로그 폴더가 열려요. 그 안의 파일을 문의 대화창에
+          드래그해 보내 주시면 원인 파악에 큰 도움이 됩니다.
+        </p>
+        <Button
+          type="button"
+          variant="outline"
+          onClick={handleOpenLogs}
+          className="mt-3 gap-2"
+        >
+          <FolderOpen className="h-4 w-4" />
+          진단 로그 폴더 열기
+        </Button>
+      </div>
     </div>
   );
 }
