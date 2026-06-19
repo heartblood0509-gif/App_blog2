@@ -45,6 +45,8 @@ interface ElectronBlogSplitApi {
   close: () => Promise<void>;
   isOpen: () => Promise<boolean>;
   getUrl: () => Promise<string>;
+  getZoom: () => Promise<number>;
+  setZoom: (factor: number) => Promise<number>;
   navigate: (
     action: "back" | "forward" | "reload" | "home" | "go",
     url?: string,

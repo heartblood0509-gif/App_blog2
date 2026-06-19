@@ -159,6 +159,9 @@ body.blog-split-open [data-blog-pick-root] {
   overflow: scroll;
   overscroll-behavior: contain;
   background: var(--background);
+  /* 좌/우(앱 ↔ 네이버 패널) 경계를 명확히 구분하는 세로 구분선.
+     컨테이너 오른쪽 가장자리가 정확히 분할 경계(50vw)라 여기에 그린다. */
+  border-right: 2px solid var(--border);
   /* macOS 오버레이 스크롤바는 멈추면 사라진다 → 분할 경계에 항상 보이도록
      ::-webkit-scrollbar 를 직접 지정해 클래식(상시 노출) 스크롤바로 전환.
      주의: 표준 scrollbar-width 속성을 함께 쓰면 Chromium 이 ::-webkit-scrollbar
