@@ -541,12 +541,21 @@ export function AiKeysPanel({ youtubeAllowed, className }: AiKeysPanelProps) {
 function FaqCard() {
   const items: { q: string; a: ReactNode }[] = [
     {
-      q: "API 키가 뭔가요? 꼭 입력해야 하나요?",
+      q: "저는 이미 제미나이를 구독하고 있는데, API 키도 따로 결제해야 하나요?",
       a: (
         <>
-          API 키는 AI 서비스(구글 Gemini 등)에 “이 사람이 쓴다”고 알려주는{" "}
-          <strong>비밀번호 같은 출입증</strong>이에요. 글·이미지·쇼츠를 AI로
-          만들기 때문에, 키가 없으면 생성 기능을 쓸 수 없어요. 그래서 꼭 필요해요.
+          네, <strong>따로 필요합니다.</strong> 두 가지가 같은 ‘제미나이’라서 헷갈리기
+          쉽지만, 구글 안에서 서로 다른 상품이에요.
+          <ul className="mt-1.5 list-disc space-y-1 pl-5">
+            <li>
+              <strong>제미나이 구독</strong>은 대표님이 직접 제미나이 사이트·앱에 들어가
+              채팅할 때 쓰는 요금입니다.
+            </li>
+            <li>
+              <strong>API 키</strong>는 블로그픽 프로그램이 대표님 대신 제미나이에게
+              자동으로 글을 요청할 때 쓰는 통로입니다.
+            </li>
+          </ul>
         </>
       ),
     },
