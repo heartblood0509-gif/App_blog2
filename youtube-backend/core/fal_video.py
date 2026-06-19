@@ -1,10 +1,37 @@
 """fal.ai Image-to-Video 클라이언트 — 다중 모델 지원"""
 
 import asyncio
+import logging
 import os
 import httpx
 
 from config import settings
+
+logger = logging.getLogger(__name__)
+
+
+def _raise_with_detail(resp: httpx.Response, where: str):
+    """
+    fal 응답이 실패(4xx/5xx)일 때, fal 이 돌려준 본문(거부 사유)을 로그에 남기고 예외를 던진다.
+
+    veo3.1 같은 영상 모델은 요청을 일단 200으로 받아 큐에서 처리한 뒤,
+    마지막 '결과 수신' 단계에서 422 로 생성을 거부하는 경우가 있다(예: 실제 인물 사진 등 콘텐츠 정책).
+    기존 코드는 raise_for_status() 로 status code 만 던지고 본문을 버려서
+    "왜 거부됐는지"를 알 수 없었다 → 여기서 본문을 읽어 로그에 한 줄로 남긴다.
+    """
+    try:
+        detail = (resp.text or "").strip()
+    except Exception:
+        detail = ""
+    detail_short = detail[:600] or "(빈 본문)"
+    logger.warning(
+        "[fal_video] %s 실패 | HTTP %s | url=%s | detail=%s",
+        where,
+        resp.status_code,
+        resp.request.url if resp.request else "?",
+        detail_short,
+    )
+    raise RuntimeError(f"fal.ai {where} 실패 (HTTP {resp.status_code}): {detail_short}")
 
 # ── fal.ai 모델 설정 ──
 
@@ -122,7 +149,8 @@ async def submit_task(model_key: str, image_url: str, api_key: str = None) -> di
             json=body,
             headers=_headers(api_key),
         )
-        resp.raise_for_status()
+        if resp.status_code >= 400:
+            _raise_with_detail(resp, "영상 생성 요청(submit)")
         data = resp.json()
 
     return {
@@ -145,13 +173,15 @@ async def poll_task(status_url: str, response_url: str, timeout: int = 600, inte
     async with httpx.AsyncClient(timeout=30) as client:
         while time.time() - start < timeout:
             resp = await client.get(status_url, headers=_headers(api_key))
-            resp.raise_for_status()
+            if resp.status_code >= 400:
+                _raise_with_detail(resp, "상태 조회(status)")
             status_data = resp.json()
             status = status_data.get("status")
 
             if status == "COMPLETED":
                 result_resp = await client.get(response_url, headers=_headers(api_key))
-                result_resp.raise_for_status()
+                if result_resp.status_code >= 400:
+                    _raise_with_detail(result_resp, "결과 수신(result)")
                 result = result_resp.json()
                 video = result.get("video", {})
                 video_url = video.get("url")
