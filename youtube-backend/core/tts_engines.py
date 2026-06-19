@@ -17,14 +17,18 @@ V21_ONLY_VOICES = {
 _TYPECAST_MAX_CONCURRENCY = 1
 
 
-def _generate_one_sentence_typecast(tts_dir, index, sent, headers, vid, model, speed, emotion):
+def _generate_one_sentence_typecast(tts_dir, index, sent, headers, vid, model, speed, emotion, measure_duration=True):
     """한 문장만 Typecast로 합성하고 sent_XX.wav 저장. duration 반환.
 
     실패 지점(HTTP 에러·polling 타임아웃·파일 누락)마다 명확한 RuntimeError를 던져
     병렬 처리 중 어느 줄이 왜 실패했는지 즉시 추적 가능하게 한다.
+
+    measure_duration=False면 sf.read 디코드를 건너뛰고 duration 0.0을 반환한다.
+    미리듣기 전용: libsndfile(sf)이 못 읽는 MP3/변종 응답을 여기서 거부해버리면
+    뒤따르는 ffmpeg 정규화에 도달조차 못 하므로(브라우저 재생용 표준화 실패),
+    duration이 필요 없는 미리듣기에서는 디코드를 건너뛰어 ffmpeg를 첫 디코더로 세운다.
     """
     import requests
-    import soundfile as sf
 
     prefix = f"[Typecast sent_{index:02d}]"
     payload = {
@@ -91,15 +95,22 @@ def _generate_one_sentence_typecast(tts_dir, index, sent, headers, vid, model, s
     if not os.path.exists(out_path) or os.path.getsize(out_path) == 0:
         raise RuntimeError(f"{prefix} wav 파일이 생성되지 않음: {out_path}")
 
+    if not measure_duration:
+        return {"text": sent, "duration": 0.0}
+
+    import soundfile as sf
     wav, sr = sf.read(out_path)
     duration = len(wav) / sr
     return {"text": sent, "duration": round(duration, 2)}
 
 
-async def generate_tts_typecast(tts_dir, sentences, voice_id=None, speed=None, emotion=None, api_key=None):
+async def generate_tts_typecast(tts_dir, sentences, voice_id=None, speed=None, emotion=None, api_key=None, measure_duration=True):
     """
     Typecast API TTS (고품질 한국어). 5줄 병렬 처리.
     반환: raw_timings (문장별 duration 목록, sentences 순서 보존)
+
+    measure_duration=False면 sf.read 디코드를 건너뛴다(미리듣기 전용, duration 0.0).
+    기본 True라 영상/preview-build 경로는 영향 없음.
     """
     from config import settings
 
@@ -117,7 +128,7 @@ async def generate_tts_typecast(tts_dir, sentences, voice_id=None, speed=None, e
         async with sem:
             return await asyncio.to_thread(
                 _generate_one_sentence_typecast,
-                tts_dir, i, sent, headers, vid, model, speed, emotion,
+                tts_dir, i, sent, headers, vid, model, speed, emotion, measure_duration,
             )
 
     tasks = [_one(i, s) for i, s in enumerate(sentences)]
