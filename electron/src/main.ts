@@ -193,6 +193,27 @@ function notifyBlogSplitState(open: boolean): void {
   mainWindow.webContents.send("blogSplit:state", open);
 }
 
+// 네이버 페이지(BrowserView)의 스크롤바를 항상 보이게 강제.
+// 기본은 macOS 오버레이 스크롤바라 멈추면 사라진다 → ::-webkit-scrollbar 를
+// 직접 지정하면 클래식(상시 노출) 스크롤바로 전환된다. 가로/세로 모두 적용.
+const BLOG_SPLIT_SCROLLBAR_CSS = `
+  ::-webkit-scrollbar { width: 12px; height: 12px; }
+  ::-webkit-scrollbar-thumb {
+    background: rgba(0, 0, 0, 0.32);
+    border-radius: 6px;
+    border: 3px solid transparent;
+    background-clip: padding-box;
+  }
+  ::-webkit-scrollbar-thumb:hover { background: rgba(0, 0, 0, 0.5); background-clip: padding-box; }
+  ::-webkit-scrollbar-track { background: transparent; }
+`;
+
+// 새 문서를 로드하면 insertCSS 가 초기화되므로 매 로드마다 다시 주입한다.
+function injectBlogSplitScrollbarCss(): void {
+  if (!isBlogSplitOpen()) return;
+  blogSplitView!.webContents.insertCSS(BLOG_SPLIT_SCROLLBAR_CSS).catch(() => {});
+}
+
 function notifyBlogSplitNavigation(): void {
   if (!mainWindow || mainWindow.isDestroyed() || !isBlogSplitOpen()) return;
   const contents = blogSplitView!.webContents;
@@ -255,7 +276,10 @@ async function openBlogSplitView(url?: unknown): Promise<{ ok: boolean }> {
     applyBlogSplitSecurity(blogSplitView);
     blogSplitView.webContents.on("did-navigate", notifyBlogSplitNavigation);
     blogSplitView.webContents.on("did-navigate-in-page", notifyBlogSplitNavigation);
-    blogSplitView.webContents.on("did-finish-load", notifyBlogSplitNavigation);
+    blogSplitView.webContents.on("did-finish-load", () => {
+      notifyBlogSplitNavigation();
+      injectBlogSplitScrollbarCss();
+    });
     blogSplitView.webContents.once("destroyed", () => {
       blogSplitView = null;
       notifyBlogSplitState(false);

@@ -159,6 +159,22 @@ body.blog-split-open [data-blog-pick-root] {
   overflow: scroll;
   overscroll-behavior: contain;
   background: var(--background);
+  /* macOS 오버레이 스크롤바는 멈추면 사라진다 → 분할 경계에 항상 보이도록
+     ::-webkit-scrollbar 를 직접 지정해 클래식(상시 노출) 스크롤바로 전환.
+     주의: 표준 scrollbar-width 속성을 함께 쓰면 Chromium 이 ::-webkit-scrollbar
+     를 무시하고 다시 사라지는 오버레이로 돌아간다. Electron(Chromium 전용)이므로
+     Firefox용 표준 속성 없이 webkit 의사요소만 사용한다. */
+}
+
+body.blog-split-open [data-blog-pick-root]::-webkit-scrollbar {
+  width: 10px;
+}
+body.blog-split-open [data-blog-pick-root]::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 5px;
+}
+body.blog-split-open [data-blog-pick-root]::-webkit-scrollbar-thumb:hover {
+  background: var(--muted-foreground);
 }
 
 body.blog-split-open [data-blog-pick-shell] {
