@@ -742,7 +742,7 @@ export function StepPublish({
         {/* 그룹 A: 블로그 발행 + 같은 본문 내보내기.
             발행은 "입력 방식" 두 가지 카드로 제시한다:
               · 타이핑으로 입력 = 외부 크롬 창에 키스트로크 (handlePublish)
-              · 붙여넣기로 입력 = 앱 내부 분할 패널에 클립보드 붙여넣기 (handlePasteProbe, dev-only)
+              · 붙여넣기로 입력 = 앱 내부 분할 패널에 클립보드 붙여넣기 (handlePasteProbe)
             둘 다 자동 입력일 뿐 최종 발행 버튼은 사용자가 직접 누른다. */}
         <div className="rounded-lg border bg-card p-4 space-y-3">
           <h3 className="flex items-center gap-2 text-sm font-medium text-foreground">
