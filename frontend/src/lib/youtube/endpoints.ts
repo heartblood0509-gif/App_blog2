@@ -569,8 +569,8 @@ export function listJobs(limit = 30): Promise<JobSummary[]> {
   return ytGetJson<JobSummary[]>(`/api/jobs/?limit=${limit}`);
 }
 
-/** 완료/편집중 Card B 작업을 편집 상태(preview_ready)로 되돌리고 복원 데이터(draft-state) 반환.
- * 진행 중(active task)이면 409, 정리/만료됐으면 410. */
+/** 완료/실패/편집중 Card B 작업을 편집 상태(preview_ready)로 되돌리고 복원 데이터(draft-state) 반환.
+ * (failed: 렌더 실패 후 자산 교체용 재진입) 진행 중(active task)이면 409, 정리/만료됐으면 410. */
 export function reopenJob(jobId: string): Promise<DraftState> {
   return ytPostJson<DraftState>(`/api/jobs/${jobId}/reopen`, {});
 }

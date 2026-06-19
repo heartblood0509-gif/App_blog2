@@ -77,9 +77,11 @@ def _job_to_response(job: Job, user_map: dict | None = None, include_size: bool 
     # 활성 task 체크는 N+1 회피 위해 생략 — 드물게 클릭 후 409 발생 시 사용자 재시도.
     # preview_ready 포함: reopen이 멱등이라 이미 편집 중인 job에 다시 진입하는 흐름도 허용.
     # (사용자가 편집 화면을 떠났다가 작업이력으로 돌아와 다시 들어가는 케이스)
+    # failed 포함: 렌더 실패(예: 업로드 영상이 음성보다 짧음) 후에도 자산은 보존돼 있으므로
+    # 편집 화면으로 돌아가 자산만 교체 후 재제작할 수 있게 한다.
     can_reopen = (
         job.generation_mode == "user_assets"
-        and job.status in ("completed", "preview_ready")
+        and job.status in ("completed", "preview_ready", "failed")
         and not bool(job.intermediates_purged)
         and not files_expired
     )
@@ -691,11 +693,11 @@ async def reopen_job(
     db: Session = Depends(get_db),
     _user: User = Depends(get_approved_user),
 ):
-    """카드 B 완료 후 편집 화면으로 복귀.
+    """카드 B 완료/실패 후 편집 화면으로 복귀.
 
     검증:
     - generation_mode == "user_assets"
-    - status == "completed"
+    - status in ("completed", "failed")  (failed: 렌더 실패 후 자산 교체용 재진입)
     - intermediates_purged == False (다운로드/discard 후엔 편집 불가)
     - 활성 task 0건 (재제작 중 동시 재진입 차단)
     - 자산 파일(images/clips) 실재 (R2에서 자동 복구 시도)
@@ -718,8 +720,8 @@ async def reopen_job(
             return _build_draft_state(job)
         raise HTTPException(status_code=409, detail="이미 편집 가능 상태이며 진행 중인 작업이 있습니다")
 
-    if job.status != "completed":
-        raise HTTPException(status_code=409, detail=f"완료된 작업만 다시 편집할 수 있습니다 (상태: {job.status})")
+    if job.status not in ("completed", "failed"):
+        raise HTTPException(status_code=409, detail=f"완료/실패한 작업만 다시 편집할 수 있습니다 (상태: {job.status})")
 
     if bool(job.intermediates_purged):
         raise HTTPException(status_code=410, detail="편집 가능 기한이 지났습니다 (이미 다운로드/정리됨)")
