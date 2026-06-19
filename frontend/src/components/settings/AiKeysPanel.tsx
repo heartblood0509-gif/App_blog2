@@ -539,6 +539,11 @@ export function AiKeysPanel({ youtubeAllowed, className }: AiKeysPanelProps) {
 // 자주 묻는 질문 (FAQ) — 키 입력 카드 아래. 각 질문은 <details> 토글로 펼침/접힘.
 // ─────────────────────────────────────────────
 function FaqCard() {
+  // 외부 가이드 열기 — Electron 은 기본 브라우저, 웹은 새 탭 (메인 패널의 openExternal 과 동일 규칙).
+  const openGuide = (url: string) => {
+    if (window.electronAPI?.auth) window.electronAPI.auth.openExternal(url);
+    else window.open(url, "_blank", "noopener");
+  };
   const items: { q: string; a: ReactNode }[] = [
     {
       q: "저는 이미 제미나이를 구독하고 있는데, API 키도 따로 결제해야 하나요?",
@@ -667,6 +672,15 @@ function FaqCard() {
       q: "이미지를 만들려는데 'API 키 권한/결제'라고 떠요",
       a: (
         <>
+          <p className="mb-2">
+            <button
+              type="button"
+              onClick={() => openGuide(FAL_KEY_GUIDE_URL)}
+              className="font-medium text-primary hover:underline"
+            >
+              📄 FAL API 키 발급·충전 방법 — 가이드 바로가기 →
+            </button>
+          </p>
           이미지는 <strong>fal</strong> 로 만들어지는데, fal 쪽에서{" "}
           <strong>“지금은 만들어 줄 수 없다(결제·크레딧 문제)”</strong>고 거절했다는
           표시예요. <strong>거의 대부분 fal에 크레딧(이용 금액)이 충전되지 않아서</strong>{" "}
