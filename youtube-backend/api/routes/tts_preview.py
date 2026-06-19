@@ -5,6 +5,7 @@ import json
 import os
 import re
 import shutil
+import tempfile
 import uuid
 
 from fastapi import APIRouter, Query, HTTPException, Depends
@@ -15,6 +16,7 @@ import requests as http_requests
 from sqlalchemy.orm import Session
 from config import settings
 from core.ffmpeg import FFPROBE
+from core.audio_utils import normalize_to_browser_wav, is_playable_wav
 from core.tts_engines import generate_tts_typecast, generate_tts_for_indices
 from core.line_splitter import (
     detect_overlong_lines,
@@ -140,42 +142,53 @@ async def tts_preview(
     os.makedirs(PREVIEW_DIR, exist_ok=True)
     cached = _cache_path(_user.id, engine, voice_id, speed, emotion)
 
-    if os.path.exists(cached):
-        media_type = "audio/mpeg" if cached.endswith(".mp3") else "audio/wav"
-        return FileResponse(cached, media_type=media_type)
+    # 같은 캐시 키(성우·속도·감정)의 동시 요청 직렬화 — 중복 생성과 tmp 경합 방지.
+    lock = _get_session_lock(cached)
+    async with lock:
+        # 캐시 히트: 서빙 전 구조 검증. 불량(잘림·HTML·MP3·비-PCM)이면 삭제 후 재생성으로 폴백
+        # → 한 번 박힌 손상 캐시가 다음 클릭에 자동 복구된다(자가치유).
+        if os.path.exists(cached):
+            if is_playable_wav(cached):
+                return FileResponse(cached, media_type="audio/wav")
+            try:
+                os.remove(cached)
+            except OSError:
+                pass
 
-    tmp_dir = os.path.join(PREVIEW_DIR, f"tmp_{engine}_{voice_id.replace('-', '_')}")
-    os.makedirs(tmp_dir, exist_ok=True)
+        # 요청마다 고유한 tmp 디렉토리 — 동시 요청의 finally rmtree가 서로를 지우지 않게.
+        tmp_dir = tempfile.mkdtemp(prefix=f"tmp_{engine}_", dir=PREVIEW_DIR)
+        try:
+            emo = emotion if emotion != "normal" else None
+            # measure_duration=False: sf.read 디코드를 건너뛰어 ffmpeg를 첫 디코더로 세운다.
+            await generate_tts_typecast(
+                tmp_dir, [SAMPLE_TEXT],
+                voice_id=voice_id, speed=speed, emotion=emo,
+                api_key=keys["typecast"], measure_duration=False,
+            )
+            wav_path = os.path.join(tmp_dir, "sent_00.wav")
+            if not os.path.exists(wav_path):
+                raise HTTPException(500, "Typecast 오디오 생성 실패")
 
-    try:
-        sentences = [SAMPLE_TEXT]
+            # 브라우저 재생용 표준 WAV로 정규화 → 검증된 파일만 캐시에 들어간다.
+            # ⚠️ 순서 중요: 정규화 성공 후 정규화 결과물에서 캐시로 이동(raw 바이트를 캐시하면 버그 재발).
+            norm_path = os.path.join(tmp_dir, "sent_00_norm.wav")
+            try:
+                normalize_to_browser_wav(wav_path, norm_path)
+            except RuntimeError:
+                raise HTTPException(502, "샘플 오디오 생성에 실패했습니다. 잠시 후 다시 시도해주세요.")
+            os.replace(norm_path, cached)
 
-        emo = emotion if emotion != "normal" else None
-        await generate_tts_typecast(
-            tmp_dir, sentences,
-            voice_id=voice_id, speed=speed, emotion=emo,
-            api_key=keys["typecast"],
-        )
-        wav_path = os.path.join(tmp_dir, "sent_00.wav")
-        if os.path.exists(wav_path):
-            os.replace(wav_path, cached)
-        else:
-            raise HTTPException(500, "Typecast 오디오 생성 실패")
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(500, f"미리듣기 생성 실패: {e}")
-    finally:
-        import shutil
-        if os.path.exists(tmp_dir):
+        except HTTPException:
+            raise
+        except Exception as e:
+            raise HTTPException(500, f"미리듣기 생성 실패: {e}")
+        finally:
             shutil.rmtree(tmp_dir, ignore_errors=True)
 
-    if not os.path.exists(cached):
-        raise HTTPException(500, "오디오 파일 생성 실패")
+        if not os.path.exists(cached):
+            raise HTTPException(500, "오디오 파일 생성 실패")
 
-    media_type = "audio/mpeg" if cached.endswith(".mp3") else "audio/wav"
-    return FileResponse(cached, media_type=media_type)
+        return FileResponse(cached, media_type="audio/wav")
 
 
 # ──────────────────────────────────────────────────────────────

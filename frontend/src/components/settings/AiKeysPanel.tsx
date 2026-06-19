@@ -539,6 +539,11 @@ export function AiKeysPanel({ youtubeAllowed, className }: AiKeysPanelProps) {
 // 자주 묻는 질문 (FAQ) — 키 입력 카드 아래. 각 질문은 <details> 토글로 펼침/접힘.
 // ─────────────────────────────────────────────
 function FaqCard() {
+  // 외부 가이드 열기 — Electron 은 기본 브라우저, 웹은 새 탭 (메인 패널의 openExternal 과 동일 규칙).
+  const openGuide = (url: string) => {
+    if (window.electronAPI?.auth) window.electronAPI.auth.openExternal(url);
+    else window.open(url, "_blank", "noopener");
+  };
   const items: { q: string; a: ReactNode }[] = [
     {
       q: "저는 이미 제미나이를 구독하고 있는데, API 키도 따로 결제해야 하나요?",
@@ -659,6 +664,41 @@ function FaqCard() {
               하세요.
             </li>
             <li>계속 뜨면 시간을 조금 더 두거나, 이용자가 적은 시간대에 다시 해보세요.</li>
+          </ul>
+        </>
+      ),
+    },
+    {
+      q: "이미지를 만들려는데 'API 키 권한/결제'라고 떠요",
+      a: (
+        <>
+          <p className="mb-2">
+            <button
+              type="button"
+              onClick={() => openGuide(FAL_KEY_GUIDE_URL)}
+              className="font-medium text-primary hover:underline"
+            >
+              📄 FAL API 키 발급·충전 방법 — 가이드 바로가기 →
+            </button>
+          </p>
+          이미지는 <strong>fal</strong> 로 만들어지는데, fal 쪽에서{" "}
+          <strong>“지금은 만들어 줄 수 없다(결제·크레딧 문제)”</strong>고 거절했다는
+          표시예요. <strong>거의 대부분 fal에 크레딧(이용 금액)이 충전되지 않아서</strong>{" "}
+          생깁니다.
+          <p className="mt-2">
+            교통카드에 잔액이 없으면 개찰구가 안 열리는 것과 같아요 — fal에 금액을 채워
+            두어야 이미지가 만들어집니다.
+          </p>
+          <ul className="mt-1.5 list-disc space-y-1 pl-5">
+            <li>
+              <strong>fal.ai</strong>에 접속해 <strong>결제 수단(카드)을 등록</strong>하고{" "}
+              <strong>크레딧을 충전</strong>하세요. 충전한 뒤 다시 생성하면 됩니다.
+            </li>
+            <li>
+              이미 충전돼 있는데도 계속 뜨면, 앱에 입력한 fal 키가 fal.ai의 키와{" "}
+              <strong>같은지</strong> 확인하세요(자세한 점검은 아래 “이미지/동영상 생성
+              실패가 떠요” 항목 참고).
+            </li>
           </ul>
         </>
       ),

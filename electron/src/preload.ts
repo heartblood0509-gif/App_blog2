@@ -81,6 +81,10 @@ contextBridge.exposeInMainWorld("electronAPI", {
     endBusy: (opId: string) => ipcRenderer.invoke("app:endBusy", opId),
     isBusy: (): Promise<boolean> => ipcRenderer.invoke("app:isBusy"),
     relaunch: () => ipcRenderer.invoke("app:relaunch"),
+    openLogsFolder: (): Promise<{ ok: boolean; error?: string; path: string }> =>
+      ipcRenderer.invoke("app:openLogsFolder"),
+    openTtsPreviewFolder: (): Promise<{ ok: boolean; error?: string; path: string }> =>
+      ipcRenderer.invoke("app:openTtsPreviewFolder"),
   },
   // §H publish 진행 추적. 종료 모달 가드용. busy 와 별도 (자동 발행 / 수동 발행 둘 다 포함).
   publish: {

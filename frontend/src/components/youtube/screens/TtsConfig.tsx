@@ -116,6 +116,8 @@ export function TtsConfig() {
         speed: state.ttsSpeed,
         emotion: state.emotion,
       });
+      // 빈 응답이면 재생 시도 없이 명확한 메시지로 실패시킨다.
+      if (blob.size === 0) throw new Error("미리듣기 오디오가 비어 있습니다.");
       // 요청 중 화면을 떠났으면 재생하지 않고 정리.
       if (!mountedRef.current) return;
       releaseUrl();
@@ -128,7 +130,14 @@ export function TtsConfig() {
         audioRef.current = null;
         if (mountedRef.current) setPreview("idle");
       };
-      await audio.play();
+      try {
+        await audio.play();
+      } catch (playErr) {
+        // 브라우저가 받은 바이트를 오디오로 못 푼 경우(MediaError) — 영어 원문이라 불친절.
+        // 원문은 콘솔에 보존하고, 토스트는 이 케이스 전용 한글 메시지로 던진다.
+        console.error("[tts preview] audio.play() 실패:", playErr);
+        throw new Error("미리듣기 오디오를 재생할 수 없습니다. 잠시 후 다시 시도해주세요.");
+      }
       if (mountedRef.current) setPreview("playing");
     } catch (e) {
       releaseUrl();
