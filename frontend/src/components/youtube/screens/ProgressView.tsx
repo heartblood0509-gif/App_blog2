@@ -5,11 +5,13 @@
 // preview_ready→'preview', clips_ready→'clips', completed→'completed'. failed 는 인라인 에러+처음부터.
 
 import { useRef, useState } from "react";
-import { AlertTriangle, Loader2, RotateCcw } from "lucide-react";
+import { AlertTriangle, Loader2, Pencil, RotateCcw } from "lucide-react";
+import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
-import { initialYtState, useYt } from "../state";
+import { initialYtState, restorePatchFromDraft, useYt } from "../state";
 import { ytUrl } from "@/lib/youtube/api";
+import { reopenJob } from "@/lib/youtube/endpoints";
 import { useJobStream, type JobFrame } from "@/lib/youtube/useJobStream";
 
 const STATUS_LABEL: Record<string, string> = {
@@ -27,6 +29,7 @@ const STATUS_LABEL: Record<string, string> = {
 export function ProgressView() {
   const { state, update } = useYt();
   const [frame, setFrame] = useState<JobFrame | null>(null);
+  const [reopening, setReopening] = useState(false);
   const routedRef = useRef(false);
 
   useJobStream(state.jobId, (f) => {
@@ -55,8 +58,26 @@ export function ProgressView() {
     update({ ...initialYtState });
   }
 
+  // 카드 B 렌더 실패 후 편집 화면(lines)으로 복귀. 자산·음성·제목이 보존돼 있어
+  // 짧았던 영상만 교체 후 다시 제작할 수 있다. reopenJob 이 자산을 복원하고 status 를
+  // preview_ready 로 되돌린다. restorePatchFromDraft 가 screen 을 "lines" 로 라우팅.
+  async function reopenForEdit() {
+    if (!state.jobId || reopening) return;
+    setReopening(true);
+    try {
+      const ds = await reopenJob(state.jobId);
+      update(restorePatchFromDraft(state.jobId, ds));
+    } catch (e) {
+      // 활성 task 등으로 409 면 백엔드의 한국어 안내 메시지가 그대로 노출된다(잠시 후 재시도).
+      toast.error(e instanceof Error ? e.message : "편집 화면으로 돌아가지 못했어요.");
+    } finally {
+      setReopening(false);
+    }
+  }
+
   if (status === "failed") {
     const errMsg = frame?.error || frame?.task_error || "작업이 실패했습니다.";
+    const canReopen = state.mode === "user_assets" && !!state.jobId;
     return (
       <div className="rounded-xl border border-destructive/40 bg-destructive/5 p-6">
         <div className="flex items-start gap-2">
@@ -66,8 +87,18 @@ export function ProgressView() {
             <p className="mt-1 text-sm text-muted-foreground">{errMsg}</p>
           </div>
         </div>
-        <div className="mt-5 flex justify-end">
-          <Button variant="outline" onClick={restart} className="gap-2">
+        <div className="mt-5 flex justify-end gap-2">
+          {canReopen && (
+            <Button onClick={reopenForEdit} disabled={reopening} className="gap-2">
+              {reopening ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Pencil className="h-4 w-4" />
+              )}
+              돌아가서 수정
+            </Button>
+          )}
+          <Button variant="outline" onClick={restart} disabled={reopening} className="gap-2">
             <RotateCcw className="h-4 w-4" /> 처음부터 다시
           </Button>
         </div>
