@@ -9,19 +9,22 @@ import { Separator } from "@/components/ui/separator";
 import {
   ArrowLeft,
   ArrowRight,
+  Check,
+  ClipboardPaste,
   Copy,
   Download,
   ExternalLink,
   CheckCircle2,
   FileText,
+  Keyboard,
   Link,
   Loader2,
-  PanelRightClose,
   PanelRightOpen,
   Plus,
   MessageCircle,
   RefreshCw,
   RotateCw,
+  X,
 } from "lucide-react";
 import { toast } from "sonner";
 import { BlogAccountManager } from "@/components/accounts/BlogAccountManager";
@@ -45,7 +48,7 @@ interface StepPublishProps {
   onStartNew?: () => void;
 }
 
-// dev-only PoC 진단용: BlogContentRenderer 의 line-by-line 분기와 동일 규칙으로
+// 개발 진단용: BlogContentRenderer 의 line-by-line 분기와 동일 규칙으로
 // content 를 블록 배열로 분해. main 의 parsePasteBlocks 결과와 옆에 두고 비교해서
 // 두 파서가 다르게 쪼개는 지점을 즉시 발견할 수 있게 함.
 // 본문 전체를 로그에 싣지 않도록 text block 은 lineCount+first+last 만 detail 로 보고.
@@ -122,7 +125,7 @@ export function StepPublish({
   const [cooldownSec, setCooldownSec] = useState(0); // 발행 1시간 쿨다운 남은 초(실시간 카운트다운)
   // §D 수동 발행 세션 — Chrome 창이 살아있는 동안 busy 유지.
   const [manualSessionId, setManualSessionId] = useState<string | null>(null);
-  // dev-only: SmartEditor native paste PoC + 분할뷰
+  // 붙여넣기로 입력(SmartEditor native paste) + 분할뷰. 기능 UI 는 항상 노출한다.
   const [isRunningPasteProbe, setIsRunningPasteProbe] = useState(false);
   const [pasteProbeResult, setPasteProbeResult] = useState<{
     ok: boolean;
@@ -138,7 +141,9 @@ export function StepPublish({
     canGoBack: false,
     canGoForward: false,
   });
-  const showPasteProbe = process.env.NODE_ENV === "development";
+  // 붙여넣기 기능 UI(카드·분할 패널·툴바)는 프로덕션에도 노출.
+  // OK/FAIL 단계별 진단 패널만 개발 중에 보이게 둔다(개발자 디버그용).
+  const showPasteDiagnostics = process.env.NODE_ENV === "development";
 
   // 자동 발행 중 + 수동 발행 Chrome 창 살아있는 동안 둘 다 busy.
   useBusy("publish:auto", isPublishing);
@@ -179,9 +184,8 @@ export function StepPublish({
   usePublishing("publish:auto", isPublishing);
   usePublishing(`publish:manual:${manualSessionId ?? "none"}`, manualSessionId !== null);
 
-  // dev-only: 분할뷰 상태 동기화 + 언마운트 시 정리
+  // 분할뷰 상태 동기화 + 언마운트 시 정리 (Electron 환경에서만 동작)
   useEffect(() => {
-    if (!showPasteProbe) return;
     const api = window.electronAPI?.blogSplit;
     if (!api) return;
     let mounted = true;
@@ -221,16 +225,15 @@ export function StepPublish({
       unsubscribeNavigation();
       api.close().catch(() => {});
     };
-  }, [showPasteProbe]);
+  }, []);
 
-  // dev-only: 분할뷰 열려 있는 동안 body 클래스로 좌측 영역 50vw 축소
+  // 분할뷰 열려 있는 동안 body 클래스로 좌측 영역 50vw 축소
   useEffect(() => {
-    if (!showPasteProbe) return;
     document.body.classList.toggle("blog-split-open", isBlogSplitOpen);
     return () => {
       document.body.classList.remove("blog-split-open");
     };
-  }, [isBlogSplitOpen, showPasteProbe]);
+  }, [isBlogSplitOpen]);
 
   // ─────────────────────────────────────────────
   // 블로그 본문 → 쓰레드 변환 (1소스 멀티유즈)
@@ -521,7 +524,7 @@ export function StepPublish({
   const handlePasteProbe = async () => {
     const api = window.electronAPI?.blogSplit;
     if (!api) {
-      toast.error("앱 실행 환경에서만 Paste PoC를 실행할 수 있습니다.");
+      toast.error("앱에서만 붙여넣기로 입력을 사용할 수 있습니다.");
       return;
     }
 
@@ -533,7 +536,7 @@ export function StepPublish({
         if (!result.ok) {
           throw new Error("블로그 글쓰기 화면을 열 수 없습니다.");
         }
-        // PoC 자동 open 시 onState/onNavigation 이벤트 도착 전이라도 토글 버튼/주소바가 즉시 반응하도록 동기 갱신.
+        // 자동 open 시 onState/onNavigation 이벤트 도착 전이라도 토글 버튼/주소바가 즉시 반응하도록 동기 갱신.
         setIsBlogSplitOpen(true);
         const openedUrl = await api
           .getUrl()
@@ -562,12 +565,12 @@ export function StepPublish({
       });
       setPasteProbeResult(result);
       if (result.ok) {
-        toast.success("Draft Paste PoC가 모두 통과했습니다.");
+        toast.success("내용을 붙여넣었어요. 확인한 뒤 발행해 주세요.");
       } else {
-        toast.warning(result.error || "Draft Paste PoC 일부 항목이 실패했습니다.");
+        toast.warning(result.error || "붙여넣기 중 일부가 제대로 들어가지 않았어요.");
       }
     } catch (err) {
-      const message = err instanceof Error ? err.message : "Paste PoC 실행 실패";
+      const message = err instanceof Error ? err.message : "붙여넣기 실행에 실패했어요.";
       setPasteProbeResult({ ok: false, error: message, steps: [] });
       toast.error(message);
     } finally {
@@ -577,9 +580,19 @@ export function StepPublish({
 
   const selectedAccount = accounts.find((a) => a.id === selectedAccountId);
 
+  // 붙여넣기 방식: 분할 화면의 현재 URL이 네이버 글쓰기(스마트에디터) 페이지인지 판별.
+  // 이 값이 true 여야 "붙여넣기로 입력" 버튼이 활성화된다. (로그인·글쓰기 진입은 사용자가 직접)
+  // 패턴은 진입 경로(GoBlogWrite)와 실제 에디터(PostWriteForm / Redirect=Write)를 모두 커버.
+  const isOnNaverWritePage =
+    /(?:GoBlogWrite|PostWriteForm)\.naver|Redirect=Write|postwrite/i.test(blogSplitUrl);
+  // 붙여넣기 3단계 진행 상태 (① 화면 열기 → ② 로그인·글쓰기 진입 → ③ 자동 붙여넣기)
+  const pasteStep1Done = isBlogSplitOpen;
+  const pasteStep2Done = isBlogSplitOpen && isOnNaverWritePage;
+  const pasteStep3Done = pasteProbeResult?.ok === true;
+
   return (
     <>
-      {showPasteProbe && isBlogSplitOpen && (
+      {isBlogSplitOpen && (
         <div
           className="fixed top-0 z-50 flex h-11 items-center gap-2 border-b border-border bg-background px-3 shadow-sm"
           style={{ left: "50vw", width: "50vw" }}
@@ -655,6 +668,18 @@ export function StepPublish({
           >
             N 홈
           </Button>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            className="h-8 w-8 shrink-0"
+            disabled={isTogglingBlogSplit}
+            onClick={handleToggleBlogSplit}
+            title="분할 화면 닫기"
+            aria-label="분할 화면 닫기"
+          >
+            <X className="h-4 w-4" />
+          </Button>
         </div>
       )}
 
@@ -714,35 +739,130 @@ export function StepPublish({
           (B) 다른 채널로 변환      = 쓰레드 / 유튜브 (보조 카테고리, 점선 박스 + 옅은 배경)
           박스로 묶어 두 그룹의 본질(같은 글 그대로 vs 형식 변환) 차이를 시각적으로 분리. */}
       <div className="space-y-4">
-        {/* 그룹 A: 블로그 발행 + 같은 본문 내보내기 */}
+        {/* 그룹 A: 블로그 발행 + 같은 본문 내보내기.
+            발행은 "입력 방식" 두 가지 카드로 제시한다:
+              · 타이핑으로 입력 = 외부 크롬 창에 키스트로크 (handlePublish)
+              · 붙여넣기로 입력 = 앱 내부 분할 패널에 클립보드 붙여넣기 (handlePasteProbe, dev-only)
+            둘 다 자동 입력일 뿐 최종 발행 버튼은 사용자가 직접 누른다. */}
         <div className="rounded-lg border bg-card p-4 space-y-3">
-          <h3 className="text-sm font-medium text-foreground">
-            📤 이 글 그대로 내보내기
+          <h3 className="flex items-center gap-2 text-sm font-medium text-foreground">
+            <ExternalLink className="h-[18px] w-[18px] text-muted-foreground" />
+            블로그에 발행
           </h3>
-          <div className="flex flex-wrap gap-3">
-            <Button
-              size="lg"
-              disabled={!content || isPublishing || !selectedAccountId || cooldownSec > 0}
-              className="gap-2 px-6 py-6 text-base font-semibold"
-              onClick={handlePublish}
-            >
-              {isPublishing ? (
-                <Loader2 className="h-5 w-5 animate-spin" />
-              ) : (
-                <ExternalLink className="h-5 w-5" />
-              )}
-              {isPublishing
-                ? "글 작성 중..."
-                : cooldownSec > 0
-                  ? `${formatCooldown(cooldownSec)} 후 발행 가능`
-                  : selectedAccount
-                    ? `"${selectedAccount.label}"에 자동발행하기`
-                    : "계정을 선택하세요"}
-            </Button>
 
+          <div className="grid gap-3 sm:grid-cols-2">
+            {/* 타이핑으로 입력 — 외부 크롬 창 */}
+            <div className="flex flex-col gap-3 rounded-lg border p-4">
+              <div className="flex items-center gap-2">
+                <Keyboard className="h-[18px] w-[18px] text-muted-foreground" />
+                <span className="text-sm font-medium">타이핑으로 입력</span>
+              </div>
+              <p className="text-xs leading-relaxed text-muted-foreground">
+                새 크롬 창에서 사람처럼 한 글자씩 자동 입력합니다.
+              </p>
+              <ul className="flex-1 list-disc space-y-1 pl-5 text-xs leading-relaxed text-muted-foreground">
+                <li>크롬 창 내부의 어떤 것도 클릭 금지</li>
+                <li>아이디/비번 저장 팝업도 클릭 금지</li>
+                <li>실수로 눌렀다면 창 닫고 다시 실행</li>
+              </ul>
+              <Button
+                size="lg"
+                disabled={!content || isPublishing || !selectedAccountId || cooldownSec > 0}
+                className="w-full gap-2 font-semibold"
+                onClick={handlePublish}
+              >
+                {isPublishing ? (
+                  <Loader2 className="h-5 w-5 animate-spin" />
+                ) : (
+                  <Keyboard className="h-5 w-5" />
+                )}
+                {isPublishing
+                  ? "글 작성 중..."
+                  : cooldownSec > 0
+                    ? `${formatCooldown(cooldownSec)} 후 발행 가능`
+                    : selectedAccount
+                      ? `"${selectedAccount.label}"에 타이핑`
+                      : "계정을 선택하세요"}
+              </Button>
+            </div>
+
+            {/* 붙여넣기로 입력 — 앱 내부 분할 패널. 사용자가 직접
+                ① 화면 열기 → ② 로그인·글쓰기 진입 → ③ 자동 붙여넣기 순으로 진행.
+                버튼은 분할 화면 상태에 따라 "블로그 화면 열기" → "붙여넣기로 입력"으로 진화. */}
+            <div className="relative flex flex-col gap-3 rounded-lg border-2 border-blue-500/50 p-4">
+                <span className="absolute -top-2.5 left-3 rounded bg-blue-100 px-2 py-0.5 text-[11px] font-medium text-blue-700 dark:bg-blue-950 dark:text-blue-300">
+                  권장 · 더 안전
+                </span>
+                <div className="flex items-center gap-2">
+                  <ClipboardPaste className="h-[18px] w-[18px] text-blue-500" />
+                  <span className="text-sm font-medium">붙여넣기로 입력</span>
+                </div>
+                <p className="text-xs leading-relaxed text-muted-foreground">
+                  직접 로그인·글쓰기에 진입한 뒤 한 번에 붙여넣어요.
+                </p>
+                <div className="flex-1 space-y-2 text-xs">
+                  {[
+                    { n: 1, label: "블로그 화면 열기", done: pasteStep1Done },
+                    { n: 2, label: "직접 로그인 · 글쓰기 진입", done: pasteStep2Done },
+                    { n: 3, label: "자동 붙여넣기", done: pasteStep3Done },
+                  ].map((s) => (
+                    <div
+                      key={s.n}
+                      className={`flex items-center gap-2 ${s.done ? "text-foreground" : "text-muted-foreground"}`}
+                    >
+                      <span
+                        className={`flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded-full text-[11px] ${
+                          s.done ? "bg-blue-500 text-white" : "border border-border"
+                        }`}
+                      >
+                        {s.done ? <Check className="h-3 w-3" /> : s.n}
+                      </span>
+                      <span>{s.label}</span>
+                    </div>
+                  ))}
+                </div>
+                {!isBlogSplitOpen ? (
+                  <Button
+                    variant="outline"
+                    size="lg"
+                    onClick={handleToggleBlogSplit}
+                    disabled={isTogglingBlogSplit}
+                    className="w-full gap-2 border-blue-500/40 hover:border-blue-500/70 hover:bg-blue-50 dark:hover:bg-blue-950/20"
+                  >
+                    {isTogglingBlogSplit ? (
+                      <Loader2 className="h-5 w-5 animate-spin" />
+                    ) : (
+                      <PanelRightOpen className="h-5 w-5 text-blue-500" />
+                    )}
+                    블로그 화면 열기
+                  </Button>
+                ) : (
+                  <Button
+                    size="lg"
+                    onClick={handlePasteProbe}
+                    disabled={isRunningPasteProbe || !isOnNaverWritePage}
+                    className="w-full gap-2 bg-blue-600 font-semibold text-white hover:bg-blue-700"
+                  >
+                    {isRunningPasteProbe ? (
+                      <Loader2 className="h-5 w-5 animate-spin" />
+                    ) : (
+                      <ClipboardPaste className="h-5 w-5" />
+                    )}
+                    붙여넣기로 입력
+                  </Button>
+                )}
+                {isBlogSplitOpen && !isOnNaverWritePage && (
+                  <p className="text-center text-[11px] text-muted-foreground">
+                    글쓰기 화면으로 이동하면 활성화돼요
+                  </p>
+                )}
+              </div>
+          </div>
+
+          {/* 보조 내보내기 — 발행과 성격이 다른 "파일로 빼내기" 액션은 구분선 아래로 분리 */}
+          <div className="flex flex-wrap gap-2 border-t pt-3">
             <Button
               variant="outline"
-              size="lg"
               onClick={handleCopy}
               disabled={!content}
               className="gap-2"
@@ -750,10 +870,8 @@ export function StepPublish({
               <Copy className="h-4 w-4" />
               텍스트 복사
             </Button>
-
             <Button
               variant="outline"
-              size="lg"
               onClick={handleDownloadMarkdown}
               disabled={!content}
               className="gap-2"
@@ -761,49 +879,13 @@ export function StepPublish({
               <Download className="h-4 w-4" />
               마크다운 다운로드
             </Button>
-
-            {showPasteProbe && (
-              <Button
-                variant="outline"
-                size="lg"
-                onClick={handleToggleBlogSplit}
-                disabled={isTogglingBlogSplit}
-                className="gap-2"
-              >
-                {isTogglingBlogSplit ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                ) : isBlogSplitOpen ? (
-                  <PanelRightClose className="h-4 w-4" />
-                ) : (
-                  <PanelRightOpen className="h-4 w-4" />
-                )}
-                {isBlogSplitOpen ? "분할 닫기" : "블로그 홈 보기"}
-              </Button>
-            )}
-
-            {showPasteProbe && (
-              <Button
-                variant="outline"
-                size="lg"
-                onClick={handlePasteProbe}
-                disabled={isRunningPasteProbe}
-                className="gap-2 border-blue-500/40 hover:border-blue-500/70 hover:bg-blue-50 dark:hover:bg-blue-950/20"
-              >
-                {isRunningPasteProbe ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                ) : (
-                  <Copy className="h-4 w-4 text-blue-500" />
-                )}
-                Draft Paste PoC
-              </Button>
-            )}
           </div>
 
-          {showPasteProbe && pasteProbeResult && (
+          {showPasteDiagnostics && pasteProbeResult && (
             <div className="rounded-md border bg-muted/30 p-3 text-xs">
               <div className="flex items-center justify-between gap-2">
                 <span className="font-medium">
-                  Draft Paste PoC 결과: {pasteProbeResult.ok ? "통과" : "확인 필요"}
+                  붙여넣기 진단: {pasteProbeResult.ok ? "통과" : "확인 필요"}
                 </span>
                 {pasteProbeResult.error && (
                   <span className="text-destructive">{pasteProbeResult.error}</span>
