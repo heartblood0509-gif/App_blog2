@@ -80,6 +80,24 @@ interface ElectronBlogSplitApi {
       canGoForward: boolean;
     }) => void,
   ) => () => void;
+  // 우측 블로그 뷰에서 단어 찾기(Chromium 네이티브 find-in-page).
+  find: (
+    text: string,
+    options?: { forward?: boolean; findNext?: boolean },
+  ) => Promise<number>;
+  stopFind: () => Promise<void>;
+  focusView: () => Promise<void>;
+  setFindBarHeight: (px: number) => Promise<void>;
+  onFound: (
+    cb: (state: {
+      requestId: number;
+      activeMatchOrdinal: number;
+      matches: number;
+      finalUpdate: boolean;
+    }) => void,
+  ) => () => void;
+  onOpenFind: (cb: () => void) => () => void;
+  onFindReset: (cb: () => void) => () => void;
 }
 
 interface ElectronSettingsApi {
