@@ -1750,6 +1750,20 @@ async function boot(): Promise<void> {
   });
   ipcMain.handle("app:isBusy", () => busyOps.size > 0);
 
+  // 진단 로그 폴더 열기 — 사용자가 Win+R·경로입력 없이 버튼 한 번으로 로그 폴더를 띄워
+  // 그 안의 파일을 그대로 문의에 첨부할 수 있게 한다. shell.openPath 는 Win/mac(intel·arm) 공통.
+  ipcMain.handle("app:openLogsFolder", async () => {
+    const dir = path.join(app.getPath("userData"), "logs");
+    try {
+      // 로그가 아직 없는 새 설치에서도 폴더가 열리도록 보장.
+      fs.mkdirSync(dir, { recursive: true });
+    } catch {
+      // mkdir 실패해도 openPath 를 시도해 본다(이미 존재할 수 있음).
+    }
+    const error = await shell.openPath(dir); // 성공 시 빈 문자열, 실패 시 에러 메시지.
+    return { ok: error === "", error: error || undefined, path: dir };
+  });
+
   // §H publish 진행 상태 IPC — before-quit 모달 가드용. busyOps 와 별도.
   // 발행 라우트 진입 시 publish:start, 완료/실패/취소 시 publish:end.
   ipcMain.handle("publish:start", (_e, opId: string) => {
