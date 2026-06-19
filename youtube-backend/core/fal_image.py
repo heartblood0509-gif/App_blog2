@@ -57,9 +57,12 @@ def _build_request(prompt: str, aspect_ratio: str, reference_images: list):
     if reference_images:
         model_id = settings.FAL_IMAGE_EDIT_MODEL_PRO if pro else settings.FAL_IMAGE_EDIT_MODEL
         image_urls = [_pil_to_data_uri(img) for img in reference_images]
-        # edit 엔드포인트는 입력 이미지 비율을 따르므로 aspect_ratio 미전달.
+        # 참조가 있어도 aspect_ratio 를 명시해 9:16 을 강제한다.
+        # (Gemini 직접 경로가 ImageConfig(aspect_ratio="9:16") 를 참조 유무와 무관하게 적용하는 것과 동일.)
+        # 미전달 시 edit 는 입력(참조) 이미지 비율을 따라가 9:16 이 깨지고, 그 이미지가 9:16 을
+        # 요구하는 영상 모델(veo 등)로 넘어가면 거부(422)된다.
         # thinking_level:"high" 는 프롬프트 순종도 향상 (블로그 transformImage 동일).
-        body = {"prompt": prompt, "image_urls": image_urls, "thinking_level": "high", **common}
+        body = {"prompt": prompt, "image_urls": image_urls, "aspect_ratio": aspect_ratio, "thinking_level": "high", **common}
     else:
         model_id = settings.FAL_IMAGE_MODEL_PRO if pro else settings.FAL_IMAGE_MODEL
         body = {"prompt": prompt, "aspect_ratio": aspect_ratio, **common}
