@@ -1,4 +1,5 @@
 import { app } from "electron";
+import fs from "fs";
 import path from "path";
 
 // dev 모드(`electron path/to/main.js`)에선 app.getName()이 기본값 "Electron"이라
@@ -11,6 +12,15 @@ const backendExecutableName = process.platform === "win32" ? "BlogPublisher.exe"
 const youtubeBackendExecutableName = process.platform === "win32" ? "YoutubeGenerator.exe" : "YoutubeGenerator";
 const ffmpegName = process.platform === "win32" ? "ffmpeg.exe" : "ffmpeg";
 const ffprobeName = process.platform === "win32" ? "ffprobe.exe" : "ffprobe";
+
+// dev 에서도 build/ffmpeg 에 정적 빌드가 있으면 그것을 우선 사용 → 배포본과 동일 바이너리(dev=prod).
+// "배포는 정상인데 dev 만 (시스템 ffmpeg 에 drawtext/libx264 빠져) 실패" 같은 환경 차이를 원천 차단.
+// 없으면 빈 문자열 → 시스템 PATH 폴백(기존 동작 유지: build/ffmpeg 미배치 개발자 보호).
+// build/ffmpeg 는 배포 시 그대로 번들되는 바로 그 디렉터리(youtube-backend/PACKAGING.md).
+const devBundledFfmpeg = path.join(__dirname, "..", "..", "build", "ffmpeg", ffmpegName);
+const devBundledFfprobe = path.join(__dirname, "..", "..", "build", "ffmpeg", ffprobeName);
+const devFfmpegBin = isDev && fs.existsSync(devBundledFfmpeg) ? devBundledFfmpeg : "";
+const devFfprobeBin = isDev && fs.existsSync(devBundledFfprobe) ? devBundledFfprobe : "";
 
 export const paths = {
   isDev,
@@ -47,9 +57,10 @@ export const paths = {
     ? path.join(__dirname, "..", "..", "youtube-backend", ".venv", "Scripts", "python.exe")
     : path.join(__dirname, "..", "..", "youtube-backend", ".venv", "bin", "python"),
 
-  // 번들 ffmpeg/ffprobe (packaged). dev 는 시스템 PATH 사용(빈 문자열 → env 미주입).
-  ffmpegBin: isDev ? "" : path.join(process.resourcesPath, "ffmpeg", ffmpegName),
-  ffprobeBin: isDev ? "" : path.join(process.resourcesPath, "ffmpeg", ffprobeName),
+  // 번들 ffmpeg/ffprobe. packaged: resources/ffmpeg. dev: build/ffmpeg 가 있으면 그것(=배포본과 동일),
+  // 없으면 빈 문자열 → 시스템 PATH 폴백. (devFfmpegBin/devFfprobeBin 계산은 위 참조)
+  ffmpegBin: isDev ? devFfmpegBin : path.join(process.resourcesPath, "ffmpeg", ffmpegName),
+  ffprobeBin: isDev ? devFfprobeBin : path.join(process.resourcesPath, "ffmpeg", ffprobeName),
 
   frontendCwdDev: path.join(__dirname, "..", "..", "frontend"),
 
