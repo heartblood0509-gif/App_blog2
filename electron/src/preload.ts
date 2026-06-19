@@ -87,6 +87,9 @@ contextBridge.exposeInMainWorld("electronAPI", {
     close: (): Promise<void> => ipcRenderer.invoke("blogSplit:close"),
     isOpen: (): Promise<boolean> => ipcRenderer.invoke("blogSplit:isOpen"),
     getUrl: (): Promise<string> => ipcRenderer.invoke("blogSplit:getUrl"),
+    getZoom: (): Promise<number> => ipcRenderer.invoke("blogSplit:getZoom"),
+    setZoom: (factor: number): Promise<number> =>
+      ipcRenderer.invoke("blogSplit:setZoom", factor),
     navigate: (
       action: "back" | "forward" | "reload" | "home" | "go",
       url?: string,

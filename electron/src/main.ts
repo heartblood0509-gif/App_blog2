@@ -214,6 +214,27 @@ function injectBlogSplitScrollbarCss(): void {
   blogSplitView!.webContents.insertCSS(BLOG_SPLIT_SCROLLBAR_CSS).catch(() => {});
 }
 
+// 우측 패널 줌 배율(1 = 100%). 컴퓨터에 익숙하지 않은 사용자도 툴바 +/- 로
+// 확대·축소할 수 있게 한다. 페이지를 이동해도 유지되도록 값을 보관하고
+// 매 로드(did-finish-load)마다 다시 적용한다.
+const BLOG_SPLIT_ZOOM_MIN = 0.5;
+const BLOG_SPLIT_ZOOM_MAX = 2;
+let blogSplitZoomFactor = 1;
+
+function applyBlogSplitZoom(): void {
+  if (!isBlogSplitOpen()) return;
+  blogSplitView!.webContents.setZoomFactor(blogSplitZoomFactor);
+}
+
+function setBlogSplitZoom(factor: number): number {
+  blogSplitZoomFactor = Math.min(
+    BLOG_SPLIT_ZOOM_MAX,
+    Math.max(BLOG_SPLIT_ZOOM_MIN, Math.round(factor * 100) / 100),
+  );
+  applyBlogSplitZoom();
+  return blogSplitZoomFactor;
+}
+
 function notifyBlogSplitNavigation(): void {
   if (!mainWindow || mainWindow.isDestroyed() || !isBlogSplitOpen()) return;
   const contents = blogSplitView!.webContents;
@@ -279,6 +300,7 @@ async function openBlogSplitView(url?: unknown): Promise<{ ok: boolean }> {
     blogSplitView.webContents.on("did-finish-load", () => {
       notifyBlogSplitNavigation();
       injectBlogSplitScrollbarCss();
+      applyBlogSplitZoom();
     });
     blogSplitView.webContents.once("destroyed", () => {
       blogSplitView = null;
@@ -1744,6 +1766,12 @@ async function boot(): Promise<void> {
   });
   ipcMain.handle("blogSplit:isOpen", () => isBlogSplitOpen());
   ipcMain.handle("blogSplit:getUrl", () => getBlogSplitUrl());
+  ipcMain.handle("blogSplit:getZoom", () =>
+    isBlogSplitOpen() ? blogSplitView!.webContents.getZoomFactor() : blogSplitZoomFactor,
+  );
+  ipcMain.handle("blogSplit:setZoom", (_e, factor: unknown) =>
+    setBlogSplitZoom(typeof factor === "number" && Number.isFinite(factor) ? factor : 1),
+  );
   ipcMain.handle("blogSplit:navigate", async (_e, action: unknown, url?: unknown) =>
     navigateBlogSplit(action, url),
   );

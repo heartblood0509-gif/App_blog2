@@ -25,6 +25,8 @@ import {
   RefreshCw,
   RotateCw,
   X,
+  ZoomIn,
+  ZoomOut,
 } from "lucide-react";
 import { toast } from "sonner";
 import { BlogAccountManager } from "@/components/accounts/BlogAccountManager";
@@ -141,6 +143,7 @@ export function StepPublish({
     canGoBack: false,
     canGoForward: false,
   });
+  const [blogSplitZoom, setBlogSplitZoom] = useState(1); // 우측 패널 줌 배율(1 = 100%)
   // 붙여넣기 기능 UI(카드·분할 패널·툴바)는 프로덕션에도 노출.
   // OK/FAIL 단계별 진단 패널만 개발 중에 보이게 둔다(개발자 디버그용).
   const showPasteDiagnostics = process.env.NODE_ENV === "development";
@@ -201,6 +204,12 @@ export function StepPublish({
               if (!mounted || !url) return;
               setBlogSplitUrl(url);
               setBlogSplitAddress(url);
+            })
+            .catch(() => {});
+          api
+            .getZoom()
+            .then((factor) => {
+              if (mounted && factor) setBlogSplitZoom(factor);
             })
             .catch(() => {});
         }
@@ -512,6 +521,16 @@ export function StepPublish({
     handleBlogSplitNavigate("go", blogSplitAddress);
   };
 
+  // 우측 패널 확대/축소. delta=0 이면 100%로 초기화. main 이 0.5~2 범위로 clamp 한
+  // 최종 배율을 돌려주므로 그 값으로 표시를 갱신한다.
+  const handleBlogSplitZoom = async (delta: number) => {
+    const api = window.electronAPI?.blogSplit;
+    if (!api) return;
+    const target = delta === 0 ? 1 : blogSplitZoom + delta;
+    const next = await api.setZoom(target).catch(() => null);
+    if (next != null) setBlogSplitZoom(next);
+  };
+
   const handleCopyBlogSplitUrl = async () => {
     try {
       await navigator.clipboard.writeText(blogSplitUrl);
@@ -659,6 +678,43 @@ export function StepPublish({
           >
             <Link className="h-4 w-4" />
           </Button>
+          {/* 화면 확대/축소 — 단축키(Cmd/Ctrl +/-)를 모르는 사용자를 위해 버튼 제공.
+              가운데 퍼센트를 누르면 100%로 초기화. */}
+          <div className="flex h-8 shrink-0 items-center overflow-hidden rounded-md border border-input">
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className="h-8 w-7 rounded-none"
+              disabled={blogSplitZoom <= 0.5}
+              onClick={() => handleBlogSplitZoom(-0.1)}
+              title="축소"
+              aria-label="화면 축소"
+            >
+              <ZoomOut className="h-4 w-4" />
+            </Button>
+            <button
+              type="button"
+              className="h-8 w-11 border-x border-input text-xs tabular-nums text-muted-foreground hover:bg-muted/50"
+              onClick={() => handleBlogSplitZoom(0)}
+              title="100%로 초기화"
+              aria-label="확대/축소 초기화"
+            >
+              {Math.round(blogSplitZoom * 100)}%
+            </button>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className="h-8 w-7 rounded-none"
+              disabled={blogSplitZoom >= 2}
+              onClick={() => handleBlogSplitZoom(0.1)}
+              title="확대"
+              aria-label="화면 확대"
+            >
+              <ZoomIn className="h-4 w-4" />
+            </Button>
+          </div>
           <Button
             type="button"
             className="h-8 shrink-0 bg-[#03c75a] px-3 text-sm font-semibold text-white hover:bg-[#02b351]"
