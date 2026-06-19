@@ -8,7 +8,7 @@ import os
 import numpy as np
 import soundfile as sf
 
-from core.ffmpeg import FFMPEG_Q
+from core.ffmpeg import FFMPEG, FFMPEG_Q
 
 
 def run(cmd, desc="", cwd=None):
@@ -27,6 +27,45 @@ def run(cmd, desc="", cwd=None):
     if result.returncode != 0:
         raise RuntimeError(f"ffmpeg 에러: {result.stderr[-1000:]}")
     return result
+
+
+def is_playable_wav(path: str) -> bool:
+    """stdlib wave 로 PCM WAV 구조를 검증한다(서브프로세스 없음, 빠름).
+
+    파일이 열리고 nframes>0 · framerate>0 이면 True. 12바이트 매직 비교보다
+    엄격해서 비-PCM/헤더 깨짐/빈 파일/HTML·MP3 바이트를 잡아낸다.
+    미리듣기 캐시를 서빙하기 전 게이트 + 레거시 불량 캐시 자가치유 판정에 쓴다.
+    """
+    import wave
+    try:
+        with wave.open(path, "rb") as w:
+            return w.getnframes() > 0 and w.getframerate() > 0
+    except Exception:
+        return False
+
+
+def normalize_to_browser_wav(src: str, dst: str) -> None:
+    """임의 오디오(src)를 브라우저 재생용 표준 WAV(PCM s16le, 44.1kHz)로 변환해 dst에 쓴다.
+
+    ffmpeg는 MP3·변종 WAV 등을 폭넓게 디코드하므로, Typecast가 무엇을 주든 모든
+    브라우저(<audio>)가 재생 가능한 파일로 표준화된다. ffmpeg가 src를 못 읽거나
+    (빈/HTML/잘림/디코드 불가) ffmpeg 바이너리 자체가 없으면 RuntimeError를 던진다.
+    호출자는 RuntimeError를 '캐시 금지(불량)'로 취급해야 한다.
+    """
+    cmd = [
+        FFMPEG, "-y", "-nostdin", "-v", "error",
+        "-i", src,
+        "-vn", "-map", "0:a:0",
+        "-c:a", "pcm_s16le", "-ar", "44100",
+        "-f", "wav", dst,
+    ]
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8")
+    except OSError as e:
+        # ffmpeg 바이너리 부재(FileNotFoundError) 등 — run()은 returncode만 보므로 여기서 명시 포착.
+        raise RuntimeError(f"ffmpeg 실행 불가: {e}")
+    if result.returncode != 0:
+        raise RuntimeError(f"ffmpeg 정규화 실패: {result.stderr[-500:]}")
 
 
 def extract_sentence_from_warmup(wav, sr):
