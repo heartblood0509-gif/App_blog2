@@ -33,6 +33,7 @@ interface ElectronAppApi {
   isBusy: () => Promise<boolean>;
   relaunch: () => Promise<void>;
   openLogsFolder: () => Promise<{ ok: boolean; error?: string; path: string }>;
+  openTtsPreviewFolder: () => Promise<{ ok: boolean; error?: string; path: string }>;
 }
 
 interface ElectronPublishApi {

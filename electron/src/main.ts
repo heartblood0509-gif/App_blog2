@@ -1764,6 +1764,21 @@ async function boot(): Promise<void> {
     return { ok: error === "", error: error || undefined, path: dir };
   });
 
+  // 음성 미리듣기(샘플) 캐시 폴더 열기 — 미리듣기 재생 실패 문의 시, 재생에 실패한
+  // 그 .wav 파일 자체를 사용자가 그대로 첨부할 수 있게 한다. 경로는 storageDir(아래
+  // youtubeManager 에 주입한 값)과 동일한 규칙으로 구성. shell.openPath 는 Win/mac(intel·arm) 공통.
+  ipcMain.handle("app:openTtsPreviewFolder", async () => {
+    const dir = path.join(app.getPath("userData"), "youtube", "storage", "tts_preview");
+    try {
+      // 한 번도 미리듣기를 안 한 설치에서도 폴더가 열리도록 보장(빈 폴더면 '캐시 없음'이 곧 단서).
+      fs.mkdirSync(dir, { recursive: true });
+    } catch {
+      // mkdir 실패해도 openPath 를 시도해 본다(이미 존재할 수 있음).
+    }
+    const error = await shell.openPath(dir); // 성공 시 빈 문자열, 실패 시 에러 메시지.
+    return { ok: error === "", error: error || undefined, path: dir };
+  });
+
   // §H publish 진행 상태 IPC — before-quit 모달 가드용. busyOps 와 별도.
   // 발행 라우트 진입 시 publish:start, 완료/실패/취소 시 publish:end.
   ipcMain.handle("publish:start", (_e, opId: string) => {
