@@ -184,11 +184,17 @@ async function prepareDeps(worktreeRoot) {
   // 미설치 상태에서 백엔드가 import 시점에 죽는 걸 막는다. 이미 설치되어 있으면 pip 가 빠르게 통과.
   console.log("\n[dev-worktree] Python 의존성 설치 (backend/requirements.txt)");
   const pythonCmd = process.platform === "win32" ? "python" : "python3";
-  const r = spawnSync(
-    pythonCmd,
-    ["-m", "pip", "install", "-r", "backend/requirements.txt"],
-    { cwd: worktreeRoot, stdio: "inherit", shell: process.platform === "win32" }
-  );
+  const pipArgs = ["-m", "pip", "install", "-r", "backend/requirements.txt"];
+  const pipOpts = { cwd: worktreeRoot, stdio: "inherit", shell: process.platform === "win32" };
+  let r = spawnSync(pythonCmd, pipArgs, pipOpts);
+  if (r.status !== 0) {
+    // Python 3.14+/Homebrew 등 PEP 668 "externally-managed" 환경에서는 시스템 python 에
+    // 직접 pip install 이 거부된다. 백엔드는 python-manager 가 같은 시스템 python 으로
+    // `python3 main.py` 를 spawn 하므로, 사용자 사이트(--user)에 PEP 668 가드만 우회해
+    // (--break-system-packages) 설치한다. homebrew 의 관리 디렉터리는 건드리지 않는다.
+    console.log("  pip install 거부됨 → --user --break-system-packages 로 재시도 (PEP 668 우회)");
+    r = spawnSync(pythonCmd, [...pipArgs, "--user", "--break-system-packages"], pipOpts);
+  }
   if (r.status !== 0) {
     die(`pip install 실패 — 수동으로 \`${pythonCmd} -m pip install -r backend/requirements.txt\` 실행 후 다시 시도`);
   }

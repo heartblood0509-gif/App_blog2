@@ -18,6 +18,12 @@ interface BlogSplitNavigationEvent {
   canGoBack: boolean;
   canGoForward: boolean;
 }
+interface BlogSplitFoundInPageEvent {
+  requestId: number;
+  activeMatchOrdinal: number;
+  matches: number;
+  finalUpdate: boolean;
+}
 interface BlogSplitPasteProbeImage {
   index: number;
   base64: string;
@@ -110,6 +116,29 @@ contextBridge.exposeInMainWorld("electronAPI", {
       const handler = (_: IpcRendererEvent, state: BlogSplitNavigationEvent) => cb(state);
       ipcRenderer.on("blogSplit:navigation", handler);
       return () => ipcRenderer.removeListener("blogSplit:navigation", handler);
+    },
+    find: (
+      text: string,
+      options?: { forward?: boolean; findNext?: boolean },
+    ): Promise<number> => ipcRenderer.invoke("blogSplit:find", text, options ?? {}),
+    stopFind: (): Promise<void> => ipcRenderer.invoke("blogSplit:stopFind"),
+    focusView: (): Promise<void> => ipcRenderer.invoke("blogSplit:focusView"),
+    setFindBarHeight: (px: number): Promise<void> =>
+      ipcRenderer.invoke("blogSplit:setFindBarHeight", px),
+    onFound: (cb: (state: BlogSplitFoundInPageEvent) => void) => {
+      const handler = (_: IpcRendererEvent, state: BlogSplitFoundInPageEvent) => cb(state);
+      ipcRenderer.on("blogSplit:foundInPage", handler);
+      return () => ipcRenderer.removeListener("blogSplit:foundInPage", handler);
+    },
+    onOpenFind: (cb: () => void) => {
+      const handler = () => cb();
+      ipcRenderer.on("blogSplit:openFind", handler);
+      return () => ipcRenderer.removeListener("blogSplit:openFind", handler);
+    },
+    onFindReset: (cb: () => void) => {
+      const handler = () => cb();
+      ipcRenderer.on("blogSplit:findReset", handler);
+      return () => ipcRenderer.removeListener("blogSplit:findReset", handler);
     },
   },
   // §F 설정. 평문 key 는 renderer 로 흐르지 않음 (마스킹만).

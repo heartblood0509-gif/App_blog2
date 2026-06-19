@@ -139,6 +139,10 @@ function getInitialWindowBounds(): { width: number; height: number } {
 const BLOG_SPLIT_DEFAULT_URL = "https://blog.naver.com";
 const BLOG_SPLIT_NAVER_HOME_URL = "https://www.naver.com";
 const BLOG_SPLIT_TOOLBAR_HEIGHT = 44;
+// 찾기 막대가 열리면 그 높이만큼 블로그 뷰를 더 아래로 내린다(찾기 막대가
+// 네이티브 뷰에 가려지지 않도록). 실제 픽셀은 렌더러가 렌더된 막대를 측정해
+// blogSplit:setFindBarHeight 로 넘겨주므로 양쪽에 같은 상수를 중복하지 않는다.
+let blogSplitFindBarHeight = 0;
 const BLOG_SPLIT_ALLOWED_HOSTS = new Set([
   "naver.com",
   "www.naver.com",
@@ -180,11 +184,12 @@ function getBlogSplitBounds(): Rectangle | null {
   if (!mainWindow || mainWindow.isDestroyed()) return null;
   const { width, height } = mainWindow.getContentBounds();
   const leftWidth = Math.floor(width / 2);
+  const topOffset = BLOG_SPLIT_TOOLBAR_HEIGHT + blogSplitFindBarHeight;
   return {
     x: leftWidth,
-    y: BLOG_SPLIT_TOOLBAR_HEIGHT,
+    y: topOffset,
     width: Math.max(0, width - leftWidth),
-    height: Math.max(0, height - BLOG_SPLIT_TOOLBAR_HEIGHT),
+    height: Math.max(0, height - topOffset),
   };
 }
 
@@ -249,6 +254,35 @@ function isBlogSplitOpen(): boolean {
   return Boolean(blogSplitView && !blogSplitView.webContents.isDestroyed());
 }
 
+// 우측 블로그 뷰에서 단어 찾기(Chromium 네이티브 find-in-page).
+// 빈 검색어는 findInPage 가 허용하지 않으므로 하이라이트만 지운다.
+// 반환하는 requestId 로 렌더러가 늦게 도착한 옛 검색 결과(stale)를 걸러낸다.
+function findInBlogSplit(text: unknown, options: unknown): number {
+  if (!isBlogSplitOpen()) return 0;
+  const query = typeof text === "string" ? text : String(text ?? "");
+  const contents = blogSplitView!.webContents;
+  if (query.length === 0) {
+    contents.stopFindInPage("clearSelection");
+    return 0;
+  }
+  const opts = (options ?? {}) as { forward?: unknown; findNext?: unknown };
+  return contents.findInPage(query, {
+    forward: opts.forward !== false,
+    findNext: Boolean(opts.findNext),
+    matchCase: false,
+  });
+}
+
+function stopBlogSplitFind(): void {
+  if (!isBlogSplitOpen()) return;
+  blogSplitView!.webContents.stopFindInPage("clearSelection");
+}
+
+function focusBlogSplitView(): void {
+  if (!isBlogSplitOpen()) return;
+  blogSplitView!.webContents.focus();
+}
+
 function getBlogSplitUrl(): string {
   if (!isBlogSplitOpen()) return "";
   return blogSplitView!.webContents.getURL();
@@ -297,6 +331,37 @@ async function openBlogSplitView(url?: unknown): Promise<{ ok: boolean }> {
     applyBlogSplitSecurity(blogSplitView);
     blogSplitView.webContents.on("did-navigate", notifyBlogSplitNavigation);
     blogSplitView.webContents.on("did-navigate-in-page", notifyBlogSplitNavigation);
+    // 페이지를 이동하면 기존 하이라이트가 사라지므로 렌더러 카운터도 0으로 되돌린다.
+    blogSplitView.webContents.on("did-navigate", () => {
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send("blogSplit:findReset");
+      }
+    });
+    // find-in-page 결과를 렌더러로 전달. requestId 로 stale 판별, finalUpdate 로 확정.
+    blogSplitView.webContents.on("found-in-page", (_e, result) => {
+      if (!mainWindow || mainWindow.isDestroyed()) return;
+      mainWindow.webContents.send("blogSplit:foundInPage", {
+        requestId: result.requestId,
+        activeMatchOrdinal: result.activeMatchOrdinal,
+        matches: result.matches,
+        finalUpdate: result.finalUpdate,
+      });
+    });
+    // 블로그 뷰에 포커스가 있을 때의 Cmd/Ctrl+F 는 keydown 이 렌더러로 가지 않으므로
+    // 여기서 가로채 렌더러에 찾기 막대를 열라고 알린다(포커스도 앱 쪽으로 넘김).
+    blogSplitView.webContents.on("before-input-event", (event, input) => {
+      if (
+        input.type === "keyDown" &&
+        (input.meta || input.control) &&
+        input.key.toLowerCase() === "f"
+      ) {
+        event.preventDefault();
+        if (mainWindow && !mainWindow.isDestroyed()) {
+          mainWindow.webContents.focus();
+          mainWindow.webContents.send("blogSplit:openFind");
+        }
+      }
+    });
     blogSplitView.webContents.on("did-finish-load", () => {
       notifyBlogSplitNavigation();
       injectBlogSplitScrollbarCss();
@@ -328,10 +393,13 @@ function closeBlogSplitView(): void {
   }
   const view = blogSplitView;
   blogSplitView = null;
+  // 다음에 열 때 오프셋/하이라이트가 남지 않도록 찾기 상태를 초기화.
+  blogSplitFindBarHeight = 0;
   if (mainWindow && !mainWindow.isDestroyed()) {
     mainWindow.contentView.removeChildView(view);
   }
   if (!view.webContents.isDestroyed()) {
+    view.webContents.stopFindInPage("clearSelection");
     view.webContents.close({ waitForBeforeUnload: false });
   }
   notifyBlogSplitState(false);
@@ -1776,6 +1844,21 @@ async function boot(): Promise<void> {
     navigateBlogSplit(action, url),
   );
   ipcMain.handle("blogSplit:pasteProbe", async (_e, input: unknown) => runBlogSplitPasteProbe(input));
+  ipcMain.handle("blogSplit:find", (_e, text: unknown, options: unknown) =>
+    findInBlogSplit(text, options),
+  );
+  ipcMain.handle("blogSplit:stopFind", () => {
+    stopBlogSplitFind();
+  });
+  ipcMain.handle("blogSplit:focusView", () => {
+    focusBlogSplitView();
+  });
+  ipcMain.handle("blogSplit:setFindBarHeight", (_e, px: unknown) => {
+    const next = Math.max(0, Math.round(Number(px) || 0));
+    if (next === blogSplitFindBarHeight) return;
+    blogSplitFindBarHeight = next;
+    layoutBlogSplitView();
+  });
 
   // 스플래시 → 실제 앱 화면으로 전환. (프로그램적 loadURL 은 will-navigate 가드를 거치지 않음)
   await win.loadURL(allowedOrigin);

@@ -24,6 +24,7 @@ import {
   MessageCircle,
   RefreshCw,
   RotateCw,
+  Search,
   X,
   ZoomIn,
   ZoomOut,
@@ -31,6 +32,7 @@ import {
 import { toast } from "sonner";
 import { BlogAccountManager } from "@/components/accounts/BlogAccountManager";
 import { BlogContentRenderer } from "@/components/blog-content-renderer";
+import { BlogSplitFindBar } from "@/components/steps/blog-split-find-bar";
 import { ThreadsContentPreview } from "@/components/steps-threads/threads-content-preview";
 import { YoutubeScriptResult } from "@/components/steps-youtube/youtube-script-result";
 import { YOUTUBE_FEATURE_ENABLED } from "@/lib/youtube-feature";
@@ -136,6 +138,7 @@ export function StepPublish({
     snapshot?: unknown;
   } | null>(null);
   const [isBlogSplitOpen, setIsBlogSplitOpen] = useState(false);
+  const [isBlogSplitFindOpen, setIsBlogSplitFindOpen] = useState(false);
   const [isTogglingBlogSplit, setIsTogglingBlogSplit] = useState(false);
   const [blogSplitUrl, setBlogSplitUrl] = useState("https://blog.naver.com");
   const [blogSplitAddress, setBlogSplitAddress] = useState("https://blog.naver.com");
@@ -243,6 +246,48 @@ export function StepPublish({
       document.body.classList.remove("blog-split-open");
     };
   }, [isBlogSplitOpen]);
+
+  // 찾기 막대 닫기 단일 경로: 상태 내림 + 하이라이트 제거 + 블로그 뷰로 포커스 복귀
+  // (블로그 안에서 Cmd/Ctrl+F 로 열면 포커스가 앱으로 넘어와 있으므로 되돌려준다).
+  const closeBlogFind = useCallback(() => {
+    setIsBlogSplitFindOpen(false);
+    const api = window.electronAPI?.blogSplit;
+    api?.stopFind().catch(() => {});
+    api?.focusView().catch(() => {});
+  }, []);
+
+  // 분할뷰가 닫히는 모든 경로(뷰 destroy / close() / 열기 실패 / 재오픈)에서 찾기 상태도
+  // 함께 정리하고, 블로그 뷰 포커스 상태의 Cmd/Ctrl+F(메인이 가로채 전달) 로도 연다.
+  useEffect(() => {
+    const api = window.electronAPI?.blogSplit;
+    if (!api) return;
+    const unsubState = api.onState((open) => {
+      if (!open) closeBlogFind();
+    });
+    const unsubOpenFind = api.onOpenFind(() => setIsBlogSplitFindOpen(true));
+    return () => {
+      unsubState();
+      unsubOpenFind();
+    };
+  }, [closeBlogFind]);
+
+  // 앱(좌측/주소창)에 포커스가 있을 때의 Cmd/Ctrl+F → 찾기 막대 열기.
+  useEffect(() => {
+    if (!isBlogSplitOpen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && (e.key === "f" || e.key === "F")) {
+        e.preventDefault();
+        setIsBlogSplitFindOpen(true);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [isBlogSplitOpen]);
+
+  const toggleBlogFind = () => {
+    if (isBlogSplitFindOpen) closeBlogFind();
+    else setIsBlogSplitFindOpen(true);
+  };
 
   // ─────────────────────────────────────────────
   // 블로그 본문 → 쓰레드 변환 (1소스 멀티유즈)
@@ -476,6 +521,7 @@ export function StepPublish({
     setIsTogglingBlogSplit(true);
     try {
       if (isBlogSplitOpen) {
+        closeBlogFind();
         await api.close();
         setIsBlogSplitOpen(false);
         return;
@@ -678,6 +724,18 @@ export function StepPublish({
           >
             <Link className="h-4 w-4" />
           </Button>
+          {/* 블로그 화면에서 단어 찾기 — Cmd/Ctrl+F 단축키와 함께 발견성용 버튼 제공. */}
+          <Button
+            type="button"
+            variant={isBlogSplitFindOpen ? "secondary" : "ghost"}
+            size="icon"
+            className="h-8 w-8 shrink-0"
+            onClick={toggleBlogFind}
+            title="블로그 화면에서 찾기 (Cmd/Ctrl+F)"
+            aria-label="블로그 화면에서 찾기"
+          >
+            <Search className="h-4 w-4" />
+          </Button>
           {/* 화면 확대/축소 — 단축키(Cmd/Ctrl +/-)를 모르는 사용자를 위해 버튼 제공.
               가운데 퍼센트를 누르면 100%로 초기화. */}
           <div className="flex h-8 shrink-0 items-center overflow-hidden rounded-md border border-input">
@@ -737,6 +795,10 @@ export function StepPublish({
             <X className="h-4 w-4" />
           </Button>
         </div>
+      )}
+
+      {isBlogSplitOpen && isBlogSplitFindOpen && (
+        <BlogSplitFindBar onClose={closeBlogFind} />
       )}
 
       <div className="space-y-6">
