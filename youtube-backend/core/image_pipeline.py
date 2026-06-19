@@ -22,7 +22,7 @@ def apply_ken_burns(
     4배 업스케일 후 zoompan 적용 → 줌 시 화질 저하 방지.
     """
     total_frames = int(duration * fps)
-    zoom_speed = 0.25 / total_frames  # 전체 25% 줌
+    zoom_speed = 0.05 / total_frames  # 전체 5% 줌 (AI 클립 process_ai_clip 과 동일)
 
     # 업스케일 해상도 (4배) - 비율 유지하며 프레임을 채우도록 스케일링
     up_w = width * 4
@@ -37,12 +37,12 @@ def apply_ken_burns(
 
     filter_map = {
         "zoom_in": (
-            f"zoompan=z='min(1+{zoom_speed}*on,1.25)':"
+            f"zoompan=z='min(1+{zoom_speed}*on,1.05)':"
             f"x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':"
             f"d={total_frames}:s={width}x{height}:fps={fps}"
         ),
         "zoom_out": (
-            f"zoompan=z='max(1.25-{zoom_speed}*on,1.0)':"
+            f"zoompan=z='max(1.05-{zoom_speed}*on,1.0)':"
             f"x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':"
             f"d={total_frames}:s={width}x{height}:fps={fps}"
         ),
