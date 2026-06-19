@@ -1765,10 +1765,13 @@ async function boot(): Promise<void> {
   });
 
   // 음성 미리듣기(샘플) 캐시 폴더 열기 — 미리듣기 재생 실패 문의 시, 재생에 실패한
-  // 그 .wav 파일 자체를 사용자가 그대로 첨부할 수 있게 한다. 경로는 storageDir(아래
-  // youtubeManager 에 주입한 값)과 동일한 규칙으로 구성. shell.openPath 는 Win/mac(intel·arm) 공통.
+  // 그 .wav 파일 자체를 사용자가 그대로 첨부할 수 있게 한다. shell.openPath 는 Win/mac(intel·arm) 공통.
+  //
+  // 뿌리를 paths.userData 로 잡는다(app.getPath 재호출 X) — 백엔드가 파일을 쓰는 storageDir
+  // (youtube-manager 에 주입한 `path.join(paths.userData, "youtube", "storage")`)과 **같은 출처**라야
+  // userData 파생식을 누가 바꿔도 '쓰는 경로'와 '여는 경로'가 절대 엇갈리지 않는다.
   ipcMain.handle("app:openTtsPreviewFolder", async () => {
-    const dir = path.join(app.getPath("userData"), "youtube", "storage", "tts_preview");
+    const dir = path.join(paths.userData, "youtube", "storage", "tts_preview");
     try {
       // 한 번도 미리듣기를 안 한 설치에서도 폴더가 열리도록 보장(빈 폴더면 '캐시 없음'이 곧 단서).
       fs.mkdirSync(dir, { recursive: true });
