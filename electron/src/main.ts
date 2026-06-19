@@ -1191,9 +1191,10 @@ async function focusLastQuotation(frame: WebFrameMain): Promise<boolean> {
 async function runBlogSplitPasteProbe(input: unknown): Promise<BlogSplitPasteProbeResult> {
   const steps: BlogSplitPasteProbeStep[] = [];
 
-  if (process.env.NODE_ENV !== "development") {
-    return { ok: false, error: "paste-probe-dev-only", steps };
-  }
+  // 붙여넣기로 입력 기능은 프로덕션에도 노출되므로 dev 전용 게이트를 두지 않는다.
+  // (PoC 시절의 NODE_ENV!=="development" 차단이 남아 있어, UI 는 노출됐는데 패키지 빌드에선
+  //  클릭해도 즉시 빠져나가 동작하지 않던 버그를 제거. 분할 패널 열림·blog.naver.com 글쓰기
+  //  페이지·에디터 프레임 존재로 런타임 가드는 아래에서 충분히 한다.)
   if (!isBlogSplitOpen()) {
     return { ok: false, error: "blog-split-not-open", steps };
   }
