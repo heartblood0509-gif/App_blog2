@@ -53,6 +53,12 @@ async function forward(
   req.headers.forEach((value, key) => {
     if (!STRIP_REQUEST_HEADERS.has(key.toLowerCase())) headers.set(key, value);
   });
+  // 임베드 백엔드는 X-App-Token 으로 포트 게이트된다. Electron 이 Next 런타임에 주입한
+  // APP_TOKEN 을 백엔드 홉에 동봉한다(브라우저 EventSource/<img> 는 헤더를 못 붙이므로 여기서).
+  // 이 프록시가 REST·SSE·미디어·바이너리의 단일 통로라 한 곳 주입으로 전부 커버.
+  // 웹 dev(APP_TOKEN 미설정)에선 생략 → 백엔드의 ALLOW_INSECURE_DEV_AUTH 폴백과 짝이 맞는다.
+  const appToken = process.env.APP_TOKEN;
+  if (appToken) headers.set("x-app-token", appToken);
 
   const hasBody = req.method !== "GET" && req.method !== "HEAD";
   const init: RequestInit & { duplex?: "half" } = {

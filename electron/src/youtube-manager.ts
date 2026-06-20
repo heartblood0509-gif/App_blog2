@@ -12,6 +12,9 @@ export interface YoutubeManagerOptions {
   // 데이터/산출물 디렉터리 (userData 하위 — 앱 번들 내부는 쓰기 불가).
   storageDir: string;
   bgmDir: string;
+  // 임베드 포트 게이트용 토큰(X-App-Token). blog 백엔드와 동일하게 Electron 이 발급해 주입한다.
+  // Next 프록시도 같은 APP_TOKEN 을 백엔드 홉에 실어 보내므로 양쪽이 일치해야 한다.
+  appToken: string;
   // 부팅 시 youtube-backend DB 에 시드할 키(없으면 사용자가 임베드된 설정 화면에서 입력).
   geminiApiKey?: string;
   falKey?: string;
@@ -41,6 +44,8 @@ export class YoutubeManager {
       HOST: this.host,
       // 로컬 단일 사용자 모드 — 로그인/OAuth/관리자 없이 고정 계정 1개.
       LOCAL_SINGLE_USER: "1",
+      // 포트 게이트 토큰 — main.py 가 LOCAL_SINGLE_USER 에서 이 값을 요구(fail-closed).
+      APP_TOKEN: this.opts.appToken,
       JWT_SECRET: this.opts.jwtSecret,
       STORAGE_DIR: this.opts.storageDir,
       BGM_DIR: this.opts.bgmDir,
