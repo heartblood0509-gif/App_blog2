@@ -3,6 +3,7 @@
 // 완료 화면. 완성된 9:16 영상을 재생/다운로드하고, 새 영상 만들기로 워크플로를 초기화한다.
 // 영상은 프록시 경유(/api/jobs/{id}/video, Range 지원)로 seek 가능.
 
+import { useState } from "react";
 import { Download, RotateCcw } from "lucide-react";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { initialYtState, useYt } from "../state";
@@ -10,7 +11,12 @@ import { ytUrl } from "@/lib/youtube/api";
 
 export function CompletedView() {
   const { state, update } = useYt();
-  const videoUrl = state.jobId ? ytUrl(`/api/jobs/${state.jobId}/video`) : "";
+  // 재제작해도 영상 주소(/video)가 같아, 브라우저가 옛 영상을 캐시로 다시 보여주던 문제 방지.
+  // 완료 화면이 새로 뜰 때마다(=재렌더 직후 mount) 1회용 토큰을 붙여 항상 최신 영상을 받게 한다.
+  const [cacheBust] = useState(() => Date.now());
+  const videoUrl = state.jobId
+    ? ytUrl(`/api/jobs/${state.jobId}/video?v=${cacheBust}`)
+    : "";
 
   return (
     <div className="rounded-xl border border-border bg-card p-6 text-card-foreground">

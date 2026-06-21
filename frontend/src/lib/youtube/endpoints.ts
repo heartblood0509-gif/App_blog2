@@ -454,6 +454,18 @@ export function getDraftState(jobId: string): Promise<DraftState> {
   return ytGetJson<DraftState>(`/api/jobs/${jobId}/draft-state`);
 }
 
+/**
+ * Card B(user_assets) 전용: 제목(2줄)만 고치고 되돌아갈 때 draft 에 즉시 저장.
+ * 줄별 자산·대본은 건드리지 않는다. preview_ready 단계에서만 동작(백엔드 가드).
+ * confirm 없이 앱을 닫아도 바뀐 제목이 작업이력/최종 영상에 남게 한다.
+ */
+export function saveDraftMeta(
+  jobId: string,
+  meta: { title?: string; title_line1?: string; title_line2?: string },
+): Promise<DraftState> {
+  return ytPostJson<DraftState>(`/api/jobs/${jobId}/draft-meta`, meta);
+}
+
 export interface GenerateMissingImagesResult {
   queued: number[]; // 이번에 큐에 들어간 줄 index
   task_id?: string | null;

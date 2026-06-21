@@ -82,7 +82,14 @@ async def get_video(
     path = os.path.join(settings.STORAGE_DIR, job_id, "output", "shorts_final.mp4")
 
     if os.path.exists(path):
-        return FileResponse(path, media_type="video/mp4", filename=f"shorts_{job_id}.mp4")
+        # 재제작 시 같은 URL 이라도 항상 최신 파일을 받도록 매번 재검증(no-cache).
+        # ETag(파일 mtime+size 기반)가 바뀌면 새 영상이, 같으면 304 로 캐시가 재사용된다.
+        return FileResponse(
+            path,
+            media_type="video/mp4",
+            filename=f"shorts_{job_id}.mp4",
+            headers={"Cache-Control": "no-cache"},
+        )
 
     r2_key = f"jobs/{job_id}/output/shorts_final.mp4"
     if is_r2_enabled() and r2_file_exists(r2_key):

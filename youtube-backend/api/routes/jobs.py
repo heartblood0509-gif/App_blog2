@@ -615,6 +615,42 @@ async def get_draft_state(
     return _build_draft_state(job)
 
 
+class UpdateDraftMetaRequest(BaseModel):
+    """카드 B draft 의 제목(2줄)을 confirm 전에 즉시 저장. None 필드는 미변경."""
+    title: str | None = None
+    title_line1: str | None = None
+    title_line2: str | None = None
+
+
+@router.post("/{job_id}/draft-meta", response_model=DraftStateResponse)
+async def update_draft_meta(
+    body: UpdateDraftMetaRequest,
+    job_id: str = Path(..., pattern=r"^[a-f0-9]{12}$"),
+    db: Session = Depends(get_db),
+    _user: User = Depends(get_approved_user),
+):
+    """카드 B 전용: 제목만 고치고 되돌아갈 때 draft 에 즉시 영속(편집 즉시 저장 정책).
+
+    줄별 자산/대본은 건드리지 않는다. 편집 가능 단계(preview_ready)에서만 허용 —
+    edit-line 등 다른 편집 엔드포인트와 동일 가드. 확정(confirm) 없이 앱을 닫아도
+    바뀐 제목이 작업이력/최종 영상에 반영되도록 한다.
+    """
+    job = get_user_job(db, job_id, _user)
+    if (job.generation_mode or "ai_full") != "user_assets":
+        raise HTTPException(status_code=400, detail="이 작업은 카드 B 모드가 아닙니다")
+    if job.status != "preview_ready":
+        raise HTTPException(status_code=409, detail=f"카드 편집 단계가 아닙니다 (상태: {job.status})")
+    if body.title is not None:
+        job.title = body.title
+    if body.title_line1 is not None:
+        job.title_line1 = body.title_line1
+    if body.title_line2 is not None:
+        job.title_line2 = body.title_line2
+    db.commit()
+    db.refresh(job)
+    return _build_draft_state(job)
+
+
 def _active_tasks_count(db: Session, job_id: str) -> int:
     return (
         db.query(JobTask)
