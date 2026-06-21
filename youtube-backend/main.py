@@ -1,15 +1,17 @@
 """YouTube Shorts 자동 제작 웹앱 - FastAPI 진입점"""
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, Depends
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, RedirectResponse
 from contextlib import asynccontextmanager
 from db.database import init_db
 from api.routes import generate, jobs, preview, assets, tts_preview, auth, admin, products
 from api.routes.assets import bgm_router
+from auth import verify_app_token
 from config import settings
 import logging
 import os
+import sys
 import asyncio
 
 logging.basicConfig(level=logging.INFO)
@@ -70,6 +72,31 @@ async def lifespan(app: FastAPI):
             pass
 
 
+def _bootstrap_security_env() -> None:
+    """임베드(LOCAL_SINGLE_USER) 모드에서 APP_TOKEN 누락을 부팅 단계에서 fail-closed.
+
+    blog 백엔드(backend/main.py _bootstrap_security_env)와 동일 정책. standalone(멀티유저)
+    기동엔 APP_TOKEN 이 필요 없으므로 임베드 모드에서만 검사한다. dev 는 ALLOW_INSECURE_DEV_AUTH=1
+    로 우회. "health 는 200 인데 기능 API 만 401/500" 인 반쪽 기동을 미리 차단한다.
+    (youtube-backend 는 credential broker 를 안 쓰므로 APP_TOKEN 만 검사.)
+    """
+    if not settings.LOCAL_SINGLE_USER:
+        return
+    if not os.environ.get("APP_TOKEN"):
+        if os.environ.get("ALLOW_INSECURE_DEV_AUTH") == "1":
+            print("\033[33m[WARN] INSECURE DEV MODE: APP_TOKEN unset\033[0m", file=sys.stderr)
+        else:
+            print(
+                "\033[31m[FATAL] APP_TOKEN env is required (LOCAL_SINGLE_USER). "
+                "Set ALLOW_INSECURE_DEV_AUTH=1 for dev only.\033[0m",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+
+
+_bootstrap_security_env()
+
+
 app = FastAPI(title="AI 쇼츠 자동 제작", lifespan=lifespan)
 
 STATIC_DIR = os.path.join(settings.BASE_DIR, "static")
@@ -77,16 +104,18 @@ STATIC_DIR = os.path.join(settings.BASE_DIR, "static")
 # 정적 파일 서빙
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
-# API 라우트 등록
-app.include_router(auth.router)
-app.include_router(generate.router)
-app.include_router(jobs.router)
-app.include_router(preview.router)
-app.include_router(assets.router)
-app.include_router(bgm_router)
-app.include_router(tts_preview.router)
-app.include_router(admin.router)
-app.include_router(products.router)
+# API 라우트 등록 — 임베드 모드 포트 게이트(X-App-Token). standalone 모드에선 verify_app_token 이 no-op.
+# /health(app-level) 와 /static 마운트는 게이트 제외 — Electron 부팅 health 폴링은 토큰 없이 직접 친다.
+_protected = [Depends(verify_app_token)]
+app.include_router(auth.router, dependencies=_protected)
+app.include_router(generate.router, dependencies=_protected)
+app.include_router(jobs.router, dependencies=_protected)
+app.include_router(preview.router, dependencies=_protected)
+app.include_router(assets.router, dependencies=_protected)
+app.include_router(bgm_router, dependencies=_protected)
+app.include_router(tts_preview.router, dependencies=_protected)
+app.include_router(admin.router, dependencies=_protected)
+app.include_router(products.router, dependencies=_protected)
 
 
 @app.get("/health")

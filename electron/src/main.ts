@@ -1738,6 +1738,7 @@ async function boot(): Promise<void> {
   // 킬스위치 OFF면 생성·spawn 자체를 건너뛴다 → packaged 빌드에 실행파일이 없어도 ENOENT 팝업 없음.
   if (YOUTUBE_FEATURE_ENABLED && youtubePort !== null) {
     youtube = new YoutubeManager(youtubePort, {
+      appToken: APP_TOKEN,
       jwtSecret: getOrCreateYoutubeJwtSecret(),
       storageDir: path.join(paths.userData, "youtube", "storage"),
       bgmDir: path.join(paths.userData, "youtube", "bgm"),

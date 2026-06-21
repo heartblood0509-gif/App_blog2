@@ -509,6 +509,10 @@ function spawnYoutubeBackend(worktreeRoot, port) {
     PORT: String(port),
     HOST: "127.0.0.1",
     LOCAL_SINGLE_USER: "1",
+    // 임베드 포트 게이트(main.py)는 LOCAL_SINGLE_USER 에서 APP_TOKEN 을 요구한다.
+    // 워크트리 dev 는 Electron youtube-manager 를 안 거쳐 APP_TOKEN 이 없으므로,
+    // blog 백엔드(spawnBackend)와 동일하게 dev 우회 플래그를 명시 주입한다.
+    ALLOW_INSECURE_DEV_AUTH: "1",
     // dev 고정 시크릿 — 재시작해도 동일해야 저장된 API 키를 복호화할 수 있다.
     JWT_SECRET: "dev-youtube-jwt-secret-local-single-user-do-not-ship",
     STORAGE_DIR: path.join(dataDir, "storage"),
