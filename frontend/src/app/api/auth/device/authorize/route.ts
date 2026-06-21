@@ -65,6 +65,18 @@ export async function POST(request: Request) {
     status: payload.ok && payload.status === "authorized" ? 200 : 403,
   });
 
+  // authorized 가 아닌 "접근 거부" 상태 — 남은 app_user_session 쿠키를 즉시 무효화한다.
+  // superseded(기기 양도)뿐 아니라 blocked/expired/pending/device_limit 도 API 사용권이 없으므로,
+  // 10분 TTL 만료를 기다리지 말고 폐기해야 한다(차단 후 렌더러가 직접 API 를 치는 우회 창을 닫음).
+  // 일시적 "error"(Supabase 장애 등)·미지의 상태는 제외 — 정상 사용자 강제 로그아웃 방지.
+  const DENY_STATUSES = new Set([
+    "device_limit",
+    "superseded",
+    "pending",
+    "blocked",
+    "expired",
+  ]);
+
   if (payload.ok && payload.status === "authorized") {
     const session = createAppUserSession({
       sub: authorized.user.id,
@@ -73,9 +85,7 @@ export async function POST(request: Request) {
       plan: payload.profile_plan ?? null,
     });
     setAppUserSessionCookie(response, session);
-  } else if (payload.status === "superseded") {
-    // 다른 기기에 활성 자리를 넘겨준 경우, 이 기기의 API 세션 쿠키를 즉시 무효화한다.
-    // (10분 TTL 만료를 기다리지 않고 다음 신호 시점에 곧바로 차단.)
+  } else if (DENY_STATUSES.has(payload.status)) {
     clearAppUserSessionCookie(response);
   }
 

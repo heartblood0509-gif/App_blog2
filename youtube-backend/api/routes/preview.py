@@ -21,6 +21,7 @@ from db.models import Job, JobTask, User
 from jobs_queue.task_queue import ACTIVE_STATUSES, enqueue_task, get_active_task, task_payload
 from core.r2_storage import require_r2_for_generation, is_r2_enabled, r2_file_exists
 from core.ffmpeg import FFMPEG_Q, FFPROBE_Q
+from core.text_validation import contains_emoji
 from config import settings
 from PIL import Image, ImageOps
 from core.user_assets_visual import (
@@ -602,6 +603,38 @@ async def get_visual_plan_debug(
     }
 
 
+def _assert_no_emoji(job, body: dict | None = None) -> None:
+    """제목/대본에 이모지가 있으면 친절 400으로 차단.
+
+    영상 자막은 ffmpeg drawtext(단일 폰트)라 컬러 이모지를 못 그려 두부(□)로 깨지고,
+    일부 환경에선 인코딩 오류도 난다. 그래서 영상 제작 직전에 막는다.
+    body 가 있으면(confirm) 방금 보낸 제목을, 없으면(confirm-clips) job 에 저장된 제목을
+    검사한다. 대본은 항상 job.script_json 의 각 줄 text 를 본다.
+    """
+    candidates: list[str] = []
+    if body:
+        for key in ("title", "title_line1", "title_line2"):
+            val = body.get(key)
+            if isinstance(val, str):
+                candidates.append(val)
+    else:
+        for val in (job.title, job.title_line1, job.title_line2):
+            if isinstance(val, str):
+                candidates.append(val)
+    try:
+        lines = json.loads(job.script_json or "[]")
+    except Exception:
+        lines = []
+    for line in lines:
+        if isinstance(line, dict) and isinstance(line.get("text"), str):
+            candidates.append(line["text"])
+    if any(contains_emoji(t) for t in candidates):
+        raise HTTPException(
+            status_code=400,
+            detail="제목이나 대본에 이모지가 포함되어 있어요. 이모지를 삭제한 뒤 다시 제작해주세요.",
+        )
+
+
 @router.post("/{job_id}/confirm")
 async def confirm_and_render(
     request: Request,
@@ -620,9 +653,9 @@ async def confirm_and_render(
     except Exception:
         body = {}
     video_mode = body.get("video_mode", "kenburns") or "kenburns"
-    print(f"[DEBUG confirm] job_id={job_id}, raw_body={body}, video_mode={video_mode}")
 
     job = get_user_job(db, job_id, _user)
+    _assert_no_emoji(job, body)
     job_dir = os.path.join(settings.STORAGE_DIR, job.id)
     if job.status not in ("preview_ready", "awaiting_confirmation"):
         raise HTTPException(status_code=400, detail=f"확정 불가 (상태: {job.status})")
@@ -1116,6 +1149,7 @@ async def confirm_clips_and_render(
 ):
     """AI 클립 확인 → TTS + 영상 조립 시작"""
     job = get_user_job(db, job_id, _user)
+    _assert_no_emoji(job)
     if job.status not in ("clips_ready", "awaiting_confirmation"):
         raise HTTPException(status_code=400, detail=f"확정 불가 (상태: {job.status})")
     _require_generation_storage()
