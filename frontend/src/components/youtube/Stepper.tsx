@@ -3,11 +3,52 @@
 // 유튜브 워크플로 자체 내부 스텝퍼. 블로그앱 상단 스텝퍼와 같은 토큰(primary/muted)으로 스타일.
 // 모드(Card A/B)에 따라 단계가 달라지고, 마지막 '영상 제작'(렌더)만 빼면 어떤 단계든 클릭해 자유 이동(원본과 동일).
 
-import { Check } from "lucide-react";
-import { useYt, stepsForMode } from "./state";
+import { useState } from "react";
+import { Check, Loader2 } from "lucide-react";
+import { toast } from "sonner";
+import { useYt, stepsForMode, restorePatchFromDraft } from "./state";
+import type { YtScreen } from "./state";
+import { reopenJob } from "@/lib/youtube/endpoints";
 
 export function Stepper() {
   const { state, update } = useYt();
+  // 완료된 카드 B 작업에서 이전 단계로 되돌아가는 중(reopen 진행)인 대상 화면.
+  // null 이 아니면 스텝퍼 전체를 잠그고 해당 단계 동그라미에 스피너를 표시한다.
+  const [reopening, setReopening] = useState<YtScreen | null>(null);
+
+  // 완료(completed) 화면에서 이전 단계로 점프할 때: 백엔드 작업을 편집 가능(preview_ready)
+  // 상태로 되돌리고(reopen), 응답 DraftState 로 프론트 state 를 재수화한 뒤 이동한다.
+  // (작업이력/실패복귀와 동일한 reopen+restore 메커니즘.) 그 외 이동은 화면만 전환.
+  async function goToStep(target: YtScreen, jumpable: boolean) {
+    if (!jumpable || reopening) return;
+    const jobId = state.jobId;
+    const needsReopen =
+      state.mode === "user_assets" && state.screen === "completed" && !!jobId;
+    if (!needsReopen || !jobId) {
+      update({ screen: target });
+      return;
+    }
+    setReopening(target);
+    try {
+      const ds = await reopenJob(jobId);
+      // restorePatchFromDraft 는 screen:"lines"·maxStepReached:1 로 고정하므로,
+      // 클릭한 단계로 덮어쓰고 지나온 진행도(maxStepReached)는 유지한다.
+      update({
+        ...restorePatchFromDraft(jobId, ds),
+        screen: target,
+        maxStepReached: state.maxStepReached,
+      });
+      toast.info("수정 모드로 전환했어요 — 다시 만들면 영상이 새로 만들어져요");
+    } catch (e) {
+      // 410(다운로드/정리됨)·409(진행 중) 등은 백엔드가 친절한 한국어 사유를 준다.
+      toast.error(
+        e instanceof Error ? e.message : "편집 화면으로 돌아가지 못했어요.",
+      );
+    } finally {
+      setReopening(null);
+    }
+  }
+
   const steps = stepsForMode(state.mode);
   // "영상 제작"처럼 한 스텝이 여러 화면(progress→completed 등)을 거치는 경우 match 로도 매칭.
   const currentIndex = steps.findIndex(
@@ -42,8 +83,8 @@ export function Stepper() {
             >
               <button
                 type="button"
-                disabled={!canJump}
-                onClick={() => canJump && update({ screen: step.screen })}
+                disabled={!canJump || reopening !== null}
+                onClick={() => goToStep(step.screen, canJump)}
                 aria-current={isActive ? "step" : undefined}
                 className={`flex flex-col items-center gap-2 rounded-lg p-1 transition-all ${
                   canJump
@@ -60,7 +101,13 @@ export function Stepper() {
                         : "border-muted bg-muted/40 text-muted-foreground"
                   }`}
                 >
-                  {isCompleted ? <Check className="h-4 w-4" /> : index + 1}
+                  {reopening === step.screen ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : isCompleted ? (
+                    <Check className="h-4 w-4" />
+                  ) : (
+                    index + 1
+                  )}
                 </div>
                 <span
                   className={`hidden text-xs whitespace-nowrap transition-colors sm:inline-block ${

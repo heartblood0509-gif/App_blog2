@@ -10,7 +10,7 @@
 // 제목은 선택: 비워도 진행 가능(제목 없으면 최종 영상에서 오버레이 생략).
 
 import { useEffect, useRef, useState } from "react";
-import { History, Loader2, Scissors } from "lucide-react";
+import { ArrowRight, History, Loader2, Scissors } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -24,7 +24,7 @@ import {
   TITLE_SHADOW as SHADOW,
   TITLE_LINE2_COLOR,
 } from "../ShortsPreviewFrame";
-import { createDraft, splitScript } from "@/lib/youtube/endpoints";
+import { createDraft, saveDraftMeta, splitScript } from "@/lib/youtube/endpoints";
 import { YoutubeJobHistory } from "../YoutubeJobHistory";
 
 const SCRIPT_MIN = 10; // 백엔드 SplitScriptRequest.script min_length
@@ -77,9 +77,48 @@ export function ScriptInput() {
   const scriptLen = script.trim().length;
   const scriptOk = scriptLen >= SCRIPT_MIN && scriptLen <= SCRIPT_MAX;
   const canProceed = scriptOk && !busy; // 제목은 진행을 막지 않는다(선택).
+  // 기존 작업을 다시 열어 이 단계로 돌아왔고 대본을 안 고친 경우 — 재쪼개기 없이 "다음".
+  const scriptUnchanged =
+    !!state.jobId && script.trim() === state.scriptText.trim();
 
   async function handleNext() {
     if (!canProceed) return;
+
+    // 윗줄만/아랫줄만 입력한 경우 정규화 — 렌더러는 윗줄(title_line1)이 있어야 제목을 얹는다.
+    const t1 = state.titleLine1.trim();
+    const t2 = state.titleLine2.trim();
+    const [n1, n2] = t1 ? [t1, t2] : [t2, ""];
+
+    // 기존 작업(jobId 보유)을 다시 열어 돌아온 경우:
+    //  · 대본 미변경 → 재쪼개기 없이 제목만 draft 에 저장하고 자산 단계로(자산 100% 보존).
+    //  · 대본 변경 → 줄별 자산이 전부 사라지므로 경고 후에만 새로 시작.
+    if (state.jobId) {
+      if (scriptUnchanged) {
+        setBusy(true);
+        try {
+          await saveDraftMeta(state.jobId, {
+            title: combineTitle(n1, n2),
+            title_line1: n1,
+            title_line2: n2,
+          });
+          update({
+            selectedTitle: combineTitle(n1, n2),
+            titleLine1: n1,
+            titleLine2: n2,
+            screen: "lines",
+          });
+        } catch (e) {
+          toast.error(e instanceof Error ? e.message : "제목 저장에 실패했어요.");
+          setBusy(false);
+        }
+        return;
+      }
+      const ok = window.confirm(
+        "대본을 바꾸면 지금까지 만든 줄별 이미지·영상·음성이 사라지고 처음부터 다시 만들어집니다.\n\n계속할까요? (줄 하나만 살짝 고치려면 취소하고 '자산' 단계에서 수정하세요.)",
+      );
+      if (!ok) return;
+    }
+
     setBusy(true);
     try {
       const { lines } = await splitScript(script.trim());
@@ -88,11 +127,6 @@ export function ScriptInput() {
         setBusy(false);
         return;
       }
-      // 윗줄만/아랫줄만 입력한 경우 정규화 — 렌더러는 윗줄(title_line1)이 있어야 제목을 얹는다.
-      // (정규화를 createDraft 전에 해, 제목을 draft 에 함께 저장 → 중단 후 작업이력에서 제목 복원)
-      const t1 = state.titleLine1.trim();
-      const t2 = state.titleLine2.trim();
-      const [n1, n2] = t1 ? [t1, t2] : [t2, ""];
       const draft = await createDraft(lines, n1, n2);
       update({
         jobId: draft.job_id,
@@ -231,10 +265,18 @@ export function ScriptInput() {
           <Button onClick={handleNext} disabled={!canProceed} className="gap-2">
             {busy ? (
               <Loader2 className="h-4 w-4 animate-spin" />
+            ) : scriptUnchanged ? (
+              <ArrowRight className="h-4 w-4" />
             ) : (
               <Scissors className="h-4 w-4" />
             )}
-            {busy ? "쪼개는 중..." : "문장으로 쪼개기"}
+            {busy
+              ? scriptUnchanged
+                ? "저장 중..."
+                : "쪼개는 중..."
+              : scriptUnchanged
+                ? "다음"
+                : "문장으로 쪼개기"}
           </Button>
         </div>
       </div>
