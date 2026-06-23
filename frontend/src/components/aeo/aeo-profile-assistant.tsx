@@ -16,6 +16,7 @@ import { Label } from "@/components/ui/label";
 import { Sparkles, Loader2, CheckCircle2, AlertCircle, ArrowRight, Edit3, MessagesSquare, FileText } from "lucide-react";
 import { toast } from "sonner";
 import type { AeoProfile } from "@/types/aeo";
+import { mutateProfileStore } from "@/lib/stores/profile-mutate";
 import {
   FOLLOWUP_QUESTIONS,
   type AeoProfileMissingField,
@@ -304,7 +305,7 @@ export function AeoProfileAssistant({ open, onClose, onSaved, prefill }: AeoProf
     try {
       const { missingFields: _missingFields, ...payload } = draft;
       void _missingFields;
-      const res = await fetch("/api/aeo/profiles", {
+      const res = await mutateProfileStore("/api/aeo/profiles", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),

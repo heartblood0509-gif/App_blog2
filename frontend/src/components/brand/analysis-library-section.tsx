@@ -15,6 +15,7 @@ import type { AnalysisRecord, AnalysisRecordUpsert } from "@/types/brand";
 import { extractFlowFromMarkdownBody } from "@/lib/analysis-parser";
 import { AnalysisRecordForm } from "./analysis-record-form";
 import { fetchStoreList, StoreCorruptError } from "@/lib/store-fetch";
+import { mutateProfileStore } from "@/lib/stores/profile-mutate";
 import { StoreCorruptPanel } from "@/components/store-corrupt-panel";
 
 interface AnalysisLibrarySectionProps {
@@ -67,7 +68,7 @@ export function AnalysisLibrarySection({
       e.stopPropagation();
       if (!confirm(`"${r.label}" 분석을 삭제할까요?`)) return;
       try {
-        const res = await fetch(
+        const res = await mutateProfileStore(
           `/api/analysis/records?id=${encodeURIComponent(r.id)}`,
           { method: "DELETE" }
         );
@@ -93,7 +94,7 @@ export function AnalysisLibrarySection({
           ? `/api/analysis/records?id=${encodeURIComponent(editing!.id)}`
           : `/api/analysis/records`;
         const method = isEdit ? "PUT" : "POST";
-        const res = await fetch(url, {
+        const res = await mutateProfileStore(url, {
           method,
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(payload),

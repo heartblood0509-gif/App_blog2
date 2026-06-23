@@ -19,22 +19,31 @@
 """
 from __future__ import annotations
 
+import hashlib
 import shutil
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Literal
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, ValidationError
 
 import storage
-from paths import DATA_DIR, BRAND_PROFILES_FILE, AEO_PROFILES_FILE, PRODUCTS_FILE
+from paths import (
+    DATA_DIR,
+    BRAND_PROFILES_FILE,
+    AEO_PROFILES_FILE,
+    PRODUCTS_FILE,
+    ANALYSIS_RECORDS_FILE,
+)
 from routers.brand_profiles import BrandProfileUpsert
 from routers.aeo_profiles import AeoProfileUpsert
 from routers.products import ProductUpsert
+from routers.analysis_records import AnalysisRecordUpsert
 
 router = APIRouter()
 
-SUPPORTED_VERSION = 1
+# v1: 브랜드/AEO/제품만. v2: 보관함(analysis) 추가. 둘 다 수용(v1은 analysis=[]로 정규화).
+SUPPORTED_VERSIONS = {1, 2}
 
 
 # ─────────────────────────────────────────────
@@ -46,6 +55,8 @@ class BundleSelection(BaseModel):
     brand: list[str] = []
     aeo: list[str] = []
     product: list[str] = []
+    # 보관함은 label 중복이 가능하므로 record id 로 선택한다(번들 내 고유).
+    analysis: list[str] = []
 
 
 class ImportRequest(BaseModel):
@@ -65,6 +76,7 @@ class ImportResponse(BaseModel):
     brand: ImportResult
     aeo: ImportResult
     product: ImportResult
+    analysis: ImportResult = ImportResult()
     backupPath: str
 
 
@@ -96,11 +108,11 @@ def _next_id(existing_ids: set[str], prefix: str) -> str:
 
 
 def _backup_data_files() -> str:
-    """현재 3개 JSON 파일을 `.backup/profiles_{ts}/`에 복사. 폴더 경로 반환."""
+    """현재 프로필/보관함 JSON 파일을 `.backup/profiles_{ts}/`에 복사. 폴더 경로 반환."""
     ts = datetime.now().strftime("%Y-%m-%d_%H%M%S")
     backup_dir = DATA_DIR / ".backup" / f"profiles_{ts}"
     backup_dir.mkdir(parents=True, exist_ok=True)
-    for src in (BRAND_PROFILES_FILE, AEO_PROFILES_FILE, PRODUCTS_FILE):
+    for src in (BRAND_PROFILES_FILE, AEO_PROFILES_FILE, PRODUCTS_FILE, ANALYSIS_RECORDS_FILE):
         if src.exists():
             shutil.copy2(src, backup_dir / src.name)
     return str(backup_dir)
@@ -209,6 +221,104 @@ def _import_one_type(
 
 
 # ─────────────────────────────────────────────
+# 보관함(analysis) — 내용 기반 dedup
+# ─────────────────────────────────────────────
+#
+# 분석 레코드는 생성 시 label 중복을 막지 않으므로(analysis_records.create_record)
+# label을 unique key로 쓰면 번들 자체중복검사에 걸려 전체가 거부될 수 있다.
+# 대신 (label+analysis+flow) 정규화 해시(fingerprint)로 "같은 내용"을 판정해
+# 중복 추가를 막는다. 선택(selection)은 번들 내 고유한 record id 로 한다.
+
+
+def _analysis_fingerprint(rec: dict) -> str:
+    label = str(rec.get("label", "")).strip().lower()
+    analysis = str(rec.get("analysis", "")).strip()
+    flow = rec.get("flow")
+    flow_norm = "\x00".join(str(s).strip() for s in flow) if isinstance(flow, list) else ""
+    raw = f"{label}\x00{analysis}\x00{flow_norm}"
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()
+
+
+def _import_analysis(
+    *,
+    incoming_items: list[Any],
+    selection: list[str],
+    policy: str,
+) -> ImportResult:
+    """보관함 import — record id 로 선택, 내용 fingerprint 로 중복 판정.
+
+    builtin(내장 템플릿)은 동기화/가져오기 대상이 아니다 — 무시한다.
+    같은 내용(fingerprint)이 로컬 사용자 레코드에 이미 있으면 정책과 무관하게 추가 안 함.
+    """
+    result = ImportResult()
+    if not selection:
+        return result
+
+    selection_set = set(selection)
+
+    with storage.transaction(ANALYSIS_RECORDS_FILE) as txn:
+        current = txn.items
+        # 로컬 사용자 레코드의 fingerprint 집합 (builtin 제외)
+        existing_fps: dict[str, dict] = {}
+        for r in current:
+            if r.get("isBuiltin") or r.get("sourceType") == "builtin":
+                continue
+            existing_fps[_analysis_fingerprint(r)] = r
+
+        dirty = False
+
+        for raw in incoming_items:
+            if not isinstance(raw, dict):
+                result.errors.append("객체가 아닌 항목이 포함되어 있습니다.")
+                continue
+            rid = raw.get("id")
+            if not isinstance(rid, str) or rid not in selection_set:
+                continue
+            # builtin은 가져오지 않음 (로컬에서 시작 시 자동 시드됨)
+            if raw.get("isBuiltin") or raw.get("sourceType") == "builtin":
+                continue
+
+            label = raw.get("label")
+            label_str = label if isinstance(label, str) and label else "(이름 없음)"
+
+            # id/isBuiltin/createdAt 은 서버 부여 필드 → 검증 입력에서 제외, sourceType은 user 강제
+            payload = {k: v for k, v in raw.items() if k not in ("id", "isBuiltin", "createdAt")}
+            payload["sourceType"] = "user"
+            try:
+                validated = AnalysisRecordUpsert(**payload)
+            except ValidationError as ve:
+                result.errors.append(_format_validation_error(ve, label_str))
+                continue
+
+            dumped = validated.model_dump()
+            fp = _analysis_fingerprint(dumped)
+            if fp in existing_fps:
+                # 내용 동일 — skip/overwrite 모두 추가 안 함(덮어쓸 게 없음)
+                result.skipped += 1
+                continue
+
+            existing_ids = {p.get("id") for p in current if isinstance(p.get("id"), str)}
+            new_id = _next_id(existing_ids, "analysis-")
+            created_at = raw.get("createdAt")
+            new_record = {
+                "id": new_id,
+                "isBuiltin": False,
+                "createdAt": created_at if isinstance(created_at, str) and created_at
+                else datetime.now(timezone.utc).isoformat(),
+                **dumped,
+            }
+            current.append(new_record)
+            existing_fps[fp] = new_record
+            result.added += 1
+            dirty = True
+
+        if dirty:
+            txn.commit(current)
+
+    return result
+
+
+# ─────────────────────────────────────────────
 # 엔드포인트
 # ─────────────────────────────────────────────
 
@@ -217,12 +327,13 @@ def _import_one_type(
 async def import_bundle(req: ImportRequest) -> ImportResponse:
     bundle = req.bundle
 
-    # 1) 버전 검증
+    # 1) 버전 검증 (v1=프로필3종, v2=+보관함. v1 파일도 계속 수용)
     version = bundle.get("version")
-    if version != SUPPORTED_VERSION:
+    if version not in SUPPORTED_VERSIONS:
+        supported = ", ".join(f"v{v}" for v in sorted(SUPPORTED_VERSIONS))
         raise HTTPException(
             400,
-            f"지원하지 않는 파일 버전입니다. (지원: v{SUPPORTED_VERSION}, 파일: v{version})",
+            f"지원하지 않는 파일 버전입니다. (지원: {supported}, 파일: v{version})",
         )
 
     profiles_obj = bundle.get("profiles")
@@ -232,8 +343,14 @@ async def import_bundle(req: ImportRequest) -> ImportResponse:
     brand_items = profiles_obj.get("brand", []) or []
     aeo_items = profiles_obj.get("aeo", []) or []
     product_items = profiles_obj.get("product", []) or []
+    analysis_items = profiles_obj.get("analysis", []) or []  # v1 호환: 누락 시 []
 
-    for label, items in (("brand", brand_items), ("aeo", aeo_items), ("product", product_items)):
+    for label, items in (
+        ("brand", brand_items),
+        ("aeo", aeo_items),
+        ("product", product_items),
+        ("analysis", analysis_items),
+    ):
         if not isinstance(items, list):
             raise HTTPException(400, f"파일 구조가 올바르지 않습니다. (profiles.{label}이 배열이 아님)")
 
@@ -283,10 +400,16 @@ async def import_bundle(req: ImportRequest) -> ImportResponse:
         id_prefix="product",
         policy=req.conflictPolicy,
     )
+    analysis_result = _import_analysis(
+        incoming_items=analysis_items,
+        selection=req.selection.analysis,
+        policy=req.conflictPolicy,
+    )
 
     return ImportResponse(
         brand=brand_result,
         aeo=aeo_result,
         product=product_result,
+        analysis=analysis_result,
         backupPath=backup_path,
     )

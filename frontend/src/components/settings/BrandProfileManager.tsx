@@ -11,6 +11,7 @@ import { Building2, Pencil, Plus, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import type { BrandProfile } from "@/types/brand";
 import { BrandProfileForm } from "@/components/brand/brand-profile-form";
+import { mutateProfileStore } from "@/lib/stores/profile-mutate";
 
 export function BrandProfileManager() {
   const [profiles, setProfiles] = useState<BrandProfile[]>([]);
@@ -50,7 +51,7 @@ export function BrandProfileManager() {
     async (p: BrandProfile) => {
       if (!confirm(`"${p.name}" 브랜드 프로필을 삭제할까요?`)) return;
       try {
-        const res = await fetch(
+        const res = await mutateProfileStore(
           `/api/brand/profiles?id=${encodeURIComponent(p.id)}`,
           { method: "DELETE", cache: "no-store" }
         );
@@ -75,7 +76,7 @@ export function BrandProfileManager() {
           ? `/api/brand/profiles?id=${encodeURIComponent(editing!.id)}`
           : `/api/brand/profiles`;
         const method = isEdit ? "PUT" : "POST";
-        const res = await fetch(url, {
+        const res = await mutateProfileStore(url, {
           method,
           headers: { "Content-Type": "application/json" },
           cache: "no-store",

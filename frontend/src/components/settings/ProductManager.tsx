@@ -16,6 +16,7 @@ import { ProductForm } from "@/components/steps/product-form";
 import { fetchStoreList, StoreCorruptError } from "@/lib/store-fetch";
 import { StoreCorruptPanel } from "@/components/store-corrupt-panel";
 import { ProfileBundleDialog } from "@/components/profile-bundle-dialog";
+import { mutateProfileStore } from "@/lib/stores/profile-mutate";
 
 export function ProductManager() {
   const [products, setProducts] = useState<UserProduct[]>([]);
@@ -60,7 +61,7 @@ export function ProductManager() {
     async (p: UserProduct) => {
       if (!confirm(`"${p.name}" 제품을 삭제할까요?`)) return;
       try {
-        const res = await fetch(`/api/products?id=${encodeURIComponent(p.id)}`, {
+        const res = await mutateProfileStore(`/api/products?id=${encodeURIComponent(p.id)}`, {
           method: "DELETE",
           cache: "no-store",
         });
@@ -85,7 +86,7 @@ export function ProductManager() {
           ? `/api/products?id=${encodeURIComponent(editing!.id)}`
           : `/api/products`;
         const method = isEdit ? "PUT" : "POST";
-        const res = await fetch(url, {
+        const res = await mutateProfileStore(url, {
           method,
           headers: { "Content-Type": "application/json" },
           cache: "no-store",

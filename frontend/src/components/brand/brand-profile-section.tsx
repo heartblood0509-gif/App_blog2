@@ -15,6 +15,7 @@ import { ProfileBridgeDialog } from "@/components/profile-bridge-dialog";
 import { ProfileBundleDialog } from "@/components/profile-bundle-dialog";
 import { StoreCorruptPanel } from "@/components/store-corrupt-panel";
 import { fetchStoreList, StoreCorruptError } from "@/lib/store-fetch";
+import { mutateProfileStore } from "@/lib/stores/profile-mutate";
 import {
   copyBrandToAeoPrefill,
   hasCounterpartProfile,
@@ -109,7 +110,7 @@ export function BrandProfileSection({ selectedProfileId, onSelect }: BrandProfil
       e.stopPropagation();
       if (!confirm(`"${p.name}" 프로필을 삭제할까요?`)) return;
       try {
-        const res = await fetch(`/api/brand/profiles?id=${encodeURIComponent(p.id)}`, {
+        const res = await mutateProfileStore(`/api/brand/profiles?id=${encodeURIComponent(p.id)}`, {
           method: "DELETE",
         });
         if (!res.ok) {
@@ -134,7 +135,7 @@ export function BrandProfileSection({ selectedProfileId, onSelect }: BrandProfil
           ? `/api/brand/profiles?id=${encodeURIComponent(editing!.id)}`
           : `/api/brand/profiles`;
         const method = isEdit ? "PUT" : "POST";
-        const res = await fetch(url, {
+        const res = await mutateProfileStore(url, {
           method,
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(payload),
