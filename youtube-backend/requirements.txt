@@ -6,7 +6,12 @@ sqlalchemy>=2.0
 psycopg2-binary>=2.9.9
 google-genai>=1.59.0
 requests>=2.31.0
-numpy
+# 인텔 맥(x86_64)만 numpy 1.26.4 로 고정한다. numpy 2.x macOS 휠은 system Accelerate 의
+# 신형 LAPACK 심볼($NEWLAPACK$ILP64, macOS 13.3+ 에만 존재)에 링크돼 Monterey 등 구형 macOS
+# 에서 import 즉시 크래시한다. 1.26.x 휠은 OpenBLAS 내장이라 구형 macOS에서도 동작.
+# Windows·애플실리콘 맥은 둘째 줄(미핀)로 매칭 → 현행(numpy 2.x) 그대로 유지(불변).
+numpy==1.26.4; sys_platform == "darwin" and platform_machine == "x86_64"
+numpy; sys_platform != "darwin" or platform_machine != "x86_64"
 soundfile
 pydub>=0.25
 # Python 3.13 에서 stdlib audioop 이 제거됨(PEP 594). pydub 가 audioop 을 요구하므로 백포트 동봉.
