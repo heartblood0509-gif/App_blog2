@@ -6,6 +6,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { UpdaterToast } from "@/components/UpdaterToast";
 import { ChatWidget } from "@/components/ChatWidget";
 import { AuthSessionProvider } from "@/components/providers/AuthSessionProvider";
+import { CloudSyncGate } from "@/components/sync/CloudSyncGate";
 import { WizardStateProvider } from "@/components/providers/WizardStateProvider";
 import { ThemeProvider } from "@/components/providers/ThemeProvider";
 import "./globals.css";
@@ -49,6 +50,7 @@ export default function RootLayout({
         >
           <TooltipProvider>
             <AuthSessionProvider>
+              <CloudSyncGate />
               <WizardStateProvider>{children}</WizardStateProvider>
             </AuthSessionProvider>
           </TooltipProvider>

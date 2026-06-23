@@ -25,6 +25,7 @@ import { PRODUCTS, isSeedProduct } from "@/lib/products";
 import { ProductForm } from "@/components/steps/product-form";
 import { ProductAssistant } from "@/components/products/product-assistant";
 import { Wand2 } from "lucide-react";
+import { mutateProfileStore } from "@/lib/stores/profile-mutate";
 
 const SEED_PRODUCT_ICONS: Record<string, React.ElementType> = {
   "hair-loss-shampoo": Droplets,
@@ -132,7 +133,7 @@ export function ProductSelectionSection({
       e.stopPropagation();
       if (!confirm(`"${p.name}" 제품을 삭제할까요?`)) return;
       try {
-        const res = await fetch(`/api/products?id=${encodeURIComponent(p.id)}`, {
+        const res = await mutateProfileStore(`/api/products?id=${encodeURIComponent(p.id)}`, {
           method: "DELETE",
           cache: "no-store",
         });
@@ -159,7 +160,7 @@ export function ProductSelectionSection({
           ? `/api/products?id=${encodeURIComponent(editingProduct!.id)}`
           : `/api/products`;
         const method = isEdit ? "PUT" : "POST";
-        const res = await fetch(url, {
+        const res = await mutateProfileStore(url, {
           method,
           headers: { "Content-Type": "application/json" },
           cache: "no-store",

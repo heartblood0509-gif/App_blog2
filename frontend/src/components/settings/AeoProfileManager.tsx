@@ -11,6 +11,7 @@ import { Target, Pencil, Plus, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import type { AeoProfile } from "@/types/aeo";
 import { AeoProfileForm } from "@/components/aeo/aeo-profile-form";
+import { mutateProfileStore } from "@/lib/stores/profile-mutate";
 
 export function AeoProfileManager() {
   const [profiles, setProfiles] = useState<AeoProfile[]>([]);
@@ -50,7 +51,7 @@ export function AeoProfileManager() {
     async (p: AeoProfile) => {
       if (!confirm(`"${p.label}" AEO 프로필을 삭제할까요?`)) return;
       try {
-        const res = await fetch(
+        const res = await mutateProfileStore(
           `/api/aeo/profiles?id=${encodeURIComponent(p.id)}`,
           { method: "DELETE", cache: "no-store" }
         );
@@ -75,7 +76,7 @@ export function AeoProfileManager() {
           ? `/api/aeo/profiles?id=${encodeURIComponent(editing!.id)}`
           : `/api/aeo/profiles`;
         const method = isEdit ? "PUT" : "POST";
-        const res = await fetch(url, {
+        const res = await mutateProfileStore(url, {
           method,
           headers: { "Content-Type": "application/json" },
           cache: "no-store",

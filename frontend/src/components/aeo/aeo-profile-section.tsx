@@ -15,6 +15,7 @@ import { ProfileBridgeDialog } from "@/components/profile-bridge-dialog";
 import { ProfileBundleDialog } from "@/components/profile-bundle-dialog";
 import { StoreCorruptPanel } from "@/components/store-corrupt-panel";
 import { fetchStoreList, StoreCorruptError } from "@/lib/store-fetch";
+import { mutateProfileStore } from "@/lib/stores/profile-mutate";
 import {
   copyAeoToBrandPrefill,
   hasCounterpartProfile,
@@ -95,7 +96,7 @@ export function AeoProfileSection({ selectedProfileId, onSelect }: AeoProfileSec
       e.stopPropagation();
       if (!confirm(`"${p.label}" 프로필을 삭제할까요?`)) return;
       try {
-        const res = await fetch(`/api/aeo/profiles?id=${encodeURIComponent(p.id)}`, {
+        const res = await mutateProfileStore(`/api/aeo/profiles?id=${encodeURIComponent(p.id)}`, {
           method: "DELETE",
         });
         if (!res.ok) {
@@ -120,7 +121,7 @@ export function AeoProfileSection({ selectedProfileId, onSelect }: AeoProfileSec
           ? `/api/aeo/profiles?id=${encodeURIComponent(editing!.id)}`
           : `/api/aeo/profiles`;
         const method = isEdit ? "PUT" : "POST";
-        const res = await fetch(url, {
+        const res = await mutateProfileStore(url, {
           method,
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(payload),
