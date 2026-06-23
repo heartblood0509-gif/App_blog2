@@ -107,6 +107,14 @@ let pollTimer: NodeJS.Timeout | null = null;
 let focusHandler: (() => void) | null = null;
 const POLL_INTERVAL_MS = 60 * 60 * 1000; // 1시간
 const FOCUS_THROTTLE_MS = 10 * 60 * 1000; // 10분
+// 업데이트를 안 한 채 앱을 계속 켜둔 사용자를 위한 "재알림"(re-nag). 같은 버전을 한 번만
+// 알리는 lastNotifiedVersion 정책은 그대로 두고, 떠 있어야 할 "available" 상태를 약 1시간마다
+// 다시 렌더러로 push 한다(사용자가 X 로 닫아도 cachedState 는 유지되므로 재노출 가능).
+let reNagTimer: NodeJS.Timeout | null = null;
+// 마지막으로 렌더러에 "available" 을 보낸 시각 — 재알림 간격 계산 기준(닫은 직후 곧바로 안 뜨게).
+let lastAvailableShownAt = 0;
+const RENAG_INTERVAL_MS = 60 * 60 * 1000; // 약 1시간마다 재알림
+const RENAG_TICK_MS = 60 * 1000; // 1분마다 경과 시간만 점검(가벼움)
 
 function versionParts(value: string): number[] {
   return value.replace(/^v/i, "").split(/[.-]/).slice(0, 3).map((part) => {
@@ -137,6 +145,8 @@ function send(s: UpdaterStatus, p?: unknown): void {
   } else {
     cachedState = null;
   }
+  // 재알림 간격은 "마지막으로 available 을 띄운 시각" 기준으로 잰다.
+  if (s === "available") lastAvailableShownAt = Date.now();
   if (!mainRef || mainRef.isDestroyed()) return;
   mainRef.webContents.send("updater:state", { s, p });
 }
@@ -235,6 +245,9 @@ function cleanupAfterFailure(message: string): void {
   downloadToken = null;
   downloadInFlight = false;
   installPendingAfterDownload = false;
+  // 다운로드 실패/취소 후에도 설치까지 계속 유도. 같은 버전 재알림 차단을 풀어, 다음 주기
+  // background 확인이 다시 "새 버전 있음" 을 띄우게 한다(이후 maybeReNag 가 재알림 재개).
+  lastNotifiedVersion = null;
   send("error", message);
 }
 
@@ -316,9 +329,20 @@ function triggerBackgroundCheck(): void {
   });
 }
 
-// 1시간 주기 + 창 포커스(10분 throttle) 자동 재확인 설치. 창 종료 시 정리.
+// 약 1시간마다 호출. 보류 중인 업데이트("available")가 있으면 토스트를 다시 띄운다.
+// 사용자가 X 로 닫아도 cachedState 는 "available" 로 남아 있으므로 그대로 재노출하면 된다.
+function maybeReNag(): void {
+  if (checkInFlight) return; // 확인 진행 중엔 상태머신 정합성 위해 스킵
+  if (downloadInFlight || installPendingAfterDownload) return; // 작업 중엔 방해하지 않음
+  if (cachedState?.s !== "available") return; // 보류 중 업데이트가 있을 때만
+  if (Date.now() - lastAvailableShownAt < RENAG_INTERVAL_MS) return; // 마지막 노출 후 약 1시간 경과 시
+  send("available", cachedState.p); // 다시 토스트 노출(+ lastAvailableShownAt 갱신)
+}
+
+// 1시간 주기 + 창 포커스(10분 throttle) 자동 재확인 + 약 1시간 재알림. 창 종료 시 정리.
 function setupAutoRecheck(main: BrowserWindow): void {
   pollTimer = setInterval(triggerBackgroundCheck, POLL_INTERVAL_MS);
+  reNagTimer = setInterval(maybeReNag, RENAG_TICK_MS);
   focusHandler = () => {
     if (Date.now() - lastCheckAt >= FOCUS_THROTTLE_MS) triggerBackgroundCheck();
   };
@@ -327,6 +351,10 @@ function setupAutoRecheck(main: BrowserWindow): void {
     if (pollTimer) {
       clearInterval(pollTimer);
       pollTimer = null;
+    }
+    if (reNagTimer) {
+      clearInterval(reNagTimer);
+      reNagTimer = null;
     }
     if (focusHandler) {
       main.removeListener("focus", focusHandler);

@@ -3,7 +3,8 @@
 // 자동 업데이트 좌하단 토스트.
 //
 // 표시 정책 (preload IPC `updater:state` 의 status 기반):
-//   available    → "새 버전 X.Y.Z 가 있습니다" + [업데이트] / [나중에]
+//   available    → "새 버전 X.Y.Z 가 있습니다" + [업데이트] (닫기는 X 만)
+//                  업데이트를 안 한 채 켜두면 main 이 약 1시간마다 다시 띄움(재알림).
 //   error        → 같은 자리에 에러 메시지 + [재시도] / [닫기]
 //   blocked-busy → "작업이 끝나면 자동으로 설치됩니다." 안내 카드
 //   downloading/downloaded/installing → 토스트는 표시 안 함
@@ -125,9 +126,6 @@ export function UpdaterToast() {
                   </p>
                 )}
                 <div className="flex gap-2 justify-end mt-3">
-                  <Button variant="ghost" size="sm" onClick={dismiss}>
-                    나중에
-                  </Button>
                   <Button size="sm" onClick={startUpdate}>
                     {updateButtonLabel}
                   </Button>
