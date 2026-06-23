@@ -180,6 +180,30 @@ function normalizeBlogSplitUrl(value?: unknown): string {
   return parsed.toString();
 }
 
+// 로그용 URL 축약. host+path(라우트)는 보존하고, query 는 라우트 판별에 필요한
+// 화이트리스트 키만 남기고 나머지(세션성 토큰 등)는 제거한다.
+// 이 기능 디버깅의 핵심 단서인 `?Redirect=Write`(구형) vs `/postwrite`(신형) 판별을
+// 위해 path 와 Redirect/Type 등은 반드시 보존. blogId 는 공개 블로그 주소의 일부라
+// 마스킹하지 않는다. (log-redactor 는 URL 을 안 가리므로 마스킹 책임은 전적으로 여기.)
+const SAFE_URL_QUERY_KEYS = new Set(["Redirect", "Type", "categoryNo"]);
+function safeUrlForLog(value: string): string {
+  if (!value) return "(empty)";
+  try {
+    const u = new URL(value);
+    const kept: string[] = [];
+    let dropped = 0;
+    for (const [k, v] of u.searchParams) {
+      if (SAFE_URL_QUERY_KEYS.has(k)) kept.push(`${k}=${v}`);
+      else dropped += 1;
+    }
+    const q = kept.length ? `?${kept.join("&")}` : "";
+    const more = dropped ? `${kept.length ? "&" : "?"}…(${dropped})` : "";
+    return `${u.protocol}//${u.host}${u.pathname}${q}${more}`;
+  } catch {
+    return "(unparseable-url)";
+  }
+}
+
 function getBlogSplitBounds(): Rectangle | null {
   if (!mainWindow || mainWindow.isDestroyed()) return null;
   const { width, height } = mainWindow.getContentBounds();
@@ -331,6 +355,11 @@ async function openBlogSplitView(url?: unknown): Promise<{ ok: boolean }> {
     applyBlogSplitSecurity(blogSplitView);
     blogSplitView.webContents.on("did-navigate", notifyBlogSplitNavigation);
     blogSplitView.webContents.on("did-navigate-in-page", notifyBlogSplitNavigation);
+    // 리다이렉트 착지 추적(GoBlogWrite → 로그인 → 글쓰기). 구형 ?Redirect=Write vs 신형 /postwrite 판별용.
+    // (did-navigate-in-page 는 빈도가 높아 제외.)
+    blogSplitView.webContents.on("did-navigate", (_e, navUrl) => {
+      log.info(`[blogSplit] did-navigate ${safeUrlForLog(navUrl)}`);
+    });
     // 페이지를 이동하면 기존 하이라이트가 사라지므로 렌더러 카운터도 0으로 되돌린다.
     blogSplitView.webContents.on("did-navigate", () => {
       if (mainWindow && !mainWindow.isDestroyed()) {
@@ -363,6 +392,7 @@ async function openBlogSplitView(url?: unknown): Promise<{ ok: boolean }> {
       }
     });
     blogSplitView.webContents.on("did-finish-load", () => {
+      log.info(`[blogSplit] did-finish-load ${safeUrlForLog(blogSplitView!.webContents.getURL())}`);
       notifyBlogSplitNavigation();
       injectBlogSplitScrollbarCss();
       applyBlogSplitZoom();
@@ -376,7 +406,9 @@ async function openBlogSplitView(url?: unknown): Promise<{ ok: boolean }> {
 
   layoutBlogSplitView();
   try {
-    await blogSplitView!.webContents.loadURL(normalizeBlogSplitUrl(url));
+    const target = normalizeBlogSplitUrl(url);
+    log.info(`[blogSplit] loadURL ${safeUrlForLog(target)}`);
+    await blogSplitView!.webContents.loadURL(target);
   } catch {
     closeBlogSplitView();
     return { ok: false };
@@ -656,16 +688,71 @@ function createNativeImageFromBase64(value: string, mimeType = "image/png"): Nat
   return nativeImage.createFromDataURL(`data:${mimeType};base64,${normalized}`);
 }
 
-function findBlogEditorFrame(): WebFrameMain | null {
+// 후보 프레임이 "실제 편집 가능한 스마트에디터"인지 DOM 으로 직접 확인.
+// 제목 입력칸(contenteditable) 또는 본문 영역의 편집 타깃이 있어야 ready 로 본다.
+// (껍데기 .se-content 만으로 판정하면 contenteditable 이 늦게 붙는 레이스에 걸림 — 코덱스 #2.)
+// focusInEditor 등과 동일한 frame.executeJavaScript 메커니즘이라 새 기술 아님.
+async function frameHasEditableEditor(frame: WebFrameMain): Promise<boolean> {
+  try {
+    return Boolean(
+      await frame.executeJavaScript(
+        `Boolean(
+          document.querySelector(".se-documentTitle [contenteditable='true']") ||
+          ((document.querySelector(".se-content") || document.querySelector(".se-sections")) &&
+            (document.querySelector(".se-content .se-text-paragraph") ||
+              document.querySelector(".se-content [contenteditable='true']") ||
+              document.querySelector(".se-sections [contenteditable='true']")))
+        )`,
+        true,
+      ),
+    );
+  } catch {
+    // 크로스오리진/파괴/로딩중 프레임 — 후보에서 제외하고 다음으로.
+    return false;
+  }
+}
+
+// 네이버 스마트에디터 프레임 탐지.
+// ⚠️ 과거엔 frame.name==="mainFrame" / url.includes("PostWrite") 휴리스틱으로 찾았는데,
+//    네이버 신형 글쓰기(blog.naver.com/{id}/postwrite, 소문자)는 이 가정이 깨져
+//    editor-frame-not-found 로 조용히 실패했다(프론트 판정 정규식은 /i 라 통과 → 불일치).
+// → 이름/URL 토큰 대신 "에디터 DOM 이 실제 존재하는 프레임"을 직접 probe. URL 변화에 강건.
+//    top 프레임(framesInSubtree 에 포함)도 후보라 신형이 top 에 렌더해도 커버.
+async function findBlogEditorFrame(): Promise<WebFrameMain | null> {
   if (!isBlogSplitOpen()) return null;
   const contents = blogSplitView!.webContents;
-  return (
-    contents.mainFrame.framesInSubtree.find((frame) => {
-      if (frame.isDestroyed() || frame.detached) return false;
-      const url = frame.url || "";
-      return frame.name === "mainFrame" || url.includes("PostWrite") || url.includes("SmartEditor");
-    }) ?? null
+  const candidates = contents.mainFrame.framesInSubtree.filter(
+    (frame) => !frame.isDestroyed() && !frame.detached,
   );
+  for (const frame of candidates) {
+    if (await frameHasEditableEditor(frame)) return frame;
+  }
+  return null;
+}
+
+// 글쓰기 페이지 진입 직후 SmartEditor iframe/DOM 이 늦게 붙는 레이스 완화: 짧게 폴링.
+async function waitForBlogEditorFrame(attempts = 8, intervalMs = 250): Promise<WebFrameMain | null> {
+  for (let i = 0; i < attempts; i += 1) {
+    const frame = await findBlogEditorFrame();
+    if (frame) return frame;
+    if (i < attempts - 1) await sleep(intervalMs);
+  }
+  return null;
+}
+
+// editor-frame-not-found 진단용: 현재 모든 프레임의 name/url(축약)/detached 덤프.
+// 네이버 신형 프레임 구조를 사용자 로그 한 번으로 파악하기 위함.
+function dumpBlogSplitFrames(): string {
+  if (!isBlogSplitOpen()) return "[]";
+  try {
+    const rows = blogSplitView!.webContents.mainFrame.framesInSubtree.map((f) => {
+      if (f.isDestroyed()) return { name: "(destroyed)", url: "(destroyed)", detached: true };
+      return { name: f.name || "(empty)", url: safeUrlForLog(f.url || ""), detached: f.detached };
+    });
+    return JSON.stringify(rows);
+  } catch (e) {
+    return `dump-failed: ${e instanceof Error ? e.message : String(e)}`;
+  }
 }
 
 async function focusInEditor(frame: WebFrameMain, selectorMode: "title" | "body"): Promise<boolean> {
@@ -1196,17 +1283,25 @@ async function runBlogSplitPasteProbe(input: unknown): Promise<BlogSplitPastePro
   //  클릭해도 즉시 빠져나가 동작하지 않던 버그를 제거. 분할 패널 열림·blog.naver.com 글쓰기
   //  페이지·에디터 프레임 존재로 런타임 가드는 아래에서 충분히 한다.)
   if (!isBlogSplitOpen()) {
+    log.warn("[pasteProbe][guard] blog-split-not-open (분할 뷰 미오픈/파괴됨)");
     return { ok: false, error: "blog-split-not-open", steps };
   }
 
   const url = getBlogSplitUrl();
   const parsed = parseAllowedBlogSplitUrl(url);
   if (!parsed || parsed.hostname !== "blog.naver.com") {
+    log.warn(
+      `[pasteProbe][guard] blog-editor-not-open reason=${!parsed ? "url-parse-failed-or-host-not-allowed" : `host-mismatch(${parsed.hostname})`} url=${safeUrlForLog(url)}`,
+    );
     return { ok: false, error: "blog-editor-not-open", steps };
   }
 
-  const frame = findBlogEditorFrame();
+  // 이름/URL 휴리스틱이 아니라 "에디터 DOM 이 실제 존재하는 프레임"을 폴링하며 찾는다.
+  const frame = await waitForBlogEditorFrame();
   if (!frame) {
+    log.warn(
+      `[pasteProbe][guard] editor-frame-not-found url=${safeUrlForLog(url)} frames=${dumpBlogSplitFrames()}`,
+    );
     return { ok: false, error: "editor-frame-not-found", steps };
   }
 
@@ -1250,6 +1345,11 @@ async function runBlogSplitPasteProbe(input: unknown): Promise<BlogSplitPastePro
       ok: titleToBody.ok,
       detail: `titleCursorEnd=${titleToBody.titleCursorEnd} bodyCursor=${titleToBody.bodyCursor} reason=${titleToBody.reason}${titleToBody.fallback ? " fallback=true" : ""}`,
     });
+
+    // 코덱스 #4: 첫 본문 paste "직전" selection/activeElement 상태를 1회 계측한다.
+    // (현재는 paste 후에만 찍힘.) 신형 스킴에서 포커스가 의도한 contenteditable 에
+    // 있는지 로그로 확인 → 추후 focusBlogSplitView() 보정 필요 여부 판단 근거. 동작 변경 없음.
+    await logSelectionDiagnostics(frame, "before-body-paste");
 
     if (blocks.length === 0) {
       const fallbackLines = [firstMeaningfulParagraph(content)];

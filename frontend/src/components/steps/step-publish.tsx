@@ -112,6 +112,22 @@ function computeFrontendPasteBlocks(content: string): FrontendBlockSummary[] {
   return out;
 }
 
+// main(runBlogSplitPasteProbe)이 돌려주는 원시 에러 코드를 사용자용 한국어 안내로 매핑.
+// 원시 코드(editor-frame-not-found 등)는 진단 패널/pasteProbeResult 에 그대로 유지하고,
+// toast 로 사용자에게 보이는 문구만 친화적으로 바꾼다.
+const PASTE_ERROR_MESSAGES: Record<string, string> = {
+  "blog-split-not-open": "블로그 화면이 열려 있지 않아요. 먼저 ‘블로그 화면 열기’를 눌러 주세요.",
+  "blog-editor-not-open":
+    "네이버 글쓰기 화면이 아니에요. 로그인 후 글쓰기 화면을 연 다음 다시 시도해 주세요.",
+  "editor-frame-not-found":
+    "네이버 글쓰기 에디터를 찾지 못했어요. 글쓰기 화면이 완전히 열렸는지 확인 후 다시 시도해 주세요.",
+};
+
+function friendlyPasteError(code?: string): string {
+  if (code && code in PASTE_ERROR_MESSAGES) return PASTE_ERROR_MESSAGES[code];
+  return "붙여넣기 중 일부가 제대로 들어가지 않았어요.";
+}
+
 export function StepPublish({
   content,
   title,
@@ -632,7 +648,7 @@ export function StepPublish({
       if (result.ok) {
         toast.success("내용을 붙여넣었어요. 확인한 뒤 발행해 주세요.");
       } else {
-        toast.warning(result.error || "붙여넣기 중 일부가 제대로 들어가지 않았어요.");
+        toast.warning(friendlyPasteError(result.error));
       }
     } catch (err) {
       const message = err instanceof Error ? err.message : "붙여넣기 실행에 실패했어요.";
