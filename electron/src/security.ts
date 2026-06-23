@@ -11,6 +11,7 @@ const ALLOWED_EXTERNAL_HOSTS = new Set([
   "typecast.ai", // Typecast TTS API
   "studio.youtube.com", // YouTube 오디오 보관함
   "pf.kakao.com", // 1:1 채팅 문의(카카오 채널) — 챗봇/도움말의 CS 링크
+  "pickso.notion.site", // 공식 노션 가이드 — 챗봇 고정 FAQ의 해결 가이드 링크
 ]);
 
 /**
