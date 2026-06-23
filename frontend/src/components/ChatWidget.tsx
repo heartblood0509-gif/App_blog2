@@ -28,6 +28,8 @@ interface ChatMessage {
   role: "user" | "assistant";
   content: string;
   image?: Attachment;
+  // 하드코딩 고정 FAQ 답변 표시 — "더 자세히/짧게"(AI 재생성) 버튼을 숨긴다.
+  instant?: boolean;
 }
 
 const GREETING: ChatMessage = {
@@ -36,7 +38,24 @@ const GREETING: ChatMessage = {
     "안녕하세요! Blog Pick 도우미예요. 😊 24시간 언제든 바로 답해드려요.\n블로그픽·쇼츠픽 사용법, 발행/제작 오류, API 키 등 무엇이든 물어보세요.\n에러가 나면 그 화면을 캡처해 붙여넣어(또는 끌어다 놓아) 주세요 — 바로 분석해 드릴게요.",
 };
 
-// 빠른 질문 칩 — 첫 진입 시 사용자가 클릭만으로 시작할 수 있게.
+// 가장 많이 묻는 질문 — AI(/api/chat)를 거치지 않고 즉답하는 고정 FAQ.
+// 1순위 문의(이미지·영상 생성 실패)라 답변 문구·가이드 링크를 코드에 박아 즉시 노출한다.
+// 빠른 질문 칩 맨 앞에 배치된다.
+const INSTANT_FAQ = {
+  question: "이미지 / 영상이 생성되지 않아요",
+  answer: [
+    "이미지·영상은 외부 AI(fal.ai)에서 만들어져요. fal.ai는 쓴 만큼 비용이 드는 유료 서비스라, **fal.ai에 결제·크레딧이 준비되지 않으면 이미지·영상 생성이 실패합니다.**",
+    "",
+    "가장 흔한 원인은 **fal.ai 크레딧이 0원**인 경우예요. (카드만 등록되고 실제 충전은 안 된 상태)",
+    "👉 **fal.ai에서 크레딧을 직접 충전**(약 $10~20, 자동충전 권장)하시면 바로 생성됩니다.",
+    "",
+    "자세한 발급·충전 방법은 아래 가이드를 참고하세요 👇",
+    "- [FAL API 키 발급 방법 (카드 등록 + 크레딧 충전)](https://pickso.notion.site/FAL-API-36f2aa17591b8041a97ae35a050f5e2d)",
+    "- [이미지·영상이 생성되지 않아요 (해결 가이드)](https://pickso.notion.site/3872aa17591b8001aed5ed00c1139810)",
+  ].join("\n"),
+} as const;
+
+// 빠른 질문 칩 — 첫 진입 시 사용자가 클릭만으로 시작할 수 있게. (이 4개는 AI가 답변)
 const QUICK_QUESTIONS = [
   "글은 어떻게 발행하나요?",
   "쇼츠 영상은 어떻게 만드나요?",
@@ -151,6 +170,8 @@ export function ChatWidget() {
   const [attachment, setAttachment] = useState<Attachment | null>(null);
   const [isStreaming, setIsStreaming] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
+  // 답변 후 "다른 질문 보기"를 누르면 빠른 질문 칩을 다시 펼친다(대화는 유지).
+  const [showQuickAgain, setShowQuickAgain] = useState(false);
 
   // 플로팅 버튼 안내 말풍선 — 호버 시 / 첫 방문 자동 노출.
   const [hovered, setHovered] = useState(false);
@@ -318,6 +339,7 @@ export function ChatWidget() {
       setMessages([...nextMessages, { role: "assistant", content: "" }]);
       setInput("");
       setAttachment(null);
+      setShowQuickAgain(false);
       setIsStreaming(true);
 
       try {
@@ -341,6 +363,25 @@ export function ChatWidget() {
       }
     },
     [messages, isStreaming, streamAssistant]
+  );
+
+  // 고정 FAQ 즉답 — 가장 많은 문의(이미지·영상 실패)는 AI를 거치지 않고
+  // 질문+미리 박아둔 답변을 바로 메시지에 추가한다(네트워크 호출 0, 즉시 노출).
+  const answerInstant = useCallback(
+    (question: string, answer: string) => {
+      if (isStreaming) return;
+      setMessages((prev) => [
+        ...prev,
+        { role: "user", content: question },
+        { role: "assistant", content: answer, instant: true },
+      ]);
+      // send()와 동일하게 입력칸·첨부를 비운다 — 칩을 누르기 전 써둔 텍스트나
+      // 붙여둔 스크린샷이 그대로 남아 다음 전송에 딸려 나가는 오전송을 막는다.
+      setInput("");
+      setAttachment(null);
+      setShowQuickAgain(false);
+    },
+    [isStreaming]
   );
 
   // "더 자세히/짧게" — 원래 답은 남기고 새 답을 아래에 추가(append).
@@ -512,6 +553,7 @@ export function ChatWidget() {
     lastMsg.role === "assistant" &&
     !!lastMsg.content &&
     !isErrorBubble(lastMsg.content) &&
+    !lastMsg.instant && // 하드코딩 고정 FAQ 답변엔 재생성 버튼 숨김
     messages.some((m) => m.role === "user");
 
   return (
@@ -651,9 +693,20 @@ export function ChatWidget() {
                 </div>
               )}
 
-              {/* 빠른 질문 — 첫 인사만 있을 때 노출 */}
-              {messages.length === 1 && (
+              {/* 빠른 질문 — 첫 인사 시, 또는 "다른 질문 보기"를 눌렀을 때 노출 */}
+              {(messages.length === 1 || showQuickAgain) && (
                 <div className="flex flex-wrap gap-1.5 pt-1">
+                  {/* 1순위 고정 FAQ — 맨 앞. 클릭 시 AI 없이 즉답. */}
+                  <button
+                    key={INSTANT_FAQ.question}
+                    type="button"
+                    onClick={() =>
+                      answerInstant(INSTANT_FAQ.question, INSTANT_FAQ.answer)
+                    }
+                    className="rounded-full border border-border bg-background px-3 py-1.5 text-xs text-foreground/80 transition-colors hover:bg-muted"
+                  >
+                    {INSTANT_FAQ.question}
+                  </button>
                   {QUICK_QUESTIONS.map((q) => (
                     <button
                       key={q}
@@ -666,6 +719,23 @@ export function ChatWidget() {
                   ))}
                 </div>
               )}
+
+              {/* "다른 질문 보기" — 답변이 있고 빠른 질문이 접혀 있을 때, 다시 펼치는 진입점 */}
+              {!isStreaming &&
+                !showQuickAgain &&
+                messages.length > 1 &&
+                lastMsg?.role === "assistant" &&
+                !!lastMsg.content && (
+                  <div className="flex pt-1">
+                    <button
+                      type="button"
+                      onClick={() => setShowQuickAgain(true)}
+                      className="rounded-full border border-border bg-background px-3 py-1.5 text-xs text-foreground/60 transition-colors hover:bg-muted"
+                    >
+                      ＋ 다른 질문 보기
+                    </button>
+                  </div>
+                )}
             </div>
 
             {/* 첨부 미리보기 */}
