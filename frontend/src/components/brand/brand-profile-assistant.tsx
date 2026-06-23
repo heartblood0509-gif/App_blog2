@@ -16,6 +16,7 @@ import { Label } from "@/components/ui/label";
 import { Sparkles, Loader2, CheckCircle2, AlertCircle, ArrowRight, Edit3, MessagesSquare, FileText } from "lucide-react";
 import { toast } from "sonner";
 import type { BrandProfile } from "@/types/brand";
+import { mutateProfileStore } from "@/lib/stores/profile-mutate";
 import {
   BRAND_FOLLOWUP_QUESTIONS,
   type BrandProfileMissingField,
@@ -318,7 +319,7 @@ export function BrandProfileAssistant({ open, onClose, onSaved, prefill }: Brand
     try {
       const { missingFields: _missingFields, ...payload } = draft;
       void _missingFields;
-      const res = await fetch("/api/brand/profiles", {
+      const res = await mutateProfileStore("/api/brand/profiles", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),

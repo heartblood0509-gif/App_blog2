@@ -41,6 +41,7 @@ import { INTRO_VARIANTS } from "@/lib/brand/prompts/templates/intro";
 import { VALUE_PROOF_VARIANTS } from "@/lib/brand/prompts/templates/value-proof";
 import { DETAIL_VARIANTS } from "@/lib/brand/prompts/templates/detail";
 import { extractFlowFromMarkdownBody } from "@/lib/analysis-parser";
+import { mutateProfileStore } from "@/lib/stores/profile-mutate";
 import { AnalysisLibrarySection } from "./analysis-library-section";
 import { AnalysisRecordForm } from "./analysis-record-form";
 
@@ -222,7 +223,7 @@ export function BrandTemplateSection({
     if (!label) return;
     setSavingToLibrary(true);
     try {
-      const res = await fetch("/api/analysis/records", {
+      const res = await mutateProfileStore("/api/analysis/records", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

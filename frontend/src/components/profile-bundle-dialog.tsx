@@ -15,11 +15,12 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Badge } from "@/components/ui/badge";
 import { Package, Download, Upload, AlertCircle } from "lucide-react";
 import { toast } from "sonner";
-import type { BrandProfile } from "@/types/brand";
+import type { BrandProfile, AnalysisRecord } from "@/types/brand";
 import type { AeoProfile } from "@/types/aeo";
 import type { UserProduct } from "@/types";
 
-const BUNDLE_VERSION = 1;
+// v2: 보관함(analysis) 추가. v1(브랜드/AEO/제품) 파일도 가져오기에서 계속 수용.
+const BUNDLE_VERSION = 2;
 const APP_NAME = "app_blog2";
 
 interface ProfileBundleDialogProps {
@@ -29,7 +30,7 @@ interface ProfileBundleDialogProps {
   onImported?: () => void;
 }
 
-type Kind = "brand" | "aeo" | "product";
+type Kind = "brand" | "aeo" | "product" | "analysis";
 
 interface Bundle {
   version: number;
@@ -39,12 +40,14 @@ interface Bundle {
     brand: BrandProfile[];
     aeo: AeoProfile[];
     product: UserProduct[];
+    /** v2 추가 — 사용자 보관함(서사구조) 레코드. v1 파일엔 없음. */
+    analysis?: AnalysisRecord[];
   };
 }
 
 interface PreviewRow {
   kind: Kind;
-  /** unique key 값 (브랜드/제품=name, AEO=label) */
+  /** 선택 식별자 (브랜드/제품=name, AEO=label, 보관함=record id) */
   key: string;
   /** 사용자가 인지하는 표시명 */
   displayName: string;
@@ -56,15 +59,36 @@ const KIND_LABEL: Record<Kind, string> = {
   brand: "브랜드 프로필",
   aeo: "AEO 프로필",
   product: "제품 프로필",
+  analysis: "보관함(서사구조)",
 };
 
-function uniqueKeyFor(kind: Kind): "name" | "label" {
-  return kind === "aeo" ? "label" : "name";
+/** 선택/식별에 쓰는 unique key 필드. 보관함은 label 중복이 가능하므로 id 사용. */
+function uniqueKeyFor(kind: Kind): "name" | "label" | "id" {
+  if (kind === "aeo") return "label";
+  if (kind === "analysis") return "id";
+  return "name";
 }
 
-function displayKeyFor(): "name" {
-  // 세 종류 모두 표시명은 name 필드 (AEO도 화면엔 name을 노출)
-  return "name";
+/** 화면 표시명 필드. 보관함은 name이 없으므로 label. */
+function displayKeyForKind(kind: Kind): "name" | "label" {
+  return kind === "analysis" ? "label" : "name";
+}
+
+/**
+ * 보관함 내용 지문 — (label+analysis+flow) 정규화. 백엔드 _analysis_fingerprint 와 동일 규칙.
+ * 중복 판정(미리보기 배지)용. label 중복이 가능해 id 대신 내용으로 "같은 분석"을 식별.
+ */
+function analysisFingerprint(rec: {
+  label?: unknown;
+  analysis?: unknown;
+  flow?: unknown;
+}): string {
+  const label = String(rec.label ?? "").trim().toLowerCase();
+  const analysis = String(rec.analysis ?? "").trim();
+  const flow = Array.isArray(rec.flow)
+    ? rec.flow.map((s) => String(s).trim()).join("\x00")
+    : "";
+  return `${label}\x00${analysis}\x00${flow}`;
 }
 
 export function ProfileBundleDialog({ open, onClose, onImported }: ProfileBundleDialogProps) {
@@ -74,11 +98,13 @@ export function ProfileBundleDialog({ open, onClose, onImported }: ProfileBundle
   const [brandList, setBrandList] = useState<BrandProfile[]>([]);
   const [aeoList, setAeoList] = useState<AeoProfile[]>([]);
   const [productList, setProductList] = useState<UserProduct[]>([]);
+  const [analysisList, setAnalysisList] = useState<AnalysisRecord[]>([]);
   const [exportSelected, setExportSelected] = useState<{
     brand: Set<string>;
     aeo: Set<string>;
     product: Set<string>;
-  }>({ brand: new Set(), aeo: new Set(), product: new Set() });
+    analysis: Set<string>;
+  }>({ brand: new Set(), aeo: new Set(), product: new Set(), analysis: new Set() });
   const [loadingLists, setLoadingLists] = useState(false);
 
   // ── 가져오기 상태 ──
@@ -88,12 +114,14 @@ export function ProfileBundleDialog({ open, onClose, onImported }: ProfileBundle
   const [conflictPolicy, setConflictPolicy] = useState<"overwrite" | "skip">("skip");
   const [importing, setImporting] = useState(false);
 
-  // 현재 등록된 unique key set (가져오기 미리보기에서 중복 판정용)
+  // 현재 등록된 식별자 set (가져오기 미리보기 중복 판정용)
+  // 보관함은 내용 지문(fingerprint)으로 판정한다.
   const existingKeys = useMemo(() => ({
     brand: new Set(brandList.map((b) => b.name)),
     aeo: new Set(aeoList.map((a) => a.label)),
     product: new Set(productList.map((p) => p.name)),
-  }), [brandList, aeoList, productList]);
+    analysis: new Set(analysisList.map((r) => analysisFingerprint(r))),
+  }), [brandList, aeoList, productList, analysisList]);
 
   // 다이얼로그 열릴 때마다 현재 목록 fetch
   useEffect(() => {
@@ -103,11 +131,16 @@ export function ProfileBundleDialog({ open, onClose, onImported }: ProfileBundle
       fetch("/api/brand/profiles", { cache: "no-store" }).then((r) => r.json()),
       fetch("/api/aeo/profiles", { cache: "no-store" }).then((r) => r.json()),
       fetch("/api/products", { cache: "no-store" }).then((r) => r.json()),
+      fetch("/api/analysis/records", { cache: "no-store" }).then((r) => r.json()),
     ])
-      .then(([b, a, p]) => {
+      .then(([b, a, p, an]) => {
         setBrandList(b.status === "fulfilled" && Array.isArray(b.value) ? b.value : []);
         setAeoList(a.status === "fulfilled" && Array.isArray(a.value) ? a.value : []);
         setProductList(p.status === "fulfilled" && Array.isArray(p.value) ? p.value : []);
+        // 보관함은 사용자 레코드만 (내장 템플릿은 백업 대상 아님 — 로컬에서 자동 시드됨)
+        const records: AnalysisRecord[] =
+          an.status === "fulfilled" && Array.isArray(an.value) ? an.value : [];
+        setAnalysisList(records.filter((r) => !r.isBuiltin));
       })
       .finally(() => setLoadingLists(false));
   }, [open]);
@@ -119,7 +152,7 @@ export function ProfileBundleDialog({ open, onClose, onImported }: ProfileBundle
     setPreviewRows([]);
     setImportChecked(new Set());
     setConflictPolicy("skip");
-    setExportSelected({ brand: new Set(), aeo: new Set(), product: new Set() });
+    setExportSelected({ brand: new Set(), aeo: new Set(), product: new Set(), analysis: new Set() });
     setTab("export");
   }, [open]);
 
@@ -140,10 +173,11 @@ export function ProfileBundleDialog({ open, onClose, onImported }: ProfileBundle
         if (kind === "brand") brandList.forEach((b) => next.brand.add(b.name));
         if (kind === "aeo") aeoList.forEach((a) => next.aeo.add(a.label));
         if (kind === "product") productList.forEach((p) => next.product.add(p.name));
+        if (kind === "analysis") analysisList.forEach((r) => next.analysis.add(r.id));
       }
       return next;
     });
-  }, [brandList, aeoList, productList]);
+  }, [brandList, aeoList, productList, analysisList]);
 
   const setAllExportAcrossAll = useCallback((all: boolean) => {
     if (all) {
@@ -151,14 +185,18 @@ export function ProfileBundleDialog({ open, onClose, onImported }: ProfileBundle
         brand: new Set(brandList.map((b) => b.name)),
         aeo: new Set(aeoList.map((a) => a.label)),
         product: new Set(productList.map((p) => p.name)),
+        analysis: new Set(analysisList.map((r) => r.id)),
       });
     } else {
-      setExportSelected({ brand: new Set(), aeo: new Set(), product: new Set() });
+      setExportSelected({ brand: new Set(), aeo: new Set(), product: new Set(), analysis: new Set() });
     }
-  }, [brandList, aeoList, productList]);
+  }, [brandList, aeoList, productList, analysisList]);
 
   const exportTotal =
-    exportSelected.brand.size + exportSelected.aeo.size + exportSelected.product.size;
+    exportSelected.brand.size +
+    exportSelected.aeo.size +
+    exportSelected.product.size +
+    exportSelected.analysis.size;
 
   const handleExport = useCallback(() => {
     if (exportTotal === 0) {
@@ -173,6 +211,7 @@ export function ProfileBundleDialog({ open, onClose, onImported }: ProfileBundle
         brand: brandList.filter((b) => exportSelected.brand.has(b.name)),
         aeo: aeoList.filter((a) => exportSelected.aeo.has(a.label)),
         product: productList.filter((p) => exportSelected.product.has(p.name)),
+        analysis: analysisList.filter((r) => exportSelected.analysis.has(r.id)),
       },
     };
     const json = JSON.stringify(bundleOut, null, 2);
@@ -187,7 +226,7 @@ export function ProfileBundleDialog({ open, onClose, onImported }: ProfileBundle
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
     toast.success(`${exportTotal}개 항목을 내보냈습니다.`);
-  }, [brandList, aeoList, productList, exportSelected, exportTotal]);
+  }, [brandList, aeoList, productList, analysisList, exportSelected, exportTotal]);
 
   // ── 가져오기 파일 선택 핸들러 (사전 검증) ──
   const handleFile = useCallback(async (file: File) => {
@@ -204,9 +243,10 @@ export function ProfileBundleDialog({ open, onClose, onImported }: ProfileBundle
       return;
     }
     const candidate = parsed as Partial<Bundle>;
-    if (candidate.version !== BUNDLE_VERSION) {
+    // v1·v2 모두 수용 (v1엔 profiles.analysis 가 없을 뿐)
+    if (candidate.version !== 1 && candidate.version !== BUNDLE_VERSION) {
       toast.error(
-        `지원하지 않는 파일 버전입니다. (지원: v${BUNDLE_VERSION}, 파일: v${candidate.version ?? "?"})`,
+        `지원하지 않는 파일 버전입니다. (지원: v1~v${BUNDLE_VERSION}, 파일: v${candidate.version ?? "?"})`,
       );
       return;
     }
@@ -219,6 +259,8 @@ export function ProfileBundleDialog({ open, onClose, onImported }: ProfileBundle
       toast.error("파일 구조가 올바르지 않습니다. (profiles 배열 누락)");
       return;
     }
+    // analysis 는 v2 전용 — 없으면 빈 배열로 정규화
+    const analysisItems: unknown[] = Array.isArray(p.analysis) ? p.analysis : [];
 
     // 미리보기 행 생성 + 사전 검증
     const rows: PreviewRow[] = [];
@@ -230,7 +272,7 @@ export function ProfileBundleDialog({ open, onClose, onImported }: ProfileBundle
       }
       const rec = item as Record<string, unknown>;
       const uk = uniqueKeyFor(kind);
-      const dk = displayKeyFor();
+      const dk = displayKeyForKind(kind);
       const keyVal = rec[uk];
       const dispVal = rec[dk];
       if (typeof keyVal !== "string" || !keyVal) {
@@ -245,8 +287,22 @@ export function ProfileBundleDialog({ open, onClose, onImported }: ProfileBundle
           return { kind, key: keyVal, displayName: display, status: "error", errorReason: "category 누락" };
         }
       }
+      if (kind === "analysis") {
+        const analysisText = rec["analysis"];
+        if (typeof analysisText !== "string" || !analysisText) {
+          return { kind, key: keyVal, displayName: display, status: "error", errorReason: "analysis 본문 누락" };
+        }
+        // 내장 템플릿은 가져오기 대상 아님
+        if (rec["isBuiltin"] === true || rec["sourceType"] === "builtin") {
+          return { kind, key: keyVal, displayName: display, status: "error", errorReason: "내장 템플릿은 가져올 수 없음" };
+        }
+      }
 
-      const isDup = existingKeys[kind].has(keyVal);
+      // 중복 판정: 보관함은 내용 지문, 그 외는 unique key
+      const isDup =
+        kind === "analysis"
+          ? existingKeys.analysis.has(analysisFingerprint(rec))
+          : existingKeys[kind].has(keyVal);
       return {
         kind,
         key: keyVal,
@@ -256,11 +312,23 @@ export function ProfileBundleDialog({ open, onClose, onImported }: ProfileBundle
     };
 
     // 번들 내부 자체 중복 검사 (UI에서도 미리)
-    const seenPerKind: Record<Kind, Set<string>> = { brand: new Set(), aeo: new Set(), product: new Set() };
+    const seenPerKind: Record<Kind, Set<string>> = {
+      brand: new Set(),
+      aeo: new Set(),
+      product: new Set(),
+      analysis: new Set(),
+    };
     const selfDupes: string[] = [];
 
-    (["brand", "aeo", "product"] as const).forEach((kind) => {
-      const items = p[kind] as unknown[];
+    const kindItems: Record<Kind, unknown[]> = {
+      brand: p.brand,
+      aeo: p.aeo,
+      product: p.product,
+      analysis: analysisItems,
+    };
+
+    (["brand", "aeo", "product", "analysis"] as const).forEach((kind) => {
+      const items = kindItems[kind];
       const uk = uniqueKeyFor(kind);
       items.forEach((item) => {
         const row = validateItem(kind, item);
@@ -309,7 +377,12 @@ export function ProfileBundleDialog({ open, onClose, onImported }: ProfileBundle
       return;
     }
 
-    const selection = { brand: [] as string[], aeo: [] as string[], product: [] as string[] };
+    const selection = {
+      brand: [] as string[],
+      aeo: [] as string[],
+      product: [] as string[],
+      analysis: [] as string[],
+    };
     importChecked.forEach((composite) => {
       const idx = composite.indexOf(":");
       if (idx <= 0) return;
@@ -331,7 +404,7 @@ export function ProfileBundleDialog({ open, onClose, onImported }: ProfileBundle
       }
 
       const parts: string[] = [];
-      (["brand", "aeo", "product"] as const).forEach((kind) => {
+      (["brand", "aeo", "product", "analysis"] as const).forEach((kind) => {
         const r = data[kind];
         if (!r) return;
         const sub: string[] = [];
@@ -344,7 +417,7 @@ export function ProfileBundleDialog({ open, onClose, onImported }: ProfileBundle
       toast.success(parts.length > 0 ? parts.join(" / ") : "변경 사항 없음");
 
       const allErrors: string[] = [];
-      (["brand", "aeo", "product"] as const).forEach((kind) => {
+      (["brand", "aeo", "product", "analysis"] as const).forEach((kind) => {
         const errs: string[] = data[kind]?.errors ?? [];
         errs.forEach((e) => allErrors.push(`[${KIND_LABEL[kind]}] ${e}`));
       });
@@ -416,7 +489,7 @@ export function ProfileBundleDialog({ open, onClose, onImported }: ProfileBundle
   };
 
   const groupedPreview = useMemo(() => {
-    const out: Record<Kind, PreviewRow[]> = { brand: [], aeo: [], product: [] };
+    const out: Record<Kind, PreviewRow[]> = { brand: [], aeo: [], product: [], analysis: [] };
     previewRows.forEach((r) => out[r.kind].push(r));
     return out;
   }, [previewRows]);
@@ -430,7 +503,7 @@ export function ProfileBundleDialog({ open, onClose, onImported }: ProfileBundle
             프로필 가져오기 / 내보내기
           </DialogTitle>
           <DialogDescription>
-            브랜드 / AEO / 제품 프로필을 파일로 묶어 다른 PC로 옮기거나 백업할 수 있습니다.
+            브랜드 / AEO / 제품 프로필과 보관함을 파일로 묶어 다른 PC로 옮기거나 백업할 수 있습니다.
           </DialogDescription>
         </DialogHeader>
 
@@ -474,6 +547,10 @@ export function ProfileBundleDialog({ open, onClose, onImported }: ProfileBundle
                   "product",
                   productList.map((p) => ({ key: p.name, name: p.name, category: p.category })),
                 )}
+                {renderExportGroup(
+                  "analysis",
+                  analysisList.map((r) => ({ key: r.id, name: r.label, category: r.templateScope })),
+                )}
               </>
             )}
           </TabsContent>
@@ -501,7 +578,7 @@ export function ProfileBundleDialog({ open, onClose, onImported }: ProfileBundle
                   내보낸 시각: {bundle.exportedAt ?? "(미상)"}
                 </div>
 
-                {(["brand", "aeo", "product"] as const).map((kind) => {
+                {(["brand", "aeo", "product", "analysis"] as const).map((kind) => {
                   const rows = groupedPreview[kind];
                   if (rows.length === 0) return null;
                   return (
@@ -576,7 +653,7 @@ export function ProfileBundleDialog({ open, onClose, onImported }: ProfileBundle
                     </label>
                   </div>
                   <p className="text-xs text-muted-foreground">
-                    가져오기 직전에 현재 데이터를 자동으로 백업합니다.
+                    가져오기 직전에 현재 데이터를 자동으로 백업합니다. (보관함은 같은 내용이면 건너뜁니다)
                   </p>
                 </div>
               </>
