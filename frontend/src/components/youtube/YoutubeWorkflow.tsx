@@ -3,9 +3,13 @@
 // 유튜브(쇼츠 픽) 탭의 네이티브 React 워크플로 루트.
 // 내부 화면 상태머신(모드선택 → Card A/B 단계 → 진행 → 미리보기 → 완료)을 자체 관리한다.
 
+import { useState } from "react";
+import { History } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { YoutubeWorkflowProvider, useYt } from "./state";
+import { Button } from "@/components/ui/button";
+import { YoutubeWorkflowProvider, useYt, stepsForMode } from "./state";
 import { Stepper } from "./Stepper";
+import { YoutubeJobHistory } from "./YoutubeJobHistory";
 import { ModeSelect } from "./screens/ModeSelect";
 import { TopicInput } from "./screens/TopicInput";
 import { TitleSelect } from "./screens/TitleSelect";
@@ -59,17 +63,42 @@ function ScreenSwitch() {
 // 별개 컨테이너라, 상단 스텝퍼는 항상 좁게 두고 본문 컨테이너만 넓힌다. page.tsx 셸·다른 카드는 무변경.
 function WorkflowBody() {
   const { state } = useYt();
+  const [historyOpen, setHistoryOpen] = useState(false);
   const wide = state.screen === "lines";
+  // "이전 작업 열기" 버튼: 스텝퍼가 보이는 Card B 단계 전체에서 노출(원래는 1단계에만 있었음).
+  //  · user_assets(Card B) 한정 — AI 전체생성(Card A) 단계엔 띄우지 않는다.
+  //  · 렌더 진행 중(progress)은 제외 — 이탈 시 SSE 구독이 끊겨 완료를 못 받기 때문(Stepper 잠금과 동일 취지).
+  //  · 스텝 목록에 없는 화면(모드 선택 등)에선 스텝퍼처럼 숨김. completed 는 step5 match 에 포함돼 노출.
+  const showHistory =
+    state.mode === "user_assets" &&
+    state.screen !== "progress" &&
+    stepsForMode(state.mode).some(
+      (s) => s.screen === state.screen || s.match?.includes(state.screen),
+    );
   return (
     <div className="space-y-6">
       {/* 상단 단계 표시줄: 원본 .timeline.container 처럼 항상 좁게(≈920px → max-w-4xl) */}
       <div className="mx-auto max-w-4xl">
         <Stepper />
       </div>
+      {/* 작업이력 진입: 스텝퍼와 같은 폭으로 우측 정렬해 단계가 바뀌어도 위치 고정. */}
+      {showHistory && (
+        <div className="mx-auto -mt-4 flex max-w-4xl justify-end">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setHistoryOpen(true)}
+            className="gap-1.5"
+          >
+            <History className="h-4 w-4" /> 이전 작업 열기
+          </Button>
+        </div>
+      )}
       {/* 본문: 자산(lines) 단계만 원본 .step-container 처럼 넓게, 그 외엔 좁게 */}
       <div className={cn("mx-auto", wide ? "max-w-7xl" : "max-w-4xl")}>
         <ScreenSwitch />
       </div>
+      <YoutubeJobHistory open={historyOpen} onOpenChange={setHistoryOpen} />
     </div>
   );
 }

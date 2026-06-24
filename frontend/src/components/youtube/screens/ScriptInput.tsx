@@ -10,7 +10,7 @@
 // 제목은 선택: 비워도 진행 가능(제목 없으면 최종 영상에서 오버레이 생략).
 
 import { useEffect, useRef, useState } from "react";
-import { ArrowRight, History, Loader2, Scissors } from "lucide-react";
+import { ArrowRight, Loader2, Scissors } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -25,7 +25,6 @@ import {
   TITLE_LINE2_COLOR,
 } from "../ShortsPreviewFrame";
 import { createDraft, saveDraftMeta, splitScript } from "@/lib/youtube/endpoints";
-import { YoutubeJobHistory } from "../YoutubeJobHistory";
 
 const SCRIPT_MIN = 10; // 백엔드 SplitScriptRequest.script min_length
 const SCRIPT_MAX = 5000;
@@ -34,7 +33,6 @@ export function ScriptInput() {
   const { state, update } = useYt();
   const [script, setScript] = useState(state.scriptText);
   const [busy, setBusy] = useState(false);
-  const [historyOpen, setHistoryOpen] = useState(false);
 
   // 되돌아오기(스텝퍼) 시 사용자가 정한 두 줄을 그대로 복원한다. 두 줄이 모두 비어 있고
   // 합친 제목만 남아 있는 경우(레거시)에만 한 번 자동 분할로 채운다.
@@ -144,18 +142,6 @@ export function ScriptInput() {
 
   return (
     <div className="space-y-5">
-      <div className="flex justify-end">
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() => setHistoryOpen(true)}
-          className="gap-1.5"
-        >
-          <History className="h-4 w-4" /> 이전 작업 열기
-        </Button>
-      </div>
-      <YoutubeJobHistory open={historyOpen} onOpenChange={setHistoryOpen} />
-
       {/* 1. 제목 입력 */}
       <div className="rounded-xl border border-border bg-card p-6 text-card-foreground">
         <h2 className="text-lg font-semibold">1. 제목 입력</h2>
