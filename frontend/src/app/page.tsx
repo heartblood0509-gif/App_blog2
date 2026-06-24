@@ -2420,7 +2420,11 @@ export default function Home() {
               ? "쓰레드 글과 이미지를 한 번에 만듭니다"
               : state.channel === "blog"
                 ? "후기 · 브랜드 · AEO 블로그 글을 단계별로 자동 생성합니다"
-                : "어떤 채널의 콘텐츠를 만들지 골라보세요"
+                : state.channel === "youtube" &&
+                    youtubeAllowed &&
+                    state.currentStep > 0
+                  ? "각 단계를 클릭해 자유롭게 이동할 수 있어요"
+                  : "어떤 채널의 콘텐츠를 만들지 골라보세요"
           }
         />
 
