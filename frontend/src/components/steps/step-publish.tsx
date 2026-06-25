@@ -52,6 +52,12 @@ interface StepPublishProps {
   onStartNew?: () => void;
 }
 
+// 블로그 본문 → 유튜브 스크립트 변환 버튼 노출 여부.
+// 미완성 기능이라 사용자에게 숨긴다(false). 화면 노출만 막는 것이고 기능 코드는 보존.
+// 완성되면 true 로 되돌리면 끝. (유튜브 기능 전역 킬스위치 YOUTUBE_FEATURE_ENABLED 와는 별개 —
+// 쇼츠 채널/백엔드에는 영향 없음)
+const BLOG_TO_YOUTUBE_ENABLED = false;
+
 // 개발 진단용: BlogContentRenderer 의 line-by-line 분기와 동일 규칙으로
 // content 를 블록 배열로 분해. main 의 parsePasteBlocks 결과와 옆에 두고 비교해서
 // 두 파서가 다르게 쪼개는 지점을 즉시 발견할 수 있게 함.
@@ -1110,8 +1116,8 @@ export function StepPublish({
               </Button>
             )}
 
-            {/* 유튜브 변환 (로즈 톤) — 킬스위치 OFF면 전체 숨김 */}
-            {YOUTUBE_FEATURE_ENABLED && (
+            {/* 유튜브 변환 (로즈 톤) — 미완성이라 BLOG_TO_YOUTUBE_ENABLED 로 사용자에게 숨김 */}
+            {YOUTUBE_FEATURE_ENABLED && BLOG_TO_YOUTUBE_ENABLED && (
               <>
                 {youtubeMatches.length === 0 && !isConvertingToYoutube && (
                   <Button
@@ -1168,8 +1174,8 @@ export function StepPublish({
         </Card>
       )}
 
-      {/* 유튜브 스크립트 변환 결과 — 변환 결과 또는 진행 중일 때만 표시 (킬스위치 OFF면 숨김) */}
-      {YOUTUBE_FEATURE_ENABLED && (youtubeMatches.length > 0 || isConvertingToYoutube) && (
+      {/* 유튜브 스크립트 변환 결과 — 변환 결과 또는 진행 중일 때만 표시 (미완성이라 숨김) */}
+      {YOUTUBE_FEATURE_ENABLED && BLOG_TO_YOUTUBE_ENABLED && (youtubeMatches.length > 0 || isConvertingToYoutube) && (
         <YoutubeScriptResult
           originalContent={content}
           matches={youtubeMatches}

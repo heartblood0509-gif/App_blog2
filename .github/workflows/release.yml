@@ -272,11 +272,11 @@ jobs:
           # 일반 사용자가 칩 종류를 알아보도록 파일명에 Intel / AppleSilicon 라벨을 붙인다.
           # (electron-builder 기본 artifactName 은 칩별 분기를 못 하므로 빌드 후 CI 에서 rename.)
           # 괄호·공백은 다운로드/공유 시 깨질 수 있어 하이픈으로 잇는다.
-          VERSION="${{ needs.validate.outputs.version }}"
           LABEL="${{ matrix.label }}"
           SRC=$(find release -maxdepth 1 -name "*.dmg" | head -1)
           test -n "$SRC" || { echo "::error::dmg not found in release/"; exit 1; }
-          DEST="release/Blog-Pick-Mac-${LABEL}-${VERSION}.dmg"
+          # 파일명에 버전을 넣지 않는다(고정 이름) → releases/latest/download 영구 링크가 안 깨짐.
+          DEST="release/Blog-Pick-Mac-${LABEL}.dmg"
           mv "$SRC" "$DEST"
           echo "renamed: $(basename "$SRC") -> $(basename "$DEST")"
 
@@ -323,8 +323,8 @@ jobs:
           아래 절차(클릭만)로 정상 실행됩니다.
 
           1. 내 맥 칩에 맞는 `.dmg` 를 다운로드하세요. (칩 확인: 화면 좌측 상단 🍎 → **"이 Mac에 관하여"** → "칩" 또는 "프로세서" 항목)
-             - **Apple Silicon (M1~M4 칩):** `Blog-Pick-Mac-AppleSilicon-VERSION_PLACEHOLDER.dmg`
-             - **Intel 칩:** `Blog-Pick-Mac-Intel-VERSION_PLACEHOLDER.dmg`
+             - **Apple Silicon (M1~M4 칩):** `Blog-Pick-Mac-AppleSilicon.dmg`
+             - **Intel 칩:** `Blog-Pick-Mac-Intel.dmg`
           2. `.dmg`를 더블클릭 → 앱을 **응용 프로그램(Applications)** 폴더로 드래그
           3. **응용 프로그램**에서 `Blog Pick` 실행 → 경고가 뜨면 **"취소"** (휴지통으로 보내지 마세요)
           4. 화면 좌측 상단 **🍎 → "시스템 설정" → "개인정보 보호 및 보안"** 으로 이동
@@ -336,7 +336,7 @@ jobs:
 
           ### 🪟 Windows 설치 안내
 
-          `Blog-Pick-Windows-VERSION_PLACEHOLDER.exe`를 다운로드 후 실행하세요.
+          `Blog-Pick-Windows.exe`를 다운로드 후 실행하세요.
           SmartScreen 경고가 뜨면 **"추가 정보" → "실행"** 으로 진행하세요.
 
           (선택) 이전 버전 **"App Blog Publisher"** 가 시작 메뉴/제어판 → 프로그램 추가/제거에 남아 있다면 수동으로 제거해 주세요. 데이터는 새 버전에 그대로 유지됩니다.

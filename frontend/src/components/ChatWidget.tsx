@@ -39,26 +39,94 @@ const GREETING: ChatMessage = {
 };
 
 // 가장 많이 묻는 질문 — AI(/api/chat)를 거치지 않고 즉답하는 고정 FAQ.
-// 1순위 문의(이미지·영상 생성 실패)라 답변 문구·가이드 링크를 코드에 박아 즉시 노출한다.
-// 빠른 질문 칩 맨 앞에 배치된다.
-const INSTANT_FAQ = {
-  question: "이미지 / 영상이 생성되지 않아요",
-  answer: [
-    "이미지·영상은 외부 AI(fal.ai)에서 만들어져요. fal.ai는 쓴 만큼 비용이 드는 유료 서비스라, **fal.ai에 결제·크레딧이 준비되지 않으면 이미지·영상 생성이 실패합니다.**",
-    "",
-    "가장 흔한 원인은 **fal.ai 크레딧이 0원**인 경우예요. (카드만 등록되고 실제 충전은 안 된 상태)",
-    "👉 **fal.ai에서 크레딧을 직접 충전**(약 $10~20, 자동충전 권장)하시면 바로 생성됩니다.",
-    "",
-    "자세한 발급·충전 방법은 아래 가이드를 참고하세요 👇",
-    "- [FAL API 키 발급 방법 (카드 등록 + 크레딧 충전)](https://pickso.notion.site/FAL-API-36f2aa17591b8041a97ae35a050f5e2d)",
-    "- [이미지·영상이 생성되지 않아요 (해결 가이드)](https://pickso.notion.site/3872aa17591b8001aed5ed00c1139810)",
-  ].join("\n"),
-} as const;
+// 1·2순위 문의(이미지·영상 생성 실패 / 설치·실행 오류)라 답변 문구·가이드 링크를
+// 코드에 박아 즉시 노출한다. 빠른 질문 칩 맨 앞에 순서대로 배치된다.
+const INSTANT_FAQS = [
+  {
+    question: "이미지 / 영상이 생성되지 않아요",
+    answer: [
+      "이미지·영상은 외부 AI(fal.ai)에서 만들어져요. fal.ai는 쓴 만큼 비용이 드는 유료 서비스라, **fal.ai에 결제·크레딧이 준비되지 않으면 이미지·영상 생성이 실패합니다.**",
+      "",
+      "가장 흔한 원인은 **fal.ai 크레딧이 0원**인 경우예요. (카드만 등록되고 실제 충전은 안 된 상태)",
+      "👉 **fal.ai에서 크레딧을 직접 충전**(약 $10~20, 자동충전 권장)하시면 바로 생성됩니다.",
+      "",
+      "자세한 발급·충전 방법은 아래 가이드를 참고하세요 👇",
+      "- [FAL API 키 발급 방법 (카드 등록 + 크레딧 충전)](https://pickso.notion.site/FAL-API-36f2aa17591b8041a97ae35a050f5e2d)",
+      "- [이미지·영상이 생성되지 않아요 (해결 가이드)](https://pickso.notion.site/3872aa17591b8001aed5ed00c1139810)",
+    ].join("\n"),
+  },
+  {
+    question: "프로그램이 설치·실행되지 않아요",
+    answer: [
+      "설치·업데이트·실행이 안 되는 건 대부분 **PC 환경**(보안 차단·저장 공간·브라우저) 문제예요. 프로그램 고장이 아니라, 막힌 것만 한 번 풀어주면 정상 작동합니다.",
+      "",
+      "이런 경우가 많아요. 내 증상에 맞게 따라 해 보세요.",
+      "- **설치하려는데 '위험할 수 있는 앱'이라며 막혀요** → 경고창의 '추가 정보 → 실행'을 누르면 설치돼요. (바이러스 아니에요!)",
+      "- **설치·업데이트 중 영어 팝업이 뜨며 멈춰요** → 블로그픽을 완전히 끈 뒤 다시 설치하세요.",
+      "- **업데이트 후 프로그램·아이콘이 사라진 것 같아요** → 지워진 게 아니라 새 버전으로 바뀌는 중이에요. PC 성능에 따라 최대 10분까지 걸릴 수 있으니, 그동안 누르지 말고 기다려 주세요.",
+      "- **설치 파일이 다운로드가 안 돼요** → 엣지 말고 크롬으로 받아주세요.",
+      "- **글은 써지는데 발행만 안 돼요** → C드라이브 공간이 부족한 거예요. 공간을 비우고 다시 설치하세요.",
+      "",
+      "더 자세한 내용은 아래 가이드를 참고하세요 👇👇👇",
+      "- [설치·업데이트 오류 해결](https://pickso.notion.site/3882aa17591b8066a887ec493c97c031)",
+      "- [윈도우 버전 설치 방법](https://pickso.notion.site/36f2aa17591b81fab31cec43e2c27954)",
+      "- [맥 버전 설치 방법](https://pickso.notion.site/MAC-36f2aa17591b80f299c8f86db47759b4)",
+      "",
+      "📥 **최신 버전 바로 다운로드** (클릭하면 바로 받아져요)",
+      "- [윈도우 다운로드](https://github.com/heartblood0509-gif/App_blog2/releases/latest/download/Blog-Pick-Windows.exe)",
+      "- [맥 · 애플 실리콘 다운로드](https://github.com/heartblood0509-gif/App_blog2/releases/latest/download/Blog-Pick-Mac-AppleSilicon.dmg)",
+      "- [맥 · 인텔 다운로드](https://github.com/heartblood0509-gif/App_blog2/releases/latest/download/Blog-Pick-Mac-Intel.dmg)",
+    ].join("\n"),
+  },
+  {
+    question: "계정·기기는 몇 대까지 쓸 수 있나요?",
+    answer: [
+      "자주 묻는 계정·기기 정책을 정리했어요. 👇",
+      "",
+      "**🔐 프로그램 로그인 계정**",
+      "구글 계정 **1개**만 사용할 수 있어요.",
+      "",
+      "**💻 설치 기기**",
+      "**최대 3대**까지 등록해서 쓸 수 있어요. 단, **동시 접속은 안 돼요.** 한 대에서 로그인하면 다른 기기는 **자동으로 로그아웃**돼요. (예: 회사 PC에서 쓰다가 집 PC에서 로그인하면 회사 PC는 로그아웃됨)",
+      "",
+      "ℹ️ 하나의 계정을 여러 사람이 동시에 나눠 쓰는 것을 방지하기 위한 정책이에요. 정당하게 구매하신 분들을 보호하기 위한 것이니 양해 부탁드려요. 🙏",
+    ].join("\n"),
+  },
+  {
+    question: "네이버 아이디는 몇 개까지 등록되나요?",
+    answer: [
+      "**📝 네이버 발행 아이디**",
+      "발행에 쓸 네이버 아이디는 **개수 제한 없이** 등록할 수 있어요.",
+      "다만 계정 안전을 위해 **아이디 1개당 하루 2개**, 전체적으로는 **하루 4개 이내** 발행을 권장해요.",
+    ].join("\n"),
+  },
+  {
+    question: "쇼츠 영상은 어떻게 만드나요?",
+    answer: [
+      "영상은 앱 첫 화면 **'채널 선택'에서 '유튜브'를 선택**하면 만들 수 있어요. 처음 만드실 때 아래 3가지만 기억하시면 훨씬 수월해요. 👇",
+      "",
+      "**🎬 영상은 이렇게 만들어요**",
+      "사진·영상을 **AI로 생성**할 수도 있어요. 다만 더 자연스러운(AI 티 안 나는) 결과물을 원하시면 **직접 촬영한 사진이나 영상을 업로드하시는 걸 적극 권장**해요. AI는 소스가 부족할 때 중간중간 섞어 쓰시면 좋아요.",
+      "대본에 어울리는 영상만 잘 매칭해 주시면, **편집(쪼개기·합치기 등)은 프로그램이 알아서 해줘요.**",
+      "",
+      "**✂️ 대본은 한 줄에 한 문장씩, 3초 이하로 넣어 주세요**",
+      "AI 영상 생성은 **한 컷당 최대 6초**까지 만들어져요. 만약 한 줄에 10초 분량의 대본을 넣으면, 영상은 6초까지만 나오고 **나머지는 검은 화면**이 돼요.",
+      "그래서 **한 줄에 한 문장씩, 3초 이하**로 넣는 걸 추천해요. 3초는 생각보다 길어서 보통 한 문장이면 충분히 들어가고, 한 장면이 너무 길면 **시청자가 지루함**을 느껴요.",
+      "",
+      "**🔊 음성·배경음악**",
+      "음성(내레이션)은 Typecast API 키가 필요해요. (fal API 키 입력란과 헷갈리지 않게 주의!)",
+      "배경음악(BGM)은 **직접 만든 음악을 올리거나, 유튜브 오디오 라이브러리의 무료 음악**을 받아서 올리면 돼요.",
+      "⚠️ 단, 유튜브 오디오 라이브러리 음악은 **유튜브에 올릴 때만** 쓸 수 있어요. 인스타·틱톡에 올리실 거면, 스마트폰으로 업로드할 때 **각 앱이 제공하는 음악**을 직접 입혀 주세요.",
+      "",
+      "자세한 제작 방법은 아래 가이드를 참고하세요 👇",
+      "- [쇼츠 영상 만드는 방법 (전체 가이드)](https://pickso.notion.site/c8f2aa17591b83a8beb3811b9bc5005c?pvs=74)",
+    ].join("\n"),
+  },
+] as const;
 
 // 빠른 질문 칩 — 첫 진입 시 사용자가 클릭만으로 시작할 수 있게. (이 4개는 AI가 답변)
 const QUICK_QUESTIONS = [
   "글은 어떻게 발행하나요?",
-  "쇼츠 영상은 어떻게 만드나요?",
   "API 키는 어디서 등록하나요?",
   "편집기가 흰 화면이 됐어요",
 ];
@@ -181,6 +249,7 @@ export function ChatWidget() {
   const reduceMotion = useReducedMotion();
 
   const scrollRef = useRef<HTMLDivElement>(null);
+  const lastUserMsgRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const abortRef = useRef<AbortController | null>(null);
@@ -191,12 +260,19 @@ export function ChatWidget() {
   const pathname = usePathname();
   const router = useRouter();
 
-  // 새 메시지마다 맨 아래로 스크롤. isStreaming 도 의존성에 둬서, 스트리밍이 끝나
-  // "더 자세히/짧게" 버튼이 추가되는 순간에도 다시 스크롤해 버튼이 가려지지 않게 한다.
+  // 새 질문(칩 클릭·직접 입력)이 추가되면 그 질문을 스크롤 영역 맨 위에 고정한다(pin-to-top).
+  // 답변이 길어도 화면이 답변 끝으로 따라 내려가지 않고, 사용자가 질문→답변을 위에서부터
+  // 자연스럽게 읽어 내려가도록 한다. 의존성은 "유저 메시지 수"라서 스트리밍 중 본문이 길어져도
+  // 다시 스크롤하지 않는다(질문이 위에 고정된 채 답변만 아래에서 채워진다).
+  const userMsgCount = messages.filter((m) => m.role === "user").length;
   useEffect(() => {
     const el = scrollRef.current;
-    if (el) el.scrollTop = el.scrollHeight;
-  }, [messages, open, attachment, isStreaming]);
+    const q = lastUserMsgRef.current;
+    if (!el || !q) return;
+    const elRect = el.getBoundingClientRect();
+    const qRect = q.getBoundingClientRect();
+    el.scrollTop += qRect.top - elRect.top - 12; // 질문 위에 약간의 여백
+  }, [userMsgCount, open]);
 
   // 열릴 때 입력창 포커스.
   useEffect(() => {
@@ -520,7 +596,7 @@ export function ChatWidget() {
     const startX = e.clientX;
     const startY = e.clientY;
     const rect = panelRef.current?.getBoundingClientRect();
-    const startW = rect?.width ?? 384;
+    const startW = rect?.width ?? 480;
     const startH = rect?.height ?? 512;
     const onMove = (ev: PointerEvent) => {
       const maxW = Math.min(window.innerWidth - 36, 760);
@@ -545,6 +621,12 @@ export function ChatWidget() {
   // 하단 "1:1 채팅 문의" 링크 — 순수 <a>라 linkify를 안 거치므로 safeUrl로 검증.
   const supportHref = safeUrl(SUPPORT_CHAT_URL);
 
+  // 마지막 유저(질문) 메시지의 인덱스 — pin-to-top 스크롤 대상.
+  const lastUserIndex = messages.reduce(
+    (acc, m, i) => (m.role === "user" ? i : acc),
+    -1
+  );
+
   // "더 자세히/짧게"는 마지막이 정상(에러 아님) 답변이고, 재답할 질문이 있을 때만 노출.
   const lastMsg = messages[messages.length - 1];
   const canRefine =
@@ -568,7 +650,7 @@ export function ChatWidget() {
             exit={{ opacity: 0, y: 16, scale: 0.98 }}
             transition={{ duration: 0.18, ease: "easeOut" }}
             style={size ? { width: size.w, height: size.h } : undefined}
-            className="fixed bottom-24 right-5 z-[60] flex h-[min(61rem,calc(100dvh-7rem))] w-[min(27rem,calc(100vw-2.5rem))] flex-col overflow-hidden rounded-2xl border border-border bg-background shadow-2xl"
+            className="fixed bottom-24 right-5 z-[60] flex h-[min(61rem,calc(100dvh-7rem))] w-[min(30rem,calc(100vw-2.5rem))] flex-col overflow-hidden rounded-2xl border border-border bg-background shadow-2xl"
             role="dialog"
             aria-label="고객 지원 챗봇"
             onDragEnter={onDragEnter}
@@ -627,6 +709,7 @@ export function ChatWidget() {
               {messages.map((m, i) => (
                 <div
                   key={i}
+                  ref={i === lastUserIndex ? lastUserMsgRef : undefined}
                   className={cn(
                     "flex",
                     m.role === "user" ? "justify-end" : "justify-start"
@@ -696,17 +779,17 @@ export function ChatWidget() {
               {/* 빠른 질문 — 첫 인사 시, 또는 "다른 질문 보기"를 눌렀을 때 노출 */}
               {(messages.length === 1 || showQuickAgain) && (
                 <div className="flex flex-wrap gap-1.5 pt-1">
-                  {/* 1순위 고정 FAQ — 맨 앞. 클릭 시 AI 없이 즉답. */}
-                  <button
-                    key={INSTANT_FAQ.question}
-                    type="button"
-                    onClick={() =>
-                      answerInstant(INSTANT_FAQ.question, INSTANT_FAQ.answer)
-                    }
-                    className="rounded-full border border-border bg-background px-3 py-1.5 text-xs text-foreground/80 transition-colors hover:bg-muted"
-                  >
-                    {INSTANT_FAQ.question}
-                  </button>
+                  {/* 1·2순위 고정 FAQ — 맨 앞. 클릭 시 AI 없이 즉답. */}
+                  {INSTANT_FAQS.map((faq) => (
+                    <button
+                      key={faq.question}
+                      type="button"
+                      onClick={() => answerInstant(faq.question, faq.answer)}
+                      className="rounded-full border border-border bg-background px-3 py-1.5 text-xs text-foreground/80 transition-colors hover:bg-muted"
+                    >
+                      {faq.question}
+                    </button>
+                  ))}
                   {QUICK_QUESTIONS.map((q) => (
                     <button
                       key={q}
