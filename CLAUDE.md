@@ -51,3 +51,4 @@ npm --prefix frontend run build
 - **새소식**: 커밋/PR 직전, 사용자가 체감할 변경이면 `frontend/public/whats-new.json`에 항목 추가(기존 형식 유지: `type`=new/improve/fix, 친절한 사용자용 설명체, 버전은 다음 릴리스 기준). 내부 리팩터·CI·문서 등 사용자 무관 변경은 생략.
 - `/commit-push-pr` 명령은 자체적으로 검증을 돌리지 않으므로, 명령을 호출하기 *전* 단계에서 위 게이트를 통과시킨다.
 - 릴리스: `npm version`은 frontend가 git 루트가 아니라 버전만 bump하고 커밋·태그를 안 만든다 → `git add frontend/package*.json` 후 직접 커밋 + `git tag -a vX.Y.Z`로 마무리.
+- **배포 파일명은 버전 없이 고정**: 릴리스 자산은 `Blog-Pick-Windows.exe` / `Blog-Pick-Mac-AppleSilicon.dmg` / `Blog-Pick-Mac-Intel.dmg` (파일명에 `${version}` 금지). 그래야 `https://github.com/heartblood0509-gif/App_blog2/releases/latest/download/<파일명>` 영구 다운로드 링크(챗봇 고정 FAQ·노션 설치 가이드)가 버전이 올라가도 안 깨진다. 파일명을 바꾸려면 그 링크들도 함께 고칠 것. (설정: `package.json`의 win `artifactName`, `.github/workflows/release.yml`의 mac dmg 리네임)

@@ -109,7 +109,7 @@
     ],
     "win": {
       "target": "nsis",
-      "artifactName": "Blog-Pick-Windows-${version}.${ext}",
+      "artifactName": "Blog-Pick-Windows.${ext}",
       "verifyUpdateCodeSignature": false,
       "icon": "build/icon.png"
     },
