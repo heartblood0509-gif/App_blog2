@@ -150,7 +150,11 @@ export function AuthSessionProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const authorize = useCallback(
-    async (activeSession: Session, activeDevice: DeviceInfo, opts?: { silent?: boolean }) => {
+    async (
+      activeSession: Session,
+      activeDevice: DeviceInfo,
+      opts?: { silent?: boolean; afterRefresh?: boolean },
+    ) => {
       // silent=true: 배경 폴링·dev StrictMode 재실행 등 사용자 개입 없는 호출.
       // 진입 시 게이트 UI로 전환하지 않아 children(WizardStateProvider 등) unmount를 막는다.
       // 응답 후 결과 분기에서 실패면 정상적으로 게이트로 전환되므로 회귀는 없음.
@@ -168,6 +172,31 @@ export function AuthSessionProvider({ children }: { children: ReactNode }) {
         // 직접 인증(앱 켜기/로그인/재시도)=claim, 배경 폴링(silent)=확인만.
         body: JSON.stringify({ ...activeDevice, claim: !opts?.silent }),
       });
+
+      // 401 = 로그인 세션(Supabase 토큰) 거부 — 구매/권한 문제가 아니라 토큰 만료·무효.
+      // 권한 게이트("관리자에게 구매 이메일 문의")로 빠지면 오해를 부르고, "다시 확인"도
+      // 같은 죽은 토큰을 재전송해 막다른 길이 된다. 토큰을 한 번 갱신해 재시도하고,
+      // 그래도 안 되면 로컬 세션을 비우고 로그인 화면으로 보낸다(정확한 안내 + 한 번에 복구).
+      if (response.status === 401) {
+        if (client && !opts?.afterRefresh) {
+          const refreshed = await client.auth.refreshSession().catch(() => null);
+          if (refreshed?.data.session) {
+            setSession(refreshed.data.session);
+            await authorize(refreshed.data.session, activeDevice, {
+              ...opts,
+              afterRefresh: true,
+            });
+            return;
+          }
+        }
+        await client?.auth.signOut({ scope: "local" }).catch(() => {});
+        setResult(null);
+        setSession(null);
+        setGateState("signed-out");
+        setMessage("로그인 세션이 만료됐어요. 다시 로그인해 주세요.");
+        return;
+      }
+
       const payload = (await response.json().catch(() => null)) as DeviceAuthResponse | null;
       if (!payload) {
         setGateState("error");
@@ -208,7 +237,7 @@ export function AuthSessionProvider({ children }: { children: ReactNode }) {
       setGateState("error");
       setMessage(payload.message ?? "사용 권한 확인에 실패했습니다.");
     },
-    [],
+    [client],
   );
 
   const handleDeepLink = useCallback(
