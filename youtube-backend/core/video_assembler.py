@@ -356,8 +356,12 @@ async def assemble_shorts(job_id: str, config: dict, progress_callback=None):
 
     try:
         if all_filters:
-            # Windows에서 인라인 -vf는 경로/한글 이스케이핑 문제가 있으므로
-            # filter_script 파일로 전달
+            # Windows에서 인라인 -vf는 경로/한글 이스케이핑 문제가 있으므로 필터그래프를
+            # 파일로 전달한다. 과거엔 -filter_script:v 를 썼으나, 번들 win64 ffmpeg(BtbN master)가
+            # 이 옵션을 제거해 "Unrecognized option 'filter_script:v'" 로 영상생성이 깨졌다(0.3.6-rc1).
+            # 동일 기능의 신형 문법 -/filter:v <파일>(ffmpeg 7.1+, "옵션 값을 파일에서 읽기")로 교체.
+            # 맥 8.x·윈도우 master·dev 모두 지원하며, drawtext 출력이 -filter_script:v 와 바이트 단위로
+            # 동일함을 검증함.
             filter_str = ",".join(all_filters)
             filter_script = os.path.join(temp_dir, "subtitle_filter.txt")
             with open(filter_script, "w", encoding="utf-8") as f:
@@ -365,7 +369,7 @@ async def assemble_shorts(job_id: str, config: dict, progress_callback=None):
             await asyncio.to_thread(
                 run,
                 f'{FFMPEG_Q} -y -i "{audio_out}" '
-                f'-filter_script:v "{filter_script}" '
+                f'-/filter:v "{filter_script}" '
                 f'-c:v libx264 -preset fast -crf 18 -c:a copy "{tmp_output}"',
                 cwd=font_dir,
             )

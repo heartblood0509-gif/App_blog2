@@ -177,7 +177,8 @@ async def assemble_one_model(model_key, clip_durations, narration_path, timings)
     await asyncio.to_thread(
         run,
         f'ffmpeg -y -i "{norm_out}" '
-        f'-filter_script:v "{filter_script}" '
+        # -filter_script:v 는 최신 ffmpeg 에서 제거됨 → 동일 기능 신형 문법 -/filter:v 사용(7.1+).
+        f'-/filter:v "{filter_script}" '
         f'-c:v libx264 -preset fast -crf 18 -c:a copy "{output_path}"',
     )
 
