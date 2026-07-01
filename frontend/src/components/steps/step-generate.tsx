@@ -1,12 +1,20 @@
 "use client";
 
 import { motion } from "framer-motion";
-import { useMemo, useRef, useState } from "react";
+import { useRef, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { Textarea } from "@/components/ui/textarea";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { toast } from "sonner";
 import { ImageSourceDialog } from "@/components/image-source-dialog";
 import {
@@ -44,7 +52,6 @@ import { BlogContentRenderer } from "@/components/blog-content-renderer";
 import { ImageLightbox } from "@/components/image-lightbox";
 import { ImageContextMenu } from "@/components/image-context-menu";
 import { FindBar } from "@/components/shared/find-bar";
-import { buildTextToImagePrompt } from "@/lib/prompts/image";
 import { downloadImageFromBase64 } from "@/lib/export-zip";
 
 // 내부 스크롤 영역(생성된 글 미리보기 등) — 기본보다 진한 스크롤바.
@@ -93,7 +100,10 @@ interface StepGenerateProps {
   generatedImages: Record<string, string>;
   isGeneratingBySlot: Record<string, boolean>;
   isImageGenerating: boolean;
-  customPromptsBySlot: Record<string, string>;
+  /** slotId → 사용자가 수정한 "생성할 이미지 설명"(description) 오버라이드. 없으면 slot.description(AI 추천) */
+  imageDescBySlot: Record<string, string>;
+  /** slotId → 선택 비율("16:9"|"1:1"|"9:16"). 없으면 "1:1" */
+  aspectBySlot: Record<string, string>;
   /** slotId → 마지막 실패 사유 코드 (image-bulk의 ReasonCode). 슬롯 카드에 칩으로 표시. */
   slotFailures: Record<string, string>;
   onUserPhotoChange: (slotId: string, photo: UserPhoto | null) => void;
@@ -104,8 +114,12 @@ interface StepGenerateProps {
   onAbortImages: () => void;
   onGenerateSlotAI: (slotId: string) => void;
   onTransformSlot: (slotId: string) => void;
-  /** prompt === null 이면 해당 슬롯 커스텀 프롬프트 삭제(기본값 복원) */
-  onCustomPromptChange: (slotId: string, prompt: string | null) => void;
+  /** value === null 이면 해당 슬롯 설명 오버라이드 삭제(AI 추천으로 복원) */
+  onImageDescChange: (slotId: string, value: string | null) => void;
+  /** 슬롯별 비율 변경 */
+  onAspectChange: (slotId: string, ratio: string) => void;
+  /** 활성 슬롯 전체 비율 일괄 변경 */
+  onAspectChangeAll: (ratio: string) => void;
   /** seoAeo Intent Mode 활성 여부 — 활성 시 이미지 카운트 warn 임계치를 3~4장 정책으로 분기 */
   isIntentMode?: boolean;
 }
@@ -180,6 +194,58 @@ function failureLabel(code: string): string {
   }
 }
 
+/** 비율 문자열 → 미리보기 박스 Tailwind aspect 클래스 */
+function aspectToClass(a: string): string {
+  return a === "1:1"
+    ? "aspect-square"
+    : a === "9:16"
+      ? "aspect-[9/16]"
+      : "aspect-video";
+}
+
+/** 지원 비율 옵션 (슬롯별 토글 + 전체 세터 공용) */
+const ASPECT_OPTIONS: { value: string; label: string }[] = [
+  { value: "16:9", label: "16:9" },
+  { value: "1:1", label: "1:1" },
+  { value: "9:16", label: "9:16" },
+];
+
+/** 컴팩트한 비율 3버튼 토글 */
+function AspectToggle({
+  value,
+  onChange,
+  disabled,
+}: {
+  value: string;
+  onChange: (ratio: string) => void;
+  disabled?: boolean;
+}) {
+  return (
+    <div className="inline-flex overflow-hidden rounded-md border border-border">
+      {ASPECT_OPTIONS.map((opt, i) => {
+        const active = value === opt.value;
+        return (
+          <button
+            key={opt.value}
+            type="button"
+            disabled={disabled}
+            onClick={() => onChange(opt.value)}
+            className={`px-2 py-1 text-[11px] font-medium transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${
+              i > 0 ? "border-l border-border" : ""
+            } ${
+              active
+                ? "bg-primary text-primary-foreground"
+                : "bg-transparent text-muted-foreground hover:bg-muted"
+            }`}
+          >
+            {opt.label}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
 function SlotCard({
   slot,
   partner,
@@ -188,14 +254,15 @@ function SlotCard({
   generatedBase64,
   isGenerating,
   failureReason,
-  content,
-  customPrompt,
+  imageDesc,
+  aspect,
   onUserPhotoChange,
   onInstructionChange,
   onToggleExcluded,
   onGenerateAI,
   onTransform,
-  onCustomPromptChange,
+  onImageDescChange,
+  onAspectChange,
 }: {
   slot: ImageSlot;
   partner?: ImageSlot;
@@ -204,14 +271,15 @@ function SlotCard({
   generatedBase64?: string;
   isGenerating: boolean;
   failureReason?: string;
-  content: string;
-  customPrompt: string | undefined;
+  imageDesc: string | undefined;
+  aspect: string;
   onUserPhotoChange: (photo: UserPhoto | null) => void;
   onInstructionChange: (instruction: string) => void;
   onToggleExcluded: (excluded: boolean) => void;
   onGenerateAI: () => void;
   onTransform: () => void;
-  onCustomPromptChange: (prompt: string | null) => void;
+  onImageDescChange: (value: string | null) => void;
+  onAspectChange: (ratio: string) => void;
 }) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [isPromptOpen, setIsPromptOpen] = useState(false);
@@ -233,7 +301,14 @@ function SlotCard({
   };
 
   const hasPhoto = !!userPhoto;
-  const hasCustomPrompt = typeof customPrompt === "string";
+  // 사용자가 설명 오버라이드를 갖고 있는지(빈 문자열 포함) — "수정됨" 배지·복원 버튼용
+  const hasEdit = typeof imageDesc === "string";
+  // 표시·alt·파일명·생성에 일관되게 쓰는 최종 설명(공백이면 AI 추천으로 폴백)
+  const effectiveDescription = imageDesc?.trim() || slot.description;
+  // 편집창 값 — 편집 중 빈 값도 그대로 보이게 (?? 로 undefined일 때만 추천값)
+  const textareaValue = imageDesc ?? slot.description;
+  // AI 생성 슬롯은 선택 비율에 맞춰 미리보기 박스 비율을, 내 사진 변환은 원본 비율(와이드 박스) 유지
+  const previewAspectClass = hasPhoto ? "aspect-video" : aspectToClass(aspect);
   // 변환 대기 = 사진 올렸는데 최종 영역에 원본 그대로 남아있고 변환 진행 중 아님
   const isPendingTransform =
     hasPhoto &&
@@ -249,13 +324,6 @@ function SlotCard({
         : hasPhoto
           ? "transformed"
           : "aiGenerated";
-
-  // 기본 프롬프트 (사용자가 아직 수정 안 한 경우 textarea 초기값)
-  const defaultPrompt = useMemo(
-    () => buildTextToImagePrompt(slot.description, content, slot.index),
-    [slot.description, slot.index, content]
-  );
-  const textareaValue = hasCustomPrompt ? customPrompt! : defaultPrompt;
 
   return (
     <div
@@ -281,7 +349,7 @@ function SlotCard({
             )}
           </div>
           <p className="text-xs text-muted-foreground line-clamp-2">
-            {slot.description}
+            {effectiveDescription}
           </p>
           {failureReason && !generatedBase64 && !isGenerating && (
             <span
@@ -347,7 +415,7 @@ function SlotCard({
                 <Sparkles className="h-3 w-3" />
               )}
               AI 생성
-              {hasCustomPrompt && !hasPhoto && (
+              {hasEdit && !hasPhoto && (
                 <Wrench className="h-3 w-3 text-amber-500" />
               )}
             </Button>
@@ -381,7 +449,22 @@ function SlotCard({
             )}
           </div>
 
-          {/* 프롬프트 수정 토글 */}
+          {/* 비율 선택 (AI 생성 전용 — 내 사진 변환은 원본 비율 유지) */}
+          <div className="mb-2 flex items-center gap-2">
+            <span className="text-[11px] text-muted-foreground">비율</span>
+            <AspectToggle
+              value={aspect}
+              onChange={onAspectChange}
+              disabled={isGenerating || hasPhoto}
+            />
+            {hasPhoto && (
+              <span className="text-[10px] text-muted-foreground">
+                내 사진은 원본 비율 유지
+              </span>
+            )}
+          </div>
+
+          {/* 설명(프롬프트) 수정 토글 */}
           <div className="mb-3">
             <Button
               size="sm"
@@ -391,13 +474,13 @@ function SlotCard({
               disabled={isGenerating || hasPhoto}
               title={
                 hasPhoto
-                  ? "AI 변환 모드에서는 '변환 지시' 입력으로 프롬프트를 조정합니다"
+                  ? "AI 변환 모드에서는 '변환 지시' 입력으로 조정합니다"
                   : undefined
               }
             >
               <Wrench className="h-3 w-3" />
-              {isPromptOpen ? "프롬프트 닫기" : "프롬프트 수정"}
-              {hasCustomPrompt && !hasPhoto && (
+              {isPromptOpen ? "이미지 프롬프트 닫기" : "이미지 프롬프트 수정"}
+              {hasEdit && !hasPhoto && (
                 <Badge
                   variant="secondary"
                   className="ml-1 h-4 px-1 text-[9px] bg-amber-500/15 text-amber-700 dark:text-amber-400"
@@ -415,24 +498,32 @@ function SlotCard({
 
             {isPromptOpen && !hasPhoto && (
               <div className="mt-2 space-y-2 rounded-md border border-border/60 bg-muted/30 p-2">
+                <p className="text-[11px] font-medium text-foreground">
+                  AI 추천 이미지 프롬프트 (수정 가능)
+                </p>
                 <Textarea
                   value={textareaValue}
-                  onChange={(e) => onCustomPromptChange(e.target.value)}
-                  rows={14}
-                  className="text-[11px] font-mono leading-relaxed resize-y"
-                  placeholder="이 슬롯에 쓰일 이미지 프롬프트"
+                  onChange={(e) => onImageDescChange(e.target.value)}
+                  disabled={isGenerating}
+                  rows={3}
+                  className="text-[12px] leading-relaxed resize-y"
+                  placeholder="이 이미지에 무엇을 그릴지 한 줄로 적으세요"
                 />
+                <p className="text-[10px] text-muted-foreground">
+                  실사·16:9·한국인 등 품질 규칙은 자동으로 적용됩니다. 무엇을
+                  그릴지만 적으면 됩니다.
+                </p>
                 <div className="flex items-center justify-between text-[10px] text-muted-foreground">
                   <span>
-                    {hasCustomPrompt
-                      ? "수정본이 적용됩니다. [AI 생성] 버튼을 눌러 재생성하세요."
-                      : "기본 프롬프트입니다. 수정 후 [AI 생성]을 누르면 수정본으로 생성됩니다."}
+                    {hasEdit
+                      ? "바꾼 내용으로 적용돼요. [AI 생성]을 누르면 이 프롬프트로 생성됩니다."
+                      : "지금은 AI가 추천한 프롬프트예요. 내용을 바꾼 뒤 [AI 생성]을 누르면 수정한 내용으로 생성됩니다."}
                   </span>
                   <button
                     type="button"
                     className="text-primary underline-offset-2 hover:underline disabled:opacity-40"
-                    onClick={() => onCustomPromptChange(null)}
-                    disabled={!hasCustomPrompt}
+                    onClick={() => onImageDescChange(null)}
+                    disabled={!hasEdit || isGenerating}
                   >
                     기본값으로 복원
                   </button>
@@ -518,8 +609,8 @@ function SlotCard({
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img
                   src={`data:image/png;base64,${generatedBase64}`}
-                  alt={slot.description}
-                  className="w-full aspect-video rounded object-contain bg-muted/50 cursor-zoom-in"
+                  alt={effectiveDescription}
+                  className={`w-full ${previewAspectClass} rounded object-contain bg-muted/50 cursor-zoom-in`}
                   onClick={() =>
                     setLightboxSrc(`data:image/png;base64,${generatedBase64}`)
                   }
@@ -569,7 +660,7 @@ function SlotCard({
                 )}
               </>
             ) : (
-              <div className="flex aspect-video items-center justify-center rounded border border-dashed border-border bg-muted/30">
+              <div className={`flex ${previewAspectClass} items-center justify-center rounded border border-dashed border-border bg-muted/30`}>
                 {isGenerating ? (
                   <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
                 ) : (
@@ -583,7 +674,7 @@ function SlotCard({
           {lightboxSrc && (
             <ImageLightbox
               src={lightboxSrc}
-              alt={slot.description}
+              alt={effectiveDescription}
               onClose={() => setLightboxSrc(null)}
             />
           )}
@@ -597,7 +688,7 @@ function SlotCard({
               onDownload={() =>
                 downloadImageFromBase64(
                   generatedBase64,
-                  `${String(slot.index + 1).padStart(2, "0")}_${slot.description}`
+                  `${String(slot.index + 1).padStart(2, "0")}_${effectiveDescription}`
                 )
               }
             />
@@ -629,7 +720,8 @@ export function StepGenerate({
   generatedImages,
   isGeneratingBySlot,
   isImageGenerating,
-  customPromptsBySlot,
+  imageDescBySlot,
+  aspectBySlot,
   slotFailures,
   onUserPhotoChange,
   onUserInstructionChange,
@@ -638,7 +730,9 @@ export function StepGenerate({
   onAbortImages,
   onGenerateSlotAI,
   onTransformSlot,
-  onCustomPromptChange,
+  onImageDescChange,
+  onAspectChange,
+  onAspectChangeAll,
   isIntentMode = false,
 }: StepGenerateProps) {
   // 본문 직접 수정 모드 (로컬 state).
@@ -652,6 +746,8 @@ export function StepGenerate({
   const bodyRef = useRef<HTMLDivElement>(null);
   // 찾기 막대 열림 상태 (단축키 Cmd+F + 「찾기」 버튼 공용)
   const [findOpen, setFindOpen] = useState(false);
+  // "모두 생성" 확인 다이얼로그 (비용 발생 안내 → 승인 시에만 실행)
+  const [confirmBulkOpen, setConfirmBulkOpen] = useState(false);
 
   const handleEditStart = () => {
     setDraftContent(content);
@@ -674,6 +770,12 @@ export function StepGenerate({
   const emptyCount = activeSlots.filter(
     (s) => !generatedImages[s.id] && !userPhotosBySlot[s.id]
   ).length;
+  // 전체 비율 세터의 현재 표시값 — 활성 슬롯이 모두 같은 비율이면 그 값, 아니면 미표시("")
+  const activeAspects = activeSlots.map((s) => aspectBySlot[s.id] ?? "1:1");
+  const commonAspect =
+    activeAspects.length > 0 && activeAspects.every((a) => a === activeAspects[0])
+      ? activeAspects[0]
+      : "";
 
   // 페어 파트너 맵 (슬롯 id → 같은 그룹의 다른 슬롯)
   const partnerBySlot: Record<string, ImageSlot | undefined> = {};
@@ -1139,9 +1241,19 @@ export function StepGenerate({
                   </Badge>
                 </CardTitle>
                 <div className="flex items-center gap-2">
+                  <div className="hidden items-center gap-1.5 sm:flex">
+                    <span className="text-[11px] text-muted-foreground">
+                      전체 비율
+                    </span>
+                    <AspectToggle
+                      value={commonAspect}
+                      onChange={onAspectChangeAll}
+                      disabled={isImageGenerating}
+                    />
+                  </div>
                   <Button
                     size="sm"
-                    onClick={onGenerateImages}
+                    onClick={() => setConfirmBulkOpen(true)}
                     disabled={isImageGenerating || emptyCount === 0}
                     className="gap-2"
                     title="아직 아무것도 없는 슬롯만 AI로 일괄 생성합니다 (사진 업로드된 슬롯은 제외)"
@@ -1184,8 +1296,8 @@ export function StepGenerate({
                     generatedBase64={generatedImages[slot.id]}
                     isGenerating={!!isGeneratingBySlot[slot.id]}
                     failureReason={slotFailures[slot.id]}
-                    content={content}
-                    customPrompt={customPromptsBySlot[slot.id]}
+                    imageDesc={imageDescBySlot[slot.id]}
+                    aspect={aspectBySlot[slot.id] ?? "1:1"}
                     onUserPhotoChange={(p) => onUserPhotoChange(slot.id, p)}
                     onInstructionChange={(instr) =>
                       onUserInstructionChange(slot.id, instr)
@@ -1193,9 +1305,10 @@ export function StepGenerate({
                     onToggleExcluded={(excl) => onToggleExcluded(slot.id, excl)}
                     onGenerateAI={() => onGenerateSlotAI(slot.id)}
                     onTransform={() => onTransformSlot(slot.id)}
-                    onCustomPromptChange={(prompt) =>
-                      onCustomPromptChange(slot.id, prompt)
+                    onImageDescChange={(value) =>
+                      onImageDescChange(slot.id, value)
                     }
+                    onAspectChange={(ratio) => onAspectChange(slot.id, ratio)}
                   />
                 ))}
               </div>
@@ -1203,6 +1316,34 @@ export function StepGenerate({
           </Card>
         </div>
       )}
+
+      {/* "모두 생성" 확인 다이얼로그 — 비용 발생 안내 후 승인 시에만 실행 */}
+      <Dialog open={confirmBulkOpen} onOpenChange={setConfirmBulkOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>빈 슬롯 {emptyCount}개를 AI로 생성할까요?</DialogTitle>
+            <DialogDescription>
+              이미지 생성은 API 비용이 발생합니다. 각 슬롯의 이미지 프롬프트와
+              비율을 확인한 뒤 생성해 주세요. (사진이 업로드된 슬롯은 제외됩니다.)
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setConfirmBulkOpen(false)}>
+              취소
+            </Button>
+            <Button
+              onClick={() => {
+                setConfirmBulkOpen(false);
+                onGenerateImages();
+              }}
+              className="gap-2"
+            >
+              <Sparkles className="h-4 w-4" />
+              {emptyCount}개 생성하기
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* 쓰레드 변환은 발행 단계(step-publish.tsx)로 이전됨.
           "텍스트 복사·마크다운 다운로드"와 같은 "내보내기" 카테고리로 통합. */}
