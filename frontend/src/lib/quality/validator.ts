@@ -37,12 +37,15 @@ export function validateContent(
   const charCount = textForMetrics.length;
   const charCountWithoutSpaces = textForMetrics.replace(/\s/g, "").length;
 
-  // 키워드 밀도 계산
-  const keywordRegex = new RegExp(keyword, "gi");
-  const keywordMatches = textForMetrics.match(keywordRegex);
+  // 키워드 밀도 계산 — 노출 키워드가 없는 글(소개/가치입증/상세 미입력)은 스킵.
+  // 빈 문자열로 RegExp를 만들면 모든 위치에 매칭돼 오판(키워드 과다)이 나므로 가드.
+  const hasKeyword = keyword.trim().length > 0;
+  const keywordMatches = hasKeyword
+    ? textForMetrics.match(new RegExp(keyword, "gi"))
+    : null;
   const keywordCount = keywordMatches ? keywordMatches.length : 0;
   const keywordDensity =
-    charCountWithoutSpaces > 0
+    hasKeyword && charCountWithoutSpaces > 0
       ? (keywordCount * keyword.length) / charCountWithoutSpaces * 100
       : 0;
 
@@ -73,10 +76,10 @@ export function validateContent(
   if (!skipCharCount && charCount > charRange.max + 500) {
     failReasons.push(`글자수 초과: ${charCount.toLocaleString()}자 (최대 ${(charRange.max + 500).toLocaleString()}자)`);
   }
-  if (keywordCount < 4) {
+  if (hasKeyword && keywordCount < 4) {
     failReasons.push(`키워드 부족: ${keywordCount}회 (최소 4회)`);
   }
-  if (keywordCount > 10) {
+  if (hasKeyword && keywordCount > 10) {
     failReasons.push(`키워드 과다: ${keywordCount}회 (최대 10회)`);
   }
   if (forbiddenWords.length > 0) {

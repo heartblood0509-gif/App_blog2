@@ -17,6 +17,7 @@ import type {
 import {
   BRAND_TITLE_BASE_RULES,
   BRAND_TITLE_BASE_RULES_EXPRESSIVE,
+  BRAND_TITLE_BASE_RULES_NO_KEYWORD,
   BRAND_TITLE_ZERO_EXPOSURE_RULES,
 } from "./shared";
 
@@ -27,6 +28,48 @@ import {
 const PUNCTUATION_ALLOWED_STRUCTURES = new Set<string>([
   "업계 내부고발형",
 ]);
+
+// ─────────────────────────────────────────────
+// 키워드 유무 분기 헬퍼 — intro/value-proof/detail 빌더 공용.
+// 메인 키워드가 비면(소개·가치입증·상세에서 미입력) 제목을 키워드가 아닌
+// '주제(topic)' 중심으로 짓도록 [과제]·기본규칙·검산 조각을 바꾼다.
+// info/custom은 항상 키워드가 차 있어 기존 문구와 동일하게 동작한다.
+// ─────────────────────────────────────────────
+
+/** [과제] 첫 문장 — 키워드 있으면 "첫 단어 고정", 없으면 주제 중심 자유 작성. */
+function taskHeadline(
+  mainKeyword: string,
+  articleLabel: string,
+  count: number
+): string {
+  const kw = mainKeyword?.trim();
+  return kw
+    ? `"${kw}"를 첫 단어로 한 ${articleLabel} ${count}개를 작성하라.`
+    : `이 글에는 노출용 메인 키워드가 없다. 아래 [글 도메인]의 주제를 중심으로 ${articleLabel} ${count}개를 지어라.
+주제 문장을 그대로 베끼지 말고, 그 의미·의도를 살린 새 제목으로 만들어라.`;
+}
+
+/** 반환 필드 title 설명 — 키워드 없으면 "첫 단어 강제 없음". */
+function titleFieldDesc(mainKeyword: string): string {
+  return mainKeyword?.trim()
+    ? "- title: 메인 키워드로 시작하는 제목 문장"
+    : "- title: 주제의 의미를 살린 제목 문장 (특정 단어로 시작 강제 없음)";
+}
+
+/** 기본 규칙 — 키워드 없으면 "맨 앞 고정" 규칙을 뺀 버전. */
+function titleBaseRules(mainKeyword: string): string {
+  return mainKeyword?.trim()
+    ? BRAND_TITLE_BASE_RULES
+    : BRAND_TITLE_BASE_RULES_NO_KEYWORD;
+}
+
+/** 검산 1번 항목 — 키워드 없으면 "키워드 시작" 대신 "주제 반영" 검사. */
+function startsWithCheck(mainKeyword: string): string {
+  const kw = mainKeyword?.trim();
+  return kw
+    ? `모든 title이 "${kw}"로 시작하는가?`
+    : "모든 제목이 주제의 의미를 반영하되, 주제 문장을 그대로 베끼지 않았는가?";
+}
 
 export interface BuildBrandTitlePromptOptions {
   profile: BrandProfile;
@@ -104,7 +147,7 @@ function buildFormulaBasedInfoPrompt(
 
   sections.push(`[글 도메인]
 카테고리: ${profile.category}
-메인 키워드: ${mainKeyword}${subKeywords ? `\n보조 키워드: ${subKeywords}` : ""}${topic ? `\n주제: ${topic}` : ""}`);
+메인 키워드: ${mainKeyword || "없음 (주제 중심으로 작성)"}${subKeywords ? `\n보조 키워드: ${subKeywords}` : ""}${topic ? `\n주제: ${topic}` : ""}`);
 
   sections.push(`[구조 — ${formula.structureLabel}]
 공식 흐름: ${formula.formula}`);
@@ -124,7 +167,7 @@ ${patternsBlock}
 "${mainKeyword}"를 첫 단어로 한 정보성 블로그 제목 ${count}개를 작성하라.
 
 각 후보에 대해 다음 3가지를 함께 반환:
-- title: 메인 키워드로 시작하는 제목 문장
+${titleFieldDesc(mainKeyword)}
 - pattern: 영감을 받은 톤 견본 라벨 (예: "${formula.patterns[0]?.label ?? ""}")
 - emotion: 이 제목이 자극하는 감정 (위 허용 감정 중 하나)`);
 
@@ -147,7 +190,7 @@ JSON 배열 하나만 출력. 마크다운 코드블록·설명·서두·후미 
 ]
 
 검산:
-1. 모든 title이 "${mainKeyword}"로 시작하는가?
+1. ${startsWithCheck(mainKeyword)}
 2. 모든 emotion이 허용 화이트리스트(${formula.emotions.join(", ")}) 안에 있는가?
 3. ${punctuationAllowed ? "추상어·회사명이 0건인가? (문장부호는 톤 표현용 허용)" : "문장부호·추상어·회사명이 0건인가?"}
 4. ${count}개 후보가 서로 다른 톤 패턴인가?`);
@@ -169,7 +212,7 @@ function buildInfoFallbackPrompt(opts: BuildBrandTitlePromptOptions): string {
 
   sections.push(`[글 도메인]
 카테고리: ${profile.category}
-메인 키워드: ${mainKeyword}${subKeywords ? `\n보조 키워드: ${subKeywords}` : ""}${topic ? `\n주제: ${topic}` : ""}`);
+메인 키워드: ${mainKeyword || "없음 (주제 중심으로 작성)"}${subKeywords ? `\n보조 키워드: ${subKeywords}` : ""}${topic ? `\n주제: ${topic}` : ""}`);
 
   sections.push(`[톤 가이드]
 - 정보성 블로그의 일반적 톤: 정보 안내·기준 제시·궁금증 자극·후회 환기 중 하나 이상
@@ -181,11 +224,11 @@ function buildInfoFallbackPrompt(opts: BuildBrandTitlePromptOptions): string {
 "${mainKeyword}"를 첫 단어로 한 정보성 제목 ${count}개를 작성하라.
 
 각 후보에 대해 함께 반환:
-- title: 메인 키워드로 시작하는 제목 문장
+${titleFieldDesc(mainKeyword)}
 - pattern: 후보의 톤을 짧게 라벨링 (예: "기준 안내", "후회 환기", "정보 정리")
 - emotion: 이 제목이 자극하는 감정 (예: "궁금증", "후회", "신뢰")`);
 
-  sections.push(BRAND_TITLE_BASE_RULES);
+  sections.push(titleBaseRules(mainKeyword));
   sections.push(BRAND_TITLE_ZERO_EXPOSURE_RULES);
 
   sections.push(`[응답 형식 — 엄격]
@@ -197,7 +240,7 @@ JSON 배열 하나만 출력. 마크다운 코드블록·설명·서두·후미 
 ]
 
 검산:
-1. 모든 title이 "${mainKeyword}"로 시작하는가?
+1. ${startsWithCheck(mainKeyword)}
 2. 문장부호·추상어·회사명이 0건인가?
 3. ${count}개 후보가 서로 다른 톤인가?`);
 
@@ -231,7 +274,7 @@ function buildFormulaBasedIntroPrompt(
 
   sections.push(`[글 도메인]
 카테고리: ${profile.category}
-메인 키워드: ${mainKeyword}${subKeywords ? `\n보조 키워드: ${subKeywords}` : ""}${topic ? `\n주제: ${topic}` : ""}`);
+메인 키워드: ${mainKeyword || "없음 (주제 중심으로 작성)"}${subKeywords ? `\n보조 키워드: ${subKeywords}` : ""}${topic ? `\n주제: ${topic}` : ""}`);
 
   sections.push(`[구조 — ${formula.structureLabel}]
 공식 흐름: ${formula.formula}`);
@@ -248,10 +291,10 @@ ${patternsBlock}
 ※ ${count}개 후보는 서로 다른 패턴 라벨에서 영감받아 톤이 분산되어야 한다.`);
 
   sections.push(`[과제]
-"${mainKeyword}"를 첫 단어로 한 브랜드 소개글 제목 ${count}개를 작성하라.
+${taskHeadline(mainKeyword, "브랜드 소개글 제목", count)}
 
 각 후보에 대해 다음 3가지를 함께 반환:
-- title: 메인 키워드로 시작하는 제목 문장
+${titleFieldDesc(mainKeyword)}
 - pattern: 영감을 받은 톤 견본 라벨 (예: "${formula.patterns[0]?.label ?? ""}")
 - emotion: 이 제목이 자극하는 감정 (위 허용 감정 중 하나)`);
 
@@ -260,7 +303,7 @@ ${patternsBlock}
 - "대표 이름 걸고", "저희가", "끝까지 책임지고 싶었습니다" 같은 1인칭 자기 노출 자연스러움.
 - 단, 추상어·광고어(최고의·프리미엄·완벽한)는 여전히 금지.`);
 
-  sections.push(BRAND_TITLE_BASE_RULES);
+  sections.push(titleBaseRules(mainKeyword));
 
   sections.push(`[응답 형식 — 엄격]
 JSON 배열 하나만 출력. 마크다운 코드블록·설명·서두·후미 일체 금지.
@@ -271,7 +314,7 @@ JSON 배열 하나만 출력. 마크다운 코드블록·설명·서두·후미 
 ]
 
 검산:
-1. 모든 title이 "${mainKeyword}"로 시작하는가?
+1. ${startsWithCheck(mainKeyword)}
 2. 모든 emotion이 허용 화이트리스트(${formula.emotions.join(", ")}) 안에 있는가?
 3. 문장부호·추상어가 0건인가? (회사명·대표 노출은 OK)
 4. ${count}개 후보가 서로 다른 톤 패턴인가?`);
@@ -304,7 +347,7 @@ function buildFormulaBasedValueProofPrompt(
 
   sections.push(`[글 도메인]
 카테고리: ${profile.category}
-메인 키워드: ${mainKeyword}${subKeywords ? `\n보조 키워드: ${subKeywords}` : ""}${topic ? `\n주제: ${topic}` : ""}`);
+메인 키워드: ${mainKeyword || "없음 (주제 중심으로 작성)"}${subKeywords ? `\n보조 키워드: ${subKeywords}` : ""}${topic ? `\n주제: ${topic}` : ""}`);
 
   sections.push(`[구조 — ${formula.structureLabel}]
 공식 흐름: ${formula.formula}`);
@@ -325,10 +368,10 @@ ${patternsBlock}
 ※ ${count}개 후보는 위 3가지 톤에서 골고루 분포되도록 큐레이션하라 (한 톤에 몰리지 않게).`);
 
   sections.push(`[과제]
-"${mainKeyword}"를 첫 단어로 한 가치입증 제목 ${count}개를 작성하라.
+${taskHeadline(mainKeyword, "가치입증 제목", count)}
 
 각 후보에 대해 다음 3가지를 함께 반환:
-- title: 메인 키워드로 시작하는 제목 문장
+${titleFieldDesc(mainKeyword)}
 - pattern: 영감을 받은 톤 견본 라벨 (예: "${formula.patterns[0]?.label ?? ""}")
 - emotion: 이 제목이 자극하는 감정 (위 허용 감정 중 하나)`);
 
@@ -341,7 +384,7 @@ ${patternsBlock}
 - 회사명·"저희가" 1인칭 노출 자연스러우면 OK. 강제 X.
 - 단, 추상어(최고의·프리미엄·완벽한)는 여전히 금지.`);
 
-  sections.push(BRAND_TITLE_BASE_RULES);
+  sections.push(titleBaseRules(mainKeyword));
 
   sections.push(`[응답 형식 — 엄격]
 JSON 배열 하나만 출력. 마크다운 코드블록·설명·서두·후미 일체 금지.
@@ -352,7 +395,7 @@ JSON 배열 하나만 출력. 마크다운 코드블록·설명·서두·후미 
 ]
 
 검산:
-1. 모든 title이 "${mainKeyword}"로 시작하는가?
+1. ${startsWithCheck(mainKeyword)}
 2. 모든 emotion이 허용 화이트리스트(${formula.emotions.join(", ")}) 안에 있는가?
 3. 문장부호·추상어가 0건인가? (회사명·대표 노출은 OK)
 4. ${count}개 후보가 3가지 톤에서 골고루 분포되어 서로 다른 결인가?`);
@@ -432,7 +475,7 @@ function buildFormulaBasedDetailPrompt(
 
   sections.push(`[글 도메인]
 카테고리: ${profile.category}
-메인 키워드: ${mainKeyword}${subKeywords ? `\n보조 키워드: ${subKeywords}` : ""}${topic ? `\n주제: ${topic}` : ""}`);
+메인 키워드: ${mainKeyword || "없음 (주제 중심으로 작성)"}${subKeywords ? `\n보조 키워드: ${subKeywords}` : ""}${topic ? `\n주제: ${topic}` : ""}`);
 
   sections.push(`[구조 — ${formula.structureLabel}]
 공식 흐름: ${formula.formula}`);
@@ -451,10 +494,10 @@ ${toneGuide}
 ※ ${count}개 후보는 위 ${toneCount}가지 톤에서 골고루 분포되도록 큐레이션하라 (한 톤에 몰리지 않게).`);
 
   sections.push(`[과제]
-"${mainKeyword}"를 첫 단어로 한 상세페이지 제목 ${count}개를 작성하라.
+${taskHeadline(mainKeyword, "상세페이지 제목", count)}
 
 각 후보에 대해 다음 3가지를 함께 반환:
-- title: 메인 키워드로 시작하는 제목 문장
+${titleFieldDesc(mainKeyword)}
 - pattern: 영감을 받은 톤 견본 라벨 (예: "${formula.patterns[0]?.label ?? ""}")
 - emotion: 이 제목이 자극하는 감정 (위 허용 감정 중 하나)`);
 
@@ -466,7 +509,7 @@ ${toneGuide}
 - 회사명·"저희가" 1인칭 노출 자연스러우면 OK. 강제 X.
 - 단, 추상어(최고의·프리미엄·완벽한·혁신적인)는 여전히 금지.${extraGuide}`);
 
-  sections.push(BRAND_TITLE_BASE_RULES);
+  sections.push(titleBaseRules(mainKeyword));
 
   sections.push(`[응답 형식 — 엄격]
 JSON 배열 하나만 출력. 마크다운 코드블록·설명·서두·후미 일체 금지.
@@ -477,7 +520,7 @@ JSON 배열 하나만 출력. 마크다운 코드블록·설명·서두·후미 
 ]
 
 검산:
-1. 모든 title이 "${mainKeyword}"로 시작하는가?
+1. ${startsWithCheck(mainKeyword)}
 2. 모든 emotion이 허용 화이트리스트(${formula.emotions.join(", ")}) 안에 있는가?
 3. 문장부호·추상어가 0건인가? (회사명·대표 노출은 OK)
 4. ${count}개 후보가 ${toneCount}가지 톤에서 골고루 분포되어 서로 다른 결인가?`);
@@ -500,7 +543,7 @@ function buildIntroFallbackPrompt(opts: BuildBrandTitlePromptOptions): string {
 
   sections.push(`[글 도메인]
 카테고리: ${profile.category}
-메인 키워드: ${mainKeyword}${subKeywords ? `\n보조 키워드: ${subKeywords}` : ""}${topic ? `\n주제: ${topic}` : ""}`);
+메인 키워드: ${mainKeyword || "없음 (주제 중심으로 작성)"}${subKeywords ? `\n보조 키워드: ${subKeywords}` : ""}${topic ? `\n주제: ${topic}` : ""}`);
 
   sections.push(`[톤 가이드]
 - 신뢰·공감·진심·안심을 자극하는 결
@@ -510,10 +553,10 @@ function buildIntroFallbackPrompt(opts: BuildBrandTitlePromptOptions): string {
 - ${count}개가 서로 다른 톤(신념 / 약속 / 진심 / 안심 / 공감)으로 분산되어야 한다`);
 
   sections.push(`[과제]
-"${mainKeyword}"를 첫 단어로 한 브랜드 소개글 제목 ${count}개를 작성하라.
+${taskHeadline(mainKeyword, "브랜드 소개글 제목", count)}
 
 각 후보에 대해 함께 반환:
-- title: 메인 키워드로 시작하는 제목 문장
+${titleFieldDesc(mainKeyword)}
 - pattern: 후보의 톤을 짧게 라벨링 (예: "신념 고백", "대표 약속", "진심 호소")
 - emotion: 이 제목이 자극하는 감정 (예: "신뢰", "공감", "안심", "감사", "호감")`);
 
@@ -522,7 +565,7 @@ function buildIntroFallbackPrompt(opts: BuildBrandTitlePromptOptions): string {
 - "대표 이름 걸고", "저희가", "끝까지 책임지고 싶었습니다" 같은 1인칭 자기 노출 자연스러움.
 - 단, 추상어·광고어(최고의·프리미엄·완벽한)는 여전히 금지.`);
 
-  sections.push(BRAND_TITLE_BASE_RULES);
+  sections.push(titleBaseRules(mainKeyword));
 
   sections.push(`[응답 형식 — 엄격]
 JSON 배열 하나만 출력. 마크다운 코드블록·설명·서두·후미 일체 금지.
@@ -533,7 +576,7 @@ JSON 배열 하나만 출력. 마크다운 코드블록·설명·서두·후미 
 ]
 
 검산:
-1. 모든 title이 "${mainKeyword}"로 시작하는가?
+1. ${startsWithCheck(mainKeyword)}
 2. 문장부호·추상어가 0건인가? (회사명·대표 노출은 OK)
 3. ${count}개 후보가 서로 다른 톤인가?`);
 
@@ -557,7 +600,7 @@ function buildValueProofFallbackPrompt(
 
   sections.push(`[글 도메인]
 카테고리: ${profile.category}
-메인 키워드: ${mainKeyword}${subKeywords ? `\n보조 키워드: ${subKeywords}` : ""}${topic ? `\n주제: ${topic}` : ""}`);
+메인 키워드: ${mainKeyword || "없음 (주제 중심으로 작성)"}${subKeywords ? `\n보조 키워드: ${subKeywords}` : ""}${topic ? `\n주제: ${topic}` : ""}`);
 
   sections.push(`[톤 가이드]
 - 결과·구체 사례·수치로 신뢰를 증명하는 결
@@ -568,10 +611,10 @@ function buildValueProofFallbackPrompt(
 - ${count}개가 서로 다른 톤(결과 강조 / 드문 사례 / 희망 메시지)으로 분산되어야 한다`);
 
   sections.push(`[과제]
-"${mainKeyword}"를 첫 단어로 한 가치입증 제목 ${count}개를 작성하라.
+${taskHeadline(mainKeyword, "가치입증 제목", count)}
 
 각 후보에 대해 함께 반환:
-- title: 메인 키워드로 시작하는 제목 문장
+${titleFieldDesc(mainKeyword)}
 - pattern: 후보의 톤을 짧게 라벨링 (예: "수치 입증", "반전 고백", "시장 폭로", "결과 증명")
 - emotion: 이 제목이 자극하는 감정 (예: "신뢰", "희망", "공감", "안심")`);
 
@@ -579,7 +622,7 @@ function buildValueProofFallbackPrompt(
 - 회사명·"저희가" 1인칭 노출 자연스러우면 OK. 강제 X.
 - 단, 추상어(최고의·프리미엄·완벽한)는 여전히 금지.`);
 
-  sections.push(BRAND_TITLE_BASE_RULES);
+  sections.push(titleBaseRules(mainKeyword));
 
   sections.push(`[응답 형식 — 엄격]
 JSON 배열 하나만 출력. 마크다운 코드블록·설명·서두·후미 일체 금지.
@@ -590,7 +633,7 @@ JSON 배열 하나만 출력. 마크다운 코드블록·설명·서두·후미 
 ]
 
 검산:
-1. 모든 title이 "${mainKeyword}"로 시작하는가?
+1. ${startsWithCheck(mainKeyword)}
 2. 문장부호·추상어가 0건인가? (회사명·대표 노출은 OK)
 3. ${count}개 후보가 서로 다른 톤인가?`);
 
@@ -613,7 +656,7 @@ function buildDetailFallbackPrompt(opts: BuildBrandTitlePromptOptions): string {
 
   sections.push(`[글 도메인]
 카테고리: ${profile.category}
-메인 키워드: ${mainKeyword}${subKeywords ? `\n보조 키워드: ${subKeywords}` : ""}${topic ? `\n주제: ${topic}` : ""}`);
+메인 키워드: ${mainKeyword || "없음 (주제 중심으로 작성)"}${subKeywords ? `\n보조 키워드: ${subKeywords}` : ""}${topic ? `\n주제: ${topic}` : ""}`);
 
   sections.push(`[톤 가이드]
 - 현실 고민을 직접 건드림 ("계속 고민했던", "많이 망설이는", "끝까지 헷갈리는")
@@ -623,10 +666,10 @@ function buildDetailFallbackPrompt(opts: BuildBrandTitlePromptOptions): string {
 - ${count}개가 서로 다른 톤(문제·기준 / 공감·경고 / 신뢰 / 결과 기대)으로 분산되어야 한다`);
 
   sections.push(`[과제]
-"${mainKeyword}"를 첫 단어로 한 상세페이지 제목 ${count}개를 작성하라.
+${taskHeadline(mainKeyword, "상세페이지 제목", count)}
 
 각 후보에 대해 함께 반환:
-- title: 메인 키워드로 시작하는 제목 문장
+${titleFieldDesc(mainKeyword)}
 - pattern: 후보의 톤을 짧게 라벨링 (예: "실무 안내", "차이 강조", "꼼꼼한 과정", "결정 도움")
 - emotion: 이 제목이 자극하는 감정 (예: "신뢰", "안심", "감사", "결정 확신")`);
 
@@ -634,7 +677,7 @@ function buildDetailFallbackPrompt(opts: BuildBrandTitlePromptOptions): string {
 - 브랜드명·서비스명·"저희가" 1인칭 노출 자연스러우면 OK. 강제 X.
 - 단, 추상어(최고의·프리미엄·완벽한·혁신적인)는 여전히 금지.`);
 
-  sections.push(BRAND_TITLE_BASE_RULES);
+  sections.push(titleBaseRules(mainKeyword));
 
   sections.push(`[응답 형식 — 엄격]
 JSON 배열 하나만 출력. 마크다운 코드블록·설명·서두·후미 일체 금지.
@@ -645,7 +688,7 @@ JSON 배열 하나만 출력. 마크다운 코드블록·설명·서두·후미 
 ]
 
 검산:
-1. 모든 title이 "${mainKeyword}"로 시작하는가?
+1. ${startsWithCheck(mainKeyword)}
 2. 문장부호·추상어가 0건인가? (회사명·대표 노출은 OK)
 3. ${count}개 후보가 서로 다른 톤인가?`);
 

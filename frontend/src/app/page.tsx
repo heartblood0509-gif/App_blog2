@@ -216,6 +216,18 @@ function getEffectiveMainKeyword(state: WizardState): string {
   return "";
 }
 
+// 브랜드 블로그 중 "노출 키워드가 선택"인 템플릿(소개/가치입증/상세)은
+// 키워드가 비면 주제로 대체하지 않고 빈 값("")을 그대로 흘려보낸다.
+// → 제목·본문이 키워드를 억지로 박지 않고 '무엇에 대해 쓰고 싶나요'(topic)로 작성됨.
+// info/custom은 검색 노출용이라 기존 getEffectiveMainKeyword 동작을 유지.
+const KEYWORD_OPTIONAL_BRAND_TEMPLATES = new Set(["intro", "value-proof", "detail"]);
+function getEffectiveBrandKeyword(state: WizardState): string {
+  if (KEYWORD_OPTIONAL_BRAND_TEMPLATES.has(state.selectedBrandTemplate ?? "")) {
+    return state.mainKeyword.trim();
+  }
+  return getEffectiveMainKeyword(state);
+}
+
 const BLOG_STEPS = [
   { label: "채널 선택", icon: Package },
   { label: "글 구조", icon: BookOpen },
@@ -784,7 +796,7 @@ export default function Home() {
             profile,
             template: state.selectedBrandTemplate,
             infoVariantId: state.selectedBrandInfoVariant,
-            mainKeyword: getEffectiveMainKeyword(state),
+            mainKeyword: getEffectiveBrandKeyword(state),
             subKeywords: state.subKeywords || undefined,
             topic: state.topic || undefined,
             count: 5,
@@ -880,7 +892,7 @@ export default function Home() {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             text,
-            keyword: getEffectiveMainKeyword(state),
+            keyword: getEffectiveBrandKeyword(state),
             charRange: state.charCountRange,
             // Intent Mode 활성 시 validator 물음표 reject 완화 (질문형 소제목·FAQ 의무화에 맞춤)
             intentMode:
@@ -899,7 +911,7 @@ export default function Home() {
     // runValidation은 effect(2217)에 묶여 있어 전체 state를 deps에 넣으면 재검증 루프가 된다.
     // (state.selectedTemplateType를 deps 밖에서 읽는 기존 잠재 stale은 PR에 별도 플래그함.)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [state.postCategory, state.mainKeyword, state.charCountRange, updateState]
+    [state.postCategory, state.selectedBrandTemplate, state.mainKeyword, state.charCountRange, updateState]
   );
 
   const fetchContent = useCallback(async (topicOverride?: string) => {
@@ -925,7 +937,7 @@ export default function Home() {
             template: state.selectedBrandTemplate,
             infoVariantId: state.selectedBrandInfoVariant,
             topic: effectiveTopic || undefined,
-            mainKeyword: getEffectiveMainKeyword(state),
+            mainKeyword: getEffectiveBrandKeyword(state),
             subKeywords: state.subKeywords || undefined,
             selectedTitle: state.selectedTitle || undefined,
           }),
@@ -999,7 +1011,7 @@ export default function Home() {
             introVariantId: state.selectedBrandIntroVariant,
             valueProofVariantId: state.selectedBrandValueProofVariant,
             detailVariantId: state.selectedBrandDetailVariant,
-            mainKeyword: getEffectiveMainKeyword(state),
+            mainKeyword: getEffectiveBrandKeyword(state),
             subKeywords: state.subKeywords || undefined,
             topic: effectiveTopic || undefined,
             requirements: state.requirements || undefined,

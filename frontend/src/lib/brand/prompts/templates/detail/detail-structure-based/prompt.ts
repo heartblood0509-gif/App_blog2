@@ -44,7 +44,7 @@ export function buildDetailStructureBasedPrompt(
       ? `\n[목표 글자수] ${charCount.min}~${charCount.max}자`
       : "";
   sections.push(`[글 제목] ${selectedTitle}
-[메인 키워드] ${mainKeyword}${subKeywords ? `\n[보조 키워드] ${subKeywords}` : ""}${charCountLine}`);
+[메인 키워드] ${mainKeyword || "없음 (아래 주제 중심으로 작성)"}${subKeywords ? `\n[보조 키워드] ${subKeywords}` : ""}${charCountLine}`);
 
   const topicSection = buildTopicSection(topic);
   if (topicSection) sections.push(topicSection);
@@ -72,7 +72,7 @@ export function buildDetailStructureBasedPrompt(
 - 강매·과장 표현 금지. 부드러운 CTA + "감사" 톤으로 닫음.
 - 마지막 단락에서 자연스러운 문의 유도 (단, "지금 결제하세요" 류 직접 표현 X).`);
 
-  sections.push(buildSharedRules());
+  sections.push(buildSharedRules({ hasKeyword: Boolean(mainKeyword?.trim()) }));
 
   sections.push(`[출력 — 마크다운 본문만, 설명·코드블록 마커 X]`);
 

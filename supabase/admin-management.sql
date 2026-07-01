@@ -601,6 +601,7 @@ begin
       'note', e.note,
       'display_name', e.display_name,
       'memo', e.memo,
+      'plan', e.plan,
       'created_at', e.created_at,
       'updated_at', e.updated_at
     ) as row
