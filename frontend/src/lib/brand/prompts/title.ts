@@ -36,24 +36,42 @@ const PUNCTUATION_ALLOWED_STRUCTURES = new Set<string>([
 // info/custom은 항상 키워드가 차 있어 기존 문구와 동일하게 동작한다.
 // ─────────────────────────────────────────────
 
-/** [과제] 첫 문장 — 키워드 있으면 "첫 단어 고정", 없으면 주제 중심 자유 작성. */
+/** 헤더 도입구 — 키워드 있으면 "키워드에 맞춰", 없으면 톤·다양성 중심(긍정형). */
+function headerLead(mainKeyword: string): string {
+  return mainKeyword?.trim()
+    ? "메인 키워드에 맞춰"
+    : "예시 톤에 맞춰, 서로 다른 각도로";
+}
+
+/**
+ * [과제] 첫 문장 — 키워드·주제 유무로 3분기.
+ * 키워드 없을 때는 "각 제목을 서로 다른 각도·첫머리로 시작하라"는 긍정 지시로 다양성을 유도.
+ */
 function taskHeadline(
   mainKeyword: string,
+  topic: string | null | undefined,
   articleLabel: string,
   count: number
 ): string {
   const kw = mainKeyword?.trim();
-  return kw
-    ? `"${kw}"를 첫 단어로 한 ${articleLabel} ${count}개를 작성하라.`
-    : `이 글에는 노출용 메인 키워드가 없다. 아래 [글 도메인]의 주제를 중심으로 ${articleLabel} ${count}개를 지어라.
-주제 문장을 그대로 베끼지 말고, 그 의미·의도를 살린 새 제목으로 만들어라.`;
+  if (kw) {
+    return `"${kw}"를 첫 단어로 한 ${articleLabel} ${count}개를 작성하라.`;
+  }
+  if (topic && topic.trim()) {
+    return `아래 [글 도메인]의 주제를 중심으로 ${articleLabel} ${count}개를 지어라.
+주제 문장을 그대로 베끼지 말고, 그 의미·의도를 살린 새 제목으로 만들어라.
+${count}개 제목은 각각 서로 다른 각도·서로 다른 첫머리로 시작하게 하라.`;
+  }
+  return `노출 키워드도 지정 주제도 없다. 이 브랜드의 견본 톤과 템플릿 성격에 맞춰 ${articleLabel} ${count}개를 자유롭게 지어라.
+각 제목을 서로 다른 각도(예: 결과·사례·희망·현실 고민 등)에서, 서로 다른 첫머리로 시작하게 하라.
+브랜드 분야(카테고리)는 배경 맥락으로만 활용하라.`;
 }
 
-/** 반환 필드 title 설명 — 키워드 없으면 "첫 단어 강제 없음". */
+/** 반환 필드 title 설명 — 키워드 없으면 "다양한 도입" 긍정 안내. */
 function titleFieldDesc(mainKeyword: string): string {
   return mainKeyword?.trim()
     ? "- title: 메인 키워드로 시작하는 제목 문장"
-    : "- title: 주제의 의미를 살린 제목 문장 (특정 단어로 시작 강제 없음)";
+    : "- title: 서로 다른 각도로 시작하는 자연스러운 제목 문장";
 }
 
 /** 기본 규칙 — 키워드 없으면 "맨 앞 고정" 규칙을 뺀 버전. */
@@ -63,12 +81,12 @@ function titleBaseRules(mainKeyword: string): string {
     : BRAND_TITLE_BASE_RULES_NO_KEYWORD;
 }
 
-/** 검산 1번 항목 — 키워드 없으면 "키워드 시작" 대신 "주제 반영" 검사. */
+/** 검산 1번 항목 — 키워드 없으면 "서로 다른 첫머리로 시작" 긍정 검사. */
 function startsWithCheck(mainKeyword: string): string {
   const kw = mainKeyword?.trim();
   return kw
     ? `모든 title이 "${kw}"로 시작하는가?`
-    : "모든 제목이 주제의 의미를 반영하되, 주제 문장을 그대로 베끼지 않았는가?";
+    : "5개 제목이 각각 다른 첫머리·다른 각도로 시작하는가?";
 }
 
 export interface BuildBrandTitlePromptOptions {
@@ -147,7 +165,7 @@ function buildFormulaBasedInfoPrompt(
 
   sections.push(`[글 도메인]
 카테고리: ${profile.category}
-메인 키워드: ${mainKeyword || "없음 (주제 중심으로 작성)"}${subKeywords ? `\n보조 키워드: ${subKeywords}` : ""}${topic ? `\n주제: ${topic}` : ""}`);
+메인 키워드: ${mainKeyword || "없음 — 견본 톤에 맞춰 서로 다른 각도로 자유롭게"}${subKeywords ? `\n보조 키워드: ${subKeywords}` : ""}${topic ? `\n주제: ${topic}` : ""}`);
 
   sections.push(`[구조 — ${formula.structureLabel}]
 공식 흐름: ${formula.formula}`);
@@ -212,7 +230,7 @@ function buildInfoFallbackPrompt(opts: BuildBrandTitlePromptOptions): string {
 
   sections.push(`[글 도메인]
 카테고리: ${profile.category}
-메인 키워드: ${mainKeyword || "없음 (주제 중심으로 작성)"}${subKeywords ? `\n보조 키워드: ${subKeywords}` : ""}${topic ? `\n주제: ${topic}` : ""}`);
+메인 키워드: ${mainKeyword || "없음 — 견본 톤에 맞춰 서로 다른 각도로 자유롭게"}${subKeywords ? `\n보조 키워드: ${subKeywords}` : ""}${topic ? `\n주제: ${topic}` : ""}`);
 
   sections.push(`[톤 가이드]
 - 정보성 블로그의 일반적 톤: 정보 안내·기준 제시·궁금증 자극·후회 환기 중 하나 이상
@@ -274,7 +292,7 @@ function buildFormulaBasedIntroPrompt(
 
   sections.push(`[글 도메인]
 카테고리: ${profile.category}
-메인 키워드: ${mainKeyword || "없음 (주제 중심으로 작성)"}${subKeywords ? `\n보조 키워드: ${subKeywords}` : ""}${topic ? `\n주제: ${topic}` : ""}`);
+메인 키워드: ${mainKeyword || "없음 — 견본 톤에 맞춰 서로 다른 각도로 자유롭게"}${subKeywords ? `\n보조 키워드: ${subKeywords}` : ""}${topic ? `\n주제: ${topic}` : ""}`);
 
   sections.push(`[구조 — ${formula.structureLabel}]
 공식 흐름: ${formula.formula}`);
@@ -291,7 +309,7 @@ ${patternsBlock}
 ※ ${count}개 후보는 서로 다른 패턴 라벨에서 영감받아 톤이 분산되어야 한다.`);
 
   sections.push(`[과제]
-${taskHeadline(mainKeyword, "브랜드 소개글 제목", count)}
+${taskHeadline(mainKeyword, topic, "브랜드 소개글 제목", count)}
 
 각 후보에 대해 다음 3가지를 함께 반환:
 ${titleFieldDesc(mainKeyword)}
@@ -347,7 +365,7 @@ function buildFormulaBasedValueProofPrompt(
 
   sections.push(`[글 도메인]
 카테고리: ${profile.category}
-메인 키워드: ${mainKeyword || "없음 (주제 중심으로 작성)"}${subKeywords ? `\n보조 키워드: ${subKeywords}` : ""}${topic ? `\n주제: ${topic}` : ""}`);
+메인 키워드: ${mainKeyword || "없음 — 견본 톤에 맞춰 서로 다른 각도로 자유롭게"}${subKeywords ? `\n보조 키워드: ${subKeywords}` : ""}${topic ? `\n주제: ${topic}` : ""}`);
 
   sections.push(`[구조 — ${formula.structureLabel}]
 공식 흐름: ${formula.formula}`);
@@ -368,7 +386,7 @@ ${patternsBlock}
 ※ ${count}개 후보는 위 3가지 톤에서 골고루 분포되도록 큐레이션하라 (한 톤에 몰리지 않게).`);
 
   sections.push(`[과제]
-${taskHeadline(mainKeyword, "가치입증 제목", count)}
+${taskHeadline(mainKeyword, topic, "가치입증 제목", count)}
 
 각 후보에 대해 다음 3가지를 함께 반환:
 ${titleFieldDesc(mainKeyword)}
@@ -475,7 +493,7 @@ function buildFormulaBasedDetailPrompt(
 
   sections.push(`[글 도메인]
 카테고리: ${profile.category}
-메인 키워드: ${mainKeyword || "없음 (주제 중심으로 작성)"}${subKeywords ? `\n보조 키워드: ${subKeywords}` : ""}${topic ? `\n주제: ${topic}` : ""}`);
+메인 키워드: ${mainKeyword || "없음 — 견본 톤에 맞춰 서로 다른 각도로 자유롭게"}${subKeywords ? `\n보조 키워드: ${subKeywords}` : ""}${topic ? `\n주제: ${topic}` : ""}`);
 
   sections.push(`[구조 — ${formula.structureLabel}]
 공식 흐름: ${formula.formula}`);
@@ -494,7 +512,7 @@ ${toneGuide}
 ※ ${count}개 후보는 위 ${toneCount}가지 톤에서 골고루 분포되도록 큐레이션하라 (한 톤에 몰리지 않게).`);
 
   sections.push(`[과제]
-${taskHeadline(mainKeyword, "상세페이지 제목", count)}
+${taskHeadline(mainKeyword, topic, "상세페이지 제목", count)}
 
 각 후보에 대해 다음 3가지를 함께 반환:
 ${titleFieldDesc(mainKeyword)}
@@ -539,11 +557,11 @@ function buildIntroFallbackPrompt(opts: BuildBrandTitlePromptOptions): string {
   const sections: string[] = [];
 
   sections.push(`당신은 한국어 브랜드 소개글의 제목을 짓는 카피라이터입니다.
-브랜드 대표·운영자 1인칭 톤으로, 메인 키워드에 맞춰 소개글 제목 ${count}개를 작성하세요.`);
+브랜드 대표·운영자 1인칭 톤으로, ${headerLead(mainKeyword)} 소개글 제목 ${count}개를 작성하세요.`);
 
   sections.push(`[글 도메인]
 카테고리: ${profile.category}
-메인 키워드: ${mainKeyword || "없음 (주제 중심으로 작성)"}${subKeywords ? `\n보조 키워드: ${subKeywords}` : ""}${topic ? `\n주제: ${topic}` : ""}`);
+메인 키워드: ${mainKeyword || "없음 — 견본 톤에 맞춰 서로 다른 각도로 자유롭게"}${subKeywords ? `\n보조 키워드: ${subKeywords}` : ""}${topic ? `\n주제: ${topic}` : ""}`);
 
   sections.push(`[톤 가이드]
 - 신뢰·공감·진심·안심을 자극하는 결
@@ -553,7 +571,7 @@ function buildIntroFallbackPrompt(opts: BuildBrandTitlePromptOptions): string {
 - ${count}개가 서로 다른 톤(신념 / 약속 / 진심 / 안심 / 공감)으로 분산되어야 한다`);
 
   sections.push(`[과제]
-${taskHeadline(mainKeyword, "브랜드 소개글 제목", count)}
+${taskHeadline(mainKeyword, topic, "브랜드 소개글 제목", count)}
 
 각 후보에 대해 함께 반환:
 ${titleFieldDesc(mainKeyword)}
@@ -596,11 +614,11 @@ function buildValueProofFallbackPrompt(
   const sections: string[] = [];
 
   sections.push(`당신은 한국어 브랜드 가치입증글의 제목을 짓는 카피라이터입니다.
-"실제 사례·결과·실력으로 신뢰를 증명한다" 톤으로, 메인 키워드에 맞춰 제목 ${count}개를 작성하세요.`);
+"실제 사례·결과·실력으로 신뢰를 증명한다" 톤으로, ${headerLead(mainKeyword)} 제목 ${count}개를 작성하세요.`);
 
   sections.push(`[글 도메인]
 카테고리: ${profile.category}
-메인 키워드: ${mainKeyword || "없음 (주제 중심으로 작성)"}${subKeywords ? `\n보조 키워드: ${subKeywords}` : ""}${topic ? `\n주제: ${topic}` : ""}`);
+메인 키워드: ${mainKeyword || "없음 — 견본 톤에 맞춰 서로 다른 각도로 자유롭게"}${subKeywords ? `\n보조 키워드: ${subKeywords}` : ""}${topic ? `\n주제: ${topic}` : ""}`);
 
   sections.push(`[톤 가이드]
 - 결과·구체 사례·수치로 신뢰를 증명하는 결
@@ -611,7 +629,7 @@ function buildValueProofFallbackPrompt(
 - ${count}개가 서로 다른 톤(결과 강조 / 드문 사례 / 희망 메시지)으로 분산되어야 한다`);
 
   sections.push(`[과제]
-${taskHeadline(mainKeyword, "가치입증 제목", count)}
+${taskHeadline(mainKeyword, topic, "가치입증 제목", count)}
 
 각 후보에 대해 함께 반환:
 ${titleFieldDesc(mainKeyword)}
@@ -652,11 +670,11 @@ function buildDetailFallbackPrompt(opts: BuildBrandTitlePromptOptions): string {
 
   sections.push(`당신은 한국어 브랜드 상세페이지 제목을 짓는 카피라이터입니다.
 상세페이지는 클릭이 아닌 "전환(구매 욕구 + 신뢰)"이 목적입니다.
-브랜드 대표 1인칭 톤으로, 메인 키워드에 맞춰 상세페이지 제목 ${count}개를 작성하세요.`);
+브랜드 대표 1인칭 톤으로, ${headerLead(mainKeyword)} 상세페이지 제목 ${count}개를 작성하세요.`);
 
   sections.push(`[글 도메인]
 카테고리: ${profile.category}
-메인 키워드: ${mainKeyword || "없음 (주제 중심으로 작성)"}${subKeywords ? `\n보조 키워드: ${subKeywords}` : ""}${topic ? `\n주제: ${topic}` : ""}`);
+메인 키워드: ${mainKeyword || "없음 — 견본 톤에 맞춰 서로 다른 각도로 자유롭게"}${subKeywords ? `\n보조 키워드: ${subKeywords}` : ""}${topic ? `\n주제: ${topic}` : ""}`);
 
   sections.push(`[톤 가이드]
 - 현실 고민을 직접 건드림 ("계속 고민했던", "많이 망설이는", "끝까지 헷갈리는")
@@ -666,7 +684,7 @@ function buildDetailFallbackPrompt(opts: BuildBrandTitlePromptOptions): string {
 - ${count}개가 서로 다른 톤(문제·기준 / 공감·경고 / 신뢰 / 결과 기대)으로 분산되어야 한다`);
 
   sections.push(`[과제]
-${taskHeadline(mainKeyword, "상세페이지 제목", count)}
+${taskHeadline(mainKeyword, topic, "상세페이지 제목", count)}
 
 각 후보에 대해 함께 반환:
 ${titleFieldDesc(mainKeyword)}
