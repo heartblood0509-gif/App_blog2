@@ -107,7 +107,7 @@ export function buildIntroPrompt(opts: BuildIntroPromptOptions): string {
       ? `\n[목표 글자수] ${charCount.min}~${charCount.max}자`
       : "";
   sections.push(`[글 제목] ${selectedTitle}
-[메인 키워드] ${mainKeyword}${subKeywords ? `\n[보조 키워드] ${subKeywords}` : ""}${charCountLine}`);
+[메인 키워드] ${mainKeyword || "없음 (아래 주제 중심으로 작성)"}${subKeywords ? `\n[보조 키워드] ${subKeywords}` : ""}${charCountLine}`);
 
   const topicSection = buildTopicSection(topic);
   if (topicSection) sections.push(topicSection);
@@ -128,7 +128,7 @@ ${INTRO_REFERENCE}`);
 
   sections.push(INTRO_SKELETON);
   sections.push(buildBrandDataMap("intro"));
-  sections.push(buildSharedRules());
+  sections.push(buildSharedRules({ hasKeyword: Boolean(mainKeyword?.trim()) }));
 
   sections.push(`[출력 — 마크다운 본문만, 설명·코드블록 마커 X]`);
 
