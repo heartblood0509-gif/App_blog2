@@ -1,10 +1,11 @@
 "use client";
 
 import React, { useState } from "react";
-import { ImageIcon } from "lucide-react";
+import { ImageIcon, Plus } from "lucide-react";
 import type { ImageSlot, UserPhoto } from "@/types";
-import { EditableImageSlot } from "@/components/editable-image-slot";
+import { EditableImageSlot, SLOT_DND_MIME } from "@/components/editable-image-slot";
 import { ImageLightbox } from "@/components/image-lightbox";
+import { computeBlocks } from "@/lib/image/marker-parser";
 
 const MARKER_RE = /^\s*\[이미지:\s*(.+?)\]\s*$/;
 
@@ -21,6 +22,14 @@ export interface EditableConfig {
   onUserPhotoChange: (slotId: string, photo: UserPhoto | null) => void;
   onGenerateSlotAI: (slotId: string) => void;
   onTransformSlot: (slotId: string) => void;
+  /** 이미지 자리 삭제(마커 줄 제거) */
+  onDeleteSlot: (slotId: string) => void;
+  /** 이미지 자리 문단 단위 이동 */
+  onMoveSlot: (slotId: string, dir: "up" | "down") => void;
+  /** 이미지 자리를 임의의 블록 경계로 이동(드래그 재배치) */
+  onMoveSlotToBoundary: (slotId: string, boundary: number) => void;
+  /** 블록 경계에 빈 이미지 자리 삽입 (computeBlocks 인덱스) */
+  onAddSlotAtBoundary: (boundary: number) => void;
 }
 
 /**
@@ -44,16 +53,19 @@ export function BlogContentRenderer({
   editable?: EditableConfig;
 }) {
   const [lightboxSrc, setLightboxSrc] = useState<string | null>(null);
+  // 슬롯 드래그 진행 중이면 문단 사이 드롭 존을 상시 노출한다(hover 없이도 보이게).
+  const [draggingSlot, setDraggingSlot] = useState(false);
 
   if (!text) return null;
 
   const lines = text.split("\n");
+  const blocks = editable ? computeBlocks(text) : [];
+  // 블록 뒤(lineEnd) → 삽입 boundary(블록 인덱스 + 1). 맨 위(boundary 0)는 별도 렌더.
+  const boundaryAfterLine = new Map<number, number>();
+  if (editable) blocks.forEach((b, bi) => boundaryAfterLine.set(b.lineEnd, bi + 1));
   let markerIdx = -1;
 
-  return (
-    <>
-    <div className="max-w-prose space-y-0">
-      {lines.map((line, i) => {
+  const rendered = lines.map((line, i) => {
         // [이미지: ...] 마커
         const markerMatch = line.match(MARKER_RE);
         if (markerMatch) {
@@ -72,6 +84,12 @@ export function BlogContentRenderer({
               const userPhoto = editable.userPhotosBySlot[slot.id];
               const generatedBase64 = img?.base64;
               const isGenerating = !!editable.isGeneratingBySlot[slot.id];
+              // 이동 가능 여부는 "몇 번째 이미지냐(마커 순서)"가 아니라 "위/아래에 다른 블록이
+              // 있느냐(블록 위치)"로 판단해야 한다. 이동은 문단 단위(블록)로 일어나므로,
+              // 대표컷을 문단 아래로 내려도 위에 블록이 생기면 다시 올릴 수 있어야 한다.
+              const bIdx = blocks.findIndex(
+                (b) => b.kind === "marker" && b.markerIndex === localIdx,
+              );
               return (
                 <EditableImageSlot
                   key={i}
@@ -79,10 +97,14 @@ export function BlogContentRenderer({
                   userPhoto={userPhoto}
                   generatedBase64={generatedBase64}
                   isGenerating={isGenerating}
+                  canMoveUp={bIdx > 0}
+                  canMoveDown={bIdx >= 0 && bIdx < blocks.length - 1}
                   onUserPhotoChange={(p) =>
                     editable.onUserPhotoChange(slot.id, p)
                   }
                   onGenerateAI={() => editable.onGenerateSlotAI(slot.id)}
+                  onDelete={() => editable.onDeleteSlot(slot.id)}
+                  onMove={(dir) => editable.onMoveSlot(slot.id, dir)}
                   onOpenLightbox={setLightboxSrc}
                 />
               );
@@ -197,7 +219,40 @@ export function BlogContentRenderer({
             {renderInlineStyles(line)}
           </p>
         );
-      })}
+  });
+
+  return (
+    <>
+    <div
+      className="max-w-prose space-y-0"
+      onDragStart={(e) => {
+        if (e.dataTransfer.types.includes(SLOT_DND_MIME)) setDraggingSlot(true);
+      }}
+      onDragEnd={() => setDraggingSlot(false)}
+    >
+      {editable && blocks.length > 0 && (
+        <AddImageAffordance
+          active={draggingSlot}
+          onAdd={() => editable.onAddSlotAtBoundary(0)}
+          onDropSlot={(id) => editable.onMoveSlotToBoundary(id, 0)}
+        />
+      )}
+      {rendered.map((el, i) => (
+        <React.Fragment key={`row-${i}`}>
+          {el}
+          {editable && boundaryAfterLine.has(i) && (
+            <AddImageAffordance
+              active={draggingSlot}
+              onAdd={() =>
+                editable.onAddSlotAtBoundary(boundaryAfterLine.get(i)!)
+              }
+              onDropSlot={(id) =>
+                editable.onMoveSlotToBoundary(id, boundaryAfterLine.get(i)!)
+              }
+            />
+          )}
+        </React.Fragment>
+      ))}
     </div>
     {lightboxSrc && (
       <ImageLightbox
@@ -207,6 +262,75 @@ export function BlogContentRenderer({
       />
     )}
     </>
+  );
+}
+
+/**
+ * 문단 사이 삽입 지점.
+ * - 평소: hover 시 "＋ 여기에 이미지 추가" 노출(클릭 → 새 자리 추가)
+ * - 슬롯 드래그 중(active): 드롭 존으로 변신(놓으면 그 자리로 이미지 이동)
+ */
+function AddImageAffordance({
+  onAdd,
+  onDropSlot,
+  active,
+}: {
+  onAdd: () => void;
+  onDropSlot: (slotId: string) => void;
+  active: boolean;
+}) {
+  const [over, setOver] = useState(false);
+
+  if (active) {
+    return (
+      <div
+        className={`flex items-center transition-all ${over ? "h-9" : "h-7"}`}
+        onDragOver={(e) => {
+          if (e.dataTransfer.types.includes(SLOT_DND_MIME)) {
+            e.preventDefault();
+            setOver(true);
+          }
+        }}
+        onDragLeave={() => setOver(false)}
+        onDrop={(e) => {
+          const id = e.dataTransfer.getData(SLOT_DND_MIME);
+          setOver(false);
+          if (id) {
+            e.preventDefault();
+            onDropSlot(id);
+          }
+        }}
+      >
+        <div
+          className={`flex w-full items-center gap-2 text-[11px] font-medium ${
+            over ? "text-primary" : "text-primary/50"
+          }`}
+        >
+          <span className={`h-0.5 flex-1 rounded ${over ? "bg-primary" : "bg-primary/30"}`} />
+          <span className="whitespace-nowrap">
+            {over ? "여기로 이동" : "여기에 놓기"}
+          </span>
+          <span className={`h-0.5 flex-1 rounded ${over ? "bg-primary" : "bg-primary/30"}`} />
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="group/add flex h-5 items-center">
+      <button
+        type="button"
+        onClick={onAdd}
+        className="flex w-full items-center gap-2 text-[11px] font-medium text-primary"
+        title="여기에 이미지 자리 추가"
+      >
+        <span className="h-px flex-1 bg-primary/30 opacity-0 transition-opacity group-hover/add:opacity-100" />
+        <span className="inline-flex items-center gap-1 whitespace-nowrap opacity-0 transition-opacity group-hover/add:opacity-100">
+          <Plus className="h-3 w-3" /> 여기에 이미지 추가
+        </span>
+        <span className="h-px flex-1 bg-primary/30 opacity-0 transition-opacity group-hover/add:opacity-100" />
+      </button>
+    </div>
   );
 }
 

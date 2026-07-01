@@ -17,6 +17,7 @@ import {
   type SetStateAction,
 } from "react";
 import { initialThreadsState, type WizardState } from "@/types";
+import { NARRATIVE_TEMPLATES } from "@/lib/prompts/narrative-templates";
 
 const initialWizardState: WizardState = {
   selectedProducts: [],
@@ -54,6 +55,7 @@ const initialWizardState: WizardState = {
   generatedContent: "",
   qualityResult: null,
   contentDirty: false,
+  manualImageLayout: false,
   imageSlots: [],
   userPhotosBySlot: {},
   excludedSlotIds: [],
@@ -139,6 +141,14 @@ function loadFromStorage(): WizardState {
     // 의도적으로 string 값 비교. (없으면 옛 사용자가 진입 시 화면 깨짐)
     if ((parsed.postCategory as unknown) === "aeo") {
       parsed.postCategory = "seoAeo";
+    }
+    // 마이그레이션 3: 옛 버전/브랜치에서 저장된 서사(narrativeType)가 이 버전에 없는 값이면 null 로 정리.
+    // (예: 문제해결 후기형·hook-conclusion 등 다른 흐름에서 고른 값 → getNarrativePrompt 크래시 방지)
+    if (
+      parsed.narrativeType != null &&
+      !((parsed.narrativeType as string) in NARRATIVE_TEMPLATES)
+    ) {
+      parsed.narrativeType = null;
     }
     // 마이그레이션 2 (v3): 시드 6개 영구 제거. 옛 사용자 localStorage 자동 정리.
     return { ...initialWizardState, ...purgeLegacySeedIds(parsed as Partial<WizardState>) };
