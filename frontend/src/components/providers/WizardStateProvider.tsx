@@ -62,7 +62,8 @@ const initialWizardState: WizardState = {
   generatedImages: {},
   isGeneratingBySlot: {},
   isImageGenerating: false,
-  customPromptsBySlot: {},
+  imageDescBySlot: {},
+  aspectBySlot: {},
   slotFailures: {},
   slotVersionMap: {},
   currentRoundId: null,
@@ -150,6 +151,10 @@ function loadFromStorage(): WizardState {
     ) {
       parsed.narrativeType = null;
     }
+    // 마이그레이션 4: 옛 customPromptsBySlot(=슬롯별 '전체 프롬프트')는 imageDescBySlot(='설명만')로
+    // 의미가 바뀌었다. 옛 값을 그대로 두면 50줄 프롬프트가 description으로 오인·부활하므로 명시 삭제.
+    // (rename만으로는 parsed의 unknown key가 state에 얹혀 재저장되므로 삭제가 필요 — Codex #5)
+    delete (parsed as Record<string, unknown>).customPromptsBySlot;
     // 마이그레이션 2 (v3): 시드 6개 영구 제거. 옛 사용자 localStorage 자동 정리.
     return { ...initialWizardState, ...purgeLegacySeedIds(parsed as Partial<WizardState>) };
   } catch {

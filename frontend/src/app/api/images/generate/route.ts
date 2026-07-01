@@ -1,5 +1,5 @@
 import {
-  generateImage,
+  generateImageWithAspect,
   transformImage,
   describeImageSubject,
   type GeneratedImageResult,
@@ -36,9 +36,17 @@ interface SlotRequest {
   };
   /** AI 변환 시 Pro 모델(gemini-3-pro-image) 사용 여부 */
   useProModel?: boolean;
-  /** AI 생성 모드에서 사용자가 수정한 프롬프트. 있으면 기본 빌더 무시하고 그대로 전송. */
+  /** AI 생성 모드에서 사용자가 수정한 프롬프트. 있으면 기본 빌더 무시하고 그대로 전송. (레거시 — 현재 클라는 미사용) */
   customPrompt?: string;
+  /** AI 생성(text-to-image) 비율. "16:9" | "1:1" | "9:16". 미지정/미지원이면 "1:1". */
+  aspectRatio?: string;
   excluded?: boolean;
+}
+
+/** 지원 비율만 통과. 그 외/누락은 "1:1" 폴백 — 잘못된 값이 imageConfig로 가서 나는 런타임 400 예방. */
+const SUPPORTED_ASPECTS = new Set(["16:9", "1:1", "9:16"]);
+function normalizeAspect(a?: string): string {
+  return a && SUPPORTED_ASPECTS.has(a) ? a : "1:1";
 }
 
 
@@ -106,11 +114,17 @@ async function generateOneSlot(
       apiKey
     );
   }
+  const finalAspect = normalizeAspect(slot.aspectRatio);
   const prompt =
     slot.customPrompt && slot.customPrompt.trim().length > 0
       ? slot.customPrompt
-      : buildTextToImagePrompt(slot.description, content, slot.index);
-  return await generateImage(prompt, CONFIG.IMAGE_MODEL, apiKey);
+      : buildTextToImagePrompt(slot.description, content, slot.index, finalAspect);
+  return await generateImageWithAspect(
+    prompt,
+    finalAspect,
+    CONFIG.IMAGE_MODEL,
+    apiKey
+  );
 }
 
 
@@ -221,8 +235,14 @@ async function handlePost(request: Request): Promise<Response> {
     if (!img && slot.mode === "ai" && !hasCustomPrompt && CONFIG.IMAGE_MAX_RETRIES > 0) {
       logSlot("slot_neutralize_retry", { roundId, slotId });
       try {
-        const neutralPrompt = buildNeutralizedPrompt(slot.description);
-        img = await generateImage(neutralPrompt, CONFIG.IMAGE_MODEL, apiKey);
+        const finalAspect = normalizeAspect(slot.aspectRatio);
+        const neutralPrompt = buildNeutralizedPrompt(slot.description, finalAspect);
+        img = await generateImageWithAspect(
+          neutralPrompt,
+          finalAspect,
+          CONFIG.IMAGE_MODEL,
+          apiKey
+        );
         neutralized = true;
       } catch (e) {
         // 중립화 재시도 중 throw는 원본 실패로 (HTTP 200, SAFETY로 분류 — 재시도 의미 없음)
