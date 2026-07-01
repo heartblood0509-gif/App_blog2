@@ -394,6 +394,12 @@ export interface WizardState {
   qualityResult: QualityResult | null;
   /** 사용자가 본문을 직접 수정한 적이 있는지. 재생성 confirm 다이얼로그에 사용 */
   contentDirty: boolean;
+  /**
+   * 사용자가 이미지 슬롯을 수동 편집(삭제/이동/추가)했는지.
+   * true면 KEY EFFECT가 자동 마커 주입/캡(applyImagePostProcessing)을 건너뛴다.
+   * 새 글이 들어오는 모든 경로(재생성/제목·템플릿·카테고리 변경/드래프트 로드)에서 false로 리셋한다.
+   */
+  manualImageLayout: boolean;
 
   // Step 5: 이미지 슬롯 관련
   /** 본문에서 파싱된 이미지 슬롯 (content가 바뀌면 재계산) */

@@ -1039,3 +1039,187 @@ export function extractIdentificationContext(
     .trim();
   return cleaned.length <= maxChars ? cleaned : cleaned.slice(0, maxChars);
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 수동 이미지 배치 (사용자가 미리보기에서 슬롯을 직접 넣기/빼기/옮기기)
+//
+// 전부 순수 문자열 변환 — React 상태는 page.tsx 핸들러가 처리한다.
+// 핵심 규칙: 조작 후 항상 parseImageMarkers 로 재도출해 "순서 = 마커 순서 = index" 를 맞추고,
+// 기존 슬롯 id 를 그 순서에 얹는다(발행이 순서 기반이므로 순서 정합성이 필수).
+// 삭제는 기존 pruneExcludedMarkers 를 재사용한다.
+// ─────────────────────────────────────────────────────────────────────────────
+
+export type ContentBlockKind = "marker" | "heading" | "hashtags" | "text";
+
+/** 본문을 구성하는 블록(문단/소제목/이미지/해시태그) 하나 */
+export interface ContentBlock {
+  kind: ContentBlockKind;
+  /** 블록의 첫 비공백 줄 인덱스 */
+  lineStart: number;
+  /** 블록의 마지막 비공백 줄 인덱스(포함) */
+  lineEnd: number;
+  /** kind==="marker" 일 때 0-based 마커 순서 */
+  markerIndex?: number;
+}
+
+/** 한 줄의 종류 판별 (빈 줄이면 null) */
+function classifyLine(line: string): ContentBlockKind | null {
+  const t = line.trim();
+  if (t === "") return null;
+  if (MARKER_RE.test(line)) return "marker";
+  if (SUBTITLE_LINE_RE.test(line)) return "heading";
+  // 해시태그 줄 (#태그1 #태그2 …) — ##로 시작하지 않고 태그 2개 이상
+  if (t.startsWith("#") && !t.startsWith("##")) {
+    const tags = t.split(/\s+/).filter((x) => x.startsWith("#"));
+    if (tags.length > 1) return "hashtags";
+  }
+  return "text";
+}
+
+/**
+ * 본문을 "블록" 단위로 분해한다.
+ * 블록 = 빈 줄로 구분되는 비공백 줄 묶음이되, 마커/소제목/해시태그 줄은 각각 단독 블록으로
+ * 분리한다(연속된 일반 본문 줄만 하나로 묶음). 문단 단위 이동·삽입의 기준이 된다.
+ */
+export function computeBlocks(content: string): ContentBlock[] {
+  const lines = content.split("\n");
+  const blocks: ContentBlock[] = [];
+  let markerCount = 0;
+  let i = 0;
+  while (i < lines.length) {
+    const kind = classifyLine(lines[i]);
+    if (kind === null) {
+      i++;
+      continue;
+    }
+    if (kind === "text") {
+      // 연속된 일반 본문 줄만 하나로 묶음 (다음이 빈 줄/마커/소제목/해시태그면 중단)
+      const start = i;
+      let end = i;
+      while (end + 1 < lines.length && classifyLine(lines[end + 1]) === "text") {
+        end++;
+      }
+      blocks.push({ kind: "text", lineStart: start, lineEnd: end });
+      i = end + 1;
+    } else {
+      const block: ContentBlock = { kind, lineStart: i, lineEnd: i };
+      if (kind === "marker") block.markerIndex = markerCount++;
+      blocks.push(block);
+      i++;
+    }
+  }
+  return blocks;
+}
+
+/**
+ * 마커 블록을 인접 블록과 통째로 맞바꾼다(문단 단위 이동). 빈 줄 간격은 보존.
+ *
+ * @param slotIndex 옮길 마커의 순서(slot.index)
+ * @param dir 위/아래
+ * @returns 변환된 본문 + 인접 블록이 마커였는지(=마커 순서가 바뀌었는지 → id swap 필요 판단용)
+ */
+export function moveMarkerBlock(
+  content: string,
+  slotIndex: number,
+  dir: "up" | "down"
+): { content: string; adjacentWasMarker: boolean } {
+  const blocks = computeBlocks(content);
+  const bi = blocks.findIndex(
+    (b) => b.kind === "marker" && b.markerIndex === slotIndex
+  );
+  if (bi === -1) return { content, adjacentWasMarker: false };
+  const ti = dir === "up" ? bi - 1 : bi + 1;
+  if (ti < 0 || ti >= blocks.length) return { content, adjacentWasMarker: false };
+
+  const upper = dir === "up" ? blocks[ti] : blocks[bi];
+  const lower = dir === "up" ? blocks[bi] : blocks[ti];
+  const adjacentWasMarker = blocks[ti].kind === "marker";
+
+  const lines = content.split("\n");
+  const before = lines.slice(0, upper.lineStart);
+  const upperLines = lines.slice(upper.lineStart, upper.lineEnd + 1);
+  const gap = lines.slice(upper.lineEnd + 1, lower.lineStart);
+  const lowerLines = lines.slice(lower.lineStart, lower.lineEnd + 1);
+  const after = lines.slice(lower.lineEnd + 1);
+
+  // 인접한 두 블록의 내용만 맞바꾼다(사이 빈 줄 gap 은 그대로 유지).
+  const newLines = [...before, ...lowerLines, ...gap, ...upperLines, ...after];
+  return { content: newLines.join("\n"), adjacentWasMarker };
+}
+
+/**
+ * 블록 경계에 빈 이미지 마커를 삽입한다.
+ * @param boundary 0..blocks.length. k = blocks[k-1] 뒤 / blocks[k] 앞. 0=맨 위, length=맨 아래.
+ */
+export function insertEmptyMarkerAtBoundary(
+  content: string,
+  boundary: number,
+  description: string
+): string {
+  const blocks = computeBlocks(content);
+  const lines = content.split("\n");
+  const markerLine = `[이미지: ${description}]`;
+
+  let insertAt: number;
+  if (boundary <= 0) insertAt = 0;
+  else if (boundary >= blocks.length) insertAt = lines.length;
+  else insertAt = blocks[boundary - 1].lineEnd + 1;
+
+  const chunk = insertAt === 0 ? [markerLine, ""] : ["", markerLine, ""];
+  const newLines = [
+    ...lines.slice(0, insertAt),
+    ...chunk,
+    ...lines.slice(insertAt),
+  ];
+  // 삽입으로 생긴 빈 줄 중복을 정리(빈 줄 1개 유지).
+  return collapseBlankLines(newLines.join("\n"));
+}
+
+/** 주어진 블록 경계에 삽입될 새 마커의 순서(= 그 앞쪽 블록들의 마커 개수). */
+export function markerIndexAtBoundary(content: string, boundary: number): number {
+  const blocks = computeBlocks(content);
+  const upto = Math.max(0, Math.min(boundary, blocks.length));
+  let count = 0;
+  for (let k = 0; k < upto; k++) {
+    if (blocks[k].kind === "marker") count++;
+  }
+  return count;
+}
+
+/**
+ * 마커 블록을 임의의 블록 경계로 옮긴다(드래그 재배치용). 인접이 아닌 먼 거리 이동 지원.
+ *
+ * 블록 단위로 재조립하므로 결과는 블록 사이 빈 줄 1개로 정규화된다(발행/미리보기 무해).
+ * @param slotIndex 옮길 마커의 순서(slot.index)
+ * @param targetBoundary 도착 블록 경계(원본 blocks 기준, 0..blocks.length)
+ * @returns 변환된 본문 + 이동 후 마커의 새 순서(newMarkerIndex, id 재배치용)
+ */
+export function moveMarkerToBoundary(
+  content: string,
+  slotIndex: number,
+  targetBoundary: number
+): { content: string; newMarkerIndex: number } {
+  const lines = content.split("\n");
+  const blocks = computeBlocks(content);
+  const sbi = blocks.findIndex(
+    (b) => b.kind === "marker" && b.markerIndex === slotIndex
+  );
+  if (sbi === -1) return { content, newMarkerIndex: slotIndex };
+
+  const segs = blocks.map((b) => lines.slice(b.lineStart, b.lineEnd + 1).join("\n"));
+  const isMarker = blocks.map((b) => b.kind === "marker");
+
+  // 원본 blocks 기준 경계 → 소스 제거 후 인덱스 보정
+  let insertAt = targetBoundary > sbi ? targetBoundary - 1 : targetBoundary;
+
+  const [movedSeg] = segs.splice(sbi, 1);
+  isMarker.splice(sbi, 1);
+  insertAt = Math.max(0, Math.min(insertAt, segs.length));
+
+  // 삽입 위치 앞의 마커 개수 = 이동 후 마커 순서
+  let newMarkerIndex = 0;
+  for (let k = 0; k < insertAt; k++) if (isMarker[k]) newMarkerIndex++;
+
+  segs.splice(insertAt, 0, movedSeg);
+  return { content: segs.join("\n\n"), newMarkerIndex };
+}

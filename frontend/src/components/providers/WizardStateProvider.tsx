@@ -17,6 +17,7 @@ import {
   type SetStateAction,
 } from "react";
 import { initialThreadsState, type WizardState } from "@/types";
+import { NARRATIVE_TEMPLATES } from "@/lib/prompts/narrative-templates";
 
 const initialWizardState: WizardState = {
   selectedProducts: [],
@@ -54,6 +55,7 @@ const initialWizardState: WizardState = {
   generatedContent: "",
   qualityResult: null,
   contentDirty: false,
+  manualImageLayout: false,
   imageSlots: [],
   userPhotosBySlot: {},
   excludedSlotIds: [],
@@ -141,7 +143,15 @@ function loadFromStorage(): WizardState {
     if ((parsed.postCategory as unknown) === "aeo") {
       parsed.postCategory = "seoAeo";
     }
-    // 마이그레이션 3: 옛 customPromptsBySlot(=슬롯별 '전체 프롬프트')는 imageDescBySlot(='설명만')로
+    // 마이그레이션 3: 옛 버전/브랜치에서 저장된 서사(narrativeType)가 이 버전에 없는 값이면 null 로 정리.
+    // (예: 문제해결 후기형·hook-conclusion 등 다른 흐름에서 고른 값 → getNarrativePrompt 크래시 방지)
+    if (
+      parsed.narrativeType != null &&
+      !((parsed.narrativeType as string) in NARRATIVE_TEMPLATES)
+    ) {
+      parsed.narrativeType = null;
+    }
+    // 마이그레이션 4: 옛 customPromptsBySlot(=슬롯별 '전체 프롬프트')는 imageDescBySlot(='설명만')로
     // 의미가 바뀌었다. 옛 값을 그대로 두면 50줄 프롬프트가 description으로 오인·부활하므로 명시 삭제.
     // (rename만으로는 parsed의 unknown key가 state에 얹혀 재저장되므로 삭제가 필요 — Codex #5)
     delete (parsed as Record<string, unknown>).customPromptsBySlot;

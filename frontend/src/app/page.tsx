@@ -115,6 +115,11 @@ import {
   enforceImageMarkerCap,
   collapseBlankLines,
   applySubtitleLineBreaks,
+  pruneExcludedMarkers,
+  moveMarkerBlock,
+  moveMarkerToBoundary,
+  insertEmptyMarkerAtBoundary,
+  markerIndexAtBoundary,
 } from "@/lib/image/marker-parser";
 
 // 카테고리별 이미지 총량 상한. 캡은 ensure 함수 누적 결과의 마지막 안전장치.
@@ -401,14 +406,18 @@ export default function Home() {
   useEffect(() => {
     const rawContent = state.generatedContent;
 
-    // 후처리 — postCategory 별로 다른 파이프라인 (applyImagePostProcessing 참조)
-    const coveredContent = applyImagePostProcessing(
-      rawContent,
-      state.postCategory,
-      state.selectedTitle,
-      getEffectiveMainKeyword(state),
-      state.selectedTemplateType,
-    );
+    // 후처리 — 수동 배치 모드(manualImageLayout)면 "마커를 넣고 빼는" 배치 함수는 건너뛰고,
+    // 마커를 건드리지 않는 위생/가독성 함수만 적용한다(사용자가 옮기고 지운 배치를 되돌리지 않되
+    // <br> 폭주 정리·소제목 줄바꿈은 유지 → 미리보기/발행 일치). 병합 규칙은 아래에서 그대로 둔다.
+    const coveredContent = state.manualImageLayout
+      ? applySubtitleLineBreaks(collapseBlankLines(stripBrTags(rawContent)))
+      : applyImagePostProcessing(
+          rawContent,
+          state.postCategory,
+          state.selectedTitle,
+          getEffectiveMainKeyword(state),
+          state.selectedTemplateType,
+        );
 
     // 처리 완료된 결과와 비교 — 원본이 같아도 아직 후킹/소제목 주입이 안 된 상태면 진행
     if (coveredContent === prevContentRef.current) return;
@@ -979,6 +988,7 @@ export default function Home() {
       generatedContent: "",
       qualityResult: null,
       contentDirty: false,
+      manualImageLayout: false,
       generatedImages: {},
       imageDescBySlot: {},
       aspectBySlot: {},
@@ -1163,6 +1173,7 @@ export default function Home() {
         generatedContent: "",
         qualityResult: null,
         contentDirty: false,
+        manualImageLayout: false,
         isLoading: false,
         currentStep: 2,
       });
@@ -1184,6 +1195,7 @@ export default function Home() {
       generatedContent: "",
       qualityResult: null,
       contentDirty: false,
+      manualImageLayout: false,
       isLoading: false,
     });
   }, [updateState]);
@@ -1342,6 +1354,139 @@ export default function Home() {
     [setState]
   );
 
+  // ── 수동 이미지 배치 (넣기/빼기/옮기기) ──────────────────────────────────────
+  // 공통: 본문을 직접 계산한 뒤 imageSlots 도 함께 확정해 한 번의 setState 로 커밋한다.
+  // manualImageLayout=true 로 자동 배치기를 끄고, prevContentRef 를 갱신해 KEY EFFECT 를 no-op
+  // 시킨다(병합이 안 돌아 id 어긋남 없음). 발행이 순서 기반이므로 항상 parseImageMarkers 로
+  // 재도출해 "순서=마커순서=index" 를 맞추고 기존 id 를 그 순서에 얹는다.
+  const commitManualLayout = useCallback(
+    (rawNewContent: string, newIdOrder: string[], opts?: { bumpVersionIds?: string[] }) => {
+      // KEY EFFECT 의 manual 분기와 동일한 위생 처리(멱등) → 저장값이자 ref 값으로 사용
+      const content = applySubtitleLineBreaks(
+        collapseBlankLines(stripBrTags(rawNewContent)),
+      );
+      const parsed = parseImageMarkers(content);
+      const slots = parsed.map((s, i) => (newIdOrder[i] ? { ...s, id: newIdOrder[i] } : s));
+      const validIds = new Set(slots.map((s) => s.id));
+      prevContentRef.current = content;
+      setState((prev) => {
+        const bumpedVersion = { ...prev.slotVersionMap };
+        for (const id of opts?.bumpVersionIds ?? []) {
+          bumpedVersion[id] = (bumpedVersion[id] ?? 0) + 1;
+        }
+        return {
+          ...prev,
+          generatedContent: content,
+          imageSlots: slots,
+          manualImageLayout: true,
+          generatedImages: Object.fromEntries(
+            Object.entries(prev.generatedImages).filter(([id]) => validIds.has(id)),
+          ),
+          userPhotosBySlot: Object.fromEntries(
+            Object.entries(prev.userPhotosBySlot).filter(([id]) => validIds.has(id)),
+          ),
+          isGeneratingBySlot: Object.fromEntries(
+            Object.entries(prev.isGeneratingBySlot).filter(([id]) => validIds.has(id)),
+          ),
+          imageDescBySlot: Object.fromEntries(
+            Object.entries(prev.imageDescBySlot).filter(([id]) => validIds.has(id)),
+          ),
+          aspectBySlot: Object.fromEntries(
+            Object.entries(prev.aspectBySlot).filter(([id]) => validIds.has(id)),
+          ),
+          slotFailures: Object.fromEntries(
+            Object.entries(prev.slotFailures).filter(([id]) => validIds.has(id)),
+          ),
+          excludedSlotIds: prev.excludedSlotIds.filter((id) => validIds.has(id)),
+          // 삭제된 id 는 map 에서 지우지 않고 bump — 진행 중 라운드의 stale 결과를 확실히 버리도록.
+          slotVersionMap: bumpedVersion,
+        };
+      });
+    },
+    [setState],
+  );
+
+  const handleDeleteSlot = useCallback(
+    (slotId: string) => {
+      const slots = state.imageSlots;
+      if (!slots.some((s) => s.id === slotId)) return;
+      const newContent = pruneExcludedMarkers(
+        state.generatedContent,
+        slots,
+        new Set([slotId]),
+      );
+      const newIdOrder = slots.filter((s) => s.id !== slotId).map((s) => s.id);
+      commitManualLayout(newContent, newIdOrder, { bumpVersionIds: [slotId] });
+    },
+    [state.imageSlots, state.generatedContent, commitManualLayout],
+  );
+
+  const handleMoveSlot = useCallback(
+    (slotId: string, dir: "up" | "down") => {
+      const slots = state.imageSlots;
+      const slot = slots.find((s) => s.id === slotId);
+      if (!slot) return;
+      const { content: newContent, adjacentWasMarker } = moveMarkerBlock(
+        state.generatedContent,
+        slot.index,
+        dir,
+      );
+      if (newContent === state.generatedContent) return; // 경계(맨 위/아래) → no-op
+      const ids = slots.map((s) => s.id);
+      // 다른 마커를 지나 순서가 바뀐 경우에만 id 순서도 함께 swap
+      if (adjacentWasMarker) {
+        const j = dir === "up" ? slot.index - 1 : slot.index + 1;
+        if (j >= 0 && j < ids.length) {
+          [ids[slot.index], ids[j]] = [ids[j], ids[slot.index]];
+        }
+      }
+      commitManualLayout(newContent, ids);
+    },
+    [state.imageSlots, state.generatedContent, commitManualLayout],
+  );
+
+  // 드래그 재배치(Phase 2): 마커를 임의의 블록 경계로 이동. moveMarkerBlock 과 같은 커밋 경로 재사용.
+  const handleMoveSlotToBoundary = useCallback(
+    (slotId: string, targetBoundary: number) => {
+      const slots = state.imageSlots;
+      const slot = slots.find((s) => s.id === slotId);
+      if (!slot) return;
+      const { content: newContent, newMarkerIndex } = moveMarkerToBoundary(
+        state.generatedContent,
+        slot.index,
+        targetBoundary,
+      );
+      if (newContent === state.generatedContent) return;
+      const ids = slots.map((s) => s.id);
+      const [movedId] = ids.splice(slot.index, 1);
+      ids.splice(newMarkerIndex, 0, movedId);
+      commitManualLayout(newContent, ids);
+    },
+    [state.imageSlots, state.generatedContent, commitManualLayout],
+  );
+
+  const handleAddSlotAtBoundary = useCallback(
+    (boundary: number) => {
+      const slots = state.imageSlots;
+      const keyword = getEffectiveMainKeyword(state) || "본문";
+      const desc = `${keyword} 관련 실사 장면, 자연광, 한국인 피사체`;
+      const newContent = insertEmptyMarkerAtBoundary(
+        state.generatedContent,
+        boundary,
+        desc,
+      );
+      const insertIndex = markerIndexAtBoundary(state.generatedContent, boundary);
+      const ids = slots.map((s) => s.id);
+      const freshId = `slot-${Date.now().toString(36)}-${Math.random()
+        .toString(36)
+        .slice(2, 10)}`;
+      ids.splice(insertIndex, 0, freshId);
+      commitManualLayout(newContent, ids);
+    },
+    // getEffectiveMainKeyword 가 state 여러 필드를 읽으므로 state 를 dep 으로 둔다.
+    [state, commitManualLayout],
+  );
+
   /** 단일 슬롯 실행: AI 생성(text-to-image) 또는 AI 변환(image-to-image) */
   const runSlotAction = useCallback(
     async (slotId: string, action: "ai" | "transform") => {
@@ -1407,7 +1552,9 @@ export default function Home() {
         setState((prev) => {
           const nextGenerating = { ...prev.isGeneratingBySlot };
           nextGenerating[slotId] = false;
-          if (r && r.status === "done" && r.base64) {
+          // [B3] 생성 중 삭제/이동으로 사라진 슬롯이면 결과를 버림(orphan 이미지 방지)
+          const slotStillExists = prev.imageSlots.some((s) => s.id === slotId);
+          if (slotStillExists && r && r.status === "done" && r.base64) {
             return {
               ...prev,
               generatedImages: { ...prev.generatedImages, [slotId]: r.base64 },
@@ -1547,6 +1694,11 @@ export default function Home() {
             }
             const nextGen = { ...prev.isGeneratingBySlot };
             nextGen[out.id] = false;
+
+            // [B3] 삭제/이동으로 사라진 슬롯이면 spinner만 끄고 결과 버림(orphan 방지)
+            if (!prev.imageSlots.some((s) => s.id === out.id)) {
+              return { ...prev, isGeneratingBySlot: nextGen };
+            }
 
             if (out.status === "done") {
               doneCount++;
@@ -1729,6 +1881,7 @@ export default function Home() {
         generatedContent: "",
         qualityResult: null,
         contentDirty: false,
+        manualImageLayout: false,
         generatedImages: {},
         imageDescBySlot: {},
         aspectBySlot: {},
@@ -1882,6 +2035,7 @@ export default function Home() {
           generatedContent: "",
           qualityResult: null,
           contentDirty: false,
+          manualImageLayout: false,
           generatedImages: {},
           imageDescBySlot: {},
           aspectBySlot: {},
@@ -2133,6 +2287,8 @@ export default function Home() {
       setState((prev) => ({
         ...prev,
         ...snap,
+        // 옛 드래프트(필드 없음) 또는 직전 글의 stale true 방어 — 스냅샷 값 우선, 없으면 false.
+        manualImageLayout: snap.manualImageLayout ?? false,
         imageDescBySlot: snap.imageDescBySlot ?? {},
         aspectBySlot: snap.aspectBySlot ?? {},
         generatedImages,
@@ -2455,6 +2611,11 @@ export default function Home() {
             onImageDescChange={handleImageDescChange}
             onAspectChange={handleAspectChange}
             onAspectChangeAll={handleAspectChangeAll}
+            onDeleteSlot={handleDeleteSlot}
+            onMoveSlot={handleMoveSlot}
+            onMoveSlotToBoundary={handleMoveSlotToBoundary}
+            onAddSlotAtBoundary={handleAddSlotAtBoundary}
+            manualImageLayout={state.manualImageLayout}
           />
         );
       case 5:

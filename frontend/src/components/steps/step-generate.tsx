@@ -120,6 +120,16 @@ interface StepGenerateProps {
   onAspectChange: (slotId: string, ratio: string) => void;
   /** 활성 슬롯 전체 비율 일괄 변경 */
   onAspectChangeAll: (ratio: string) => void;
+  /** 이미지 자리 삭제(마커 줄 제거). 미리보기 슬롯 컨트롤에서 호출. */
+  onDeleteSlot: (slotId: string) => void;
+  /** 이미지 자리를 문단 단위로 위/아래 이동. */
+  onMoveSlot: (slotId: string, dir: "up" | "down") => void;
+  /** 이미지 자리를 임의의 블록 경계로 이동(드래그 재배치). */
+  onMoveSlotToBoundary: (slotId: string, boundary: number) => void;
+  /** 블록 경계(computeBlocks 인덱스)에 빈 이미지 자리 삽입. */
+  onAddSlotAtBoundary: (boundary: number) => void;
+  /** 사용자가 이미지 자리를 직접 편집해 자동 배치기가 꺼진 상태인지. 안내 배너 표시용. */
+  manualImageLayout?: boolean;
   /** seoAeo Intent Mode 활성 여부 — 활성 시 이미지 카운트 warn 임계치를 3~4장 정책으로 분기 */
   isIntentMode?: boolean;
 }
@@ -733,6 +743,11 @@ export function StepGenerate({
   onImageDescChange,
   onAspectChange,
   onAspectChangeAll,
+  onDeleteSlot,
+  onMoveSlot,
+  onMoveSlotToBoundary,
+  onAddSlotAtBoundary,
+  manualImageLayout = false,
   isIntentMode = false,
 }: StepGenerateProps) {
   // 본문 직접 수정 모드 (로컬 state).
@@ -955,6 +970,16 @@ export function StepGenerate({
                         <Separator className="mt-4" />
                       </div>
                     )}
+                    {manualImageLayout && (
+                      <div className="mb-3 rounded-md border border-primary/20 bg-primary/5 px-3 py-2 text-[11px] leading-relaxed text-muted-foreground">
+                        <span className="font-medium text-primary">
+                          자동 이미지 배치가 꺼졌습니다.
+                        </span>{" "}
+                        이미지 자리 위 버튼(위/아래 이동 · 삭제)과 문단 사이{" "}
+                        <b>＋ 여기에 이미지 추가</b>로 직접 배치할 수 있어요. 이미지를 크게 바꿨다면
+                        오른쪽 품질 점수는 참고만 해주세요.
+                      </div>
+                    )}
                     <BlogContentRenderer
                       text={content}
                       imagesByMarkerIndex={Object.fromEntries(
@@ -976,6 +1001,10 @@ export function StepGenerate({
                         onUserPhotoChange,
                         onGenerateSlotAI,
                         onTransformSlot,
+                        onDeleteSlot,
+                        onMoveSlot,
+                        onMoveSlotToBoundary,
+                        onAddSlotAtBoundary,
                       }}
                     />
                   </div>
