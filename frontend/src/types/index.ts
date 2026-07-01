@@ -408,8 +408,13 @@ export interface WizardState {
   isGeneratingBySlot: Record<string, boolean>;
   /** 일괄 생성 중 여부 — [전체 생성] 버튼 잠금/[중지] 버튼 표시 전용. 슬롯 스피너 조건으로는 쓰지 말 것 */
   isImageGenerating: boolean;
-  /** slotId → 사용자가 수정한 커스텀 이미지 프롬프트 (AI 생성 모드 전용). 없으면 기본 빌더 사용 */
-  customPromptsBySlot: Record<string, string>;
+  /**
+   * slotId → 사용자가 수정한 "생성할 이미지 설명"(description) 오버라이드. (AI 생성 모드 전용)
+   * 없거나 공백이면 slot.description(AI 추천) 사용. 서버는 이 값을 고정 템플릿에 끼워 재조립한다.
+   */
+  imageDescBySlot: Record<string, string>;
+  /** slotId → 선택한 AI 생성 비율 ("16:9" | "1:1" | "9:16"). 없으면 "1:1"(기본). */
+  aspectBySlot: Record<string, string>;
   /** slotId → 마지막 실패 사유 코드. 슬롯 카드에 칩으로 표시. 성공 시 삭제 */
   slotFailures: Record<string, string>;
   /** slotId → 사용자가 슬롯을 만질 때마다 증가하는 버전. 라운드 결과 머지 시 stale write 방지 */
