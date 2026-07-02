@@ -4,6 +4,8 @@ import json
 import os
 import glob
 import asyncio
+import sys
+import traceback
 from typing import Any
 
 from db.database import SessionLocal
@@ -21,6 +23,33 @@ from core.user_assets_visual import (
     set_line_asset_progress,
 )
 from config import settings
+
+
+def _fail_job(job_id: str, prefix: str, e: Exception) -> None:
+    """백그라운드 작업 실패를 기록한다.
+
+    사용자 화면에는 짧은 메시지(prefix + str(e))만 저장하되, 정확한 원인 추적을 위해
+    전체 traceback 을 stderr 로 print 한다. 데스크톱은 youtube 백엔드 stderr 를
+    `{userData}/logs/yt.stderr.log` 로 리다이렉트하므로(child-utils.ts), 이후 사용자
+    로그만 받아도 어느 파일 몇 번째 줄에서 터졌는지 특정할 수 있다. 과거엔 except 에서
+    str(e) 만 남겨 'NoneType object is not subscriptable' 같은 메시지의 발생 지점을
+    어디서도 알 수 없었다.
+    """
+    print(
+        f"[worker] {prefix} job={job_id} error={type(e).__name__}: {e}",
+        file=sys.stderr,
+        flush=True,
+    )
+    traceback.print_exc()
+    sys.stderr.flush()
+    # 우리가 의도적으로 던진 RuntimeError(자산 부족·길이 검증·ffmpeg 에러 등)는 이미
+    # 사용자가 조치할 수 있는 명확한 문구이므로 그대로 둔다. 그 외(TypeError·KeyError 등)
+    # 예기치 못한 내부 오류는 메시지만으로 원인 파악이 안 되므로, 기술 문구는 유지하되
+    # "로그에 상세 기록됨" 안내를 덧붙여 문의 시 로그를 요청할 수 있게 한다.
+    message = f"{prefix}: {str(e)}"
+    if not isinstance(e, RuntimeError):
+        message += " (예기치 못한 오류입니다. 자세한 원인이 로그 파일 logs/yt.stderr.log 에 기록되었습니다.)"
+    mark_job_failed(job_id, message)
 
 
 def _mark_card_b_render_complete(job_id: str, signature_json: str | None) -> None:
@@ -269,7 +298,7 @@ async def generate_images_for_job(job_id: str):
             update_job_progress(job_id, "preview_ready", 0.4, "이미지 생성 완료 - 미리보기 확인")
 
         except Exception as e:
-            mark_job_failed(job_id, f"이미지 생성 실패: {str(e)}")
+            _fail_job(job_id, "이미지 생성 실패", e)
     finally:
         db.close()
 
@@ -320,7 +349,7 @@ async def generate_clips_for_job(job_id: str):
             update_job_progress(job_id, "clips_ready", 0.50, "AI 영상 클립 생성 완료 - 미리보기 확인")
 
         except Exception as e:
-            mark_job_failed(job_id, f"AI 클립 생성 실패: {str(e)}")
+            _fail_job(job_id, "AI 클립 생성 실패", e)
     finally:
         db.close()
 
@@ -428,7 +457,7 @@ async def regenerate_clip_for_job(job_id: str, line_index: int, *, line_id: str 
                 except Exception:
                     pass
             else:
-                mark_job_failed(job_id, f"클립 재생성 실패: {str(e)}")
+                _fail_job(job_id, "클립 재생성 실패", e)
     finally:
         db.close()
 
@@ -594,7 +623,7 @@ async def render_video_for_job(job_id: str):
                 _mark_card_b_render_complete(job_id, new_signature_json)
 
         except Exception as e:
-            mark_job_failed(job_id, f"영상 조립 실패: {str(e)}")
+            _fail_job(job_id, "영상 조립 실패", e)
     finally:
         db.close()
 
@@ -803,7 +832,7 @@ async def regenerate_image_for_job(job_id: str, line_index: int, korean_request:
                 except Exception:
                     pass
             else:
-                mark_job_failed(job_id, f"이미지 재생성 실패: {str(e)}")
+                _fail_job(job_id, "이미지 재생성 실패", e)
     finally:
         db.close()
 
