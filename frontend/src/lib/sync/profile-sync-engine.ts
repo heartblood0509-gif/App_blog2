@@ -20,7 +20,7 @@
  *
  * 범위: 데스크톱 전용(웹/KV 경로는 이 엔진을 쓰지 않는다).
  */
-import type { SupabaseClient } from "@supabase/supabase-js";
+import type { RealtimeChannel, SupabaseClient } from "@supabase/supabase-js";
 import { fetchStoreList } from "@/lib/store-fetch";
 import { reportSyncStatus } from "@/lib/sync/cloud-sync";
 
@@ -99,11 +99,16 @@ interface EngineCtx {
 }
 let ctx: EngineCtx | null = null;
 
+// realtime WebSocket 에 실을 사용자 JWT. postgres_changes 는 RLS 를 타므로 이 토큰이 없으면
+// (익명 WS) 본인 행 이벤트가 조용히 안 온다. CloudSyncGate 가 로그인/토큰갱신마다 주입.
+let currentAccessToken: string | null = null;
+
 export function setEngineContext(client: SupabaseClient, userId: string, deviceId: string): void {
   ctx = { client, userId, deviceId };
 }
 export function clearEngineContext(): void {
   ctx = null;
+  currentAccessToken = null;
   for (const k of KINDS) {
     const t = reconcileTimers[k];
     if (t) {
@@ -111,6 +116,15 @@ export function clearEngineContext(): void {
       reconcileTimers[k] = null;
     }
   }
+}
+
+/**
+ * realtime WS 인증 토큰 갱신. 로그인·토큰갱신마다 CloudSyncGate 가 호출한다.
+ * ctx 가 있으면 즉시 client.realtime.setAuth 로 살아있는 소켓에도 반영(재구독 불필요).
+ */
+export function setRealtimeToken(token: string | null): void {
+  currentAccessToken = token;
+  if (ctx) void ctx.client.realtime.setAuth(token ?? undefined);
 }
 
 // ─────────────────────────────────────────────
@@ -429,21 +443,65 @@ export function scheduleReconcile(kind: ProfileKind, delayMs: number = RECONCILE
 // ─────────────────────────────────────────────
 
 export function subscribeItemsRealtime(client: SupabaseClient, userId: string): () => void {
-  const channel = client
-    .channel(`profile-items:${userId}`)
-    .on(
-      "postgres_changes",
-      { event: "*", schema: "public", table: TABLE, filter: `user_id=eq.${userId}` },
-      (payload) => {
-        const row = (payload.new ?? payload.old ?? {}) as { kind?: string; source_device?: string };
-        // 자기 기기 write 가 되돌아온 것이면 무시(reconcile 이 idempotent 라 무해하지만 불필요).
-        if (row.source_device && ctx && row.source_device === ctx.deviceId) return;
-        const kind = row.kind as ProfileKind | undefined;
-        if (kind && KINDS.includes(kind)) scheduleReconcile(kind);
-      },
-    )
-    .subscribe();
+  let channel: RealtimeChannel | null = null;
+  let closed = false;
+  let attempt = 0;
+  let retryTimer: ReturnType<typeof setTimeout> | null = null;
+
+  const handleRow = (payload: { new?: unknown; old?: unknown }) => {
+    const row = (payload.new ?? payload.old ?? {}) as { kind?: string; source_device?: string };
+    // 자기 기기 write 가 되돌아온 것이면 무시(reconcile 이 idempotent 라 무해하지만 불필요).
+    if (row.source_device && ctx && row.source_device === ctx.deviceId) return;
+    const kind = row.kind as ProfileKind | undefined;
+    if (kind && KINDS.includes(kind)) scheduleReconcile(kind);
+  };
+
+  const join = async () => {
+    if (closed) return;
+    // ⚠️ postgres_changes 는 RLS 를 타므로 WS 가 사용자 JWT 를 실어야 본인 행 이벤트가 온다.
+    // 수동 세션(Electron/device auth) 환경에선 supabase-js 자동 배선이 불확실 → 명시적으로 세팅.
+    try {
+      await client.realtime.setAuth(currentAccessToken ?? undefined);
+    } catch {
+      /* setAuth 실패해도 아래 구독은 시도(다음 재시도에서 복구) */
+    }
+    if (closed) return;
+    channel = client
+      .channel(`profile-items:${userId}`)
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: TABLE, filter: `user_id=eq.${userId}` },
+        handleRow,
+      )
+      .subscribe((status) => {
+        if (status === "SUBSCRIBED") {
+          attempt = 0;
+          reportSyncStatus({ lastError: null });
+          // 구독 확립 시 놓친 변경 catch-up(최초 구독·재연결 공용, idempotent).
+          void reconcileAll();
+        } else if (status === "CHANNEL_ERROR" || status === "TIMED_OUT") {
+          // 조용한 실패 방지 — 상태 노출 + 지수 backoff 재접속.
+          if (closed) return;
+          reportSyncStatus({ lastError: `실시간 동기화 연결 실패(${status})` });
+          attempt += 1;
+          const delay = Math.min(30_000, 1_000 * 2 ** attempt);
+          if (retryTimer) clearTimeout(retryTimer);
+          retryTimer = setTimeout(() => {
+            if (closed) return;
+            const prev = channel;
+            channel = null;
+            if (prev) void client.removeChannel(prev);
+            void join();
+          }, delay);
+        }
+      });
+  };
+
+  void join();
+
   return () => {
-    void client.removeChannel(channel);
+    closed = true;
+    if (retryTimer) clearTimeout(retryTimer);
+    if (channel) void client.removeChannel(channel);
   };
 }

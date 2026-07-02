@@ -15,6 +15,7 @@ import {
 import {
   setEngineContext,
   clearEngineContext,
+  setRealtimeToken,
   reconcileAll,
   subscribeItemsRealtime,
   emitProfilesChanged,
@@ -38,6 +39,14 @@ export function CloudSyncGate() {
       setEngineContext(supabase, userId, deviceId);
     }
   }, [supabase, userId, appVersion, deviceId]);
+
+  // (a2) realtime WS 인증 토큰 최신화(데스크톱만). postgres_changes 는 RLS 를 타므로
+  //      WS 가 사용자 JWT 를 실어야 본인 행 이벤트가 온다. 로그인·토큰갱신마다 갱신하고,
+  //      구독(e) 은 currentAccessToken 을 읽으므로 이 훅이 먼저 채워두는 게 중요.
+  useEffect(() => {
+    if (!isDesktop()) return;
+    setRealtimeToken(session?.access_token ?? null);
+  }, [session?.access_token]);
 
   // (b) 정리는 진짜 언마운트(로그아웃/종료) 시에만.
   useEffect(
