@@ -1,3 +1,5 @@
+import fs from "fs";
+import path from "path";
 import { paths } from "./paths";
 import { spawnDetached, killTree, SpawnedChild } from "./child-utils";
 import { waitForUrl } from "./net-utils";
@@ -73,7 +75,17 @@ export class NextServerManager {
     }
 
     if (paths.isDev) {
-      this.child = spawnDetached("npx", ["next", "dev", "-p", String(this.port), "-H", this.host], {
+      // 워크트리 dev 에서 frontend/node_modules 를 메인에서 빌려온(symlink) 경우 Turbopack 이
+      // 거부하므로 webpack 으로 폴백한다. (dev-worktree.js 웹 모드의 spawnFrontend 와 동일한 처리)
+      const devArgs = ["next", "dev", "-p", String(this.port), "-H", this.host];
+      try {
+        if (fs.lstatSync(path.join(paths.frontendCwdDev, "node_modules")).isSymbolicLink()) {
+          devArgs.push("--webpack");
+        }
+      } catch {
+        /* node_modules 없음 — 무시 */
+      }
+      this.child = spawnDetached("npx", devArgs, {
         cwd: paths.frontendCwdDev,
         env,
         shell: true,
