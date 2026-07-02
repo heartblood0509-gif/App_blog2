@@ -16,6 +16,7 @@ import { ProfileBundleDialog } from "@/components/profile-bundle-dialog";
 import { StoreCorruptPanel } from "@/components/store-corrupt-panel";
 import { fetchStoreList, StoreCorruptError } from "@/lib/store-fetch";
 import { mutateProfileStore } from "@/lib/stores/profile-mutate";
+import { subscribeProfilesChanged } from "@/lib/sync/profile-sync-engine";
 import {
   copyAeoToBrandPrefill,
   hasCounterpartProfile,
@@ -41,8 +42,8 @@ export function AeoProfileSection({ selectedProfileId, onSelect }: AeoProfileSec
   const [brandAssistantOpen, setBrandAssistantOpen] = useState(false);
   const [brandPrefill, setBrandPrefill] = useState<Partial<Omit<BrandProfile, "id">> | null>(null);
 
-  const fetchProfiles = useCallback(async () => {
-    setLoading(true);
+  const fetchProfiles = useCallback(async (opts?: { silent?: boolean }) => {
+    if (!opts?.silent) setLoading(true);
     try {
       const data = await fetchStoreList<AeoProfile>("/api/aeo/profiles");
       setProfiles(data);
@@ -60,6 +61,13 @@ export function AeoProfileSection({ selectedProfileId, onSelect }: AeoProfileSec
 
   useEffect(() => {
     fetchProfiles();
+  }, [fetchProfiles]);
+
+  // 다른 기기의 변경이 실시간 반영되면 조용히 재조회.
+  useEffect(() => {
+    return subscribeProfilesChanged((kind) => {
+      if (kind === "aeo" || kind === "all") void fetchProfiles({ silent: true });
+    });
   }, [fetchProfiles]);
 
   /**

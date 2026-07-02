@@ -41,6 +41,10 @@ export interface SelectedProduct {
  */
 export interface UserProduct {
   id: string;
+  /** 기기 공통 안정 식별자(동기화용). 로컬 id 와 별개. */
+  uuid?: string;
+  /** 최종 수정 시각 ISO(동기화 LWW용). */
+  updatedAt?: string;
   name: string;
   category: string;
   /** 레거시·호환용. 5분할 필드를 줄바꿈으로 합쳐 자동 채움 */

@@ -21,6 +21,12 @@ import { fetchStoreList } from "@/lib/store-fetch";
 import type { BrandProfile, AnalysisRecord } from "@/types/brand";
 import type { AeoProfile } from "@/types/aeo";
 import type { UserProduct } from "@/types";
+import {
+  beginApplyRemote,
+  emitProfilesChanged,
+  endApplyRemote,
+  isApplyingRemote,
+} from "@/lib/sync/profile-sync-engine";
 
 const TABLE = "user_profile_sync";
 const BUNDLE_VERSION = 2;
@@ -69,6 +75,11 @@ function setStatus(patch: Partial<CloudSyncStatus>): void {
 
 export function getCloudSyncStatus(): CloudSyncStatus {
   return status;
+}
+
+/** 외부(동기화 엔진 M2)가 설정 화면 상태를 갱신할 수 있게 노출. */
+export function reportSyncStatus(patch: Partial<CloudSyncStatus>): void {
+  setStatus(patch);
 }
 
 export function subscribeCloudSyncStatus(cb: (s: CloudSyncStatus) => void): () => void {
@@ -140,20 +151,26 @@ function selectionFromBundle(b: SyncBundle): Selection {
 
 let pushTimer: ReturnType<typeof setTimeout> | null = null;
 
+// 자기 기기가 방금 올린 행의 updated_at. 이 값과 같은 realtime 이벤트는
+// "내 write 가 되돌아온 것"이므로 무시한다(불필요한 import/백업 방지).
+let lastSelfWriteAt: string | null = null;
+
 async function pushNow(): Promise<void> {
   if (!ctx) return;
   const { client, userId, appVersion } = ctx;
   setStatus({ pending: true });
   try {
     const { bundle } = await buildBundle(); // 로컬 읽기 실패 시 throw → 업로드 안 함
+    const stamp = new Date().toISOString();
     const { error } = await client.from(TABLE).upsert({
       user_id: userId,
       bundle,
       app_version: appVersion ?? null,
-      updated_at: new Date().toISOString(),
+      updated_at: stamp,
     });
     if (error) throw new Error(error.message);
-    setStatus({ lastBackupAt: new Date().toISOString(), lastError: null, pending: false });
+    lastSelfWriteAt = stamp;
+    setStatus({ lastBackupAt: stamp, lastError: null, pending: false });
   } catch (e) {
     setStatus({ lastError: errMsg(e), pending: false });
   }
@@ -162,6 +179,7 @@ async function pushNow(): Promise<void> {
 /** 사용자 저장/삭제 성공 후 호출. 디바운스로 묶어 1회 업로드. 컨텍스트 없으면 no-op. */
 export function schedulePush(delayMs: number = PUSH_DEBOUNCE_MS): void {
   if (!ctx) return;
+  if (isApplyingRemote()) return; // 원격 변경 적용 중이면 push 금지(echo 방지)
   if (pushTimer) clearTimeout(pushTimer);
   pushTimer = setTimeout(() => {
     pushTimer = null;
@@ -255,14 +273,16 @@ async function seedIfAbsent(): Promise<void> {
   try {
     const { bundle, itemCount } = await buildBundle();
     if (itemCount === 0) return; // 올릴 게 없으면 빈 행을 만들지 않음
+    const stamp = new Date().toISOString();
     const { error } = await client.from(TABLE).upsert({
       user_id: userId,
       bundle,
       app_version: appVersion ?? null,
-      updated_at: new Date().toISOString(),
+      updated_at: stamp,
     });
     if (error) throw new Error(error.message);
-    setStatus({ lastBackupAt: new Date().toISOString(), lastError: null });
+    lastSelfWriteAt = stamp;
+    setStatus({ lastBackupAt: stamp, lastError: null });
   } catch (e) {
     setStatus({ lastError: errMsg(e) });
   }
@@ -291,6 +311,57 @@ async function restoreFromBundle(bundle: SyncBundle): Promise<number> {
     (sum, k) => sum + (data[k]?.added ?? 0),
     0,
   );
+}
+
+// ─────────────────────────────────────────────
+// Realtime 구독 (M1) — user_profile_sync 본인 행 변경을 실시간 수신
+// ─────────────────────────────────────────────
+
+/**
+ * 본인 행의 INSERT/UPDATE/DELETE 를 구독한다. 원격 변경이 오면 restoreFromBundle
+ * (skip=add-only)로 신규만 반영하고 UI 갱신 신호를 방송한다.
+ * 첫 seed 는 INSERT 이므로 event:'*' 로 구독(UPDATE 만 보면 놓침).
+ * 반환값은 구독 해제 함수.
+ */
+export function subscribeCloudRealtime(client: SupabaseClient, userId: string): () => void {
+  const channel = client
+    .channel(`profile-sync:${userId}`)
+    .on(
+      "postgres_changes",
+      { event: "*", schema: "public", table: TABLE, filter: `user_id=eq.${userId}` },
+      (payload) => {
+        const row = (payload.new ?? {}) as { bundle?: SyncBundle; updated_at?: string };
+        void handleRemoteRow(row);
+      },
+    )
+    .subscribe();
+  return () => {
+    void client.removeChannel(channel);
+  };
+}
+
+async function handleRemoteRow(row: { bundle?: SyncBundle; updated_at?: string }): Promise<void> {
+  // 자기 기기가 방금 올린 write 가 되돌아온 것이면 무시.
+  if (row.updated_at && row.updated_at === lastSelfWriteAt) return;
+  const bundle = row.bundle;
+  if (!bundle || !bundle.profiles) return;
+
+  beginApplyRemote(); // 적용 중 push 억제
+  if (pushTimer) {
+    clearTimeout(pushTimer); // 대기 중 디바운스 push 취소(원격 변경까지 재업로드 방지)
+    pushTimer = null;
+  }
+  try {
+    const added = await restoreFromBundle(bundle); // skip → 기존 로컬 보존, 신규만 추가
+    if (typeof row.updated_at === "string") {
+      setStatus({ lastBackupAt: row.updated_at, lastError: null });
+    }
+    if (added > 0) emitProfilesChanged("all"); // 실제 변화가 있을 때만 UI 갱신
+  } catch (e) {
+    setStatus({ lastError: errMsg(e) });
+  } finally {
+    endApplyRemote();
+  }
 }
 
 function errMsg(e: unknown): string {

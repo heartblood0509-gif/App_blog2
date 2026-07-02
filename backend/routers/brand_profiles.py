@@ -6,6 +6,8 @@
 - 데이터 구조: 풍부한 자유형(dict). 필수 필드만 검증, 나머지는 그대로 저장하여
   사용자가 동일 양식으로 새 프로필 등록 시 모든 항목이 유지되도록 함.
 """
+import uuid as uuidlib
+from datetime import datetime, timezone
 from typing import Any, Optional
 
 from fastapi import APIRouter, HTTPException
@@ -15,6 +17,10 @@ import storage
 from config import BRAND_PROFILES_FILE
 
 router = APIRouter()
+
+
+def _now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat()
 
 
 # ─────────────────────────────────────────────
@@ -48,6 +54,11 @@ class BrandProfileUpsert(BaseModel):
     - extra='ignore': 구 JSON 데이터에 남은 폐기 키들은 로드 시 무시
     """
     model_config = ConfigDict(extra="ignore")
+
+    # 기기 공통 안정 식별자 + 최종수정시각(동기화용). 로컬 id(brandN)와 별개.
+    # extra="ignore"라 명시하지 않으면 저장 시 버려지므로 반드시 선언.
+    uuid: Optional[str] = None
+    updatedAt: Optional[str] = None
 
     name: str = Field(..., min_length=1)
     category: str = ""
@@ -104,7 +115,10 @@ async def create_profile(req: BrandProfileUpsert) -> dict:
             if p.get("name") == req.name:
                 raise HTTPException(400, f"이미 등록된 브랜드명입니다: {req.name}")
 
-        new_profile = {"id": new_id, **req.model_dump()}
+        data = req.model_dump()
+        data["uuid"] = data.get("uuid") or str(uuidlib.uuid4())
+        data["updatedAt"] = _now_iso()
+        new_profile = {"id": new_id, **data}
         profiles.append(new_profile)
         txn.commit(profiles)
     return new_profile
@@ -116,7 +130,11 @@ async def update_profile(profile_id: str, req: BrandProfileUpsert) -> dict:
         profiles = txn.items
         for i, p in enumerate(profiles):
             if p.get("id") == profile_id:
-                updated = {"id": profile_id, **req.model_dump()}
+                data = req.model_dump()
+                # uuid 는 기존 값 보존(클라가 안 보내면 유지), updatedAt 는 갱신.
+                data["uuid"] = data.get("uuid") or p.get("uuid") or str(uuidlib.uuid4())
+                data["updatedAt"] = _now_iso()
+                updated = {"id": profile_id, **data}
                 profiles[i] = updated
                 txn.commit(profiles)
                 return updated

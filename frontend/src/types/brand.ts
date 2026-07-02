@@ -55,6 +55,10 @@ export interface BrandForbidden {
 
 export interface BrandProfile {
   id: string;
+  /** 기기 공통 안정 식별자(동기화용). 로컬 id 와 별개. */
+  uuid?: string;
+  /** 최종 수정 시각 ISO(동기화 LWW용). */
+  updatedAt?: string;
 
   // 기본 정보
   name: string;
@@ -184,6 +188,10 @@ export interface BrandTitleFormula {
  */
 export interface AnalysisRecord {
   id: string;
+  /** 기기 공통 안정 식별자(동기화용). */
+  uuid?: string;
+  /** 최종 수정 시각 ISO(동기화 LWW용). */
+  updatedAt?: string;
   /** UI 표시명 */
   label: string;
   /** "user" | "builtin" */

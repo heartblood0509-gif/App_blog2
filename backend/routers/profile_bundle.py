@@ -195,8 +195,11 @@ def _import_one_type(
                 if policy == "skip":
                     result.skipped += 1
                     continue
-                # overwrite — 기존 ID 유지
-                updated = {"id": existing["id"], **validated.model_dump()}
+                # overwrite — 기존 ID 유지 + 기존 uuid 보존(입력에 uuid 없으면 유실 방지)
+                dumped = validated.model_dump()
+                if not dumped.get("uuid"):
+                    dumped["uuid"] = existing.get("uuid")
+                updated = {"id": existing["id"], **dumped}
                 existing_by_key[key_value] = updated
                 for i, p in enumerate(current):
                     if p.get("id") == existing["id"]:
