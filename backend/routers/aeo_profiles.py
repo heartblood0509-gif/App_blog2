@@ -5,6 +5,8 @@ AEO 블로그 글쓰기 모드 — AEO 프로필 CRUD.
 - ID 자동 생성: aeo1, aeo2, ...
 - 데이터 구조: 단순화 8개 칸 (브랜드 프로필 60+ 필드 대비 압도적으로 가벼움).
 """
+import uuid as uuidlib
+from datetime import datetime, timezone
 from typing import Any, Optional
 
 from fastapi import APIRouter, HTTPException
@@ -14,6 +16,10 @@ import storage
 from config import AEO_PROFILES_FILE
 
 router = APIRouter()
+
+
+def _now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat()
 
 
 # ─────────────────────────────────────────────
@@ -38,6 +44,10 @@ def find_profile(profile_id: str) -> Optional[dict]:
 
 class AeoProfileUpsert(BaseModel):
     """등록·수정 입력. id는 서버에서 부여."""
+    # 기기 공통 안정 식별자 + 최종수정시각(동기화용).
+    uuid: Optional[str] = None
+    updatedAt: Optional[str] = None
+
     label: str = Field(..., min_length=1)
     name: str = Field(..., min_length=1)
     category: str = ""
@@ -92,7 +102,10 @@ async def create_profile(req: AeoProfileUpsert) -> dict:
             if p.get("label") == req.label:
                 raise HTTPException(400, f"이미 등록된 AEO 프로필 라벨입니다: {req.label}")
 
-        new_profile = {"id": new_id, **req.model_dump()}
+        data = req.model_dump()
+        data["uuid"] = data.get("uuid") or str(uuidlib.uuid4())
+        data["updatedAt"] = _now_iso()
+        new_profile = {"id": new_id, **data}
         profiles.append(new_profile)
         txn.commit(profiles)
     return new_profile
@@ -104,7 +117,10 @@ async def update_profile(profile_id: str, req: AeoProfileUpsert) -> dict:
         profiles = txn.items
         for i, p in enumerate(profiles):
             if p.get("id") == profile_id:
-                updated = {"id": profile_id, **req.model_dump()}
+                data = req.model_dump()
+                data["uuid"] = data.get("uuid") or p.get("uuid") or str(uuidlib.uuid4())
+                data["updatedAt"] = _now_iso()
+                updated = {"id": profile_id, **data}
                 profiles[i] = updated
                 txn.commit(profiles)
                 return updated

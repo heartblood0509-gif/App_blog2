@@ -16,6 +16,7 @@ import {
 import { AppHeader } from "@/components/AppHeader";
 import { useWizardState } from "@/components/providers/WizardStateProvider";
 import { useAuthContext } from "@/lib/auth/auth-context";
+import { subscribeProfilesChanged } from "@/lib/sync/profile-sync-engine";
 import {
   ChevronLeft,
   ChevronRight,
@@ -355,6 +356,13 @@ export default function Home() {
 
   useEffect(() => {
     refetchUserProducts();
+  }, [refetchUserProducts]);
+
+  // 다른 기기의 제품 변경이 실시간 반영되면 목록 재조회.
+  useEffect(() => {
+    return subscribeProfilesChanged((kind) => {
+      if (kind === "product" || kind === "all") void refetchUserProducts();
+    });
   }, [refetchUserProducts]);
 
   const customProductInfoById = useMemo<Record<string, ProductInfo>>(

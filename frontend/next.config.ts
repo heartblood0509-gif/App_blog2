@@ -8,6 +8,9 @@ const isDev = process.env.NODE_ENV === "development";
 // shadcn / framer-motion 은 인라인 스타일을 사용하므로 style-src 에 'unsafe-inline' 필요.
 // Next.js 16 자체도 inline bootstrap script 가 있어 nonces 없이는 script-src 에 'unsafe-inline' 필요.
 // connect-src 에 http://127.0.0.1:* 를 허용해 packaged 앱이 다른 동적 포트 backend 와 직접 통신 가능.
+// Supabase 는 REST(https)뿐 아니라 Realtime 이 wss://<proj>.supabase.co/realtime/v1 로 붙는다.
+// CSP 는 https:// 와 wss:// 를 다른 스킴으로 취급하므로 wss 출처를 명시하지 않으면 realtime
+// WebSocket 이 차단돼 구독이 TIMED_OUT 된다(REST 는 되는데 실시간만 죽는 프로덕션 전용 버그).
 // media-src 에 blob: 필요 — TTS 샘플 미리듣기가 응답을 Blob→objectURL(blob:)로 <audio> 재생한다.
 // 없으면 default-src 'self' 로 폴백돼 blob 오디오가 차단된다(dev 는 CSP 미적용이라 안 드러나고
 // 패키지 빌드에서만 'no supported source' 로 실패 → 프로덕션 전용 버그).
@@ -18,7 +21,7 @@ const cspHeader = `
   img-src 'self' blob: data:;
   media-src 'self' blob: data:;
   font-src 'self' data:;
-  connect-src 'self' http://127.0.0.1:* https://dhwysuflubrnmbapjrxs.supabase.co;
+  connect-src 'self' http://127.0.0.1:* https://dhwysuflubrnmbapjrxs.supabase.co wss://dhwysuflubrnmbapjrxs.supabase.co;
   frame-src 'self' http://127.0.0.1:*;
   object-src 'none';
   base-uri 'self';

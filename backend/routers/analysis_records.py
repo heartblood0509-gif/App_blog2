@@ -17,6 +17,7 @@ ID 자동 생성:
 """
 import json
 import logging
+import uuid as uuidlib
 from datetime import datetime, timezone
 from typing import Optional
 
@@ -57,6 +58,10 @@ def _find(record_id: str) -> Optional[dict]:
 # ─────────────────────────────────────────────
 
 class AnalysisRecordUpsert(BaseModel):
+    # 기기 공통 안정 식별자 + 최종수정시각(동기화용). createdAt/isBuiltin 은 서버 부여.
+    uuid: Optional[str] = None
+    updatedAt: Optional[str] = None
+
     label: str = Field(..., min_length=1)
     sourceType: str = Field(..., pattern="^(user|builtin)$")
     sourceUrl: Optional[str] = None
@@ -117,11 +122,14 @@ async def create_record(req: AnalysisRecordUpsert) -> dict:
             idx += 1
         new_id = f"analysis-{idx}"
 
+        data = req.model_dump()
+        data["uuid"] = data.get("uuid") or str(uuidlib.uuid4())
+        data["updatedAt"] = _now_iso()
         new_record = {
             "id": new_id,
             "isBuiltin": False,
             "createdAt": _now_iso(),
-            **req.model_dump(),
+            **data,
         }
         records.append(new_record)
         txn.commit(records)
@@ -136,11 +144,14 @@ async def update_record(record_id: str, req: AnalysisRecordUpsert) -> dict:
             if r.get("id") == record_id:
                 if r.get("isBuiltin"):
                     raise HTTPException(400, "내장 분석 레코드는 수정할 수 없습니다.")
+                data = req.model_dump()
+                data["uuid"] = data.get("uuid") or r.get("uuid") or str(uuidlib.uuid4())
+                data["updatedAt"] = _now_iso()
                 updated = {
                     "id": record_id,
                     "isBuiltin": False,
                     "createdAt": r.get("createdAt", _now_iso()),
-                    **req.model_dump(),
+                    **data,
                 }
                 records[i] = updated
                 txn.commit(records)

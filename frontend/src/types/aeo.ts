@@ -24,6 +24,8 @@ export interface AeoForbidden {
 
 export interface AeoProfile {
   id: string;            // "aeo1", "aeo2", ...
+  uuid?: string;         // 기기 공통 안정 식별자(동기화용)
+  updatedAt?: string;    // 최종 수정 시각 ISO(동기화 LWW용)
   label: string;         // [1] 표시명
   name: string;          // [1] 프로필 이름
   category: string;      // [2] 카테고리

@@ -17,6 +17,7 @@ import { fetchStoreList, StoreCorruptError } from "@/lib/store-fetch";
 import { StoreCorruptPanel } from "@/components/store-corrupt-panel";
 import { ProfileBundleDialog } from "@/components/profile-bundle-dialog";
 import { mutateProfileStore } from "@/lib/stores/profile-mutate";
+import { useProfileRefetch } from "@/lib/sync/use-profile-refetch";
 
 export function ProductManager() {
   const [products, setProducts] = useState<UserProduct[]>([]);
@@ -26,8 +27,8 @@ export function ProductManager() {
   const [corrupt, setCorrupt] = useState(false);
   const [bundleOpen, setBundleOpen] = useState(false);
 
-  const fetchProducts = useCallback(async () => {
-    setLoading(true);
+  const fetchProducts = useCallback(async (opts?: { silent?: boolean }) => {
+    if (!opts?.silent) setLoading(true);
     try {
       const data = await fetchStoreList<UserProduct>("/api/products");
       setProducts(data);
@@ -46,6 +47,9 @@ export function ProductManager() {
   useEffect(() => {
     void fetchProducts();
   }, [fetchProducts]);
+
+  // 다른 기기의 변경이 실시간 반영되면 조용히 재조회(단, 편집 폼 열림 중엔 미룸).
+  useProfileRefetch("product", formOpen, fetchProducts);
 
   const handleCreate = useCallback(() => {
     setEditing(null);

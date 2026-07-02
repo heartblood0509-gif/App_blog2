@@ -7,6 +7,8 @@
   이 라우터는 사용자가 직접 등록하는 제품만 다룸.
 - 모든 메타데이터 필드를 필수로 받아 시드와 동일한 프롬프트 품질 보장.
 """
+import uuid as uuidlib
+from datetime import datetime, timezone
 from typing import Optional
 
 from fastapi import APIRouter, HTTPException
@@ -16,6 +18,10 @@ import storage
 from config import PRODUCTS_FILE
 
 router = APIRouter()
+
+
+def _now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat()
 
 
 # ─────────────────────────────────────────────
@@ -47,6 +53,10 @@ class ProductUpsert(BaseModel):
       · 호환성 위해 defaultAdvantages 도 그대로 유지 (5칸을 합쳐 보존하거나 기존 데이터 그대로)
     - 5분할 필드는 모두 선택 (사용자가 일부만 적어도 OK)
     """
+    # 기기 공통 안정 식별자 + 최종수정시각(동기화용).
+    uuid: Optional[str] = None
+    updatedAt: Optional[str] = None
+
     name: str = Field(..., min_length=1)
     category: str = Field(..., min_length=1)
     defaultAdvantages: str = ""  # 기존 단일 텍스트(레거시·호환). 5분할 필드를 합쳐 자동 채움
@@ -105,7 +115,10 @@ async def create_product(req: ProductUpsert) -> dict:
             idx += 1
         new_id = f"product{idx}"
 
-        new_product = {"id": new_id, **req.model_dump()}
+        data = req.model_dump()
+        data["uuid"] = data.get("uuid") or str(uuidlib.uuid4())
+        data["updatedAt"] = _now_iso()
+        new_product = {"id": new_id, **data}
         products.append(new_product)
         txn.commit(products)
     return new_product
@@ -120,7 +133,10 @@ async def update_product(product_id: str, req: ProductUpsert) -> dict:
                 for other in products:
                     if other.get("id") != product_id and other.get("name") == req.name:
                         raise HTTPException(400, f"이미 등록된 제품 이름입니다: {req.name}")
-                updated = {"id": product_id, **req.model_dump()}
+                data = req.model_dump()
+                data["uuid"] = data.get("uuid") or p.get("uuid") or str(uuidlib.uuid4())
+                data["updatedAt"] = _now_iso()
+                updated = {"id": product_id, **data}
                 products[i] = updated
                 txn.commit(products)
                 return updated

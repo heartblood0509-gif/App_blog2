@@ -16,6 +16,7 @@ import { ProfileBundleDialog } from "@/components/profile-bundle-dialog";
 import { StoreCorruptPanel } from "@/components/store-corrupt-panel";
 import { fetchStoreList, StoreCorruptError } from "@/lib/store-fetch";
 import { mutateProfileStore } from "@/lib/stores/profile-mutate";
+import { useProfileRefetch } from "@/lib/sync/use-profile-refetch";
 import {
   copyBrandToAeoPrefill,
   hasCounterpartProfile,
@@ -45,8 +46,8 @@ export function BrandProfileSection({ selectedProfileId, onSelect }: BrandProfil
   /** AEO 어시스턴트에 전달할 prefill 데이터 */
   const [aeoPrefill, setAeoPrefill] = useState<Partial<Omit<AeoProfile, "id">> | null>(null);
 
-  const fetchProfiles = useCallback(async () => {
-    setLoading(true);
+  const fetchProfiles = useCallback(async (opts?: { silent?: boolean }) => {
+    if (!opts?.silent) setLoading(true);
     try {
       const data = await fetchStoreList<BrandProfile>("/api/brand/profiles");
       setProfiles(data);
@@ -65,6 +66,9 @@ export function BrandProfileSection({ selectedProfileId, onSelect }: BrandProfil
   useEffect(() => {
     fetchProfiles();
   }, [fetchProfiles]);
+
+  // 다른 기기의 변경이 실시간 반영되면 조용히 재조회(단, 편집 폼 열림 중엔 미룸).
+  useProfileRefetch("brand", formOpen, fetchProfiles);
 
   /**
    * 짝 프로필(AEO) 안내 Dialog 트리거.

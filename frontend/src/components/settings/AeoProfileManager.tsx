@@ -12,6 +12,7 @@ import { toast } from "sonner";
 import type { AeoProfile } from "@/types/aeo";
 import { AeoProfileForm } from "@/components/aeo/aeo-profile-form";
 import { mutateProfileStore } from "@/lib/stores/profile-mutate";
+import { useProfileRefetch } from "@/lib/sync/use-profile-refetch";
 
 export function AeoProfileManager() {
   const [profiles, setProfiles] = useState<AeoProfile[]>([]);
@@ -19,8 +20,8 @@ export function AeoProfileManager() {
   const [formOpen, setFormOpen] = useState(false);
   const [editing, setEditing] = useState<AeoProfile | null>(null);
 
-  const fetchProfiles = useCallback(async () => {
-    setLoading(true);
+  const fetchProfiles = useCallback(async (opts?: { silent?: boolean }) => {
+    if (!opts?.silent) setLoading(true);
     try {
       const res = await fetch("/api/aeo/profiles", { cache: "no-store" });
       if (!res.ok) throw new Error("AEO 프로필을 불러오지 못했습니다.");
@@ -36,6 +37,9 @@ export function AeoProfileManager() {
   useEffect(() => {
     void fetchProfiles();
   }, [fetchProfiles]);
+
+  // 다른 기기의 변경이 실시간 반영되면 조용히 재조회(단, 편집 폼 열림 중엔 미룸).
+  useProfileRefetch("aeo", formOpen, fetchProfiles);
 
   const handleCreate = useCallback(() => {
     setEditing(null);

@@ -39,3 +39,25 @@ create policy "ups_update"
   for update
   using (auth.uid() = user_id)
   with check (auth.uid() = user_id);
+
+-- ─────────────────────────────────────────────
+-- Realtime (M1) — 본인 행 변경을 다른 기기가 실시간 수신하도록 발행 등록.
+-- ⚠️ 이 블록도 대시보드 SQL Editor에서 한 번 실행해야 realtime 이벤트가 흐른다.
+-- (테이블만 있고 publication에 없으면 42P01 없이 '조용히' 이벤트가 안 온다)
+-- ─────────────────────────────────────────────
+
+-- UPDATE/DELETE 이벤트에 이전 행 전체가 실려오도록.
+alter table public.user_profile_sync replica identity full;
+
+-- supabase_realtime publication 에 테이블 추가(재실행 안전 — 존재 검사 후).
+do $$
+begin
+  if not exists (
+    select 1 from pg_publication_tables
+    where pubname = 'supabase_realtime'
+      and schemaname = 'public'
+      and tablename = 'user_profile_sync'
+  ) then
+    alter publication supabase_realtime add table public.user_profile_sync;
+  end if;
+end $$;
