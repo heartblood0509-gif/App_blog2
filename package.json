@@ -1,6 +1,6 @@
 {
   "name": "app-blog2-desktop",
-  "version": "0.3.7-rc2",
+  "version": "0.3.7-rc3",
   "private": true,
   "description": "App Blog Publisher — Electron desktop wrapper for App_blog2",
   "main": "electron/dist/main.js",
