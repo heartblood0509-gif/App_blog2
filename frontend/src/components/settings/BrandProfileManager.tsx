@@ -12,7 +12,7 @@ import { toast } from "sonner";
 import type { BrandProfile } from "@/types/brand";
 import { BrandProfileForm } from "@/components/brand/brand-profile-form";
 import { mutateProfileStore } from "@/lib/stores/profile-mutate";
-import { subscribeProfilesChanged } from "@/lib/sync/profile-sync-engine";
+import { useProfileRefetch } from "@/lib/sync/use-profile-refetch";
 
 export function BrandProfileManager() {
   const [profiles, setProfiles] = useState<BrandProfile[]>([]);
@@ -38,12 +38,8 @@ export function BrandProfileManager() {
     void fetchProfiles();
   }, [fetchProfiles]);
 
-  // 다른 기기의 변경이 실시간 반영되면 조용히 재조회.
-  useEffect(() => {
-    return subscribeProfilesChanged((kind) => {
-      if (kind === "brand" || kind === "all") void fetchProfiles({ silent: true });
-    });
-  }, [fetchProfiles]);
+  // 다른 기기의 변경이 실시간 반영되면 조용히 재조회(단, 편집 폼 열림 중엔 미룸).
+  useProfileRefetch("brand", formOpen, fetchProfiles);
 
   const handleCreate = useCallback(() => {
     setEditing(null);

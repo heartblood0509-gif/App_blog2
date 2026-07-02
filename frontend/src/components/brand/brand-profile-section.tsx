@@ -16,7 +16,7 @@ import { ProfileBundleDialog } from "@/components/profile-bundle-dialog";
 import { StoreCorruptPanel } from "@/components/store-corrupt-panel";
 import { fetchStoreList, StoreCorruptError } from "@/lib/store-fetch";
 import { mutateProfileStore } from "@/lib/stores/profile-mutate";
-import { subscribeProfilesChanged } from "@/lib/sync/profile-sync-engine";
+import { useProfileRefetch } from "@/lib/sync/use-profile-refetch";
 import {
   copyBrandToAeoPrefill,
   hasCounterpartProfile,
@@ -67,12 +67,8 @@ export function BrandProfileSection({ selectedProfileId, onSelect }: BrandProfil
     fetchProfiles();
   }, [fetchProfiles]);
 
-  // 다른 기기의 변경이 실시간 반영되면 조용히 재조회.
-  useEffect(() => {
-    return subscribeProfilesChanged((kind) => {
-      if (kind === "brand" || kind === "all") void fetchProfiles({ silent: true });
-    });
-  }, [fetchProfiles]);
+  // 다른 기기의 변경이 실시간 반영되면 조용히 재조회(단, 편집 폼 열림 중엔 미룸).
+  useProfileRefetch("brand", formOpen, fetchProfiles);
 
   /**
    * 짝 프로필(AEO) 안내 Dialog 트리거.
