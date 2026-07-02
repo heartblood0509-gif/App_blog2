@@ -163,6 +163,8 @@ export const NARRATIVE_TEMPLATES: Record<NarrativeType, NarrativeTemplate> = {
 
 export function getNarrativePrompt(type: NarrativeType): string {
   const template = NARRATIVE_TEMPLATES[type];
+  // 이 버전이 모르는(옛 버전/브랜치) 서사 값이면 크래시 대신 서사 섹션을 생략한다.
+  if (!template) return "";
   const stepsText = template.steps
     .map(
       (s) =>

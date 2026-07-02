@@ -37,6 +37,8 @@ export interface SlotPayload {
   };
   useProModel?: boolean;
   customPrompt?: string;
+  /** AI 생성 비율. "16:9" | "1:1" | "9:16". 서버가 미지정/미지원이면 "1:1" 폴백. */
+  aspectRatio?: string;
 }
 
 export interface SlotJob {

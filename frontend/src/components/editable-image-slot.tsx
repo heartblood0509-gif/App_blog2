@@ -1,11 +1,24 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useRef, useState, type MouseEvent } from "react";
 import { toast } from "sonner";
-import { Loader2, Upload, Sparkles, RefreshCw, ImageIcon } from "lucide-react";
+import {
+  Loader2,
+  Upload,
+  Sparkles,
+  RefreshCw,
+  ImageIcon,
+  Trash2,
+  ChevronUp,
+  ChevronDown,
+  GripVertical,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ImageSourceDialog } from "@/components/image-source-dialog";
 import type { ImageSlot, UserPhoto } from "@/types";
+
+/** 슬롯 드래그(재배치)용 dataTransfer MIME. 파일 드롭(교체)과 구분하는 키. */
+export const SLOT_DND_MIME = "application/x-blogpick-slot";
 
 /** 파일 → base64 변환 (data URL prefix 제외) */
 async function fileToBase64(
@@ -39,16 +52,24 @@ export function EditableImageSlot({
   userPhoto,
   generatedBase64,
   isGenerating,
+  canMoveUp,
+  canMoveDown,
   onUserPhotoChange,
   onGenerateAI,
+  onDelete,
+  onMove,
   onOpenLightbox,
 }: {
   slot: ImageSlot;
   userPhoto?: UserPhoto;
   generatedBase64?: string;
   isGenerating: boolean;
+  canMoveUp: boolean;
+  canMoveDown: boolean;
   onUserPhotoChange: (photo: UserPhoto | null) => void;
   onGenerateAI: () => void;
+  onDelete: () => void;
+  onMove: (dir: "up" | "down") => void;
   onOpenLightbox: (src: string) => void;
 }) {
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -68,7 +89,12 @@ export function EditableImageSlot({
     });
   };
 
+  // 슬롯 재배치 드래그는 파일 드롭 로직을 타지 않도록 무시(문단 사이 드롭 존에서만 처리).
+  const isSlotDrag = (e: React.DragEvent) =>
+    e.dataTransfer.types.includes(SLOT_DND_MIME);
+
   const handleDrop = (e: React.DragEvent<HTMLDivElement>) => {
+    if (isSlotDrag(e)) return;
     e.preventDefault();
     e.stopPropagation();
     setIsDragOver(false);
@@ -78,6 +104,7 @@ export function EditableImageSlot({
   };
 
   const handleDragOver = (e: React.DragEvent<HTMLDivElement>) => {
+    if (isSlotDrag(e)) return;
     e.preventDefault();
     e.stopPropagation();
     if (!isGenerating) setIsDragOver(true);
@@ -135,6 +162,13 @@ export function EditableImageSlot({
       >
         {hiddenFileInput}
         {sourcePicker}
+        <SlotControls
+          slotId={slot.id}
+          canMoveUp={canMoveUp}
+          canMoveDown={canMoveDown}
+          onMove={onMove}
+          onDelete={onDelete}
+        />
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img
           src={src}
@@ -186,7 +220,14 @@ export function EditableImageSlot({
   // ─── 생성 중 (빈 상태에서 AI 생성 눌렀을 때)
   if (isGenerating) {
     return (
-      <div className="my-4 flex aspect-video items-center justify-center rounded-lg border border-dashed border-border bg-muted/30">
+      <div className="relative my-4 flex aspect-video items-center justify-center rounded-lg border border-dashed border-border bg-muted/30">
+        <SlotControls
+          slotId={slot.id}
+          canMoveUp={canMoveUp}
+          canMoveDown={canMoveDown}
+          onMove={onMove}
+          onDelete={onDelete}
+        />
         <div className="flex flex-col items-center gap-2">
           <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
           <span className="text-xs text-muted-foreground">
@@ -200,7 +241,7 @@ export function EditableImageSlot({
   // ─── 빈 자리 — 드래그앤드롭 + 업로드 + AI 생성
   return (
     <div
-      className={`my-4 flex aspect-video flex-col items-center justify-center gap-3 rounded-lg border-2 border-dashed p-4 transition-colors ${
+      className={`relative my-4 flex aspect-video flex-col items-center justify-center gap-3 rounded-lg border-2 border-dashed p-4 transition-colors ${
         isDragOver
           ? "border-primary bg-primary/10"
           : "border-border bg-muted/30"
@@ -211,6 +252,13 @@ export function EditableImageSlot({
     >
       {hiddenFileInput}
       {sourcePicker}
+      <SlotControls
+        slotId={slot.id}
+        canMoveUp={canMoveUp}
+        canMoveDown={canMoveDown}
+        onMove={onMove}
+        onDelete={onDelete}
+      />
       <div className="flex items-center gap-2 text-muted-foreground">
         <ImageIcon className="h-5 w-5" />
         <span className="text-xs line-clamp-1">
@@ -244,6 +292,81 @@ export function EditableImageSlot({
           AI 생성
         </Button>
       </div>
+    </div>
+  );
+}
+
+/**
+ * 이미지 자리 우상단에 뜨는 컨트롤(위로/아래로 이동 · 삭제).
+ * 모든 상태(채워짐/생성중/빈자리)의 relative 컨테이너 안에 절대배치로 얹는다.
+ */
+function SlotControls({
+  slotId,
+  canMoveUp,
+  canMoveDown,
+  onMove,
+  onDelete,
+}: {
+  slotId: string;
+  canMoveUp: boolean;
+  canMoveDown: boolean;
+  onMove: (dir: "up" | "down") => void;
+  onDelete: () => void;
+}) {
+  const btn =
+    "inline-flex h-6 w-6 items-center justify-center rounded text-foreground/80 transition hover:bg-accent hover:text-foreground disabled:opacity-30 disabled:hover:bg-transparent";
+  const stop = (e: MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+  };
+  return (
+    <div className="absolute right-1.5 top-1.5 z-20 flex items-center gap-0.5 rounded-md bg-background/85 p-0.5 shadow-sm ring-1 ring-border backdrop-blur">
+      <span
+        className={`${btn} cursor-grab active:cursor-grabbing`}
+        title="드래그해서 원하는 위치로 이동"
+        draggable
+        onDragStart={(e) => {
+          e.dataTransfer.setData(SLOT_DND_MIME, slotId);
+          e.dataTransfer.effectAllowed = "move";
+        }}
+      >
+        <GripVertical className="h-4 w-4" />
+      </span>
+      <button
+        type="button"
+        className={btn}
+        title="위로 이동"
+        disabled={!canMoveUp}
+        onClick={(e) => {
+          stop(e);
+          if (canMoveUp) onMove("up");
+        }}
+      >
+        <ChevronUp className="h-4 w-4" />
+      </button>
+      <button
+        type="button"
+        className={btn}
+        title="아래로 이동"
+        disabled={!canMoveDown}
+        onClick={(e) => {
+          stop(e);
+          if (canMoveDown) onMove("down");
+        }}
+      >
+        <ChevronDown className="h-4 w-4" />
+      </button>
+      <button
+        type="button"
+        className={`${btn} hover:bg-destructive/10 hover:text-destructive`}
+        title="이미지 자리 삭제"
+        onClick={(e) => {
+          stop(e);
+          onDelete();
+        }}
+      >
+        <Trash2 className="h-4 w-4" />
+      </button>
     </div>
   );
 }

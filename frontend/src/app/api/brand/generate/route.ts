@@ -80,9 +80,11 @@ async function handlePost(request: Request): Promise<Response> {
     // flag off면 무시 (A9) → 빌더가 격리 패턴으로 기존 경로 100% 유지
     const effectiveAttachedProduct = PRODUCT_ATTACH_ENABLED ? attachedProduct : undefined;
 
-    if (!profile || !template || !mainKeyword || !selectedTitle) {
+    // mainKeyword는 선택값 — 소개/가치입증/상세 템플릿은 노출 키워드 없이
+    // 주제(topic)만으로 작성 가능. 빈 문자열이 그대로 빌더로 흘러도 정상 처리됨.
+    if (!profile || !template || !selectedTitle) {
       return Response.json(
-        { error: "필수 입력이 누락되었습니다 (profile, template, mainKeyword, selectedTitle)." },
+        { error: "필수 입력이 누락되었습니다 (profile, template, selectedTitle)." },
         { status: 400 }
       );
     }

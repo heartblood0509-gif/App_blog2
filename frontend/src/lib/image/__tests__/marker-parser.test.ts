@@ -1,5 +1,14 @@
 import { describe, it, expect } from "vitest";
-import { enforceImageMarkerCap, parseImageMarkers } from "../marker-parser";
+import {
+  enforceImageMarkerCap,
+  parseImageMarkers,
+  pruneExcludedMarkers,
+  computeBlocks,
+  moveMarkerBlock,
+  moveMarkerToBoundary,
+  insertEmptyMarkerAtBoundary,
+  markerIndexAtBoundary,
+} from "../marker-parser";
 
 function countMarkers(content: string): number {
   return (content.match(/^\s*\[이미지:.+\]\s*$/gm) || []).length;
@@ -391,5 +400,280 @@ describe("enforceImageMarkerCap — hardCap (seoAeo Intent 모드)", () => {
     expect(resultNoOpt).toBe(content); // 기존 회귀 테스트와 동일
     expect(resultDefault).toBe(resultNoOpt);
     expect(resultFalse).toBe(resultNoOpt);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 수동 이미지 배치 (넣기/빼기/옮기기) — 순수 변환 + id 보존 불변식
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** description → id 맵. 유니크 description 가정 하에 "이미지가 마커를 따라가는지" 검증용. */
+function descToId(slots: { id: string; description: string }[]): Record<string, string> {
+  const m: Record<string, string> = {};
+  for (const s of slots) m[s.description] = s.id;
+  return m;
+}
+
+/** page.tsx handleMoveSlot 의 id 배정 로직을 순수 시뮬레이션. */
+function applyMove(
+  content: string,
+  oldIds: string[],
+  slotIndex: number,
+  dir: "up" | "down"
+) {
+  const { content: newContent, adjacentWasMarker } = moveMarkerBlock(content, slotIndex, dir);
+  const ids = [...oldIds];
+  if (adjacentWasMarker && newContent !== content) {
+    const j = dir === "up" ? slotIndex - 1 : slotIndex + 1;
+    [ids[slotIndex], ids[j]] = [ids[j], ids[slotIndex]];
+  }
+  const parsed = parseImageMarkers(newContent);
+  const slots = parsed.map((s, i) => ({ ...s, id: ids[i] }));
+  return { newContent, slots };
+}
+
+describe("computeBlocks — 블록 분해", () => {
+  it("마커/소제목/본문을 각각 단독 블록으로, 마커에 순서 부여", () => {
+    const content = buildContent([
+      marker("A"),
+      blank(),
+      subtitle("소제목"),
+      blank(),
+      paragraph("본문 한 줄."),
+      blank(),
+      marker("B"),
+    ]);
+    const blocks = computeBlocks(content);
+    expect(blocks.map((b) => b.kind)).toEqual(["marker", "heading", "text", "marker"]);
+    const markers = blocks.filter((b) => b.kind === "marker");
+    expect(markers.map((b) => b.markerIndex)).toEqual([0, 1]);
+  });
+
+  it("연속된 본문 줄은 하나의 text 블록으로 묶음", () => {
+    const content = "본문1\n본문2\n본문3\n\n[이미지: X]";
+    const blocks = computeBlocks(content);
+    expect(blocks[0]).toMatchObject({ kind: "text", lineStart: 0, lineEnd: 2 });
+    expect(blocks[1].kind).toBe("marker");
+  });
+});
+
+describe("moveMarkerBlock — 문단 단위 이동", () => {
+  const base = buildContent([
+    marker("A"),
+    blank(),
+    paragraph("문단1"),
+    blank(),
+    marker("B"),
+  ]);
+
+  it("본문을 지나 아래로 이동: 마커 순서 불변, 이미지(id) 따라감", () => {
+    const oldSlots = parseImageMarkers(base);
+    const oldIds = oldSlots.map((s) => s.id);
+    const before = descToId(oldSlots);
+
+    const { newContent, slots } = applyMove(base, oldIds, 0, "down");
+    // A 가 문단1 아래로 → 마커 순서(A,B)는 그대로
+    expect(slots.map((s) => s.description)).toEqual(["A", "B"]);
+    expect(descToId(slots)).toEqual(before); // 이미지-마커 연결 보존
+    // A 의 lineIndex 가 문단1 아래로 내려감
+    const aNew = slots.find((s) => s.description === "A")!;
+    expect(newContent.split("\n")[aNew.lineIndex]).toContain("[이미지: A]");
+  });
+
+  it("다른 마커를 지나 이동하면 순서가 바뀌고 id도 함께 swap", () => {
+    const ab = "[이미지: A]\n\n[이미지: B]";
+    const oldSlots = parseImageMarkers(ab);
+    const oldIds = oldSlots.map((s) => s.id);
+    const before = descToId(oldSlots);
+
+    const { slots } = applyMove(ab, oldIds, 0, "down");
+    expect(slots.map((s) => s.description)).toEqual(["B", "A"]); // 순서 뒤바뀜
+    expect(descToId(slots)).toEqual(before); // 그래도 이미지는 각자 마커를 따라감
+  });
+
+  it("2회 이동(down→up)은 원래 본문으로 복원(멱등 역연산)", () => {
+    const ab = "[이미지: A]\n\n[이미지: B]";
+    const down = moveMarkerBlock(ab, 0, "down").content;
+    // A 는 이제 index 1
+    const back = moveMarkerBlock(down, 1, "up").content;
+    expect(back).toBe(ab);
+  });
+
+  it("첫 마커를 위로 / 마지막 마커를 아래로 = no-op", () => {
+    expect(moveMarkerBlock(base, 0, "up").content).toBe(base);
+    expect(moveMarkerBlock(base, 1, "down").content).toBe(base);
+  });
+});
+
+describe("insertEmptyMarkerAtBoundary — 문단 사이 추가", () => {
+  const base = buildContent([
+    marker("A"),
+    blank(),
+    paragraph("문단1"),
+    blank(),
+    marker("B"),
+  ]);
+
+  it("블록 경계에 마커 1개 삽입, 재파싱 시 N+1, 정확한 위치", () => {
+    // blocks: [A(0), 문단1(1), B(2)] → boundary 2 = 문단1 뒤 / B 앞
+    const idx = markerIndexAtBoundary(base, 2);
+    expect(idx).toBe(1); // A 다음, B 앞 = 새 마커는 1번째
+    const next = insertEmptyMarkerAtBoundary(base, 2, "NEW");
+    const slots = parseImageMarkers(next);
+    expect(slots.map((s) => s.description)).toEqual(["A", "NEW", "B"]);
+    // 중복 빈 줄 없음
+    expect(next).not.toMatch(/\n\n\n/);
+  });
+
+  it("맨 위(boundary 0) 삽입 시 새 마커가 첫 번째", () => {
+    const next = insertEmptyMarkerAtBoundary(base, 0, "TOP");
+    const slots = parseImageMarkers(next);
+    expect(slots[0].description).toBe("TOP");
+    expect(markerIndexAtBoundary(base, 0)).toBe(0);
+  });
+
+  it("id 보존: 기존 이미지는 그대로, 새 자리만 새 id (add 시뮬레이션)", () => {
+    const oldSlots = parseImageMarkers(base);
+    const oldIds = oldSlots.map((s) => s.id);
+    const before = descToId(oldSlots);
+
+    const insertIndex = markerIndexAtBoundary(base, 2);
+    const next = insertEmptyMarkerAtBoundary(base, 2, "NEW");
+    const newIds = [...oldIds];
+    newIds.splice(insertIndex, 0, "fresh-id");
+    const slots = parseImageMarkers(next).map((s, i) => ({ ...s, id: newIds[i] }));
+
+    expect(descToId(slots).A).toBe(before.A);
+    expect(descToId(slots).B).toBe(before.B);
+    expect(descToId(slots).NEW).toBe("fresh-id");
+  });
+});
+
+describe("삭제(pruneExcludedMarkers 재사용) + 발행 순서 불변식", () => {
+  const base = buildContent([
+    marker("A"),
+    blank(),
+    paragraph("본문."),
+    blank(),
+    marker("B"),
+    blank(),
+    paragraph("본문."),
+    blank(),
+    marker("C"),
+  ]);
+
+  it("가운데 마커 삭제 시 N-1, 나머지 이미지 연결 보존", () => {
+    const oldSlots = parseImageMarkers(base);
+    const before = descToId(oldSlots);
+    const bId = oldSlots.find((s) => s.description === "B")!.id;
+
+    const next = pruneExcludedMarkers(base, oldSlots, new Set([bId]));
+    const remainIds = oldSlots.filter((s) => s.id !== bId).map((s) => s.id);
+    const slots = parseImageMarkers(next).map((s, i) => ({ ...s, id: remainIds[i] }));
+
+    expect(slots.map((s) => s.description)).toEqual(["A", "C"]);
+    expect(descToId(slots).A).toBe(before.A);
+    expect(descToId(slots).C).toBe(before.C);
+  });
+
+  it("[B4] 재배치 후에도 imageSlots 순서 = 마커 순서 = index (발행 순서 투영)", () => {
+    const ab = "[이미지: A]\n\n[이미지: B]\n\n[이미지: C]";
+    const oldIds = parseImageMarkers(ab).map((s) => s.id);
+    const { newContent, slots } = applyMove(ab, oldIds, 1, "down"); // B 를 C 아래로
+    // 본문 마커 등장 순서
+    const markerOrder = (newContent.match(/\[이미지:\s*([^\]]+)\]/g) || []).map((m) =>
+      m.replace(/\[이미지:\s*/, "").replace(/\]$/, "").trim()
+    );
+    expect(slots.map((s) => s.description)).toEqual(markerOrder); // 배열 순서 = 마커 순서
+    slots.forEach((s, i) => expect(s.index).toBe(i)); // index 연속
+  });
+});
+
+describe("moveMarkerToBoundary — 드래그(임의 위치) 재배치", () => {
+  /** page.tsx handleMoveSlotToBoundary 의 id 배정 로직 시뮬레이션. */
+  function applyMoveToBoundary(
+    content: string,
+    oldIds: string[],
+    slotIndex: number,
+    targetBoundary: number
+  ) {
+    const { content: newContent, newMarkerIndex } = moveMarkerToBoundary(
+      content,
+      slotIndex,
+      targetBoundary
+    );
+    const ids = [...oldIds];
+    const [movedId] = ids.splice(slotIndex, 1);
+    ids.splice(newMarkerIndex, 0, movedId);
+    const slots = parseImageMarkers(newContent).map((s, i) => ({ ...s, id: ids[i] }));
+    return { newContent, slots };
+  }
+
+  const base = buildContent([
+    marker("A"),
+    blank(),
+    paragraph("문단1"),
+    blank(),
+    marker("B"),
+    blank(),
+    paragraph("문단2"),
+    blank(),
+    marker("C"),
+  ]);
+  // blocks: [A(0), 문단1(1), B(2), 문단2(3), C(4)]
+
+  it("첫 마커 A 를 맨 아래(boundary=blocks.length)로 이동, id 따라감", () => {
+    const oldSlots = parseImageMarkers(base);
+    const before = descToId(oldSlots);
+    const oldIds = oldSlots.map((s) => s.id);
+    const blocks = computeBlocks(base);
+
+    const { slots } = applyMoveToBoundary(base, oldIds, 0, blocks.length);
+    expect(slots.map((s) => s.description)).toEqual(["B", "C", "A"]);
+    expect(descToId(slots)).toEqual(before); // 이미지-마커 연결 보존
+    slots.forEach((s, i) => expect(s.index).toBe(i));
+  });
+
+  it("마지막 마커 C 를 맨 위(boundary=0)로 이동", () => {
+    const oldSlots = parseImageMarkers(base);
+    const before = descToId(oldSlots);
+    const oldIds = oldSlots.map((s) => s.id);
+
+    const { slots } = applyMoveToBoundary(base, oldIds, 2, 0);
+    expect(slots.map((s) => s.description)).toEqual(["C", "A", "B"]);
+    expect(descToId(slots)).toEqual(before);
+  });
+
+  it("가운데로 이동해도 발행 순서(배열=마커 순서) 유지", () => {
+    const oldSlots = parseImageMarkers(base);
+    const oldIds = oldSlots.map((s) => s.id);
+    // A(index0) 를 문단2 뒤(boundary 4 = C 앞)로
+    const { newContent, slots } = applyMoveToBoundary(base, oldIds, 0, 4);
+    const markerOrder = (newContent.match(/\[이미지:\s*([^\]]+)\]/g) || []).map((m) =>
+      m.replace(/\[이미지:\s*/, "").replace(/\]$/, "").trim()
+    );
+    expect(slots.map((s) => s.description)).toEqual(markerOrder);
+    slots.forEach((s, i) => expect(s.index).toBe(i));
+  });
+});
+
+describe("위/아래 이동 가능 여부 = 블록 위치 기준(마커 순서 아님)", () => {
+  // 버그: 대표컷(첫 마커)을 아래로 내려도 '여전히 첫 마커'라 위로 버튼이 계속 비활성 →
+  // 한 번 내리면 다시 못 올림. canMoveUp 을 블록 위치로 판단해야 해결됨.
+  const hookBlockIndex = (content: string) => {
+    const blocks = computeBlocks(content);
+    return blocks.findIndex((b) => b.kind === "marker" && b.markerIndex === 0);
+  };
+
+  it("맨 위 블록인 대표컷은 위로 불가(위에 블록 없음)", () => {
+    const content = buildContent([marker("HOOK"), blank(), paragraph("도입"), blank(), marker("X")]);
+    expect(hookBlockIndex(content)).toBe(0); // canMoveUp = (0 > 0) = false
+  });
+
+  it("대표컷을 문단 아래로 내리면 위에 블록이 생겨 다시 위로 이동 가능", () => {
+    const content = buildContent([marker("HOOK"), blank(), paragraph("도입"), blank(), marker("X")]);
+    const moved = moveMarkerBlock(content, 0, "down").content; // HOOK ↓ (도입 아래로)
+    expect(parseImageMarkers(moved)[0].description).toBe("HOOK"); // 여전히 첫 마커(index 0)
+    expect(hookBlockIndex(moved)).toBeGreaterThan(0); // 그러나 위에 블록 있음 → canMoveUp = true
   });
 });

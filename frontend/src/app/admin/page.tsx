@@ -53,10 +53,10 @@ import { useAuthContext } from "@/lib/auth/auth-context";
 import type { ProfileRole, ProfileStatus } from "@/lib/auth/types";
 
 interface AdminUser {
-  id: string;
+  id: string | null; // 사전 등록자는 아직 profiles 행이 없어 null
   email: string;
   status: ProfileStatus;
-  role: ProfileRole;
+  role: ProfileRole | null; // 사전 등록자는 역할 없음
   created_at: string;
   updated_at: string;
   device_count: number;
@@ -65,6 +65,7 @@ interface AdminUser {
   entitlement_note: string | null;
   display_name: string | null;
   memo: string | null;
+  is_preauth?: boolean; // 전체 사용자 탭에 섞인 사전 등록자 표시용 (클라이언트 병합 시 부여)
 }
 
 interface AdminDevice {
@@ -90,10 +91,11 @@ interface AdminAuditEntry {
 
 interface PreauthEntry {
   email: string;
-  status: string;
+  status: ProfileStatus; // email_entitlements.status: SQL check 제약이 동일 4값 보장
   note: string | null;
   display_name: string | null;
   memo: string | null;
+  plan?: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -124,6 +126,15 @@ const STATUS_BADGE: Record<ProfileStatus, "default" | "secondary" | "destructive
   blocked: "destructive",
   expired: "outline",
 };
+
+const PROFILE_STATUSES: ProfileStatus[] = ["pending", "active", "blocked", "expired"];
+
+// 사전 등록자 status를 STATUS_LABEL/STATUS_BADGE 룩업에 안전하게 넣기 위한 방어
+function normalizeStatus(value: string): ProfileStatus {
+  return (PROFILE_STATUSES as string[]).includes(value)
+    ? (value as ProfileStatus)
+    : "pending";
+}
 
 type StatusFilter = ProfileStatus | "all";
 type RoleFilter = ProfileRole | "all";
@@ -282,6 +293,7 @@ export default function AdminPage() {
   const setStatus = useCallback(
     async (user: AdminUser, status: ProfileStatus) => {
       if (!authHeader) return;
+      if (!user.id) return; // 사전 등록자(프로필 없음)는 상태 변경 불가
       setBusyId(user.id);
       try {
         const res = await fetch(`/api/admin/users/${user.id}/status`, {
@@ -312,6 +324,7 @@ export default function AdminPage() {
   const setRole = useCallback(
     async (user: AdminUser, role: ProfileRole) => {
       if (!authHeader) return;
+      if (!user.id) return; // 사전 등록자(프로필 없음)는 역할 변경 불가
       setBusyId(user.id);
       try {
         const res = await fetch(`/api/admin/users/${user.id}/role`, {
@@ -340,7 +353,7 @@ export default function AdminPage() {
   const setPlan = useCallback(
     async (user: AdminUser, plan: "blog" | "blog_youtube") => {
       if (!authHeader) return;
-      setBusyId(user.id);
+      setBusyId(user.id ?? user.email); // 사전 등록자는 id 없음 → email로 busy 추적
       try {
         const res = await fetch(`/api/admin/users/plan`, {
           method: "PATCH",
@@ -355,17 +368,19 @@ export default function AdminPage() {
         toast.success(
           `${user.email} 유튜브 ${plan === "blog_youtube" ? "ON" : "OFF"}`,
         );
-        await refreshUsers();
+        // 사전 등록자 행 원본은 preauthList이므로 두 목록 모두 갱신
+        await Promise.all([refreshUsers(), refreshPreauth()]);
       } finally {
         setBusyId(null);
       }
     },
-    [authHeader, refreshUsers],
+    [authHeader, refreshUsers, refreshPreauth],
   );
 
   const openDevices = useCallback(
     async (user: AdminUser) => {
       if (!authHeader) return;
+      if (!user.id) return; // 사전 등록자는 등록 기기가 없음
       setDeviceDialogUser(user);
       setLoadingDevices(true);
       try {
@@ -438,12 +453,13 @@ export default function AdminPage() {
     }
   }, [authHeader, preauthEmail, preauthName, preauthMemo, refreshUsers, refreshPreauth]);
 
+  // 사전 등록(미로그인 이메일) 취소·삭제. 사전 등록 탭·전체 사용자 탭 공용 — 이메일 기반.
   const deletePreauth = useCallback(
-    async (entry: PreauthEntry) => {
+    async (email: string) => {
       if (!authHeader) return;
       if (
         !window.confirm(
-          `${entry.email}의 사전 등록을 취소(삭제)할까요?\n아직 로그인하지 않은 이메일만 삭제됩니다.`,
+          `${email}의 사전 등록을 취소(삭제)할까요?\n아직 로그인하지 않은 이메일만 삭제됩니다.`,
         )
       ) {
         return;
@@ -452,7 +468,7 @@ export default function AdminPage() {
         const res = await fetch("/api/admin/users/preauth", {
           method: "DELETE",
           headers: { ...authHeader, "Content-Type": "application/json" },
-          body: JSON.stringify({ email: entry.email }),
+          body: JSON.stringify({ email }),
         });
         const data = await res.json();
         if (!res.ok || !data?.ok) {
@@ -463,7 +479,7 @@ export default function AdminPage() {
           toast.error(msg);
           return;
         }
-        toast.success(`${entry.email} 사전 등록 취소 완료`);
+        toast.success(`${email} 사전 등록 취소 완료`);
         await refreshPreauth();
       } catch (e) {
         toast.error(e instanceof Error ? e.message : "사전 등록 취소 실패");
@@ -510,9 +526,34 @@ export default function AdminPage() {
     [userQuery],
   );
 
+  // 사전 등록자(preauthList)를 전체 사용자 탭에 섞기 위해 AdminUser 형태로 변환·병합.
+  // (가입 대기 탭의 pendingUsers는 users만 보므로 영향 없음)
+  const allUsers = useMemo<AdminUser[]>(() => {
+    const usersEmails = new Set(users.map((u) => u.email.toLowerCase()));
+    const preauthAsUsers: AdminUser[] = preauthList
+      // 사전 등록자가 로그인해 profiles가 생기면 users에도 나타나므로 중복 제거
+      .filter((e) => !usersEmails.has(e.email.toLowerCase()))
+      .map((e) => ({
+        id: null,
+        email: e.email,
+        status: normalizeStatus(e.status),
+        role: null,
+        created_at: e.created_at,
+        updated_at: e.updated_at,
+        device_count: 0,
+        entitlement_status: e.status,
+        entitlement_plan: e.plan ?? null,
+        entitlement_note: e.note,
+        display_name: e.display_name,
+        memo: e.memo,
+        is_preauth: true,
+      }));
+    return [...users, ...preauthAsUsers];
+  }, [users, preauthList]);
+
   // 전체 사용자: 검색어·필터 적용 후 정렬한 목록
   const visibleUsers = useMemo(() => {
-    const filtered = users.filter((u) => {
+    const filtered = allUsers.filter((u) => {
       if (statusFilter !== "all" && u.status !== statusFilter) return false;
       if (roleFilter !== "all" && u.role !== roleFilter) return false;
       if (searchTerms.length > 0) {
@@ -535,7 +576,7 @@ export default function AdminPage() {
       return sortOrder === "asc" ? cmp : -cmp;
     });
     return sorted;
-  }, [users, searchTerms, statusFilter, roleFilter, sortField, sortOrder]);
+  }, [allUsers, searchTerms, statusFilter, roleFilter, sortField, sortOrder]);
 
   const userFiltersActive =
     searchTerms.length > 0 || statusFilter !== "all" || roleFilter !== "all";
@@ -557,8 +598,18 @@ export default function AdminPage() {
             </p>
           </div>
           <div className="flex gap-2">
-            <Button variant="outline" size="sm" onClick={refreshUsers} disabled={loadingUsers}>
-              <RefreshCcw className={`mr-2 h-4 w-4 ${loadingUsers ? "animate-spin" : ""}`} />
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                refreshUsers();
+                refreshPreauth();
+              }}
+              disabled={loadingUsers || loadingPreauth}
+            >
+              <RefreshCcw
+                className={`mr-2 h-4 w-4 ${loadingUsers || loadingPreauth ? "animate-spin" : ""}`}
+              />
               새로고침
             </Button>
             <Button variant="outline" size="sm" onClick={() => router.push("/")}>
@@ -607,6 +658,7 @@ export default function AdminPage() {
                   memo: u.memo ?? "",
                 })
               }
+              onDelete={deletePreauth}
               emptyMessage="대기 중인 사용자가 없습니다."
             />
           </TabsContent>
@@ -703,7 +755,7 @@ export default function AdminPage() {
             <div className="flex items-center justify-between px-1 text-xs text-muted-foreground">
               <span>
                 {visibleUsers.length}명
-                {userFiltersActive && ` (전체 ${users.length}명)`}
+                {userFiltersActive && ` (전체 ${allUsers.length}명)`}
               </span>
               {userFiltersActive && (
                 <button
@@ -732,6 +784,7 @@ export default function AdminPage() {
                   memo: u.memo ?? "",
                 })
               }
+              onDelete={deletePreauth}
               emptyMessage={
                 userFiltersActive
                   ? "검색·필터 조건에 맞는 사용자가 없습니다."
@@ -868,7 +921,7 @@ export default function AdminPage() {
                             size="sm"
                             variant="outline"
                             className="gap-1 text-destructive hover:text-destructive"
-                            onClick={() => deletePreauth(entry)}
+                            onClick={() => deletePreauth(entry.email)}
                           >
                             <Trash2 className="h-3.5 w-3.5" />
                             삭제
@@ -1046,6 +1099,7 @@ function UserTable({
   onSetPlan,
   onOpenDevices,
   onEdit,
+  onDelete,
   emptyMessage,
 }: {
   users: AdminUser[];
@@ -1057,6 +1111,7 @@ function UserTable({
   onSetPlan: (u: AdminUser, p: "blog" | "blog_youtube") => void;
   onOpenDevices: (u: AdminUser) => void;
   onEdit: (u: AdminUser) => void;
+  onDelete: (email: string) => void;
   emptyMessage: string;
 }) {
   if (loading && users.length === 0) {
@@ -1085,14 +1140,23 @@ function UserTable({
         <ScrollArea className="h-[600px]">
           <div className="divide-y">
             {users.map((u) => {
-              const busy = busyId === u.id;
+              const busy = busyId === (u.id ?? u.email);
+              const canManage = !u.is_preauth; // 프로필 있는 실사용자만 상태·역할·기기 관리
               return (
-                <div key={u.id} className="flex flex-wrap items-start gap-3 px-4 py-3 text-sm">
+                <div
+                  key={u.id ?? u.email}
+                  className="flex flex-wrap items-start gap-3 px-4 py-3 text-sm"
+                >
                   <div className="min-w-0 flex-1">
                     <div className="flex flex-wrap items-center gap-2">
                       <span className="font-medium">{u.email}</span>
                       {u.display_name && <Badge variant="outline">{u.display_name}</Badge>}
-                      <Badge variant={STATUS_BADGE[u.status]}>{STATUS_LABEL[u.status]}</Badge>
+                      {/* 사전 등록자는 아직 미로그인 — '활성' 대신 '사전등록'을 상태 자리에 표시 */}
+                      {u.is_preauth ? (
+                        <Badge variant="secondary">사전등록</Badge>
+                      ) : (
+                        <Badge variant={STATUS_BADGE[u.status]}>{STATUS_LABEL[u.status]}</Badge>
+                      )}
                       {u.role === "admin" && (
                         <Badge variant="default" className="gap-1">
                           <Shield className="h-3 w-3" />
@@ -1101,7 +1165,7 @@ function UserTable({
                       )}
                       <Badge variant="outline" className="gap-1">
                         <Monitor className="h-3 w-3" />
-                        {u.device_count}
+                        {u.is_preauth ? "-" : u.device_count}
                       </Badge>
                       {/* 유튜브 OFF(미구매)만 배지로 표시 — 기본값은 ON 이라 평소엔 안 보임 */}
                       {u.entitlement_plan === "blog" && (
@@ -1112,7 +1176,7 @@ function UserTable({
                       )}
                     </div>
                     <div className="mt-1 text-xs text-muted-foreground">
-                      가입: {formatDate(u.created_at)}
+                      {u.is_preauth ? "등록" : "가입"}: {formatDate(u.created_at)}
                     </div>
                     {u.memo && (
                       <div className="mt-1 whitespace-pre-wrap rounded-md bg-muted/40 px-2 py-1 text-xs text-muted-foreground">
@@ -1122,7 +1186,7 @@ function UserTable({
                   </div>
                   <div className="flex flex-wrap gap-1">
                     {/* 가입 대기(pending)만 승인. 차단/만료는 각자의 복구 버튼을 쓴다. */}
-                    {u.status === "pending" && (
+                    {canManage && u.status === "pending" && (
                       <Button
                         size="sm"
                         onClick={() => onApprove(u)}
@@ -1133,7 +1197,7 @@ function UserTable({
                         승인
                       </Button>
                     )}
-                    {u.status === "active" && (
+                    {canManage && u.status === "active" && (
                       <Button
                         size="sm"
                         variant="outline"
@@ -1143,7 +1207,7 @@ function UserTable({
                         만료
                       </Button>
                     )}
-                    {u.status === "active" && (
+                    {canManage && u.status === "active" && (
                       <Button
                         size="sm"
                         variant="destructive"
@@ -1154,7 +1218,7 @@ function UserTable({
                       </Button>
                     )}
                     {/* 만료: 가볍게 1클릭 복구 */}
-                    {u.status === "expired" && (
+                    {canManage && u.status === "expired" && (
                       <Button
                         size="sm"
                         onClick={() => onSetStatus(u, "active")}
@@ -1166,7 +1230,7 @@ function UserTable({
                       </Button>
                     )}
                     {/* 차단: 실수 방지를 위해 확인 한 단계 더 */}
-                    {u.status === "blocked" && (
+                    {canManage && u.status === "blocked" && (
                       <Button
                         size="sm"
                         variant="outline"
@@ -1194,39 +1258,42 @@ function UserTable({
                       <Pencil className="h-3.5 w-3.5" />
                       편집
                     </Button>
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={() => onOpenDevices(u)}
-                      disabled={busy}
-                      className="gap-1"
-                    >
-                      <Monitor className="h-3.5 w-3.5" />
-                      기기
-                    </Button>
-                    {u.role === "user" ? (
+                    {canManage && (
                       <Button
                         size="sm"
                         variant="outline"
-                        onClick={() => onSetRole(u, "admin")}
+                        onClick={() => onOpenDevices(u)}
                         disabled={busy}
                         className="gap-1"
                       >
-                        <Shield className="h-3.5 w-3.5" />
-                        관리자 승격
-                      </Button>
-                    ) : (
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={() => onSetRole(u, "user")}
-                        disabled={busy}
-                        className="gap-1"
-                      >
-                        <ShieldOff className="h-3.5 w-3.5" />
-                        승격 해제
+                        <Monitor className="h-3.5 w-3.5" />
+                        기기
                       </Button>
                     )}
+                    {canManage &&
+                      (u.role === "user" ? (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => onSetRole(u, "admin")}
+                          disabled={busy}
+                          className="gap-1"
+                        >
+                          <Shield className="h-3.5 w-3.5" />
+                          관리자 승격
+                        </Button>
+                      ) : (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => onSetRole(u, "user")}
+                          disabled={busy}
+                          className="gap-1"
+                        >
+                          <ShieldOff className="h-3.5 w-3.5" />
+                          승격 해제
+                        </Button>
+                      ))}
                     {/* 유튜브 플랜 토글 — 기본 ON(blog_youtube/null), 클릭으로 OFF(blog) ↔ ON */}
                     {u.entitlement_plan === "blog" ? (
                       <Button
@@ -1249,6 +1316,19 @@ function UserTable({
                       >
                         <SquarePlay className="h-3.5 w-3.5" />
                         유튜브 OFF
+                      </Button>
+                    )}
+                    {/* 사전 등록자만 삭제 가능 — 미로그인 이메일(email_entitlements)만 지운다 */}
+                    {u.is_preauth && (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="gap-1 text-destructive hover:text-destructive"
+                        onClick={() => onDelete(u.email)}
+                        disabled={busy}
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                        삭제
                       </Button>
                     )}
                   </div>
