@@ -55,6 +55,8 @@ _MIGRATIONS = {
         "title_font": "VARCHAR",
         "title_font_weight": "VARCHAR",
         "title_font_size": "INTEGER",
+        "title_color1": "VARCHAR",
+        "title_color2": "VARCHAR",
         "user_id": "VARCHAR",
         "r2_synced": "VARCHAR DEFAULT 'none'",
         "files_expired_at": "TIMESTAMP",

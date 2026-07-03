@@ -6,7 +6,7 @@
 import { useState } from "react";
 import { Download, RotateCcw } from "lucide-react";
 import { Button, buttonVariants } from "@/components/ui/button";
-import { initialYtState, useYt } from "../state";
+import { freshYtState, useYt } from "../state";
 import { ytUrl } from "@/lib/youtube/api";
 
 export function CompletedView() {
@@ -46,7 +46,7 @@ export function CompletedView() {
         </a>
         <Button
           variant="outline"
-          onClick={() => update({ ...initialYtState })}
+          onClick={() => update(freshYtState())}
           className="gap-2"
         >
           <RotateCcw className="h-4 w-4" /> 새로 만들기

@@ -30,8 +30,8 @@ import { autoSplitTitle, combineTitle } from "@/lib/youtube/title";
 import {
   TITLE_STROKE as STROKE,
   TITLE_SHADOW as SHADOW,
-  TITLE_LINE2_COLOR,
 } from "../ShortsPreviewFrame";
+import { TitleColorPicker } from "../TitleColorPicker";
 import {
   TITLE_FONTS,
   TITLE_FONT_SIZE_MIN,
@@ -41,6 +41,7 @@ import {
   normalizeWeight,
   previewFontSizePx,
 } from "@/lib/youtube/fonts";
+import { saveLastUsed } from "@/lib/youtube/title-defaults";
 import { createDraft, saveDraftMeta, splitScript } from "@/lib/youtube/endpoints";
 
 const SCRIPT_MIN = 10; // 백엔드 SplitScriptRequest.script min_length
@@ -91,6 +92,23 @@ export function ScriptInput() {
     state.titleFontSize,
   ]);
 
+  // 스타일 변경을 "이 기기 마지막 스타일"로 자동 기억(디바운스). 새 영상은 이 값으로 시작.
+  useEffect(() => {
+    saveLastUsed({
+      font: state.titleFont,
+      weight: state.titleFontWeight,
+      size: state.titleFontSize,
+      color1: state.titleColor1,
+      color2: state.titleColor2,
+    });
+  }, [
+    state.titleFont,
+    state.titleFontWeight,
+    state.titleFontSize,
+    state.titleColor1,
+    state.titleColor2,
+  ]);
+
   const titleStyle = titleFontStyle(state.titleFont, state.titleFontWeight);
   const previewPx = previewFontSizePx(state.titleFontSize, frameWidth);
   const selectedFont = getTitleFont(state.titleFont);
@@ -136,6 +154,8 @@ export function ScriptInput() {
             title_font: state.titleFont,
             title_font_weight: state.titleFontWeight,
             title_font_size: state.titleFontSize,
+            title_color1: state.titleColor1,
+            title_color2: state.titleColor2,
           });
           update({
             selectedTitle: combineTitle(n1, n2),
@@ -170,6 +190,8 @@ export function ScriptInput() {
         state.titleFont,
         state.titleFontWeight,
         state.titleFontSize,
+        state.titleColor1,
+        state.titleColor2,
       );
       update({
         jobId: draft.job_id,
@@ -208,10 +230,11 @@ export function ScriptInput() {
           >
             <div
               ref={line1Ref}
-              className="absolute top-[30px] w-full whitespace-nowrap text-center text-white"
+              className="absolute top-[30px] w-full whitespace-nowrap text-center"
               style={{
                 ...titleStyle,
                 fontSize: `${previewPx}px`,
+                color: state.titleColor1,
                 WebkitTextStroke: STROKE,
                 textShadow: SHADOW,
               }}
@@ -224,7 +247,7 @@ export function ScriptInput() {
               style={{
                 ...titleStyle,
                 fontSize: `${previewPx}px`,
-                color: TITLE_LINE2_COLOR,
+                color: state.titleColor2,
                 WebkitTextStroke: STROKE,
                 textShadow: SHADOW,
               }}
@@ -246,23 +269,37 @@ export function ScriptInput() {
             <div className="flex flex-col gap-3">
               <div className="grid gap-1.5">
                 <Label htmlFor="cardb-title-line1">제목 첫 줄</Label>
-                <Input
-                  id="cardb-title-line1"
-                  maxLength={30}
-                  value={state.titleLine1}
-                  onChange={(e) => handleLine1(e.target.value)}
-                  placeholder="예: 얼굴 빨개지는"
-                />
+                <div className="flex items-center gap-2">
+                  <Input
+                    id="cardb-title-line1"
+                    maxLength={30}
+                    value={state.titleLine1}
+                    onChange={(e) => handleLine1(e.target.value)}
+                    placeholder="예: 얼굴 빨개지는"
+                  />
+                  <TitleColorPicker
+                    value={state.titleColor1}
+                    onChange={(hex) => update({ titleColor1: hex })}
+                    ariaLabel="제목 첫 줄 색 선택"
+                  />
+                </div>
               </div>
               <div className="grid gap-1.5">
                 <Label htmlFor="cardb-title-line2">제목 둘째 줄</Label>
-                <Input
-                  id="cardb-title-line2"
-                  maxLength={30}
-                  value={state.titleLine2}
-                  onChange={(e) => handleLine2(e.target.value)}
-                  placeholder="예: 의외의 진짜 이유"
-                />
+                <div className="flex items-center gap-2">
+                  <Input
+                    id="cardb-title-line2"
+                    maxLength={30}
+                    value={state.titleLine2}
+                    onChange={(e) => handleLine2(e.target.value)}
+                    placeholder="예: 의외의 진짜 이유"
+                  />
+                  <TitleColorPicker
+                    value={state.titleColor2}
+                    onChange={(hex) => update({ titleColor2: hex })}
+                    ariaLabel="제목 둘째 줄 색 선택"
+                  />
+                </div>
               </div>
             </div>
 

@@ -8,7 +8,7 @@
 // 파일은 /public/fonts. 같은-출처라 CSP `font-src 'self'` 로 커버.
 
 export interface FontWeight {
-  id: string; // canonical: light/regular/medium/semibold/bold/extrabold
+  id: string; // canonical: thin/extralight/light/regular/medium/semibold/bold/extrabold/black
   label: string; // 폰트 원래 굵기 이름 그대로 노출
   cssWeight: number; // @font-face 와 매칭되는 CSS font-weight
 }
@@ -22,12 +22,15 @@ export interface TitleFont {
 }
 
 const W = {
+  thin: { id: "thin", label: "Thin", cssWeight: 100 },
+  extralight: { id: "extralight", label: "ExtraLight", cssWeight: 200 },
   light: { id: "light", label: "Light", cssWeight: 300 },
   regular: { id: "regular", label: "Regular", cssWeight: 400 },
   medium: { id: "medium", label: "Medium", cssWeight: 500 },
   semibold: { id: "semibold", label: "SemiBold", cssWeight: 600 },
   bold: { id: "bold", label: "Bold", cssWeight: 700 },
   extrabold: { id: "extrabold", label: "ExtraBold", cssWeight: 800 },
+  black: { id: "black", label: "Black", cssWeight: 900 },
 } as const;
 
 export const TITLE_FONTS: TitleFont[] = [
@@ -57,8 +60,17 @@ export const TITLE_FONTS: TitleFont[] = [
     label: "에이투지체",
     cssFamily: "'TF-AtoZ'",
     defaultWeight: "extrabold",
-    // 굵기 파일이 추가되면 여기에 등록(백엔드 fonts.py 와 함께).
-    weights: [W.extrabold],
+    weights: [
+      W.thin,
+      W.extralight,
+      W.light,
+      W.regular,
+      W.medium,
+      W.semibold,
+      W.bold,
+      W.extrabold,
+      W.black,
+    ],
   },
 ];
 

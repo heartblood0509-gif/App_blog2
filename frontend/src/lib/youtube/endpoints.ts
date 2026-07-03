@@ -296,6 +296,8 @@ export interface ConfirmDraftInput {
   title_font?: string;
   title_font_weight?: string;
   title_font_size?: number;
+  title_color1?: string;
+  title_color2?: string;
 }
 export function confirmDraft(
   jobId: string,
@@ -425,6 +427,8 @@ export function createDraft(
   titleFont?: string,
   titleFontWeight?: string,
   titleFontSize?: number,
+  titleColor1?: string,
+  titleColor2?: string,
 ): Promise<DraftJobResponse> {
   return ytPostJson<DraftJobResponse>("/api/jobs/draft", {
     lines,
@@ -433,6 +437,8 @@ export function createDraft(
     title_font: titleFont,
     title_font_weight: titleFontWeight,
     title_font_size: titleFontSize,
+    title_color1: titleColor1,
+    title_color2: titleColor2,
   });
 }
 
@@ -449,6 +455,8 @@ export interface DraftState {
   title_font?: string | null;
   title_font_weight?: string | null;
   title_font_size?: number | null;
+  title_color1?: string | null;
+  title_color2?: string | null;
   // 작업 다시 열기 복원용 음성/BGM 설정(백엔드 DraftStateResponse 제공).
   tts_engine?: string | null;
   voice_id?: string | null;
@@ -480,6 +488,8 @@ export function saveDraftMeta(
     title_font?: string;
     title_font_weight?: string;
     title_font_size?: number;
+    title_color1?: string;
+    title_color2?: string;
   },
 ): Promise<DraftState> {
   return ytPostJson<DraftState>(`/api/jobs/${jobId}/draft-meta`, meta);

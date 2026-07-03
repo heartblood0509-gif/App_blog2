@@ -55,9 +55,16 @@ BUNDLED_TITLE_FONTS: dict[str, dict] = {
     "atoz": {
         "label": "에이투지체",
         "default": "extrabold",
-        # 굵기 파일이 추가되면 여기에 등록(프론트 fonts.ts 와 함께).
         "weights": {
+            "thin": "AtoZ-Thin.ttf",
+            "extralight": "AtoZ-ExtraLight.ttf",
+            "light": "AtoZ-Light.ttf",
+            "regular": "AtoZ-Regular.ttf",
+            "medium": "AtoZ-Medium.ttf",
+            "semibold": "AtoZ-SemiBold.ttf",
+            "bold": "AtoZ-Bold.ttf",
             "extrabold": "AtoZ-ExtraBold.ttf",
+            "black": "AtoZ-Black.ttf",
         },
     },
 }

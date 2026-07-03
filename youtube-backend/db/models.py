@@ -82,6 +82,9 @@ class Job(Base):
     title_font = Column(String, nullable=True)
     title_font_weight = Column(String, nullable=True)
     title_font_size = Column(Integer, nullable=True)
+    # 제목 줄별 색(#RRGGBB). None=기본(윗줄 #FFFFFF, 아랫줄 #E8D44D).
+    title_color1 = Column(String, nullable=True)
+    title_color2 = Column(String, nullable=True)
     script_json = Column(Text, default="[]")
     # 카드 A("AI가 모두 생성")는 "ai_full", 카드 B("사용자 직접 제공")는 "user_assets"
     generation_mode = Column(String, default="ai_full")

@@ -22,6 +22,7 @@ from jobs_queue.task_queue import ACTIVE_STATUSES, enqueue_task, get_active_task
 from core.r2_storage import require_r2_for_generation, is_r2_enabled, r2_file_exists
 from core.ffmpeg import FFMPEG_Q, FFPROBE_Q
 from core.text_validation import contains_emoji
+from core.colors import normalize_hex, DEFAULT_TITLE_COLOR1, DEFAULT_TITLE_COLOR2
 from config import settings
 from PIL import Image, ImageOps
 from core.user_assets_visual import (
@@ -715,6 +716,11 @@ async def confirm_and_render(
                 job.title_font_size = max(70, min(170, _sz))
             except (TypeError, ValueError):
                 pass  # 잘못된 값은 무시 → 기본(120) 사용
+        # 제목 색. 사용자 입력이 drawtext 필터에 박히므로 여기서 #RRGGBB 로 정규화(1차 방어).
+        if body.get("title_color1") is not None:
+            job.title_color1 = normalize_hex(body["title_color1"], DEFAULT_TITLE_COLOR1)
+        if body.get("title_color2") is not None:
+            job.title_color2 = normalize_hex(body["title_color2"], DEFAULT_TITLE_COLOR2)
         # title이 비어 있으면 video_assembler.py:306의 조건(if title_text and font_title)을
         # 통과하지 못해 제목 자체가 영상에 안 박힌다. 카드 B draft는 title=""로 시작하므로 여기서 흡수.
         if body.get("title") is not None:

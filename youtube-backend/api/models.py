@@ -179,6 +179,9 @@ class DraftJobRequest(BaseModel):
     title_font: Optional[str] = None
     title_font_weight: Optional[str] = None
     title_font_size: Optional[int] = None
+    # 제목 줄별 색(#RRGGBB, 라우터에서 normalize_hex 로 흡수).
+    title_color1: Optional[str] = None
+    title_color2: Optional[str] = None
 
 
 class DraftJobResponse(BaseModel):

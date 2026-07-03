@@ -580,6 +580,8 @@ async def render_video_for_job(job_id: str):
                 ),
                 "font_sub": settings.FONT_SUB,
                 "title_font_size": getattr(job, "title_font_size", None),
+                "title_color1": getattr(job, "title_color1", None),
+                "title_color2": getattr(job, "title_color2", None),
                 "typecast_api_key": keys["typecast"],
             }
 

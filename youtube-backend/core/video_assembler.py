@@ -323,7 +323,13 @@ async def assemble_shorts(job_id: str, config: dict, progress_callback=None):
         title_line_gap = round(130 * _sf)
         shadow_off = max(1, round(6 * _sf))
         border_w = max(1, round(4 * _sf))
-        title_colors = ["white", "#E8D44D"]  # 윗줄 흰색, 아랫줄 톤다운 노란색
+        # 윗줄/아랫줄 색. 사용자 입력이 여기서 drawtext fontcolor 로 박히므로 normalize_hex 로
+        # 2차 방어(#RRGGBB 아니면 기본색). 기본: 윗줄 흰색, 아랫줄 톤다운 노란색.
+        from core.colors import normalize_hex, DEFAULT_TITLE_COLOR1, DEFAULT_TITLE_COLOR2
+        title_colors = [
+            normalize_hex(config.get("title_color1"), DEFAULT_TITLE_COLOR1),
+            normalize_hex(config.get("title_color2"), DEFAULT_TITLE_COLOR2),
+        ]
         font_path_escaped = font_title_name
         for j, line in enumerate(title_lines):
             escaped = _escape_filter(line)

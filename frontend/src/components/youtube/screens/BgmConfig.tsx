@@ -148,6 +148,8 @@ export function BgmConfig() {
           title_font: state.titleFont,
           title_font_weight: state.titleFontWeight,
           title_font_size: state.titleFontSize,
+          title_color1: state.titleColor1,
+          title_color2: state.titleColor2,
         });
         update({ screen: "progress" });
       } catch (e) {

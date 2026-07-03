@@ -31,7 +31,7 @@ import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import { initialYtState, useYt } from "../state";
+import { freshYtState, useYt } from "../state";
 import { ytUrl } from "@/lib/youtube/api";
 import { cn } from "@/lib/utils";
 import { ShortsPreviewFrame } from "../ShortsPreviewFrame";
@@ -906,7 +906,7 @@ export function LineAssetEditor() {
       <div className="mt-6 flex items-center justify-between gap-3">
         <Button
           variant="ghost"
-          onClick={() => update({ ...initialYtState })}
+          onClick={() => update(freshYtState())}
           disabled={busyGlobal}
           className="gap-1.5"
         >
@@ -945,6 +945,8 @@ export function LineAssetEditor() {
               titleFont={state.titleFont}
               titleFontWeight={state.titleFontWeight}
               titleFontSize={state.titleFontSize}
+              titleColor1={state.titleColor1}
+              titleColor2={state.titleColor2}
               width={350}
             >
               {!activeLine ? (
