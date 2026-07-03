@@ -1049,7 +1049,7 @@ export function extractIdentificationContext(
 // 삭제는 기존 pruneExcludedMarkers 를 재사용한다.
 // ─────────────────────────────────────────────────────────────────────────────
 
-export type ContentBlockKind = "marker" | "heading" | "hashtags" | "text";
+export type ContentBlockKind = "marker" | "heading" | "hashtags" | "quote" | "text";
 
 /** 본문을 구성하는 블록(문단/소제목/이미지/해시태그) 하나 */
 export interface ContentBlock {
@@ -1073,6 +1073,9 @@ function classifyLine(line: string): ContentBlockKind | null {
     const tags = t.split(/\s+/).filter((x) => x.startsWith("#"));
     if (tags.length > 1) return "hashtags";
   }
+  // > 인용구 줄 — 렌더러(blog-content-renderer.tsx)의 "> " 인용구 렌더와 동일 조건.
+  // 단독 블록으로 분리해 본문 텍스트 블록에 섞이지 않게 한다(구간 재작성 대상에서 제외).
+  if (line.startsWith("> ")) return "quote";
   return "text";
 }
 
@@ -1222,4 +1225,32 @@ export function moveMarkerToBoundary(
 
   segs.splice(insertAt, 0, movedSeg);
   return { content: segs.join("\n\n"), newMarkerIndex };
+}
+
+/**
+ * 텍스트 블록(kind==="text") 하나의 줄 범위만 새 텍스트로 교체한다(구간 재작성용).
+ *
+ * 마커/소제목/해시태그/인용구 줄은 절대 건드리지 않는다(방어적으로 kind 검사). before/after 를
+ * 원본 lines 에서 그대로 잘라 붙이므로 그 줄들은 byte 단위로 불변 → parseImageMarkers 재파싱 시
+ * 마커 순서·설명이 유지돼 이미지가 보존된다. 위생(stripBrTags 등)은 호출측 책임.
+ *
+ * @param block computeBlocks(content) 로 얻은 대상 텍스트 블록(반드시 kind==="text")
+ * @param newText AI가 다시 쓴 문단 텍스트(앞뒤 빈 줄은 여기서 제거)
+ */
+export function replaceTextBlock(
+  content: string,
+  block: ContentBlock,
+  newText: string
+): string {
+  if (block.kind !== "text") return content; // 방어: 마커/소제목/인용구는 교체 대상 아님
+  const lines = content.split("\n");
+  // AI 출력의 앞뒤 빈 줄만 제거(블록 경계 빈 줄은 before/after 가 소유하므로 침범 금지).
+  const replacement = newText
+    .replace(/\r\n/g, "\n")
+    .replace(/^\n+/, "")
+    .replace(/\n+$/, "");
+  const replacementLines = replacement.length === 0 ? [""] : replacement.split("\n");
+  const before = lines.slice(0, block.lineStart);
+  const after = lines.slice(block.lineEnd + 1);
+  return [...before, ...replacementLines, ...after].join("\n");
 }

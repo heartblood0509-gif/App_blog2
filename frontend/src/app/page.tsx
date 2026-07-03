@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { AnimatePresence, motion } from "framer-motion";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
+import { Textarea } from "@/components/ui/textarea";
 import {
   Dialog,
   DialogContent,
@@ -121,6 +122,8 @@ import {
   moveMarkerToBoundary,
   insertEmptyMarkerAtBoundary,
   markerIndexAtBoundary,
+  computeBlocks,
+  replaceTextBlock,
 } from "@/lib/image/marker-parser";
 
 // 카테고리별 이미지 총량 상한. 캡은 ensure 함수 누적 결과의 마지막 안전장치.
@@ -282,6 +285,23 @@ export default function Home() {
     skipped: string[];
   } | null>(null);
   const [replacementDialogOpen, setReplacementDialogOpen] = useState(false);
+
+  // 구간 재작성("이 문단만 다시 쓰기")
+  // - rewriteTargetBlock: 입력창 단계 대상 blockIndex (null이면 입력창 닫힘)
+  // - rewriteInstruction: 사용자 지시 입력값
+  // - rewritePreview: 결과 미리보기(요청 시점 전체 본문 스냅샷 포함 → 적용 시 staleness 가드)
+  const [rewriteTargetBlock, setRewriteTargetBlock] = useState<number | null>(null);
+  // 입력창에 함께 보여줄 "고칠 문단 원문" — 팝업이 본문을 가려도 무엇을 고치는지 보이게.
+  const [rewriteTargetText, setRewriteTargetText] = useState("");
+  const [rewriteInstruction, setRewriteInstruction] = useState("");
+  const [isRewriting, setIsRewriting] = useState(false);
+  const [rewritePreview, setRewritePreview] = useState<{
+    blockIndex: number;
+    original: string;
+    rewritten: string;
+    contentAtRequest: string;
+  } | null>(null);
+  const [rewriteDialogOpen, setRewriteDialogOpen] = useState(false);
 
   // 큰 타이틀 클릭 시: 위저드가 비어있으면 바로 reset, 진행 중이면 확인 모달.
   const handleTitleClick = useCallback(() => {
@@ -2464,6 +2484,142 @@ export default function Home() {
     }
   }, [replacementPreview, state.generatedContent, updateState, runValidation]);
 
+  // ── 구간 재작성("이 문단만 다시 쓰기") ─────────────────────────────────────
+  // 요청(입력창) → 제출(API) → 미리보기 → 적용(commitManualLayout). 마커/이미지 보존이
+  // 핵심이라 적용은 handleContentEdit 이 아니라 원자 커밋 경로(commitManualLayout)를 쓴다.
+  const handleRewriteSectionRequest = useCallback(
+    (blockIndex: number) => {
+      // 이미지 생성 중에는 in-flight 결과가 옛 본문 기준으로 덮어쓸 수 있어 차단.
+      if (state.isImageGenerating) {
+        toast.info("이미지 생성이 끝난 뒤에 문단을 다시 써 주세요.");
+        return;
+      }
+      // 고칠 문단 원문을 계산해 입력창에 함께 표시(팝업이 본문을 가리는 문제 해결).
+      const blocks = computeBlocks(state.generatedContent);
+      const b = blocks[blockIndex];
+      if (!b || b.kind !== "text") {
+        toast.error("문단 위치를 찾지 못했어요. 다시 시도해주세요.");
+        return;
+      }
+      const original = state.generatedContent
+        .split("\n")
+        .slice(b.lineStart, b.lineEnd + 1)
+        .join("\n");
+      setRewriteTargetText(original);
+      setRewriteInstruction("");
+      setRewriteTargetBlock(blockIndex);
+    },
+    [state.isImageGenerating, state.generatedContent],
+  );
+
+  const handleRewriteSectionSubmit = useCallback(async () => {
+    const blockIndex = rewriteTargetBlock;
+    const instruction = rewriteInstruction.trim();
+    if (blockIndex === null || !instruction || !state.generatedContent) return;
+
+    const contentAtRequest = state.generatedContent;
+    const lines = contentAtRequest.split("\n");
+    const blocks = computeBlocks(contentAtRequest);
+    const block = blocks[blockIndex];
+    if (!block || block.kind !== "text") {
+      toast.error("문단 위치를 찾지 못했어요. 다시 시도해주세요.");
+      setRewriteTargetBlock(null);
+      return;
+    }
+    const original = lines.slice(block.lineStart, block.lineEnd + 1).join("\n");
+    // 앞뒤 맥락: 가장 가까운 텍스트 블록 (톤/흐름 참고용, 읽기 전용)
+    const nearestText = (dir: 1 | -1): string => {
+      for (let k = blockIndex + dir; k >= 0 && k < blocks.length; k += dir) {
+        if (blocks[k].kind === "text") {
+          return lines.slice(blocks[k].lineStart, blocks[k].lineEnd + 1).join("\n");
+        }
+      }
+      return "";
+    };
+
+    setIsRewriting(true);
+    try {
+      const res = await fetch("/api/rewrite-section", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          section: original,
+          instruction,
+          keyword: getEffectiveMainKeyword(state) || undefined,
+          before: nearestText(-1) || undefined,
+          after: nearestText(1) || undefined,
+        }),
+      });
+      if (!res.ok) throw await parseGenErrorResponse(res, "문단 다시 쓰기 실패");
+      const data = (await res.json()) as { rewritten: string };
+      const rewritten = (data.rewritten ?? "").trim();
+      if (!rewritten) {
+        toast.info("AI가 내용을 만들지 못했어요. 다시 시도해주세요.");
+        return;
+      }
+      setRewritePreview({ blockIndex, original, rewritten, contentAtRequest });
+      setRewriteTargetBlock(null);
+      setRewriteDialogOpen(true);
+    } catch (err) {
+      showGenErrorToast(err);
+    } finally {
+      setIsRewriting(false);
+    }
+  }, [rewriteTargetBlock, rewriteInstruction, state]);
+
+  const handleRewriteApply = useCallback(() => {
+    if (!rewritePreview || !state.generatedContent) {
+      setRewriteDialogOpen(false);
+      return;
+    }
+    // 1) 전체 본문 스냅샷 일치 가드 — 요청~적용 사이 본문/이미지 배치가 바뀌면 안전 취소.
+    if (state.generatedContent !== rewritePreview.contentAtRequest) {
+      toast.error("본문이 변경돼 적용을 취소했어요. 다시 시도해주세요.");
+      setRewriteDialogOpen(false);
+      setRewritePreview(null);
+      return;
+    }
+    // 2) 블록 재확인 (방어)
+    const blocks = computeBlocks(state.generatedContent);
+    const block = blocks[rewritePreview.blockIndex];
+    const lines = state.generatedContent.split("\n");
+    if (
+      !block ||
+      block.kind !== "text" ||
+      lines.slice(block.lineStart, block.lineEnd + 1).join("\n") !== rewritePreview.original
+    ) {
+      toast.error("문단 위치가 바뀌어 적용할 수 없어요. 다시 시도해주세요.");
+      setRewriteDialogOpen(false);
+      setRewritePreview(null);
+      return;
+    }
+    // 3) splice + 위생
+    const spliced = replaceTextBlock(state.generatedContent, block, rewritePreview.rewritten);
+    const sanitized = applySubtitleLineBreaks(collapseBlankLines(stripBrTags(spliced)));
+    // 4) 마커 수 불변 assertion — 어긋나면 이미지 유실 위험이므로 취소.
+    if (parseImageMarkers(sanitized).length !== state.imageSlots.length) {
+      toast.error("이미지 자리 정합성 문제로 적용을 취소했어요. 다시 시도해주세요.");
+      setRewriteDialogOpen(false);
+      setRewritePreview(null);
+      return;
+    }
+    // 5) 원자 커밋 — 자동 이미지 주입기 우회 + 슬롯 id 순서 보존 + prev 기반 프루닝.
+    const idOrder = state.imageSlots.map((s) => s.id);
+    commitManualLayout(spliced, idOrder);
+    runValidation(sanitized);
+    updateState({ contentDirty: true });
+    setRewriteDialogOpen(false);
+    setRewritePreview(null);
+    toast.success("문단을 다시 썼어요.");
+  }, [
+    rewritePreview,
+    state.generatedContent,
+    state.imageSlots,
+    commitManualLayout,
+    runValidation,
+    updateState,
+  ]);
+
   const renderStep = () => {
     // 유튜브 채널 분기 — step 0 은 채널 선택, 그 이후는 쇼츠 생성기 임베드.
     if (state.channel === "youtube") {
@@ -2642,6 +2798,7 @@ export default function Home() {
             onMoveSlot={handleMoveSlot}
             onMoveSlotToBoundary={handleMoveSlotToBoundary}
             onAddSlotAtBoundary={handleAddSlotAtBoundary}
+            onRewriteTextBlock={handleRewriteSectionRequest}
             manualImageLayout={state.manualImageLayout}
           />
         );
@@ -2912,6 +3069,121 @@ export default function Home() {
               취소
             </Button>
             <Button onClick={handleReplacementApply}>적용하기</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* 구간 재작성 1단계 — 수정 요청 입력창 */}
+      <Dialog
+        open={rewriteTargetBlock !== null}
+        onOpenChange={(open) => {
+          if (!open) setRewriteTargetBlock(null);
+        }}
+      >
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>이 문단만 다시 쓰기</DialogTitle>
+            <DialogDescription>
+              아래 문단을 어떻게 바꿀지 알려주세요. 이 문단만 새로 쓰고 나머지 글과 이미지는 그대로 둡니다.
+            </DialogDescription>
+          </DialogHeader>
+
+          {/* 고칠 문단 원문 — 팝업이 본문을 가려도 무엇을 고치는지 보이게 */}
+          <div className="max-h-48 overflow-y-auto rounded-md border border-border/60 bg-muted/30 p-3">
+            <div className="mb-1 text-xs font-medium text-muted-foreground">
+              고칠 문단
+            </div>
+            <p className="whitespace-pre-wrap text-sm leading-relaxed">
+              {rewriteTargetText}
+            </p>
+          </div>
+
+          <Textarea
+            value={rewriteInstruction}
+            onChange={(e) => setRewriteInstruction(e.target.value)}
+            placeholder="예: 더 짧고 담백하게 / 실제 사용 후기 느낌으로 / 예시를 하나 넣어서"
+            rows={3}
+            autoFocus
+            disabled={isRewriting}
+          />
+
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setRewriteTargetBlock(null)}
+              disabled={isRewriting}
+            >
+              취소
+            </Button>
+            <Button
+              onClick={handleRewriteSectionSubmit}
+              disabled={isRewriting || rewriteInstruction.trim().length === 0}
+            >
+              {isRewriting ? "AI가 쓰는 중…" : "AI에게 요청"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* 구간 재작성 2단계 — 원문 vs 새 문단 미리보기 + 적용 */}
+      <Dialog
+        open={rewriteDialogOpen}
+        onOpenChange={(open) => {
+          setRewriteDialogOpen(open);
+          if (!open) setRewritePreview(null);
+        }}
+      >
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>새로 쓴 문단</DialogTitle>
+            <DialogDescription>
+              마음에 들면 적용하세요. 이 문단만 바뀌고 이미지는 유지됩니다.
+            </DialogDescription>
+          </DialogHeader>
+
+          {rewritePreview && (
+            <div className="space-y-3 py-2">
+              <div className="rounded-md border border-border/60 bg-muted/30 p-3">
+                <div className="mb-1 text-xs font-medium text-muted-foreground">
+                  기존
+                </div>
+                <p className="whitespace-pre-wrap text-sm text-muted-foreground line-through decoration-red-400/50">
+                  {rewritePreview.original}
+                </p>
+              </div>
+              <div className="rounded-md border border-primary/30 bg-primary/5 p-3">
+                <div className="mb-1 text-xs font-medium text-primary">새 문단</div>
+                <p className="whitespace-pre-wrap text-sm">
+                  {rewritePreview.rewritten}
+                </p>
+              </div>
+            </div>
+          )}
+
+          <DialogFooter>
+            <Button
+              variant="ghost"
+              onClick={() => {
+                // 다시 요청: 같은 블록·같은 지시로 입력창 재오픈
+                if (rewritePreview) {
+                  setRewriteTargetBlock(rewritePreview.blockIndex);
+                }
+                setRewriteDialogOpen(false);
+                setRewritePreview(null);
+              }}
+            >
+              다시 요청
+            </Button>
+            <Button
+              variant="outline"
+              onClick={() => {
+                setRewriteDialogOpen(false);
+                setRewritePreview(null);
+              }}
+            >
+              취소
+            </Button>
+            <Button onClick={handleRewriteApply}>적용하기</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

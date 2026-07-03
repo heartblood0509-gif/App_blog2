@@ -132,6 +132,8 @@ interface StepGenerateProps {
   onMoveSlotToBoundary: (slotId: string, boundary: number) => void;
   /** 블록 경계(computeBlocks 인덱스)에 빈 이미지 자리 삽입. */
   onAddSlotAtBoundary: (boundary: number) => void;
+  /** 본문 텍스트 블록(중간 문단)만 AI로 다시 쓰기 요청 (blockIndex = computeBlocks 인덱스). */
+  onRewriteTextBlock: (blockIndex: number) => void;
   /** 사용자가 이미지 자리를 직접 편집해 자동 배치기가 꺼진 상태인지. 안내 배너 표시용. */
   manualImageLayout?: boolean;
   /** seoAeo Intent Mode 활성 여부 — 활성 시 이미지 카운트 warn 임계치를 3~4장 정책으로 분기 */
@@ -699,6 +701,7 @@ export function StepGenerate({
   onMoveSlot,
   onMoveSlotToBoundary,
   onAddSlotAtBoundary,
+  onRewriteTextBlock,
   manualImageLayout = false,
   isIntentMode = false,
 }: StepGenerateProps) {
@@ -961,6 +964,7 @@ export function StepGenerate({
                         onMoveSlot,
                         onMoveSlotToBoundary,
                         onAddSlotAtBoundary,
+                        onRewriteTextBlock,
                       }}
                     />
                   </div>

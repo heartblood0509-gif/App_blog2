@@ -614,9 +614,13 @@ function spawnBackend(worktreeRoot, port) {
 
 function spawnFrontend(worktreeRoot, frontendPort, backendPort, youtubeUrl) {
   const frontendDir = path.join(worktreeRoot, "frontend");
-  // node_modules 가 symlink (= 메인을 상대경로로 가리키는 경우) 면 Turbopack 이 거부 →  webpack 으로 폴백
-  const nm = path.join(frontendDir, "node_modules");
-  const useWebpack = isSymlink(nm);
+  // node_modules 가 symlink 면 Turbopack 이 "filesystem root 밖을 가리킨다"며 패닉 →  webpack 으로 폴백.
+  // frontend/node_modules 뿐 아니라 워크트리 ROOT node_modules(메인을 가리키는 심링크)도 확인해야 한다.
+  // Turbopack 은 패키지 해석 시 상위로 올라가 루트 node_modules 심링크에 걸리므로, frontend 것이
+  // 실디렉터리여도 루트가 심링크면 패닉한다(둘 중 하나라도 심링크면 webpack).
+  const useWebpack =
+    isSymlink(path.join(frontendDir, "node_modules")) ||
+    isSymlink(path.join(worktreeRoot, "node_modules"));
   const args = ["next", "dev", "--port", String(frontendPort)];
   if (useWebpack) {
     args.push("--webpack");
