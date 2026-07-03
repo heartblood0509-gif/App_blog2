@@ -9,6 +9,7 @@ from paths import (
     BRAND_PROFILES_FILE,
     CHROME_PROFILES_DIR,
     PRODUCTS_FILE,
+    SAVED_COLORS_FILE,
 )
 
 load_dotenv()
@@ -35,6 +36,7 @@ __all__ = [
     "ANALYSIS_RECORDS_FILE",
     "BRAND_PROFILES_FILE",
     "PRODUCTS_FILE",
+    "SAVED_COLORS_FILE",
     "CHROME_PROFILES_DIR",
     "FRONTEND_ORIGIN",
 ]

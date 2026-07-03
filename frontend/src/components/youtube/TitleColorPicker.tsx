@@ -18,7 +18,7 @@ import {
   getSavedColorsServerSnapshot,
   addSavedColor,
   removeSavedColor,
-} from "@/lib/youtube/title-defaults";
+} from "@/lib/youtube/saved-colors-store";
 
 export function TitleColorPicker({
   value,
@@ -161,7 +161,7 @@ export function TitleColorPicker({
                     />
                     <button
                       type="button"
-                      onClick={() => removeSavedColor(c)}
+                      onClick={() => void removeSavedColor(c)}
                       aria-label="이 색 삭제"
                       className="absolute -right-1 -top-1 hidden h-4 w-4 items-center justify-center rounded-full bg-destructive text-destructive-foreground group-hover:flex"
                     >
@@ -193,7 +193,7 @@ export function TitleColorPicker({
               type="button"
               disabled={!canSave}
               title="이 색 저장"
-              onClick={() => current && addSavedColor(current)}
+              onClick={() => current && void addSavedColor(current)}
               className="flex h-8 flex-shrink-0 items-center gap-1 rounded-md border border-border px-2 text-xs font-medium hover:bg-muted disabled:cursor-not-allowed disabled:opacity-40"
             >
               <Plus className="h-3 w-3" /> 저장

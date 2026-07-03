@@ -18,7 +18,6 @@ export interface TitleStyle {
 }
 
 const STYLE_KEY = "blogpick-yt-title-style";
-const COLORS_KEY = "blogpick-yt-saved-colors";
 
 // ── 마지막 사용 스타일 ────────────────────────────────────────
 
@@ -68,76 +67,5 @@ export function saveLastUsed(style: TitleStyle): void {
   }, 400);
 }
 
-// ── 저장한 색 팔레트 (로컬) ──────────────────────────────────
-// useSyncExternalStore 로 팝오버가 실시간 반영. 안정 스냅샷 참조 유지.
-
-const listeners = new Set<() => void>();
-let cachedColors: string[] | null = null;
-const EMPTY: string[] = [];
-
-function readColors(): string[] {
-  if (typeof window === "undefined") return [];
-  try {
-    const raw = localStorage.getItem(COLORS_KEY);
-    if (!raw) return [];
-    const parsed = JSON.parse(raw);
-    if (!Array.isArray(parsed)) return [];
-    // 저장 시점에 이미 정규화하지만, 손상 대비 재정규화 + dedupe.
-    const seen = new Set<string>();
-    const out: string[] = [];
-    for (const v of parsed) {
-      if (typeof v !== "string") continue;
-      const c = normalizeHex(v);
-      if (c && !seen.has(c)) {
-        seen.add(c);
-        out.push(c);
-      }
-    }
-    return out;
-  } catch {
-    return [];
-  }
-}
-
-function writeColors(colors: string[]): void {
-  if (typeof window === "undefined") return;
-  try {
-    localStorage.setItem(COLORS_KEY, JSON.stringify(colors));
-  } catch {
-    // 무시
-  }
-  cachedColors = null;
-  for (const l of listeners) l();
-}
-
-export function subscribeSavedColors(listener: () => void): () => void {
-  listeners.add(listener);
-  return () => {
-    listeners.delete(listener);
-  };
-}
-
-/** 안정 참조 스냅샷(useSyncExternalStore 요구). */
-export function getSavedColorsSnapshot(): string[] {
-  if (cachedColors === null) cachedColors = readColors();
-  return cachedColors;
-}
-
-/** SSR 스냅샷 — 서버에선 항상 빈 배열(동일 참조). */
-export function getSavedColorsServerSnapshot(): string[] {
-  return EMPTY;
-}
-
-/** 색 저장(중복이면 맨 앞으로 승격). 정규화 실패 시 무시. 최대 24개 유지. */
-export function addSavedColor(hex: string): void {
-  const c = normalizeHex(hex);
-  if (!c) return;
-  const cur = readColors().filter((x) => x !== c);
-  writeColors([c, ...cur].slice(0, 24));
-}
-
-export function removeSavedColor(hex: string): void {
-  const c = normalizeHex(hex);
-  if (!c) return;
-  writeColors(readColors().filter((x) => x !== c));
-}
+// "저장한 색" 팔레트는 여러 기기 동기화를 위해 백엔드 스토어로 옮겼다 → saved-colors-store.ts.
+// (이 파일은 이제 기기-로컬 "마지막 스타일" 자동 기억만 담당한다.)
