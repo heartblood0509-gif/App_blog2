@@ -386,8 +386,7 @@ export function ScriptInput() {
       <div className="rounded-xl border border-border bg-card p-6 text-card-foreground">
         <h2 className="text-lg font-semibold">2. 대본 입력 (필수)</h2>
         <p className="mt-1 text-sm text-muted-foreground">
-          미리 준비한 대본을 그대로 붙여 넣어주세요. 1차로 문장 단위 자동 분리가 되며, 카드
-          단계에서 <b>Enter</b> 키를 치면 그 자리에서 카드를 더 잘게 나눌 수 있습니다.
+          미리 준비한 대본을 그대로 붙여 넣어주세요.
         </p>
 
         <div className="mt-4 space-y-1.5">
