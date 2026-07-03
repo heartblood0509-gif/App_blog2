@@ -66,7 +66,8 @@ fi
 
 # ── 4. 발행용 Playwright 브라우저 (backend python playwright) ────────
 step "[4/5] Playwright 크로미움 설치 (발행 기능용 → playwright-cache)"
-PLAYWRIGHT_BROWSERS_PATH="$ROOT/playwright-cache" python3 -m playwright install chromium
+# --no-shell: 앱은 headed(headless=False)로만 실행 → headless 셸(약 184MB) 불필요.
+PLAYWRIGHT_BROWSERS_PATH="$ROOT/playwright-cache" python3 -m playwright install chromium --no-shell
 ok "playwright-cache 에 chromium 준비"
 
 # ── 5. 유튜브 백엔드 venv + 의존성 (python3.10+) ───────────────────

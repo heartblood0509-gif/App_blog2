@@ -25,7 +25,8 @@ fi
 echo
 echo "[2/3] Playwright chromium download (skipped if cached)..."
 export PLAYWRIGHT_BROWSERS_PATH="${PLAYWRIGHT_BROWSERS_PATH:-$(pwd)/../playwright-cache}"
-python3 -m playwright install chromium
+# --no-shell: 앱은 headed(headless=False)로만 실행 → headless 셸(약 184MB) 불필요. (set -e 로 실패 시 자동 중단)
+python3 -m playwright install chromium --no-shell
 
 echo
 echo "[3/3] PyInstaller build (BlogPublisher.spec)..."
