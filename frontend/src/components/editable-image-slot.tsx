@@ -12,9 +12,20 @@ import {
   ChevronUp,
   ChevronDown,
   GripVertical,
+  Wrench,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Textarea } from "@/components/ui/textarea";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { ImageSourceDialog } from "@/components/image-source-dialog";
+import { AspectToggle, aspectToClass } from "@/components/image-aspect-toggle";
 import type { ImageSlot, UserPhoto } from "@/types";
 
 /** 슬롯 드래그(재배치)용 dataTransfer MIME. 파일 드롭(교체)과 구분하는 키. */
@@ -54,8 +65,12 @@ export function EditableImageSlot({
   isGenerating,
   canMoveUp,
   canMoveDown,
+  imageDesc,
+  aspect,
   onUserPhotoChange,
   onGenerateAI,
+  onImageDescChange,
+  onAspectChange,
   onDelete,
   onMove,
   onOpenLightbox,
@@ -66,8 +81,12 @@ export function EditableImageSlot({
   isGenerating: boolean;
   canMoveUp: boolean;
   canMoveDown: boolean;
+  imageDesc: string | undefined;
+  aspect: string;
   onUserPhotoChange: (photo: UserPhoto | null) => void;
   onGenerateAI: () => void;
+  onImageDescChange: (value: string | null) => void;
+  onAspectChange: (ratio: string) => void;
   onDelete: () => void;
   onMove: (dir: "up" | "down") => void;
   onOpenLightbox: (src: string) => void;
@@ -75,6 +94,16 @@ export function EditableImageSlot({
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [isDragOver, setIsDragOver] = useState(false);
   const [pickerOpen, setPickerOpen] = useState(false);
+  const [editOpen, setEditOpen] = useState(false);
+
+  // 사진(업로드/변환) 자리인지는 반드시 userPhoto 유무로 판별.
+  // (변환된 사진은 generatedBase64 ≠ userPhoto.base64 라 동일성 비교로는 AI 슬롯으로 오인됨)
+  const hasPhoto = !!userPhoto;
+  // 표시·생성에 쓰는 최종 프롬프트(공백이면 AI 추천으로 폴백)
+  const effectiveDescription = imageDesc?.trim() || slot.description;
+  // 편집 트리거: 사진 자리·생성 중엔 미노출
+  const onEditPrompt =
+    !hasPhoto && !isGenerating ? () => setEditOpen(true) : undefined;
 
   const handleFile = async (file: File) => {
     if (!file.type.startsWith("image/")) {
@@ -143,6 +172,63 @@ export function EditableImageSlot({
     />
   );
 
+  // ─── 공통: 프롬프트·비율 편집 다이얼로그 (사진 없는 자리에서만 트리거됨)
+  // 슬롯 패널과 같은 imageDescBySlot/aspectBySlot 상태를 공유 → 한쪽 수정이 양쪽 반영.
+  const editDialog = (
+    <Dialog open={editOpen} onOpenChange={setEditOpen}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>이미지 프롬프트·비율 수정</DialogTitle>
+          <DialogDescription>
+            실사·한국인 등 품질 규칙은 자동으로 적용됩니다. 무엇을 그릴지만
+            적으면 됩니다.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="space-y-3">
+          <div className="space-y-1.5">
+            <p className="text-xs font-medium text-foreground">
+              AI 추천 이미지 프롬프트 (수정 가능)
+            </p>
+            <Textarea
+              value={imageDesc ?? slot.description}
+              onChange={(e) => onImageDescChange(e.target.value)}
+              rows={3}
+              className="text-[13px] leading-relaxed resize-y"
+              placeholder="이 이미지에 무엇을 그릴지 한 줄로 적으세요"
+            />
+            <button
+              type="button"
+              className="text-[11px] text-primary underline-offset-2 hover:underline disabled:opacity-40"
+              onClick={() => onImageDescChange(null)}
+              disabled={typeof imageDesc !== "string"}
+            >
+              기본값으로 복원
+            </button>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-muted-foreground">비율</span>
+            <AspectToggle value={aspect} onChange={onAspectChange} />
+          </div>
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={() => setEditOpen(false)}>
+            닫기
+          </Button>
+          <Button
+            className="gap-2"
+            onClick={() => {
+              setEditOpen(false);
+              onGenerateAI();
+            }}
+          >
+            <Sparkles className="h-4 w-4" />
+            {generatedBase64 ? "다시 생성" : "AI 생성"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+
   // ─── 채워진 이미지: 파일 교체 전용 (드래그&드랍 + "이미지 변경하기" 클릭)
   if (generatedBase64) {
     // 표시한 이미지가 업로드 원본과 동일하면 원본 mime, 아니면 AI 결과(png)
@@ -152,6 +238,8 @@ export function EditableImageSlot({
         : "image/png";
     const src = `data:${displayMime};base64,${generatedBase64}`;
     return (
+      <>
+      {editDialog}
       <div
         className={`group relative my-4 overflow-hidden rounded-lg border transition ${
           isDragOver ? "border-primary ring-2 ring-primary" : "border-border"
@@ -168,11 +256,12 @@ export function EditableImageSlot({
           canMoveDown={canMoveDown}
           onMove={onMove}
           onDelete={onDelete}
+          onEditPrompt={onEditPrompt}
         />
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img
           src={src}
-          alt={slot.description}
+          alt={effectiveDescription}
           className="w-full cursor-zoom-in"
           onClick={() => onOpenLightbox(src)}
         />
@@ -214,6 +303,7 @@ export function EditableImageSlot({
           )}
         </div>
       </div>
+      </>
     );
   }
 
@@ -240,8 +330,12 @@ export function EditableImageSlot({
 
   // ─── 빈 자리 — 드래그앤드롭 + 업로드 + AI 생성
   return (
+    <>
+    {editDialog}
     <div
-      className={`relative my-4 flex aspect-video flex-col items-center justify-center gap-3 rounded-lg border-2 border-dashed p-4 transition-colors ${
+      className={`relative my-4 flex ${aspectToClass(
+        aspect
+      )} flex-col items-center justify-center gap-3 rounded-lg border-2 border-dashed p-4 transition-colors ${
         isDragOver
           ? "border-primary bg-primary/10"
           : "border-border bg-muted/30"
@@ -258,11 +352,12 @@ export function EditableImageSlot({
         canMoveDown={canMoveDown}
         onMove={onMove}
         onDelete={onDelete}
+        onEditPrompt={onEditPrompt}
       />
       <div className="flex items-center gap-2 text-muted-foreground">
         <ImageIcon className="h-5 w-5" />
         <span className="text-xs line-clamp-1">
-          이미지 자리: {slot.description}
+          이미지 자리: {effectiveDescription}
         </span>
       </div>
       <p className="text-[11px] text-muted-foreground">
@@ -293,23 +388,27 @@ export function EditableImageSlot({
         </Button>
       </div>
     </div>
+    </>
   );
 }
 
 /**
- * 이미지 자리 우상단에 뜨는 컨트롤(위로/아래로 이동 · 삭제).
+ * 이미지 자리 우상단에 뜨는 컨트롤(프롬프트·비율 수정 · 위/아래 이동 · 드래그 · 삭제).
  * 모든 상태(채워짐/생성중/빈자리)의 relative 컨테이너 안에 절대배치로 얹는다.
  */
 function SlotControls({
   slotId,
   canMoveUp,
   canMoveDown,
+  onEditPrompt,
   onMove,
   onDelete,
 }: {
   slotId: string;
   canMoveUp: boolean;
   canMoveDown: boolean;
+  /** 있으면 "프롬프트·비율 수정" 버튼 표시(사진 없는 자리에서만 전달됨) */
+  onEditPrompt?: () => void;
   onMove: (dir: "up" | "down") => void;
   onDelete: () => void;
 }) {
@@ -321,6 +420,19 @@ function SlotControls({
   };
   return (
     <div className="absolute right-1.5 top-1.5 z-20 flex items-center gap-0.5 rounded-md bg-background/85 p-0.5 shadow-sm ring-1 ring-border backdrop-blur">
+      {onEditPrompt && (
+        <button
+          type="button"
+          className={btn}
+          title="이미지 프롬프트·비율 수정"
+          onClick={(e) => {
+            stop(e);
+            onEditPrompt();
+          }}
+        >
+          <Wrench className="h-4 w-4" />
+        </button>
+      )}
       <span
         className={`${btn} cursor-grab active:cursor-grabbing`}
         title="드래그해서 원하는 위치로 이동"

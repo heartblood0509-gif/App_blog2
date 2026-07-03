@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState } from "react";
-import { ImageIcon, Plus } from "lucide-react";
+import { ImageIcon, Plus, Sparkles } from "lucide-react";
 import type { ImageSlot, UserPhoto } from "@/types";
 import { EditableImageSlot, SLOT_DND_MIME } from "@/components/editable-image-slot";
 import { ImageLightbox } from "@/components/image-lightbox";
@@ -19,9 +19,17 @@ export interface EditableConfig {
   imageSlots: ImageSlot[];
   userPhotosBySlot: Record<string, UserPhoto>;
   isGeneratingBySlot: Record<string, boolean>;
+  /** slotId → 사용자가 수정한 "생성할 이미지 프롬프트" 오버라이드. 없으면 slot.description */
+  imageDescBySlot: Record<string, string>;
+  /** slotId → 선택 비율("16:9"|"1:1"|"9:16"). 없으면 "1:1" */
+  aspectBySlot: Record<string, string>;
   onUserPhotoChange: (slotId: string, photo: UserPhoto | null) => void;
   onGenerateSlotAI: (slotId: string) => void;
   onTransformSlot: (slotId: string) => void;
+  /** 이미지 프롬프트(설명) 오버라이드 변경. null이면 기본값 복원 */
+  onImageDescChange: (slotId: string, value: string | null) => void;
+  /** 슬롯 비율 변경 */
+  onAspectChange: (slotId: string, ratio: string) => void;
   /** 이미지 자리 삭제(마커 줄 제거) */
   onDeleteSlot: (slotId: string) => void;
   /** 이미지 자리 문단 단위 이동 */
@@ -30,6 +38,11 @@ export interface EditableConfig {
   onMoveSlotToBoundary: (slotId: string, boundary: number) => void;
   /** 블록 경계에 빈 이미지 자리 삽입 (computeBlocks 인덱스) */
   onAddSlotAtBoundary: (boundary: number) => void;
+  /**
+   * 본문 텍스트 블록만: AI로 이 문단만 다시 쓰기 요청 (blockIndex = computeBlocks 인덱스).
+   * 주어지면 중간 본문 문단 hover 시 "다시 쓰기" 버튼 노출. 도입부/결론/소제목/마커/인용구는 제외.
+   */
+  onRewriteTextBlock?: (blockIndex: number) => void;
 }
 
 /**
@@ -63,9 +76,29 @@ export function BlogContentRenderer({
   // 블록 뒤(lineEnd) → 삽입 boundary(블록 인덱스 + 1). 맨 위(boundary 0)는 별도 렌더.
   const boundaryAfterLine = new Map<number, number>();
   if (editable) blocks.forEach((b, bi) => boundaryAfterLine.set(b.lineEnd, bi + 1));
+  // 텍스트 블록 첫 줄 → blockIndex (구간 재작성 버튼용). 첫·마지막 텍스트 블록은 제외
+  // (도입부 HOOK/서사구조·결론 보호 — 계획 1차 범위).
+  // 첫 줄에서 블록 줄 전체를 하나로 감싸 하이라이트 → "어디부터 어디까지 다시 쓰는지" 시각화.
+  // 나머지 줄(rewriteConsumedLines)은 렌더 루프에서 건너뛴다(중복 렌더 방지).
+  const rewriteTextBlockFirstLine = new Map<number, number>();
+  const rewriteConsumedLines = new Set<number>();
+  if (editable?.onRewriteTextBlock) {
+    const textBlockIdxs = blocks
+      .map((b, bi) => ({ kind: b.kind, bi }))
+      .filter((x) => x.kind === "text")
+      .map((x) => x.bi);
+    for (const bi of textBlockIdxs.slice(1, textBlockIdxs.length - 1)) {
+      const b = blocks[bi];
+      rewriteTextBlockFirstLine.set(b.lineStart, bi);
+      for (let ln = b.lineStart + 1; ln <= b.lineEnd; ln++) rewriteConsumedLines.add(ln);
+    }
+  }
   let markerIdx = -1;
 
   const rendered = lines.map((line, i) => {
+        // 재작성 블록의 둘째 줄부터는 첫 줄에서 블록 통째로 렌더하므로 건너뜀.
+        if (rewriteConsumedLines.has(i)) return null;
+
         // [이미지: ...] 마커
         const markerMatch = line.match(MARKER_RE);
         if (markerMatch) {
@@ -99,10 +132,14 @@ export function BlogContentRenderer({
                   isGenerating={isGenerating}
                   canMoveUp={bIdx > 0}
                   canMoveDown={bIdx >= 0 && bIdx < blocks.length - 1}
+                  imageDesc={editable.imageDescBySlot[slot.id]}
+                  aspect={editable.aspectBySlot[slot.id] ?? "1:1"}
                   onUserPhotoChange={(p) =>
                     editable.onUserPhotoChange(slot.id, p)
                   }
                   onGenerateAI={() => editable.onGenerateSlotAI(slot.id)}
+                  onImageDescChange={(v) => editable.onImageDescChange(slot.id, v)}
+                  onAspectChange={(r) => editable.onAspectChange(slot.id, r)}
                   onDelete={() => editable.onDeleteSlot(slot.id)}
                   onMove={(dir) => editable.onMoveSlot(slot.id, dir)}
                   onOpenLightbox={setLightboxSrc}
@@ -211,6 +248,35 @@ export function BlogContentRenderer({
         // 빈 줄 → 문단 여백
         if (line.trim() === "") {
           return <div key={i} className="h-3" />;
+        }
+
+        // 일반 텍스트 — 편집 모드 + 재작성 가능 블록의 첫 줄이면 블록 전체를 감싸
+        // hover 시 반투명 보라 하이라이트(=다시 쓰기 범위) + "다시 쓰기" 버튼.
+        if (editable?.onRewriteTextBlock && rewriteTextBlockFirstLine.has(i)) {
+          const bi = rewriteTextBlockFirstLine.get(i)!;
+          const b = blocks[bi];
+          const blockLines = lines.slice(b.lineStart, b.lineEnd + 1);
+          return (
+            <div
+              key={i}
+              className="group relative -mx-2 my-0.5 rounded-lg px-2 py-0.5 ring-1 ring-transparent transition-colors hover:bg-primary/10 hover:ring-primary/30"
+            >
+              {blockLines.map((bl, j) => (
+                <p key={j} className="text-base leading-8">
+                  {renderInlineStyles(bl)}
+                </p>
+              ))}
+              <button
+                type="button"
+                onClick={() => editable.onRewriteTextBlock!(bi)}
+                className="absolute -top-3 right-0 z-10 flex items-center gap-1 rounded-md border border-primary/30 bg-background px-2 py-1 text-xs font-medium text-primary opacity-0 shadow-sm transition-opacity hover:bg-primary/20 group-hover:opacity-100"
+                title="이 문단만 AI로 다시 쓰기"
+              >
+                <Sparkles className="h-3 w-3" />
+                다시 쓰기
+              </button>
+            </div>
+          );
         }
 
         // 일반 텍스트
