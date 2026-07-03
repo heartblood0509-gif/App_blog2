@@ -175,6 +175,10 @@ class DraftJobRequest(BaseModel):
     # 제목(2줄)도 함께 저장해, 중단한 draft 를 작업이력에서 다시 열 때 제목이 복원되게 한다.
     title_line1: str = ""
     title_line2: str = ""
+    # 제목 폰트/굵기/크기도 draft 생성 시 저장 → 앱 닫았다 재오픈해도 선택 유지.
+    title_font: Optional[str] = None
+    title_font_weight: Optional[str] = None
+    title_font_size: Optional[int] = None
 
 
 class DraftJobResponse(BaseModel):

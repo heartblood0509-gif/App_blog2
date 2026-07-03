@@ -2,6 +2,26 @@
 @import "tw-animate-css";
 @import "shadcn/tailwind.css";
 
+/* 쇼츠 제목 폰트 미리보기용(OFL 4종 × 굵기). 폰트당 family 1개에 굵기별 @font-face(파일)를
+   매핑 → 미리보기는 font-family + font-weight 로 굵기 선택. 파일은 /public/fonts, 같은-출처라
+   CSP `font-src 'self'` 로 커버. 짝: src/lib/youtube/fonts.ts */
+@font-face { font-family: "TF-Pretendard"; src: url("/fonts/Pretendard-Light.ttf") format("truetype"); font-weight: 300; font-display: swap; }
+@font-face { font-family: "TF-Pretendard"; src: url("/fonts/Pretendard-Regular.ttf") format("truetype"); font-weight: 400; font-display: swap; }
+@font-face { font-family: "TF-Pretendard"; src: url("/fonts/Pretendard-Medium.ttf") format("truetype"); font-weight: 500; font-display: swap; }
+@font-face { font-family: "TF-Pretendard"; src: url("/fonts/Pretendard-SemiBold.ttf") format("truetype"); font-weight: 600; font-display: swap; }
+@font-face { font-family: "TF-Pretendard"; src: url("/fonts/Pretendard-Bold.ttf") format("truetype"); font-weight: 700; font-display: swap; }
+@font-face { font-family: "TF-Pretendard"; src: url("/fonts/Pretendard-ExtraBold.ttf") format("truetype"); font-weight: 800; font-display: swap; }
+@font-face { font-family: "TF-Paperlogy"; src: url("/fonts/Paperlogy-Light.ttf") format("truetype"); font-weight: 300; font-display: swap; }
+@font-face { font-family: "TF-Paperlogy"; src: url("/fonts/Paperlogy-Regular.ttf") format("truetype"); font-weight: 400; font-display: swap; }
+@font-face { font-family: "TF-Paperlogy"; src: url("/fonts/Paperlogy-Medium.ttf") format("truetype"); font-weight: 500; font-display: swap; }
+@font-face { font-family: "TF-Paperlogy"; src: url("/fonts/Paperlogy-SemiBold.ttf") format("truetype"); font-weight: 600; font-display: swap; }
+@font-face { font-family: "TF-Paperlogy"; src: url("/fonts/Paperlogy-Bold.ttf") format("truetype"); font-weight: 700; font-display: swap; }
+@font-face { font-family: "TF-Paperlogy"; src: url("/fonts/Paperlogy-ExtraBold.ttf") format("truetype"); font-weight: 800; font-display: swap; }
+@font-face { font-family: "TF-GmarketSans"; src: url("/fonts/GmarketSans-Light.ttf") format("truetype"); font-weight: 300; font-display: swap; }
+@font-face { font-family: "TF-GmarketSans"; src: url("/fonts/GmarketSans-Medium.ttf") format("truetype"); font-weight: 500; font-display: swap; }
+@font-face { font-family: "TF-GmarketSans"; src: url("/fonts/GmarketSans-Bold.ttf") format("truetype"); font-weight: 700; font-display: swap; }
+@font-face { font-family: "TF-AtoZ"; src: url("/fonts/AtoZ-ExtraBold.ttf") format("truetype"); font-weight: 800; font-display: swap; }
+
 @custom-variant dark (&:is(.dark *));
 
 @theme inline {

@@ -942,6 +942,9 @@ export function LineAssetEditor() {
             <ShortsPreviewFrame
               titleLine1={state.titleLine1}
               titleLine2={state.titleLine2}
+              titleFont={state.titleFont}
+              titleFontWeight={state.titleFontWeight}
+              titleFontSize={state.titleFontSize}
               width={350}
             >
               {!activeLine ? (

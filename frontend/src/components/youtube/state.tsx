@@ -18,6 +18,12 @@ import type {
   TitleOption,
 } from "@/lib/youtube/endpoints";
 import { VOICE_OPTIONS } from "@/lib/youtube/voices";
+import {
+  DEFAULT_TITLE_FONT,
+  DEFAULT_TITLE_FONT_WEIGHT,
+  DEFAULT_TITLE_FONT_SIZE,
+  normalizeWeight,
+} from "@/lib/youtube/fonts";
 import { YT_AI_FULL_ENABLED } from "@/lib/youtube-ai-full-feature";
 
 export type YtMode = "ai_full" | "user_assets";
@@ -63,6 +69,10 @@ export interface YtState {
   selectedTitle: string;
   titleLine1: string;
   titleLine2: string;
+  // 제목 폰트(core.fonts id) + 굵기 id + 크기(px, 1080폭 렌더 기준). 기본 프리텐다드·ExtraBold·120.
+  titleFont: string;
+  titleFontWeight: string;
+  titleFontSize: number;
 
   // Card B — 붙여넣은 원본 대본(스텝 되돌아왔을 때 유지)
   scriptText: string;
@@ -119,6 +129,9 @@ export const initialYtState: YtState = {
   selectedTitle: "",
   titleLine1: "",
   titleLine2: "",
+  titleFont: DEFAULT_TITLE_FONT,
+  titleFontWeight: DEFAULT_TITLE_FONT_WEIGHT,
+  titleFontSize: DEFAULT_TITLE_FONT_SIZE,
   narration: [],
   narrationTitle: "",
   scriptLines: null,
@@ -230,6 +243,12 @@ export function restorePatchFromDraft(
     maxStepReached: 1, // Card B: script=0, lines=1
     titleLine1: ds.title_line1 ?? "",
     titleLine2: ds.title_line2 ?? "",
+    titleFont: ds.title_font ?? DEFAULT_TITLE_FONT,
+    titleFontWeight: normalizeWeight(
+      ds.title_font ?? DEFAULT_TITLE_FONT,
+      ds.title_font_weight ?? DEFAULT_TITLE_FONT_WEIGHT,
+    ),
+    titleFontSize: ds.title_font_size ?? DEFAULT_TITLE_FONT_SIZE,
     selectedTitle: ds.title ?? "",
     scriptText: lineTexts.join("\n"),
     ttsEngine: ds.tts_engine ?? "typecast",

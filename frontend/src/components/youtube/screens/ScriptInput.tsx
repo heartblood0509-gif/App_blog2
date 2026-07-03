@@ -15,6 +15,14 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Slider } from "@/components/ui/slider";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 import { useYt } from "../state";
@@ -24,6 +32,15 @@ import {
   TITLE_SHADOW as SHADOW,
   TITLE_LINE2_COLOR,
 } from "../ShortsPreviewFrame";
+import {
+  TITLE_FONTS,
+  TITLE_FONT_SIZE_MIN,
+  TITLE_FONT_SIZE_MAX,
+  getTitleFont,
+  titleFontStyle,
+  normalizeWeight,
+  previewFontSizePx,
+} from "@/lib/youtube/fonts";
 import { createDraft, saveDraftMeta, splitScript } from "@/lib/youtube/endpoints";
 
 const SCRIPT_MIN = 10; // 백엔드 SplitScriptRequest.script min_length
@@ -53,6 +70,7 @@ export function ScriptInput() {
   const line1Ref = useRef<HTMLDivElement>(null);
   const line2Ref = useRef<HTMLDivElement>(null);
   const [overflow, setOverflow] = useState(false);
+  const [frameWidth, setFrameWidth] = useState(200);
   useEffect(() => {
     const frame = frameRef.current;
     const el1 = line1Ref.current;
@@ -60,10 +78,27 @@ export function ScriptInput() {
     if (!frame || !el1 || !el2) return;
     const raf = requestAnimationFrame(() => {
       const w = frame.clientWidth;
+      setFrameWidth(w);
       setOverflow(el1.scrollWidth > w || el2.scrollWidth > w);
     });
     return () => cancelAnimationFrame(raf);
-  }, [state.titleLine1, state.titleLine2]);
+    // 폰트/굵기/크기가 바뀌면 프레임 대비 오버플로가 달라지므로 재측정한다.
+  }, [
+    state.titleLine1,
+    state.titleLine2,
+    state.titleFont,
+    state.titleFontWeight,
+    state.titleFontSize,
+  ]);
+
+  const titleStyle = titleFontStyle(state.titleFont, state.titleFontWeight);
+  const previewPx = previewFontSizePx(state.titleFontSize, frameWidth);
+  const selectedFont = getTitleFont(state.titleFont);
+  // 굵기 목록은 굵은 순(위)→얇은 순(아래)으로 표시.
+  const weightItems = selectedFont.weights
+    .slice()
+    .reverse()
+    .map((w) => ({ value: w.id, label: w.label }));
 
   function handleLine1(v: string) {
     update({ titleLine1: v, selectedTitle: combineTitle(v, state.titleLine2) });
@@ -98,6 +133,9 @@ export function ScriptInput() {
             title: combineTitle(n1, n2),
             title_line1: n1,
             title_line2: n2,
+            title_font: state.titleFont,
+            title_font_weight: state.titleFontWeight,
+            title_font_size: state.titleFontSize,
           });
           update({
             selectedTitle: combineTitle(n1, n2),
@@ -125,7 +163,14 @@ export function ScriptInput() {
         setBusy(false);
         return;
       }
-      const draft = await createDraft(lines, n1, n2);
+      const draft = await createDraft(
+        lines,
+        n1,
+        n2,
+        state.titleFont,
+        state.titleFontWeight,
+        state.titleFontSize,
+      );
       update({
         jobId: draft.job_id,
         scriptText: script,
@@ -144,34 +189,41 @@ export function ScriptInput() {
     <div className="space-y-5">
       {/* 1. 제목 입력 */}
       <div className="rounded-xl border border-border bg-card p-6 text-card-foreground">
-        <h2 className="text-lg font-semibold">1. 제목 입력</h2>
+        <h2 className="text-lg font-semibold">1. 제목 입력 (선택)</h2>
         <p className="mt-1 text-sm text-muted-foreground">
-          영상 상단에 흰색·노란색 2줄로 표시됩니다.
+          제목은 선택이에요. 비워두면 영상에 제목 없이 만들어집니다.
         </p>
 
         <p className="mt-4 text-sm font-medium text-foreground">
           영상에 표시될 제목 (2줄)
         </p>
-        <div className="mt-3 flex flex-col gap-5 sm:flex-row">
-          {/* 미리보기 프레임 (9:16) */}
+        <div className="mt-3 flex flex-col gap-6 sm:flex-row">
+          {/* 미리보기 프레임 (9:16) — 크게. 내부 위치는 200px 기준 metric ×1.25 로 스케일. */}
           <div
             ref={frameRef}
             className={cn(
-              "relative h-[356px] w-[200px] flex-shrink-0 overflow-hidden rounded-xl border bg-[#0a0a14]",
+              "relative h-[444px] w-[250px] flex-shrink-0 overflow-hidden rounded-xl border bg-[#0a0a14]",
               overflow ? "border-destructive" : "border-border",
             )}
           >
             <div
               ref={line1Ref}
-              className="absolute top-6 w-full whitespace-nowrap text-center text-[22px] font-extrabold text-white"
-              style={{ WebkitTextStroke: STROKE, textShadow: SHADOW }}
+              className="absolute top-[30px] w-full whitespace-nowrap text-center text-white"
+              style={{
+                ...titleStyle,
+                fontSize: `${previewPx}px`,
+                WebkitTextStroke: STROKE,
+                textShadow: SHADOW,
+              }}
             >
               {state.titleLine1}
             </div>
             <div
               ref={line2Ref}
-              className="absolute top-[50px] w-full whitespace-nowrap text-center text-[22px] font-extrabold"
+              className="absolute top-[62px] w-full whitespace-nowrap text-center"
               style={{
+                ...titleStyle,
+                fontSize: `${previewPx}px`,
                 color: TITLE_LINE2_COLOR,
                 WebkitTextStroke: STROKE,
                 textShadow: SHADOW,
@@ -179,7 +231,7 @@ export function ScriptInput() {
             >
               {state.titleLine2}
             </div>
-            <div className="absolute top-[78px] left-0 h-[200px] w-full border-y border-dashed border-white/15 bg-white/5" />
+            <div className="absolute top-[97px] left-0 h-[250px] w-full border-y border-dashed border-white/15 bg-white/5" />
             {overflow && (
               <div className="absolute bottom-2 w-full text-center text-sm font-semibold text-destructive">
                 프레임을 벗어나요
@@ -187,38 +239,115 @@ export function ScriptInput() {
             )}
           </div>
 
-          {/* 줄 입력 */}
-          <div className="flex flex-1 flex-col justify-center gap-3">
-            <div className="grid gap-1.5">
-              <Label htmlFor="cardb-title-line1">윗줄</Label>
-              <Input
-                id="cardb-title-line1"
-                maxLength={30}
-                value={state.titleLine1}
-                onChange={(e) => handleLine1(e.target.value)}
-                placeholder="예: 얼굴 빨개지는"
-              />
+          {/* 오른쪽: 입력칸(위) → 글씨체 → 굵기 → 크기. 미리보기 높이(444)에 맞춰 균등 배치.
+              좁은 창(sm 미만)에선 고정높이 해제하고 자연 스택. */}
+          <div className="flex flex-1 flex-col gap-4 sm:h-[444px] sm:justify-between">
+            {/* 제목 2줄 입력 */}
+            <div className="flex flex-col gap-3">
+              <div className="grid gap-1.5">
+                <Label htmlFor="cardb-title-line1">제목 첫 줄</Label>
+                <Input
+                  id="cardb-title-line1"
+                  maxLength={30}
+                  value={state.titleLine1}
+                  onChange={(e) => handleLine1(e.target.value)}
+                  placeholder="예: 얼굴 빨개지는"
+                />
+              </div>
+              <div className="grid gap-1.5">
+                <Label htmlFor="cardb-title-line2">제목 둘째 줄</Label>
+                <Input
+                  id="cardb-title-line2"
+                  maxLength={30}
+                  value={state.titleLine2}
+                  onChange={(e) => handleLine2(e.target.value)}
+                  placeholder="예: 의외의 진짜 이유"
+                />
+              </div>
             </div>
-            <div className="grid gap-1.5">
-              <Label htmlFor="cardb-title-line2">아랫줄</Label>
-              <Input
-                id="cardb-title-line2"
-                maxLength={30}
-                value={state.titleLine2}
-                onChange={(e) => handleLine2(e.target.value)}
-                placeholder="예: 의외의 진짜 이유"
-              />
+
+            {/* 제목 글씨체 */}
+            <div className="border-t border-border pt-4">
+              <p className="text-sm font-medium text-foreground">제목 폰트</p>
+              <div className="mt-3 grid grid-cols-2 gap-2">
+                {TITLE_FONTS.map((f) => {
+                  const sel = state.titleFont === f.id;
+                  return (
+                    <button
+                      key={f.id}
+                      type="button"
+                      // 폰트를 바꾸면 굵기는 그 폰트가 가진 것으로 정규화(없으면 그 폰트 기본 굵기).
+                      onClick={() =>
+                        update({
+                          titleFont: f.id,
+                          titleFontWeight: normalizeWeight(f.id, state.titleFontWeight),
+                        })
+                      }
+                      className={cn(
+                        "flex flex-col items-start gap-1 rounded-lg border px-3 py-2 text-left transition-colors",
+                        sel
+                          ? "border-primary bg-primary/5"
+                          : "border-border bg-background hover:bg-muted",
+                      )}
+                    >
+                      <span
+                        className="text-xl leading-none text-foreground"
+                        style={titleFontStyle(f.id, f.defaultWeight)}
+                      >
+                        가나다 Ag
+                      </span>
+                      <span className="text-xs text-muted-foreground">{f.label}</span>
+                    </button>
+                  );
+                })}
+              </div>
             </div>
-            <p className="text-xs text-muted-foreground">
-              제목은 선택이에요. 비워두면 영상에 제목 없이 만들어집니다.
-            </p>
+
+            {/* 굵기 — 고른 폰트가 실제 가진 굵기만(원래 굵기 이름 그대로). */}
+            <div className="flex items-center gap-3">
+              <Label htmlFor="cardb-title-weight" className="text-sm font-medium">
+                굵기
+              </Label>
+              <Select
+                items={weightItems}
+                value={state.titleFontWeight}
+                onValueChange={(v) => v && update({ titleFontWeight: v })}
+              >
+                <SelectTrigger id="cardb-title-weight" className="h-9 flex-1">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {weightItems.map((o) => (
+                    <SelectItem key={o.value} value={o.value}>
+                      {o.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            {/* 글자 크기 */}
+            <div className="flex items-center gap-3">
+              <p className="whitespace-nowrap text-sm font-medium text-foreground">글자 크기</p>
+              <Slider
+                className="flex-1"
+                min={TITLE_FONT_SIZE_MIN}
+                max={TITLE_FONT_SIZE_MAX}
+                step={2}
+                value={state.titleFontSize}
+                onValueChange={(v) => update({ titleFontSize: v })}
+              />
+              <span className="w-10 text-right text-sm tabular-nums text-muted-foreground">
+                {state.titleFontSize}
+              </span>
+            </div>
           </div>
         </div>
       </div>
 
       {/* 2. 대본 입력 */}
       <div className="rounded-xl border border-border bg-card p-6 text-card-foreground">
-        <h2 className="text-lg font-semibold">2. 대본 입력</h2>
+        <h2 className="text-lg font-semibold">2. 대본 입력 (필수)</h2>
         <p className="mt-1 text-sm text-muted-foreground">
           미리 준비한 대본을 그대로 붙여 넣어주세요. 1차로 문장 단위 자동 분리가 되며, 카드
           단계에서 <b>Enter</b> 키를 치면 그 자리에서 카드를 더 잘게 나눌 수 있습니다.

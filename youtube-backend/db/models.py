@@ -77,6 +77,11 @@ class Job(Base):
     title = Column(Text, default="")
     title_line1 = Column(String, nullable=True)
     title_line2 = Column(String, nullable=True)
+    # 제목 폰트 id + 굵기 id(core.fonts.BUNDLED_TITLE_FONTS) + 크기(px, 1080폭 기준).
+    # None=기본(프리텐다드·ExtraBold·120).
+    title_font = Column(String, nullable=True)
+    title_font_weight = Column(String, nullable=True)
+    title_font_size = Column(Integer, nullable=True)
     script_json = Column(Text, default="[]")
     # 카드 A("AI가 모두 생성")는 "ai_full", 카드 B("사용자 직접 제공")는 "user_assets"
     generation_mode = Column(String, default="ai_full")

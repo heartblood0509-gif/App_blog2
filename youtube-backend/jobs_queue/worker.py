@@ -13,6 +13,7 @@ from db.models import Job
 from jobs_queue.job_manager import update_job_progress, mark_job_failed, set_video_path
 from api.deps import resolve_user_api_keys
 from core.r2_storage import is_r2_enabled, require_r2_for_generation
+from core.fonts import resolve_title_font_path
 from core.user_assets_visual import (
     ensure_line_ids,
     line_asset_rel,
@@ -574,8 +575,11 @@ async def render_video_for_job(job_id: str):
                 "bgm_path": bgm_path,
                 "bgm_volume": job.bgm_volume,
                 "bgm_start_sec": job.bgm_start_sec or 0.0,
-                "font_title": settings.FONT_TITLE,
+                "font_title": resolve_title_font_path(
+                    getattr(job, "title_font", None), getattr(job, "title_font_weight", None)
+                ),
                 "font_sub": settings.FONT_SUB,
+                "title_font_size": getattr(job, "title_font_size", None),
                 "typecast_api_key": keys["typecast"],
             }
 

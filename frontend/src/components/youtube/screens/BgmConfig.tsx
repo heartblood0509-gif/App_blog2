@@ -145,6 +145,9 @@ export function BgmConfig() {
           title: state.selectedTitle,
           title_line1: state.titleLine1,
           title_line2: state.titleLine2,
+          title_font: state.titleFont,
+          title_font_weight: state.titleFontWeight,
+          title_font_size: state.titleFontSize,
         });
         update({ screen: "progress" });
       } catch (e) {

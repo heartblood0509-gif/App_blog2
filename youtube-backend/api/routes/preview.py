@@ -703,6 +703,18 @@ async def confirm_and_render(
             job.title_line1 = body["title_line1"]
         if body.get("title_line2") is not None:
             job.title_line2 = body["title_line2"]
+        # 제목 폰트/크기. 폰트 id 유효성은 렌더 시 resolve_title_font_path 가 폴백 처리하므로
+        # 여기선 문자열만 받는다. 크기는 raw JSON 이라 숫자 아님/NaN 방어 + 70~170 clamp.
+        if body.get("title_font") is not None:
+            job.title_font = str(body["title_font"])
+        if body.get("title_font_weight") is not None:
+            job.title_font_weight = str(body["title_font_weight"])
+        if body.get("title_font_size") is not None:
+            try:
+                _sz = int(float(body["title_font_size"]))
+                job.title_font_size = max(70, min(170, _sz))
+            except (TypeError, ValueError):
+                pass  # 잘못된 값은 무시 → 기본(120) 사용
         # title이 비어 있으면 video_assembler.py:306의 조건(if title_text and font_title)을
         # 통과하지 못해 제목 자체가 영상에 안 박힌다. 카드 B draft는 title=""로 시작하므로 여기서 흡수.
         if body.get("title") is not None:
