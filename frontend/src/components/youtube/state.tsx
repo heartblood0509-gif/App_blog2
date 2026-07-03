@@ -18,6 +18,18 @@ import type {
   TitleOption,
 } from "@/lib/youtube/endpoints";
 import { VOICE_OPTIONS } from "@/lib/youtube/voices";
+import {
+  DEFAULT_TITLE_FONT,
+  DEFAULT_TITLE_FONT_WEIGHT,
+  DEFAULT_TITLE_FONT_SIZE,
+  normalizeWeight,
+} from "@/lib/youtube/fonts";
+import {
+  DEFAULT_TITLE_COLOR1,
+  DEFAULT_TITLE_COLOR2,
+  normalizeHexOr,
+} from "@/lib/youtube/title-colors";
+import { loadLastUsed } from "@/lib/youtube/title-defaults";
 import { YT_AI_FULL_ENABLED } from "@/lib/youtube-ai-full-feature";
 
 export type YtMode = "ai_full" | "user_assets";
@@ -63,6 +75,13 @@ export interface YtState {
   selectedTitle: string;
   titleLine1: string;
   titleLine2: string;
+  // 제목 폰트(core.fonts id) + 굵기 id + 크기(px, 1080폭 렌더 기준). 기본 프리텐다드·ExtraBold·120.
+  titleFont: string;
+  titleFontWeight: string;
+  titleFontSize: number;
+  // 제목 줄별 색(#RRGGBB). 기본 윗줄 흰색 / 아랫줄 톤다운 노란색.
+  titleColor1: string;
+  titleColor2: string;
 
   // Card B — 붙여넣은 원본 대본(스텝 되돌아왔을 때 유지)
   scriptText: string;
@@ -119,6 +138,11 @@ export const initialYtState: YtState = {
   selectedTitle: "",
   titleLine1: "",
   titleLine2: "",
+  titleFont: DEFAULT_TITLE_FONT,
+  titleFontWeight: DEFAULT_TITLE_FONT_WEIGHT,
+  titleFontSize: DEFAULT_TITLE_FONT_SIZE,
+  titleColor1: DEFAULT_TITLE_COLOR1,
+  titleColor2: DEFAULT_TITLE_COLOR2,
   narration: [],
   narrationTitle: "",
   scriptLines: null,
@@ -137,6 +161,23 @@ export const initialYtState: YtState = {
   error: null,
   maxStepReached: 0,
 };
+
+// 새 영상 시작값 = 초기값 + "이 기기 마지막 스타일"(자동 기억 우선 정책). 폰트/굵기/크기/색만
+// 마지막값으로 덮어쓰고 나머지는 초기값. 진행 중 작업 복원(restorePatchFromDraft)엔 관여 안 함.
+// 신규 프로젝트 진입점(Provider 초기화 + "새로 만들기" reset)에서 공유한다.
+export function freshYtState(): YtState {
+  const last = loadLastUsed();
+  return {
+    ...initialYtState,
+    ...(last.font !== undefined ? { titleFont: last.font } : {}),
+    ...(last.font !== undefined || last.weight !== undefined
+      ? { titleFontWeight: normalizeWeight(last.font ?? DEFAULT_TITLE_FONT, last.weight ?? DEFAULT_TITLE_FONT_WEIGHT) }
+      : {}),
+    ...(last.size !== undefined ? { titleFontSize: last.size } : {}),
+    ...(last.color1 !== undefined ? { titleColor1: last.color1 } : {}),
+    ...(last.color2 !== undefined ? { titleColor2: last.color2 } : {}),
+  };
+}
 
 type Patch = Partial<YtState>;
 
@@ -163,7 +204,8 @@ interface YtContextValue {
 const YtContext = createContext<YtContextValue | null>(null);
 
 export function YoutubeWorkflowProvider({ children }: { children: ReactNode }) {
-  const [state, update] = useReducer(reducer, initialYtState);
+  // 지연 초기화로 "이 기기 마지막 스타일"을 seed(localStorage, 클라 전용 — SSR 시 loadLastUsed 가 {}).
+  const [state, update] = useReducer(reducer, undefined, freshYtState);
   return (
     <YtContext.Provider value={{ state, update }}>
       {children}
@@ -230,6 +272,14 @@ export function restorePatchFromDraft(
     maxStepReached: 1, // Card B: script=0, lines=1
     titleLine1: ds.title_line1 ?? "",
     titleLine2: ds.title_line2 ?? "",
+    titleFont: ds.title_font ?? DEFAULT_TITLE_FONT,
+    titleFontWeight: normalizeWeight(
+      ds.title_font ?? DEFAULT_TITLE_FONT,
+      ds.title_font_weight ?? DEFAULT_TITLE_FONT_WEIGHT,
+    ),
+    titleFontSize: ds.title_font_size ?? DEFAULT_TITLE_FONT_SIZE,
+    titleColor1: normalizeHexOr(ds.title_color1, DEFAULT_TITLE_COLOR1),
+    titleColor2: normalizeHexOr(ds.title_color2, DEFAULT_TITLE_COLOR2),
     selectedTitle: ds.title ?? "",
     scriptText: lineTexts.join("\n"),
     ttsEngine: ds.tts_engine ?? "typecast",

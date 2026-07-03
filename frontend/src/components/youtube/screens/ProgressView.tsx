@@ -9,7 +9,7 @@ import { AlertTriangle, Loader2, Pencil, RotateCcw } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
-import { initialYtState, restorePatchFromDraft, useYt } from "../state";
+import { freshYtState, restorePatchFromDraft, useYt } from "../state";
 import { ytUrl } from "@/lib/youtube/api";
 import { reopenJob } from "@/lib/youtube/endpoints";
 import { useJobStream, type JobFrame } from "@/lib/youtube/useJobStream";
@@ -55,7 +55,7 @@ export function ProgressView() {
   const doneImages = new Set(frame?.completed_images ?? []);
 
   function restart() {
-    update({ ...initialYtState });
+    update(freshYtState());
   }
 
   // 카드 B 렌더 실패 후 편집 화면(lines)으로 복귀. 자산·음성·제목이 보존돼 있어

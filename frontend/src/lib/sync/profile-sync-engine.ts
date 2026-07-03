@@ -24,9 +24,9 @@ import type { RealtimeChannel, SupabaseClient } from "@supabase/supabase-js";
 import { fetchStoreList } from "@/lib/store-fetch";
 import { reportSyncStatus } from "@/lib/sync/cloud-sync";
 
-export type ProfileKind = "brand" | "aeo" | "product" | "analysis";
+export type ProfileKind = "brand" | "aeo" | "product" | "analysis" | "saved-color";
 
-const KINDS: ProfileKind[] = ["brand", "aeo", "product", "analysis"];
+const KINDS: ProfileKind[] = ["brand", "aeo", "product", "analysis", "saved-color"];
 const TABLE = "user_profiles";
 const RECONCILE_DEBOUNCE_MS = 1200;
 
@@ -35,14 +35,19 @@ const LIST_URL: Record<ProfileKind, string> = {
   aeo: "/api/aeo/profiles",
   product: "/api/products",
   analysis: "/api/analysis/records",
+  "saved-color": "/api/saved-colors",
 };
 
-/** 종류별 자연키 필드(사람이 읽는 고유 이름). analysis 는 내용해시로 판정하므로 없음. */
+/** 종류별 자연키 필드(사람이 읽는 고유 이름). analysis 는 내용해시로 판정하므로 없음.
+ * saved-color 는 hex 가 자연키지만, uuid 를 hex 로부터 결정론적으로 만들어(백엔드 uuid5)
+ * 같은 색이면 어느 기기든 동일 uuid → item_uuid 기준 자동 병합되므로 rename 로직이 불필요.
+ * (null 로 두어 "같은 이름 → 둘 다 보존 후 rename" 경로를 타지 않게 한다 — 색엔 부적절.) */
 const NAME_FIELD: Record<ProfileKind, string | null> = {
   brand: "name",
   aeo: "label",
   product: "name",
   analysis: null,
+  "saved-color": null,
 };
 
 // 로컬 id·동기화 메타 등 "내용"이 아닌 필드 — contentHash 계산에서 제외.
@@ -177,6 +182,7 @@ export function kindFromUrl(input: RequestInfo | URL): ProfileKind | null {
         : (input as Request).url ?? "";
   if (url.includes("/api/brand/profiles")) return "brand";
   if (url.includes("/api/aeo/profiles")) return "aeo";
+  if (url.includes("/api/saved-colors")) return "saved-color";
   if (url.includes("/api/products")) return "product";
   if (url.includes("/api/analysis/records")) return "analysis";
   return null;
@@ -426,6 +432,7 @@ const reconcileTimers: Record<ProfileKind, ReturnType<typeof setTimeout> | null>
   aeo: null,
   product: null,
   analysis: null,
+  "saved-color": null,
 };
 
 export function scheduleReconcile(kind: ProfileKind, delayMs: number = RECONCILE_DEBOUNCE_MS): void {

@@ -11,7 +11,7 @@
 
 create table if not exists public.user_profiles (
   user_id       uuid        not null references auth.users(id) on delete cascade,
-  kind          text        not null check (kind in ('brand','aeo','product','analysis')),
+  kind          text        not null check (kind in ('brand','aeo','product','analysis','saved-color')),
   item_uuid     uuid        not null,
   payload       jsonb       not null default '{}'::jsonb,  -- 비밀값 제외 레코드 스냅샷(로컬 id 제거)
   deleted_at    timestamptz,                                -- tombstone (null = 활성)
@@ -19,6 +19,14 @@ create table if not exists public.user_profiles (
   source_device text,                                       -- 마지막으로 쓴 기기(echo 필터)
   primary key (user_id, kind, item_uuid)
 );
+
+-- 기존 설치본: kind CHECK 제약에 새 kind('saved-color')를 추가한다.
+-- `create table if not exists` 는 이미 있는 테이블의 제약을 갱신하지 않으므로 별도 ALTER 필요.
+-- 인라인 무명 제약은 Postgres 관례상 user_profiles_kind_check 로 명명된다(재실행 안전).
+alter table public.user_profiles drop constraint if exists user_profiles_kind_check;
+alter table public.user_profiles
+  add constraint user_profiles_kind_check
+  check (kind in ('brand','aeo','product','analysis','saved-color'));
 
 create index if not exists user_profiles_user_updated_idx
   on public.user_profiles (user_id, updated_at desc);

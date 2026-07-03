@@ -14,7 +14,7 @@ import { useEffect, useRef, useState } from "react";
 import { Film, ImageUp, Loader2, RefreshCw, RotateCcw } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
-import { initialYtState, useYt } from "../state";
+import { freshYtState, useYt } from "../state";
 import { ytUrl } from "@/lib/youtube/api";
 import {
   confirmRender,
@@ -261,7 +261,7 @@ export function ImagePreview() {
       <div className="mt-6 flex items-center justify-between gap-3">
         <Button
           variant="ghost"
-          onClick={() => update({ ...initialYtState })}
+          onClick={() => update(freshYtState())}
           disabled={locked}
           className="gap-1.5"
         >

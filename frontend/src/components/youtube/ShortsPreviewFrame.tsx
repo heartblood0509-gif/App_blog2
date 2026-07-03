@@ -9,6 +9,16 @@
 
 import type { ReactNode } from "react";
 import { cn } from "@/lib/utils";
+import {
+  DEFAULT_TITLE_FONT,
+  DEFAULT_TITLE_FONT_WEIGHT,
+  DEFAULT_TITLE_FONT_SIZE,
+  titleFontStyle,
+} from "@/lib/youtube/fonts";
+import {
+  DEFAULT_TITLE_COLOR1,
+  DEFAULT_TITLE_COLOR2,
+} from "@/lib/youtube/title-colors";
 
 // 제목 오버레이 외곽선/그림자 — 자막 가독성용. TitleSelect 와 공유.
 export const TITLE_STROKE = "0.7px rgba(0,0,0,0.8)";
@@ -22,22 +32,34 @@ const BASE_WIDTH = 200;
 export function ShortsPreviewFrame({
   titleLine1,
   titleLine2,
+  titleFont = DEFAULT_TITLE_FONT,
+  titleFontWeight = DEFAULT_TITLE_FONT_WEIGHT,
+  titleFontSize = DEFAULT_TITLE_FONT_SIZE,
+  titleColor1 = DEFAULT_TITLE_COLOR1,
+  titleColor2 = DEFAULT_TITLE_COLOR2,
   children,
   className,
   width = BASE_WIDTH,
 }: {
   titleLine1?: string;
   titleLine2?: string;
+  titleFont?: string; // core.fonts id.
+  titleFontWeight?: string; // 굵기 id.
+  titleFontSize?: number; // 렌더 기준 px(1080폭). 미지정이면 기본 120.
+  titleColor1?: string; // 윗줄 색(#RRGGBB).
+  titleColor2?: string; // 아랫줄 색(#RRGGBB).
   children?: ReactNode; // 미디어 배경(<img>/<video>/placeholder) — 프레임을 꽉 채우게.
   className?: string;
   width?: number; // 프레임 가로 폭(px). 높이·제목 크기는 9:16 / 비율로 자동.
 }) {
   const height = Math.round((width * 16) / 9);
-  const s = width / BASE_WIDTH; // 제목 스케일 비율
+  const s = width / BASE_WIDTH; // 제목 위치 스케일 비율
+  // 제목 폰트 크기는 렌더 기준(1080폭) px 을 프레임 폭으로 환산. size 120·width 200 이면 22px(기존값).
   const titleBase = {
     WebkitTextStroke: TITLE_STROKE,
     textShadow: TITLE_SHADOW,
-    fontSize: `${22 * s}px`,
+    ...titleFontStyle(titleFont, titleFontWeight),
+    fontSize: `${titleFontSize * (width / 1080)}px`,
   } as const;
 
   return (
@@ -54,8 +76,8 @@ export function ShortsPreviewFrame({
       {/* 제목 오버레이 (이미지 위) */}
       {titleLine1 ? (
         <div
-          className="pointer-events-none absolute w-full whitespace-nowrap text-center font-extrabold text-white"
-          style={{ ...titleBase, top: 24 * s }}
+          className="pointer-events-none absolute w-full whitespace-nowrap text-center font-extrabold"
+          style={{ ...titleBase, color: titleColor1, top: 24 * s }}
         >
           {titleLine1}
         </div>
@@ -63,7 +85,7 @@ export function ShortsPreviewFrame({
       {titleLine2 ? (
         <div
           className="pointer-events-none absolute w-full whitespace-nowrap text-center font-extrabold"
-          style={{ ...titleBase, color: TITLE_LINE2_COLOR, top: 50 * s }}
+          style={{ ...titleBase, color: titleColor2, top: 50 * s }}
         >
           {titleLine2}
         </div>

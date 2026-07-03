@@ -1934,6 +1934,29 @@ async function boot(): Promise<void> {
     return { ok: error === "", error: error || undefined, path: dir };
   });
 
+  // 작업 데이터 폴더 열기 — 이미지/영상 생성이 멈추거나 무한 로딩되는 문의의 스모킹건인
+  // shorts.db(작업 큐 상태가 담긴 SQLite)를 사용자가 Win+R·경로입력 없이 첨부할 수 있게 한다.
+  // storageDir 뿌리는 openTtsPreviewFolder 와 동일하게 paths.userData 파생(youtube-manager 에
+  // 주입한 storageDir 과 같은 출처)이라 '쓰는 경로'와 '여는 경로'가 절대 엇갈리지 않는다.
+  // 이 폴더엔 작업별 영상 폴더(수 GB)도 섞여 있으므로, shorts.db 가 있으면 그 파일을 선택된
+  // 상태로 띄워(showItemInFolder) 사용자가 딱 그 파일만 집어 보내도록 유도한다.
+  ipcMain.handle("app:openDataFolder", async () => {
+    const dir = path.join(paths.userData, "youtube", "storage");
+    const dbPath = path.join(dir, "shorts.db");
+    try {
+      // 아직 작업이 없는 새 설치에서도 폴더가 열리도록 보장(빈 폴더면 'DB 없음'이 곧 단서).
+      fs.mkdirSync(dir, { recursive: true });
+    } catch {
+      // mkdir 실패해도 아래 열기 시도는 진행(이미 존재할 수 있음).
+    }
+    if (fs.existsSync(dbPath)) {
+      shell.showItemInFolder(dbPath); // shorts.db 를 선택된 채로 탐색기를 연다(반환값 없음).
+      return { ok: true, path: dbPath };
+    }
+    const error = await shell.openPath(dir); // shorts.db 가 아직 없으면 폴더만 연다.
+    return { ok: error === "", error: error || undefined, path: dir };
+  });
+
   // 음성 미리듣기(샘플) 캐시 폴더 열기 — 미리듣기 재생 실패 문의 시, 재생에 실패한
   // 그 .wav 파일 자체를 사용자가 그대로 첨부할 수 있게 한다. shell.openPath 는 Win/mac(intel·arm) 공통.
   //

@@ -9,7 +9,7 @@
     "dev:worktree": "node scripts/dev-worktree.js",
     "dev:worktree:electron": "node scripts/dev-worktree.js --electron",
     "build:electron": "tsc -p electron",
-    "prebuild:electron": "npm run check:youtube-flag-sync",
+    "prebuild:electron": "npm run check:youtube-flag-sync && npm run check:title-font-sync",
     "build:next": "npm --prefix frontend run build",
     "build:backend": "node scripts/build-backend.js",
     "build:backend:win": "cmd /c backend\\build-windows.bat",
@@ -22,6 +22,7 @@
     "verify:update": "powershell -ExecutionPolicy Bypass -File scripts/verify-update.ps1",
     "smoke:packaged": "powershell -ExecutionPolicy Bypass -File scripts/smoke-packaged.ps1",
     "check:youtube-flag-sync": "node scripts/check-youtube-flag-sync.js",
+    "check:title-font-sync": "node scripts/check-title-font-sync.js",
     "sync-version": "node scripts/sync-version.js",
     "version": "node scripts/sync-version.js && git add frontend/package.json backend/version.txt",
     "verify:no-dev-flags": "node scripts/verify-no-dev-flags.js"

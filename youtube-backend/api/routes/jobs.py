@@ -9,6 +9,7 @@ from db.database import get_db
 from db.models import Job, JobTask, User, UserProduct
 from config import settings, YT_AI_FULL_ENABLED
 from core.time_utils import utc_isoformat, utc_now_naive
+from core.colors import normalize_hex, DEFAULT_TITLE_COLOR1, DEFAULT_TITLE_COLOR2
 from core.user_assets_visual import new_line_id, ensure_line_ids, line_asset_rel_candidates
 from core.r2_storage import (
     require_r2_for_generation,
@@ -302,6 +303,11 @@ async def create_draft_job(
         title=(f"{request.title_line1} {request.title_line2}").strip(),
         title_line1=request.title_line1 or None,
         title_line2=request.title_line2 or None,
+        title_font=request.title_font,
+        title_font_weight=request.title_font_weight,
+        title_font_size=(max(70, min(170, request.title_font_size)) if request.title_font_size is not None else None),
+        title_color1=(normalize_hex(request.title_color1, DEFAULT_TITLE_COLOR1) if request.title_color1 is not None else None),
+        title_color2=(normalize_hex(request.title_color2, DEFAULT_TITLE_COLOR2) if request.title_color2 is not None else None),
         script_json=json.dumps(script_lines, ensure_ascii=False),
         generation_mode="user_assets",
         line_sources_json=json.dumps(["ai"] * n, ensure_ascii=False),
@@ -544,6 +550,11 @@ class DraftStateResponse(BaseModel):
     title: str | None = ""
     title_line1: str | None = None
     title_line2: str | None = None
+    title_font: str | None = None
+    title_font_weight: str | None = None
+    title_font_size: int | None = None
+    title_color1: str | None = None
+    title_color2: str | None = None
     tts_engine: str | None = None
     tts_speed: float | None = None
     voice_id: str | None = None
@@ -587,6 +598,11 @@ def _build_draft_state(job: Job) -> DraftStateResponse:
         title=job.title or "",
         title_line1=job.title_line1,
         title_line2=job.title_line2,
+        title_font=job.title_font,
+        title_font_weight=job.title_font_weight,
+        title_font_size=job.title_font_size,
+        title_color1=job.title_color1,
+        title_color2=job.title_color2,
         tts_engine=job.tts_engine,
         tts_speed=job.tts_speed,
         voice_id=job.voice_id,
@@ -620,6 +636,11 @@ class UpdateDraftMetaRequest(BaseModel):
     title: str | None = None
     title_line1: str | None = None
     title_line2: str | None = None
+    title_font: str | None = None
+    title_font_weight: str | None = None
+    title_font_size: int | None = None
+    title_color1: str | None = None
+    title_color2: str | None = None
 
 
 @router.post("/{job_id}/draft-meta", response_model=DraftStateResponse)
@@ -646,6 +667,16 @@ async def update_draft_meta(
         job.title_line1 = body.title_line1
     if body.title_line2 is not None:
         job.title_line2 = body.title_line2
+    if body.title_font is not None:
+        job.title_font = body.title_font
+    if body.title_font_weight is not None:
+        job.title_font_weight = body.title_font_weight
+    if body.title_font_size is not None:
+        job.title_font_size = max(70, min(170, int(body.title_font_size)))
+    if body.title_color1 is not None:
+        job.title_color1 = normalize_hex(body.title_color1, DEFAULT_TITLE_COLOR1)
+    if body.title_color2 is not None:
+        job.title_color2 = normalize_hex(body.title_color2, DEFAULT_TITLE_COLOR2)
     db.commit()
     db.refresh(job)
     return _build_draft_state(job)

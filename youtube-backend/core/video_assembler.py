@@ -316,9 +316,20 @@ async def assemble_shorts(job_id: str, config: dict, progress_callback=None):
             title_lines = [tl1, tl2] if tl2 else [tl1]
         else:
             title_lines = split_title(title_text, max_chars=8)
-        title_fontsize = 120
-        title_line_gap = 130
-        title_colors = ["white", "#E8D44D"]  # 윗줄 흰색, 아랫줄 톤다운 노란색
+        # 사용자가 고른 제목 크기(px, 1080폭 기준). 기본 120. 테두리·그림자·줄간격은
+        # 120 기준값에 비례 스케일해 극단 크기에서도 균형 유지.
+        title_fontsize = max(70, min(170, int(config.get("title_font_size") or 120)))
+        _sf = title_fontsize / 120
+        title_line_gap = round(130 * _sf)
+        shadow_off = max(1, round(6 * _sf))
+        border_w = max(1, round(4 * _sf))
+        # 윗줄/아랫줄 색. 사용자 입력이 여기서 drawtext fontcolor 로 박히므로 normalize_hex 로
+        # 2차 방어(#RRGGBB 아니면 기본색). 기본: 윗줄 흰색, 아랫줄 톤다운 노란색.
+        from core.colors import normalize_hex, DEFAULT_TITLE_COLOR1, DEFAULT_TITLE_COLOR2
+        title_colors = [
+            normalize_hex(config.get("title_color1"), DEFAULT_TITLE_COLOR1),
+            normalize_hex(config.get("title_color2"), DEFAULT_TITLE_COLOR2),
+        ]
         font_path_escaped = font_title_name
         for j, line in enumerate(title_lines):
             escaped = _escape_filter(line)
@@ -332,13 +343,13 @@ async def assemble_shorts(job_id: str, config: dict, progress_callback=None):
             title_filters.append(
                 f"drawtext=expansion=none:fontfile='{font_path_escaped}':text='{escaped}':"
                 f"fontsize={title_fontsize}:fontcolor=black@0.5:"
-                f"x=(w-text_w)/2+6:y={ty}+6"
+                f"x=(w-text_w)/2+{shadow_off}:y={ty}+{shadow_off}"
             )
             # 본문 레이어 (테두리 + 색상)
             title_filters.append(
                 f"drawtext=expansion=none:fontfile='{font_path_escaped}':text='{escaped}':"
                 f"fontsize={title_fontsize}:fontcolor={line_color}:"
-                f"borderw=4:bordercolor=black@0.8:"
+                f"borderw={border_w}:bordercolor=black@0.8:"
                 f"x=(w-text_w)/2:y={ty}"
             )
 
