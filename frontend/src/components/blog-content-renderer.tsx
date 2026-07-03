@@ -19,9 +19,17 @@ export interface EditableConfig {
   imageSlots: ImageSlot[];
   userPhotosBySlot: Record<string, UserPhoto>;
   isGeneratingBySlot: Record<string, boolean>;
+  /** slotId → 사용자가 수정한 "생성할 이미지 프롬프트" 오버라이드. 없으면 slot.description */
+  imageDescBySlot: Record<string, string>;
+  /** slotId → 선택 비율("16:9"|"1:1"|"9:16"). 없으면 "1:1" */
+  aspectBySlot: Record<string, string>;
   onUserPhotoChange: (slotId: string, photo: UserPhoto | null) => void;
   onGenerateSlotAI: (slotId: string) => void;
   onTransformSlot: (slotId: string) => void;
+  /** 이미지 프롬프트(설명) 오버라이드 변경. null이면 기본값 복원 */
+  onImageDescChange: (slotId: string, value: string | null) => void;
+  /** 슬롯 비율 변경 */
+  onAspectChange: (slotId: string, ratio: string) => void;
   /** 이미지 자리 삭제(마커 줄 제거) */
   onDeleteSlot: (slotId: string) => void;
   /** 이미지 자리 문단 단위 이동 */
@@ -124,10 +132,14 @@ export function BlogContentRenderer({
                   isGenerating={isGenerating}
                   canMoveUp={bIdx > 0}
                   canMoveDown={bIdx >= 0 && bIdx < blocks.length - 1}
+                  imageDesc={editable.imageDescBySlot[slot.id]}
+                  aspect={editable.aspectBySlot[slot.id] ?? "1:1"}
                   onUserPhotoChange={(p) =>
                     editable.onUserPhotoChange(slot.id, p)
                   }
                   onGenerateAI={() => editable.onGenerateSlotAI(slot.id)}
+                  onImageDescChange={(v) => editable.onImageDescChange(slot.id, v)}
+                  onAspectChange={(r) => editable.onAspectChange(slot.id, r)}
                   onDelete={() => editable.onDeleteSlot(slot.id)}
                   onMove={(dir) => editable.onMoveSlot(slot.id, dir)}
                   onOpenLightbox={setLightboxSrc}

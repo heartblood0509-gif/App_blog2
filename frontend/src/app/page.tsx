@@ -1527,6 +1527,16 @@ export default function Home() {
         toast.error("업로드된 사진이 없습니다.");
         return;
       }
+      // 사진 올린 자리에서 AI 생성(text-to-image) 금지 — 업로드/변환 사진 덮어쓰기 방지.
+      if (action === "ai" && photo) {
+        toast.error("사진이 업로드된 자리예요. 사진을 빼면 AI로 생성할 수 있어요.");
+        return;
+      }
+
+      // 생성 시작 시점의 슬롯 버전 스냅샷. 생성 중 사용자가 비율/프롬프트/제외를 바꾸면
+      // slotVersionMap 이 올라가므로, 결과 반영 직전 버전이 달라졌으면 옛 결과를 폐기한다
+      // (일괄 생성의 onSlotDone 과 동일한 stale-write 방지 규칙).
+      const versionAtStart = state.slotVersionMap[slotId] ?? 0;
 
       setState((prev) => ({
         ...prev,
@@ -1582,7 +1592,16 @@ export default function Home() {
           nextGenerating[slotId] = false;
           // [B3] 생성 중 삭제/이동으로 사라진 슬롯이면 결과를 버림(orphan 이미지 방지)
           const slotStillExists = prev.imageSlots.some((s) => s.id === slotId);
-          if (slotStillExists && r && r.status === "done" && r.base64) {
+          // 생성 중 비율/프롬프트/제외가 바뀌었으면(버전 증가) 옛 결과를 버림(stale write 방지)
+          const versionUnchanged =
+            (prev.slotVersionMap[slotId] ?? 0) === versionAtStart;
+          if (
+            slotStillExists &&
+            versionUnchanged &&
+            r &&
+            r.status === "done" &&
+            r.base64
+          ) {
             return {
               ...prev,
               generatedImages: { ...prev.generatedImages, [slotId]: r.base64 },
@@ -1606,7 +1625,7 @@ export default function Home() {
         }));
       }
     },
-    [state.imageSlots, state.excludedSlotIds, state.userPhotosBySlot, state.generatedContent, state.imageDescBySlot, state.aspectBySlot, setState]
+    [state.imageSlots, state.excludedSlotIds, state.userPhotosBySlot, state.generatedContent, state.imageDescBySlot, state.aspectBySlot, state.slotVersionMap, setState]
   );
 
   const handleGenerateSlotAI = useCallback(
