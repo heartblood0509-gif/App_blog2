@@ -127,7 +127,10 @@ jobs:
           res="release/win-unpacked/resources"
           test -f "$res/youtube-backend/YoutubeGenerator.exe" || { echo "::error::youtube engine missing from package"; exit 1; }
           test -f "$res/ffmpeg/ffmpeg.exe" || { echo "::error::ffmpeg missing from package"; exit 1; }
-          echo "OK: shorts engine + ffmpeg bundled"
+          # Playwright: headed 크로미움(발행 필수)은 반드시 있고, headless 셸(경량화 대상)은 없어야 한다.
+          ls -d "$res/ms-playwright/chromium-"* >/dev/null 2>&1 || { echo "::error::playwright headed chromium missing from package"; exit 1; }
+          if ls -d "$res/ms-playwright/chromium_headless_shell-"* >/dev/null 2>&1; then echo "::error::headless shell should be excluded but is bundled"; exit 1; fi
+          echo "OK: shorts engine + ffmpeg + playwright(headed only) bundled"
 
       - name: Upload Windows release assets
         uses: actions/upload-artifact@v7
@@ -246,7 +249,10 @@ jobs:
           EXPECT_ARCH="arm64"; [ "${{ matrix.arch }}" = "x64" ] && EXPECT_ARCH="x86_64"
           file "$res/youtube-backend/YoutubeGenerator" | grep -qi "$EXPECT_ARCH" || { echo "::error::shorts engine arch mismatch (expected $EXPECT_ARCH)"; exit 1; }
           file "$res/backend/BlogPublisher"            | grep -qi "$EXPECT_ARCH" || { echo "::error::blog engine arch mismatch (expected $EXPECT_ARCH)"; exit 1; }
-          echo "OK: shorts+blog engine + ffmpeg bundled (${EXPECT_ARCH})"
+          # Playwright: headed 크로미움(발행 필수)은 반드시 있고, headless 셸(경량화 대상)은 없어야 한다.
+          ls -d "$res/ms-playwright/chromium-"* >/dev/null 2>&1 || { echo "::error::playwright headed chromium missing from .app"; exit 1; }
+          if ls -d "$res/ms-playwright/chromium_headless_shell-"* >/dev/null 2>&1; then echo "::error::headless shell should be excluded but is bundled"; exit 1; fi
+          echo "OK: shorts+blog engine + ffmpeg + playwright(headed only) bundled (${EXPECT_ARCH})"
 
       - name: Apply clean ad-hoc signature
         shell: bash

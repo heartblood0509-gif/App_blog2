@@ -42,10 +42,12 @@ echo [2/3] Playwright chromium download (skipped if cached)...
 if not defined PLAYWRIGHT_BROWSERS_PATH (
     set "PLAYWRIGHT_BROWSERS_PATH=%~dp0..\playwright-cache"
 )
-python -m playwright install chromium
+REM --no-shell: 앱은 headed(headless=False)로만 실행하므로 headless 셸(약 184MB) 불필요 → 경량화.
+python -m playwright install chromium --no-shell
 if errorlevel 1 (
-    echo [warn] playwright install failed, you can retry:
-    echo        python -m playwright install chromium
+    echo [error] playwright chromium install failed. Aborting build.
+    echo         retry: python -m playwright install chromium --no-shell
+    exit /b 1
 )
 
 echo.
