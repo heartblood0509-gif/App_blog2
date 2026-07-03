@@ -21,6 +21,7 @@ import {
   BookOpen,
   FolderOpen,
   FileAudio,
+  Database,
   type LucideIcon,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -233,15 +234,18 @@ function DiagnosticsCard() {
   return (
     <div className="mt-6 space-y-3">
       <SectionDivider label="문제 해결" />
-      <div className="rounded-lg border bg-card p-4">
+      <div className="mx-auto max-w-2xl rounded-lg border bg-card p-4">
         <h3 className="flex items-center gap-2 text-sm font-medium text-foreground">
           <FolderOpen className="h-[18px] w-[18px] text-muted-foreground" />
           진단 자료
         </h3>
         <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
           문제가 있을 때 아래 버튼을 누르면 해당 폴더가 열려요. 그 안의 파일을 문의 대화창에
-          드래그해 보내 주시면 원인 파악에 큰 도움이 됩니다. 음성 미리듣기(샘플)가 재생되지 않을 땐
-          ‘음성 샘플 폴더 열기’ 안의 파일을 함께 보내 주세요.
+          드래그해 보내 주시면 원인 파악에 큰 도움이 됩니다. 이미지·영상 생성이 멈추거나 무한
+          로딩될 땐 ‘작업 데이터 폴더 열기’를 누르면 <b>shorts.db</b> 파일이 선택된 채로 열려요.
+          그 shorts.db 파일만 보내 주세요(폴더 통째로 압축은 하지 마세요 — 영상 때문에 용량이
+          큽니다). 음성 미리듣기(샘플)가 재생되지 않을 땐 ‘음성 샘플 폴더 열기’ 안의 파일을 함께
+          보내 주세요.
         </p>
         <div className="mt-3 flex flex-wrap gap-2">
           <Button
@@ -258,6 +262,21 @@ function DiagnosticsCard() {
           >
             <FolderOpen className="h-4 w-4" />
             진단 로그 폴더 열기
+          </Button>
+          <Button
+            type="button"
+            variant="outline"
+            onClick={() =>
+              openFolder(
+                window.electronAPI?.app?.openDataFolder,
+                "작업 데이터 폴더를 열었어요. 선택된 shorts.db 파일을 문의에 첨부해 주세요.",
+                "작업 데이터 폴더를 열지 못했어요.",
+              )
+            }
+            className="gap-2"
+          >
+            <Database className="h-4 w-4" />
+            작업 데이터 폴더 열기
           </Button>
           <Button
             type="button"
