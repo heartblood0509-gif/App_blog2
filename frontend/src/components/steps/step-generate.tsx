@@ -52,6 +52,10 @@ import { BlogContentRenderer } from "@/components/blog-content-renderer";
 import { ImageLightbox } from "@/components/image-lightbox";
 import { ImageContextMenu } from "@/components/image-context-menu";
 import { FindBar } from "@/components/shared/find-bar";
+import {
+  AspectToggle,
+  aspectToClass,
+} from "@/components/image-aspect-toggle";
 import { downloadImageFromBase64 } from "@/lib/export-zip";
 
 // 내부 스크롤 영역(생성된 글 미리보기 등) — 기본보다 진한 스크롤바.
@@ -202,58 +206,6 @@ function failureLabel(code: string): string {
     default:
       return "알 수 없는 오류";
   }
-}
-
-/** 비율 문자열 → 미리보기 박스 Tailwind aspect 클래스 */
-function aspectToClass(a: string): string {
-  return a === "1:1"
-    ? "aspect-square"
-    : a === "9:16"
-      ? "aspect-[9/16]"
-      : "aspect-video";
-}
-
-/** 지원 비율 옵션 (슬롯별 토글 + 전체 세터 공용) */
-const ASPECT_OPTIONS: { value: string; label: string }[] = [
-  { value: "16:9", label: "16:9" },
-  { value: "1:1", label: "1:1" },
-  { value: "9:16", label: "9:16" },
-];
-
-/** 컴팩트한 비율 3버튼 토글 */
-function AspectToggle({
-  value,
-  onChange,
-  disabled,
-}: {
-  value: string;
-  onChange: (ratio: string) => void;
-  disabled?: boolean;
-}) {
-  return (
-    <div className="inline-flex overflow-hidden rounded-md border border-border">
-      {ASPECT_OPTIONS.map((opt, i) => {
-        const active = value === opt.value;
-        return (
-          <button
-            key={opt.value}
-            type="button"
-            disabled={disabled}
-            onClick={() => onChange(opt.value)}
-            className={`px-2 py-1 text-[11px] font-medium transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${
-              i > 0 ? "border-l border-border" : ""
-            } ${
-              active
-                ? "bg-primary text-primary-foreground"
-                : "bg-transparent text-muted-foreground hover:bg-muted"
-            }`}
-          >
-            {opt.label}
-          </button>
-        );
-      })}
-    </div>
-  );
 }
 
 function SlotCard({
@@ -998,9 +950,13 @@ export function StepGenerate({
                         imageSlots,
                         userPhotosBySlot,
                         isGeneratingBySlot,
+                        imageDescBySlot,
+                        aspectBySlot,
                         onUserPhotoChange,
                         onGenerateSlotAI,
                         onTransformSlot,
+                        onImageDescChange,
+                        onAspectChange,
                         onDeleteSlot,
                         onMoveSlot,
                         onMoveSlotToBoundary,
