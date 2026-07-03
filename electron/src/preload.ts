@@ -83,6 +83,8 @@ contextBridge.exposeInMainWorld("electronAPI", {
     relaunch: () => ipcRenderer.invoke("app:relaunch"),
     openLogsFolder: (): Promise<{ ok: boolean; error?: string; path: string }> =>
       ipcRenderer.invoke("app:openLogsFolder"),
+    openDataFolder: (): Promise<{ ok: boolean; error?: string; path: string }> =>
+      ipcRenderer.invoke("app:openDataFolder"),
     openTtsPreviewFolder: (): Promise<{ ok: boolean; error?: string; path: string }> =>
       ipcRenderer.invoke("app:openTtsPreviewFolder"),
   },
