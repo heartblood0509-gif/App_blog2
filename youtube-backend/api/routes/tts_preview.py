@@ -258,7 +258,7 @@ def _measure_wav_duration_safe(path: str) -> float:
         out = subprocess.run(
             [FFPROBE, "-v", "error", "-show_entries", "format=duration",
              "-of", "default=noprint_wrappers=1:nokey=1", path],
-            capture_output=True, text=True, timeout=10,
+            capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=10,
         )
         if out.returncode == 0 and out.stdout.strip():
             return float(out.stdout.strip())
