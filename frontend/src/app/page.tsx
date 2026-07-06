@@ -2759,8 +2759,13 @@ export default function Home() {
             content={state.generatedContent}
             title={state.selectedTitle}
             qualityResult={state.qualityResult}
-            keyword={getEffectiveMainKeyword(state)}
+            // 표시용 키워드는 검증에 실제로 쓴 것과 동일해야 한다(runValidation 이 getEffectiveBrandKeyword 사용).
+            // 그래야 키워드 없이 쓰는 브랜드 템플릿에서 "" 로 일치돼 글 정보의 키워드 섹션이 숨는다.
+            keyword={getEffectiveBrandKeyword(state)}
             isLoading={state.isLoading}
+            onRetryValidation={() => {
+              if (state.generatedContent) void runValidation(state.generatedContent);
+            }}
             // 이미지 마커 수 warn 임계치를 Intent Mode일 때 3~4장 정책으로 분기
             isIntentMode={
               state.postCategory === "seoAeo" &&

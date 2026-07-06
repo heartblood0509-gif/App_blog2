@@ -74,6 +74,11 @@ interface StepGenerateProps {
   qualityResult: QualityResult | null;
   keyword: string;
   isLoading: boolean;
+  /**
+   * 본문은 생성됐는데 품질 검증(글 정보)이 실패해 qualityResult 가 비었을 때, 다시 검증을 시도한다.
+   * 검증 실패는 조용히 삼켜지므로(runValidation), 이 콜백이 사용자에게 재시도 수단을 준다.
+   */
+  onRetryValidation?: () => void;
   onRegenerate: () => void;
   onCopy: () => void;
   /** 본문 + 이미지를 ZIP 한 묶음으로 다운로드 */
@@ -669,6 +674,7 @@ export function StepGenerate({
   qualityResult,
   keyword,
   isLoading,
+  onRetryValidation,
   onRegenerate,
   onCopy,
   onExportZip,
@@ -1012,14 +1018,35 @@ export function StepGenerate({
               </CardTitle>
             </CardHeader>
             <CardContent>
-              {!qualityResult && (
-                <div className="flex flex-col items-center justify-center py-16">
-                  <BarChart3 className="h-8 w-8 text-muted-foreground/50" />
-                  <p className="mt-3 text-xs text-muted-foreground">
-                    글이 생성되면 글 정보가 자동으로 표시됩니다
-                  </p>
-                </div>
-              )}
+              {!qualityResult &&
+                (content.trim().length > 0 && !isLoading ? (
+                  // 본문은 있는데 글 정보가 비었다 = 품질 검증 호출이 실패(무음)했다는 뜻.
+                  // 조용히 빈 상태로 두지 않고 재시도 수단을 노출한다.
+                  <div className="flex flex-col items-center justify-center py-16 text-center">
+                    <AlertTriangle className="h-8 w-8 text-muted-foreground/50" />
+                    <p className="mt-3 text-xs text-muted-foreground">
+                      글 정보를 불러오지 못했어요
+                    </p>
+                    {onRetryValidation && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="mt-3"
+                        onClick={onRetryValidation}
+                      >
+                        <RefreshCw className="h-3.5 w-3.5" />
+                        다시 시도
+                      </Button>
+                    )}
+                  </div>
+                ) : (
+                  <div className="flex flex-col items-center justify-center py-16">
+                    <BarChart3 className="h-8 w-8 text-muted-foreground/50" />
+                    <p className="mt-3 text-xs text-muted-foreground">
+                      글이 생성되면 글 정보가 자동으로 표시됩니다
+                    </p>
+                  </div>
+                ))}
 
               {qualityResult && (
                 <div className="space-y-1">
@@ -1041,31 +1068,35 @@ export function StepGenerate({
                     value={`${qualityResult.charCountWithoutSpaces.toLocaleString()}자`}
                   />
 
-                  <Separator />
-
-                  {/* Keyword */}
-                  <MetricRow
-                    icon={Hash}
-                    label={`키워드 "${keyword}" 횟수`}
-                    value={`${qualityResult.keywordCount}회`}
-                    status={
-                      qualityResult.keywordCount >= 3
-                        ? "pass"
-                        : qualityResult.keywordCount >= 1
-                          ? "warn"
-                          : "fail"
-                    }
-                  />
-                  <MetricRow
-                    icon={BarChart3}
-                    label="키워드 밀도"
-                    value={`${qualityResult.keywordDensity.toFixed(1)}%`}
-                    status={
-                      qualityResult.keywordDensity <= 3
-                        ? "pass"
-                        : "warn"
-                    }
-                  />
+                  {/* Keyword — 키워드 없이 쓰는 브랜드 템플릿(소개/가치입증/상세)에선
+                      키워드 횟수·밀도가 무의미하고 "0회/0.0%"가 오해를 주므로 섹션째 숨긴다. */}
+                  {keyword.trim().length > 0 && (
+                    <>
+                      <Separator />
+                      <MetricRow
+                        icon={Hash}
+                        label={`키워드 "${keyword}" 횟수`}
+                        value={`${qualityResult.keywordCount}회`}
+                        status={
+                          qualityResult.keywordCount >= 3
+                            ? "pass"
+                            : qualityResult.keywordCount >= 1
+                              ? "warn"
+                              : "fail"
+                        }
+                      />
+                      <MetricRow
+                        icon={BarChart3}
+                        label="키워드 밀도"
+                        value={`${qualityResult.keywordDensity.toFixed(1)}%`}
+                        status={
+                          qualityResult.keywordDensity <= 3
+                            ? "pass"
+                            : "warn"
+                        }
+                      />
+                    </>
+                  )}
 
                   <Separator />
 
