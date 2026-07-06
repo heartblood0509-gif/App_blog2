@@ -8,6 +8,7 @@
  * - 후기성의 composeAdvantagesNatural 재사용 금지 (후기 톤 누수 위험).
  */
 import type { UserProduct } from "@/types";
+import { escapeRegExp } from "@/lib/utils";
 
 export type AttachMode =
   | "brand-intro"
@@ -86,8 +87,7 @@ function stripBrandTokens(text: string, tokens: (string | undefined)[]): string 
   for (const tok of tokens) {
     const t = (tok || "").trim();
     if (t.length < 2) continue; // 1글자 토큰은 오탐 위험 — 스킵
-    const escaped = t.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-    out = out.replace(new RegExp(escaped, "g"), "○○");
+    out = out.replace(new RegExp(escapeRegExp(t), "g"), "○○");
   }
   return out;
 }

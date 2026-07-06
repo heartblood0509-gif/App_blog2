@@ -1,4 +1,5 @@
 import type { QualityResult } from "@/types";
+import { escapeRegExp } from "@/lib/utils";
 import { checkForbiddenWords } from "./forbidden-words";
 import { detectAdExpressions } from "./ad-detector";
 
@@ -39,14 +40,18 @@ export function validateContent(
 
   // 키워드 밀도 계산 — 노출 키워드가 없는 글(소개/가치입증/상세 미입력)은 스킵.
   // 빈 문자열로 RegExp를 만들면 모든 위치에 매칭돼 오판(키워드 과다)이 나므로 가드.
-  const hasKeyword = keyword.trim().length > 0;
+  // keyword 는 방어적으로 문자열 정규화(undefined 로 와도 .trim() 500 방지),
+  // 그리고 escapeRegExp 로 감싼다 — 괄호·특수문자 키워드가 SyntaxError(500)를 내거나
+  // (`.`·`|` 등이) 조용히 오매칭되는 것을 막는다.
+  const safeKeyword = typeof keyword === "string" ? keyword : "";
+  const hasKeyword = safeKeyword.trim().length > 0;
   const keywordMatches = hasKeyword
-    ? textForMetrics.match(new RegExp(keyword, "gi"))
+    ? textForMetrics.match(new RegExp(escapeRegExp(safeKeyword), "gi"))
     : null;
   const keywordCount = keywordMatches ? keywordMatches.length : 0;
   const keywordDensity =
     hasKeyword && charCountWithoutSpaces > 0
-      ? (keywordCount * keyword.length) / charCountWithoutSpaces * 100
+      ? (keywordCount * safeKeyword.length) / charCountWithoutSpaces * 100
       : 0;
 
   // 금칙어 검사 (마커 제외)
