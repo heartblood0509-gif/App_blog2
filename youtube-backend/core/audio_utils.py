@@ -23,7 +23,7 @@ def run(cmd, desc="", cwd=None):
         args = cmd
     else:
         args = shlex.split(cmd)
-    result = subprocess.run(args, capture_output=True, text=True, encoding="utf-8", cwd=cwd)
+    result = subprocess.run(args, capture_output=True, text=True, encoding="utf-8", errors="replace", cwd=cwd)
     if result.returncode != 0:
         raise RuntimeError(f"ffmpeg 에러: {result.stderr[-1000:]}")
     return result
@@ -60,7 +60,7 @@ def normalize_to_browser_wav(src: str, dst: str) -> None:
         "-f", "wav", dst,
     ]
     try:
-        result = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8")
+        result = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace")
     except OSError as e:
         # ffmpeg 바이너리 부재(FileNotFoundError) 등 — run()은 returncode만 보므로 여기서 명시 포착.
         raise RuntimeError(f"ffmpeg 실행 불가: {e}")

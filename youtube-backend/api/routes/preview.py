@@ -91,7 +91,7 @@ def _ffprobe_duration(path: str) -> float:
             f'{FFPROBE_Q} -v error -show_entries format=duration '
             f'-of default=noprint_wrappers=1:nokey=1 "{path}"'
         )
-        result = subprocess.run(cmd, shell=True, capture_output=True, text=True)
+        result = subprocess.run(cmd, shell=True, capture_output=True, text=True, encoding="utf-8", errors="replace")
         if result.returncode == 0 and result.stdout.strip():
             return float(result.stdout.strip())
     except Exception:
@@ -1238,7 +1238,7 @@ async def upload_clip(
 
         try:
             cmd = f'{FFMPEG_Q} -y -i "{tmp_path}" -c:v libx264 -preset fast -crf 18 -pix_fmt yuv420p -an "{output_path}"'
-            result = subprocess.run(cmd, shell=True, capture_output=True, text=True)
+            result = subprocess.run(cmd, shell=True, capture_output=True, text=True, encoding="utf-8", errors="replace")
             if result.returncode != 0:
                 raise RuntimeError(result.stderr[:300])
         finally:

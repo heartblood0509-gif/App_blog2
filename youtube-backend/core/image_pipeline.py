@@ -88,7 +88,7 @@ def apply_ken_burns(
         args = cmd
     else:
         args = shlex.split(cmd)
-    result = subprocess.run(args, capture_output=True, text=True)
+    result = subprocess.run(args, capture_output=True, text=True, encoding="utf-8", errors="replace")
     if result.returncode != 0:
         # 실제 ffmpeg 에러는 stderr 끝부분에 나온다(앞은 버전/설정 배너). 뒤 700자를 보여준다.
         raise RuntimeError(f"Ken Burns 실패: {result.stderr.strip()[-700:]}")
@@ -138,7 +138,7 @@ def process_ai_clip(
         args = cmd
     else:
         args = shlex.split(cmd)
-    result = subprocess.run(args, capture_output=True, text=True)
+    result = subprocess.run(args, capture_output=True, text=True, encoding="utf-8", errors="replace")
     if result.returncode != 0:
         # 실제 ffmpeg 에러는 stderr 끝부분에 나온다(앞은 버전/설정 배너). 뒤 700자를 보여준다.
         raise RuntimeError(f"AI 클립 처리 실패: {result.stderr.strip()[-700:]}")

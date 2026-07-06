@@ -142,7 +142,7 @@ def _probe_audio(filepath: str) -> float:
     try:
         result = subprocess.run(
             [FFPROBE, "-v", "quiet", "-print_format", "json", "-show_format", filepath],
-            capture_output=True, text=True, encoding="utf-8",
+            capture_output=True, text=True, encoding="utf-8", errors="replace",
         )
         info = json.loads(result.stdout)
         return float(info["format"]["duration"])
