@@ -722,7 +722,8 @@ async def regenerate_image_for_job(job_id: str, line_index: int, korean_request:
             if is_user_assets:
                 line["visual_text_hash"] = line_text_hash(line.get("text") or "")
                 if line_plan:
-                    line["motion"] = line_plan.get("motion") or line.get("motion") or "zoom_in"
+                    # 모션(움직임)은 이제 사용자가 줄별로 직접 고른다(기본 "없음").
+                    # AI visual plan 이 모션을 덮어쓰지 않도록 여기서는 설정하지 않는다.
                     line["visual_anchor"] = line_plan.get("continuity_anchor")
                     line["visual_intent"] = line_plan.get("visual_intent")
                     line.pop("qa_status", None)

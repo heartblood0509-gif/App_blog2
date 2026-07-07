@@ -11,7 +11,7 @@
 // draft-state(lines[].status / asset_step / asset_version)를 2초마다 폴링해 갱신한다.
 // 캐시버스팅은 줄이 들고 있는 asset_version 을 ?v 로 붙여 처리(재생성/업로드 시 백엔드가 +1).
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   AlertCircle,
   ArrowUpToLine,
@@ -31,10 +31,27 @@ import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
+import { Slider } from "@/components/ui/slider";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { freshYtState, useYt } from "../state";
 import { ytUrl } from "@/lib/youtube/api";
 import { cn } from "@/lib/utils";
 import { ShortsPreviewFrame } from "../ShortsPreviewFrame";
+import { TransformablePreviewMedia } from "../TransformablePreviewMedia";
+import {
+  clampTransform,
+  DEFAULT_TRANSFORM,
+  isDefaultTransform,
+  SCALE_MIN,
+  SCALE_MAX,
+  type LineTransform,
+} from "@/lib/youtube/transform";
 import {
   deleteLine,
   editLine,
@@ -43,6 +60,7 @@ import {
   mergeLine,
   regenerateClip,
   regenerateImage,
+  saveLineVisual,
   splitLine,
   uploadClip,
   uploadImage,
@@ -87,6 +105,23 @@ const SOURCE_LABEL: Record<LineSource, string> = {
   clip: "영상",
 };
 
+// 움직임(모션) 효과 선택지. 영상 줄은 팬/줌아웃 대신 "없음/서서히 확대"만(백엔드 process_user_clip 제약).
+type MotionOption = { value: string; label: string };
+const IMAGE_MOTIONS: MotionOption[] = [
+  { value: "none", label: "움직임 없음" },
+  { value: "zoom_in", label: "줌 인 (확대)" },
+  { value: "zoom_out", label: "줌 아웃 (축소)" },
+  { value: "pan_left", label: "왼쪽으로" },
+  { value: "pan_right", label: "오른쪽으로" },
+  { value: "pan_up", label: "위로" },
+  { value: "pan_down", label: "아래로" },
+];
+const CLIP_MOTIONS: MotionOption[] = [
+  { value: "none", label: "움직임 없음" },
+  { value: "zoom_in", label: "서서히 확대" },
+];
+const SLIDER_COMMIT_MS = 400;
+
 export function LineAssetEditor() {
   const { state, update } = useYt();
   const jobId = state.jobId;
@@ -106,6 +141,9 @@ export function LineAssetEditor() {
   // 우측 프리뷰에 띄울 선택 줄(line_id 기준). index 로 잡으면 split/merge/delete 재인덱싱 후
   // 다른 줄을 가리킨다 — 백엔드 /images/{idx} 도 lines[idx].line_id 로 파일을 찾으므로.
   const [activeLineId, setActiveLineId] = useState<string>("");
+  // 자산 위치/배율 편집 초안(line_id 기준). 2초 폴링이 드래그 중 미디어를 되돌리지 못하게
+  // lines[i].transform 보다 우선한다. 서버 저장이 확정되면 lines 에 접고 초안을 지운다.
+  const [transformDrafts, setTransformDrafts] = useState<Record<string, LineTransform>>({});
 
   const mountedRef = useRef(true);
   const pollingRef = useRef(false);
@@ -120,6 +158,106 @@ export function LineAssetEditor() {
   useEffect(() => {
     linesRef.current = lines;
   }, [lines]);
+
+  // 현재 프리뷰에 띄운 줄의 (line_id, index). transform 핸들러가 이벤트 시점에 참조한다.
+  const activeRef = useRef<{ lineId: string; index: number }>({ lineId: "", index: -1 });
+  const sliderTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => () => {
+    if (sliderTimer.current) clearTimeout(sliderTimer.current);
+  }, []);
+
+  // 위치/배율을 서버에 저장. 성공 시 lines 에 접고(서버가 클램프한 값) 초안을 지운다.
+  const persistTransform = useCallback(
+    (t: LineTransform, lineId: string, index: number) => {
+      if (!jobId || !lineId) return;
+      saveLineVisual(jobId, index, lineId, { transform: t })
+        .then((res) => {
+          if (!mountedRef.current) return;
+          const finalT = (res.transform as LineTransform | null) ?? t;
+          setLines((prev) =>
+            prev.map((l) =>
+              String(l.line_id ?? "") === lineId ? { ...l, transform: finalT } : l,
+            ),
+          );
+          setTransformDrafts((d) => {
+            if (!(lineId in d)) return d;
+            const n = { ...d };
+            delete n[lineId];
+            return n;
+          });
+        })
+        .catch((e) => {
+          // 실패 시 초안을 남겨 화면엔 유지(다음 조작 때 재시도).
+          if (mountedRef.current) {
+            toast.error(e instanceof Error ? e.message : "위치 저장에 실패했어요.");
+          }
+        });
+    },
+    [jobId],
+  );
+
+  // 드래그/휠 중 실시간 갱신(초안만, 미저장).
+  const onTransformChange = useCallback((t: LineTransform) => {
+    const { lineId } = activeRef.current;
+    if (!lineId) return;
+    setTransformDrafts((d) => ({ ...d, [lineId]: t }));
+  }, []);
+
+  // 확정 저장(드래그 끝/휠 정지 — TransformablePreviewMedia 가 호출).
+  const onTransformCommit = useCallback(
+    (t: LineTransform) => {
+      const { lineId, index } = activeRef.current;
+      if (!lineId || index < 0) return;
+      if (sliderTimer.current) clearTimeout(sliderTimer.current);
+      setTransformDrafts((d) => ({ ...d, [lineId]: t }));
+      persistTransform(t, lineId, index);
+    },
+    [persistTransform],
+  );
+
+  // 크기 슬라이더: 실시간 반영 + 디바운스 저장.
+  const onScaleSlider = useCallback(
+    (scalePct: number, current: LineTransform) => {
+      const { lineId, index } = activeRef.current;
+      if (!lineId || index < 0) return;
+      const t = clampTransform({ ...current, scale: scalePct / 100 });
+      setTransformDrafts((d) => ({ ...d, [lineId]: t }));
+      if (sliderTimer.current) clearTimeout(sliderTimer.current);
+      sliderTimer.current = setTimeout(
+        () => persistTransform(t, lineId, index),
+        SLIDER_COMMIT_MS,
+      );
+    },
+    [persistTransform],
+  );
+
+  // "원래대로": 기본(cover, 화면 꽉 채움)으로 복귀.
+  const onResetTransform = useCallback(() => {
+    const { lineId, index } = activeRef.current;
+    if (!lineId || index < 0) return;
+    if (sliderTimer.current) clearTimeout(sliderTimer.current);
+    setTransformDrafts((d) => ({ ...d, [lineId]: { ...DEFAULT_TRANSFORM } }));
+    persistTransform({ ...DEFAULT_TRANSFORM }, lineId, index);
+  }, [persistTransform]);
+
+  // 움직임 효과 선택: 즉시 저장 + 낙관적 반영.
+  const onMotionChange = useCallback(
+    (motion: string) => {
+      const { lineId, index } = activeRef.current;
+      if (!jobId || !lineId || index < 0) return;
+      setLines((prev) =>
+        prev.map((l) =>
+          String(l.line_id ?? "") === lineId ? { ...l, motion } : l,
+        ),
+      );
+      saveLineVisual(jobId, index, lineId, { motion }).catch((e) => {
+        if (mountedRef.current) {
+          toast.error(e instanceof Error ? e.message : "효과 저장에 실패했어요.");
+        }
+      });
+    },
+    [jobId],
+  );
 
   // split 로 새로 생긴 줄에 포커스/캐럿을 옮기려는 "예약". 단발 rAF 는 줄 교체(setLines)+잠금
   // 해제(finally) 재렌더와 타이밍이 어긋나 끝-Enter 에서 빗나갔다(readOnly 로 원래 줄이 포커스를
@@ -564,6 +702,19 @@ export function LineAssetEditor() {
   const activeWorking =
     !!activeLine &&
     (isWorking(activeLine) || uploading.has(String(activeLine.line_id ?? "")));
+  const activeLineIdStr = String(activeLine?.line_id ?? "");
+  // 편집 핸들러가 이벤트 시점에 읽을 현재 대상.
+  activeRef.current = { lineId: activeLineIdStr, index: activeIndex };
+  // 화면에 적용할 transform: 초안 우선(드래그 중), 없으면 서버 값, 없으면 기본(cover).
+  const activeTransform: LineTransform = clampTransform(
+    transformDrafts[activeLineIdStr] ??
+      (activeLine?.transform as LineTransform | undefined) ??
+      DEFAULT_TRANSFORM,
+  );
+  const activeMotion = String(activeLine?.motion ?? "none");
+  const motionOptions = activeSource === "clip" ? CLIP_MOTIONS : IMAGE_MOTIONS;
+  const activeEditable =
+    !!activeLine && isReady(activeLine) && !activeWorking;
 
   return (
     <div className="lg:grid lg:grid-cols-[minmax(0,1fr)_390px] lg:items-start lg:gap-5">
@@ -953,22 +1104,20 @@ export function LineAssetEditor() {
                 <div className="flex h-full w-full items-center justify-center text-xs text-white/50">
                   생성·업로드 대기
                 </div>
-              ) : isReady(activeLine) && activeSource !== "clip" ? (
-                // eslint-disable-next-line @next/next/no-img-element -- 프록시 경유 동적 이미지(서버 최적화 부적합)
-                <img
-                  src={imgSrc(activeIndex, activeLine)}
-                  alt={`${activeIndex + 1}번 줄 미리보기`}
-                  className="h-full w-full object-cover"
-                />
-              ) : isReady(activeLine) && activeSource === "clip" ? (
-                <video
-                  key={clipSrc(activeIndex, activeLine)}
-                  src={clipSrc(activeIndex, activeLine)}
-                  autoPlay
-                  muted
-                  loop
-                  playsInline
-                  className="h-full w-full object-cover"
+              ) : isReady(activeLine) ? (
+                <TransformablePreviewMedia
+                  key={`${activeLineIdStr}:${activeSource}:${activeLine.asset_version ?? 0}`}
+                  src={
+                    activeSource === "clip"
+                      ? clipSrc(activeIndex, activeLine)
+                      : imgSrc(activeIndex, activeLine)
+                  }
+                  kind={activeSource === "clip" ? "clip" : "image"}
+                  frameWidth={350}
+                  transform={activeTransform}
+                  disabled={!activeEditable}
+                  onChange={onTransformChange}
+                  onCommit={onTransformCommit}
                 />
               ) : activeWorking ? (
                 <div className="flex h-full w-full items-center justify-center">
@@ -985,8 +1134,64 @@ export function LineAssetEditor() {
               )}
             </ShortsPreviewFrame>
           </div>
+
+          {/* 위치/배율 + 움직임 편집 컨트롤 (준비된 줄에서만) */}
+          {activeEditable ? (
+            <div className="mt-3 space-y-3">
+              <div className="flex items-center gap-3">
+                <span className="w-9 shrink-0 text-xs font-medium text-muted-foreground">
+                  크기
+                </span>
+                <Slider
+                  className="flex-1"
+                  min={Math.round(SCALE_MIN * 100)}
+                  max={Math.round(SCALE_MAX * 100)}
+                  step={1}
+                  value={Math.round(activeTransform.scale * 100)}
+                  onValueChange={(v) => onScaleSlider(v, activeTransform)}
+                />
+                <span className="w-10 shrink-0 text-right text-xs tabular-nums text-muted-foreground">
+                  {Math.round(activeTransform.scale * 100)}%
+                </span>
+                <Button
+                  variant="ghost"
+                  size="xs"
+                  className="shrink-0 text-muted-foreground"
+                  onClick={onResetTransform}
+                  disabled={isDefaultTransform(activeTransform)}
+                  title="위치·크기를 화면 꽉 채움으로 되돌려요"
+                >
+                  <RotateCcw className="size-3" /> 원래대로
+                </Button>
+              </div>
+              <div className="flex items-center gap-3">
+                <span className="w-9 shrink-0 text-xs font-medium text-muted-foreground">
+                  움직임
+                </span>
+                <Select
+                  items={motionOptions}
+                  value={activeMotion}
+                  onValueChange={(v) => v && onMotionChange(String(v))}
+                >
+                  <SelectTrigger className="h-8 flex-1">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {motionOptions.map((o) => (
+                      <SelectItem key={o.value} value={o.value}>
+                        {o.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+          ) : null}
+
           <p className="mt-2 text-center text-xs text-muted-foreground">
-            최종 쇼츠에 표시될 모습이에요.
+            {activeEditable
+              ? "미리보기를 드래그해 위치를, 휠·슬라이더로 크기를 조절하세요. 화면을 벗어난 부분은 잘리고 빈 곳은 검게 나와요. 움직임 효과는 최종 영상에서만 보여요."
+              : "최종 쇼츠에 표시될 모습이에요."}
           </p>
         </div>
       </aside>

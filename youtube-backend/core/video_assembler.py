@@ -12,7 +12,16 @@ from core.audio_utils import (
 )
 from core.subtitle_utils import split_subtitle_natural, split_title
 from core.tts_engines import generate_tts_typecast
-from core.image_pipeline import apply_ken_burns, process_ai_clip
+from core.image_pipeline import (
+    apply_ken_burns,
+    process_ai_clip,
+    prepare_image_canvas,
+    render_still_clip,
+    process_user_clip,
+    probe_media_dims,
+    normalize_transform,
+    KEN_BURNS_MOTIONS,
+)
 from core.ffmpeg import FFMPEG_Q, FFPROBE_Q
 from config import settings
 
@@ -61,10 +70,13 @@ async def assemble_shorts(job_id: str, config: dict, progress_callback=None):
     temp_dir = os.path.join(job_dir, "temp")
     tts_dir = os.path.join(job_dir, "tts")
     output_dir = os.path.join(job_dir, "output")
+    # 카드 B 이미지 합성(compose_*.png)·클립을 여기에 쓴다. PIL 저장은 상위 폴더를 안 만들므로 보장.
+    os.makedirs(temp_dir, exist_ok=True)
 
     sentences = [line["text"] for line in config["lines"]]
     images = config["images"]
-    motions = [line["motion"] for line in config["lines"]]
+    # 카드 B 는 motion 이 없을 수 있어(기본 "없음") safe-get. 카드 A 는 항상 값이 있어 동작 불변.
+    motions = [line.get("motion", "zoom_in") for line in config["lines"]]
 
     # ── Step 1: TTS 준비 ──
     # prebuilt_tts=True면 tts_dir에 이미 sent_XX.wav + timings_raw.json 있다고 가정.
@@ -116,15 +128,19 @@ async def assemble_shorts(job_id: str, config: dict, progress_callback=None):
         _update(
             progress_callback, job_id, "assembling_video", 0.55, "줄별 자산 처리 중..."
         )
+        W = settings.TARGET_WIDTH
+        H = settings.TARGET_HEIGHT
         for i in range(N):
             src = line_sources[i]
             asset = asset_paths[i]
-            motion = motions[i] if i < len(motions) else "zoom_in"
+            # 카드 B 는 사용자가 줄별로 고른 효과. 미설정이면 "없음"(정지).
+            motion = motions[i] if i < len(motions) else "none"
+            transform = normalize_transform(config["lines"][i].get("transform"))
             dur = clip_durations[i]
             clip_path = os.path.join(temp_dir, f"clip_{i:02d}.mp4")
 
             if src == "clip":
-                # 사용자 업로드 영상: 길이 검증 후 trim+zoom 처리
+                # 사용자 업로드 영상: 길이 검증 후 원본 비율 유지 배치(+선택 시 서서히 줌인)
                 v_dur = await asyncio.to_thread(get_duration, asset)
                 if v_dur + 0.05 < dur:
                     raise RuntimeError(
@@ -132,27 +148,48 @@ async def assemble_shorts(job_id: str, config: dict, progress_callback=None):
                         f"(영상 {v_dur:.2f}초 < 음성 {dur:.2f}초). "
                         f"더 긴 영상으로 교체해주세요."
                     )
+                sw, sh = await asyncio.to_thread(probe_media_dims, asset)
                 await asyncio.to_thread(
-                    process_ai_clip,
+                    process_user_clip,
                     clip_path=asset,
                     output_path=clip_path,
                     duration=dur,
-                    width=settings.TARGET_WIDTH,
-                    height=settings.TARGET_HEIGHT,
+                    transform=transform,
+                    src_w=sw,
+                    src_h=sh,
+                    motion=("zoom_in" if motion == "zoom_in" else "none"),
+                    width=W,
+                    height=H,
                     fps=settings.FPS,
                 )
             else:
-                # "ai" 또는 "image": 이미지에 Ken Burns 적용
-                await asyncio.to_thread(
-                    apply_ken_burns,
-                    image_path=asset,
-                    output_path=clip_path,
-                    motion_type=motion,
-                    duration=dur,
-                    width=settings.TARGET_WIDTH,
-                    height=settings.TARGET_HEIGHT,
-                    fps=settings.FPS,
+                # "ai" 또는 "image": 원본 비율 유지 배치 후, 사용자가 고른 모션 효과 적용.
+                # 배치가 꽉 채움 그대로(원본이 이미 프레임 크기)면 합성 생략 → AI 이미지는 기존과 동일.
+                composed = os.path.join(temp_dir, f"compose_{i:02d}.png")
+                composed = await asyncio.to_thread(
+                    prepare_image_canvas, asset, composed, transform, W, H
                 )
+                if motion in KEN_BURNS_MOTIONS:
+                    await asyncio.to_thread(
+                        apply_ken_burns,
+                        image_path=composed,
+                        output_path=clip_path,
+                        motion_type=motion,
+                        duration=dur,
+                        width=W,
+                        height=H,
+                        fps=settings.FPS,
+                    )
+                else:
+                    await asyncio.to_thread(
+                        render_still_clip,
+                        composed,
+                        clip_path,
+                        dur,
+                        W,
+                        H,
+                        settings.FPS,
+                    )
             clip_files.append(clip_path)
             _update(
                 progress_callback,

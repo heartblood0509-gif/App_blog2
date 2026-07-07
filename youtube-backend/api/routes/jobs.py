@@ -287,7 +287,7 @@ async def create_draft_job(
             "line_id": new_line_id(),
             "text": text,
             "image_prompt": "",
-            "motion": "zoom_in",
+            "motion": "none",  # 카드 B 기본: 움직임 없음(사용자가 줄별로 선택)
             "asset_version": 0,
             "status": "pending",
             "fail_reason": None,

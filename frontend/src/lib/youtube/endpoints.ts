@@ -11,6 +11,7 @@ import {
   ytPostJson,
   ytPutJson,
 } from "./api";
+import type { LineTransform } from "./transform";
 
 // ── 콘텐츠 생성 ──────────────────────────────────────────────
 
@@ -92,6 +93,8 @@ export interface ScriptLine {
   text: string;
   image_prompt?: string;
   motion?: string;
+  // Card B 자산 위치/배율. null/미설정 = 기본(cover, 화면 꽉 채움). 프리뷰=렌더 공유.
+  transform?: { scale: number; x: number; y: number } | null;
   // Card B 줄별 자산 상태("pending" | "ready" | "failed").
   status?: string;
   asset_version?: number;
@@ -343,8 +346,9 @@ export interface UploadImageResult {
   asset_version?: number | null; // Card A 는 null
 }
 /**
- * 특정 줄 이미지를 사용자 파일로 교체. **동기**(즉시 저장 후 응답) — 백엔드가 9:16 으로
- * cover-crop 한다. PNG/JPG/WebP, 10MB 이하만 허용(백엔드와 동일 검사를 호출 측에서도 선행).
+ * 특정 줄 이미지를 사용자 파일로 교체. **동기**(즉시 저장 후 응답). 카드 B 는 원본 비율을
+ * 그대로 보존하고(왜곡·잘림 없음, 긴 변 2560px 캡), 위치·배율은 프리뷰에서 사용자가 정한다.
+ * PNG/JPG/WebP, 10MB 이하만 허용(백엔드와 동일 검사를 호출 측에서도 선행).
  */
 export function uploadImage(
   jobId: string,
@@ -536,6 +540,30 @@ export function editLine(
   return ytPostJson<{ ok?: boolean }>(`/api/jobs/${jobId}/edit-line`, {
     line_index: lineIndex,
     text,
+  });
+}
+
+export interface SaveLineVisualResult {
+  ok?: boolean;
+  transform?: LineTransform | null; // 서버가 클램프한 최종 값
+  motion?: string | null;
+}
+/**
+ * 줄별 자산 위치/배율(transform)과 움직임(motion)을 저장. 미디어 파일은 안 바뀐다.
+ * patch 에 준 필드만 갱신(미포함=미변경). line_id 를 함께 보내 재인덱싱 레이스를 피한다.
+ * 영상(clip) 줄의 motion 은 'none'/'zoom_in' 만 허용(서버 검증).
+ */
+export function saveLineVisual(
+  jobId: string,
+  lineIndex: number,
+  lineId: string | null | undefined,
+  patch: { transform?: LineTransform; motion?: string },
+): Promise<SaveLineVisualResult> {
+  return ytPostJson<SaveLineVisualResult>(`/api/jobs/${jobId}/line-visual`, {
+    line_index: lineIndex,
+    line_id: lineId ?? null,
+    transform: patch.transform ?? null,
+    motion: patch.motion ?? null,
   });
 }
 

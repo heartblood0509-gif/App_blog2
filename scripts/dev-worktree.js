@@ -200,6 +200,27 @@ async function prepareDeps(worktreeRoot, mainRoot) {
 
   // youtube-backend venv — requirements 같으면 메인 venv 빌리고, 다르면 새로.
   setupYoutubeVenv(worktreeRoot, mainRoot);
+
+  // 번들 ffmpeg(drawtext/libx264 포함 정적 빌드) — 메인 build/ffmpeg 를 빌려 씀.
+  // 없으면 electron paths.ts 가 시스템 PATH 로 폴백하는데, brew ffmpeg 엔 drawtext 가 빠져
+  // 영상 마지막 자막/제목(drawtext) 단계에서 "No such filter: 'drawtext'" 로 실패한다.
+  ensureBundledFfmpeg(worktreeRoot, mainRoot);
+}
+
+// build/ffmpeg: 메인의 번들 ffmpeg/ffprobe(정적 빌드)를 워크트리로 심링크로 빌려온다.
+// electron paths.ts 는 <root>/build/ffmpeg/ffmpeg 존재 시 그것을 FFMPEG_BIN 으로 주입한다(=배포본과 동일).
+function ensureBundledFfmpeg(worktreeRoot, mainRoot) {
+  console.log("\n[dev-worktree] 번들 ffmpeg 준비 (build/ffmpeg)");
+  const mainFfmpeg = path.join(mainRoot, "build", "ffmpeg");
+  if (!fs.existsSync(mainFfmpeg)) {
+    console.log("  메인에 build/ffmpeg 없음 → 시스템 PATH 사용(주의: brew ffmpeg 는 drawtext 누락 가능)");
+    return;
+  }
+  fs.mkdirSync(path.join(worktreeRoot, "build"), { recursive: true });
+  const wtFfmpeg = path.join(worktreeRoot, "build", "ffmpeg");
+  if (!linkFromMain(wtFfmpeg, mainFfmpeg, "번들 ffmpeg")) {
+    console.log("  연결 실패 → 시스템 PATH 폴백(자막 단계 실패 가능)");
+  }
 }
 
 // ── 빌려오기(symlink) 공용 유틸 ──────────────────────────────

@@ -14,6 +14,7 @@ from api.models import (
     EditLineRequest,
     MergeLineRequest,
     DeleteLineRequest,
+    LineVisualRequest,
 )
 from api.deps import get_approved_user, get_user_job
 from db.database import get_db
@@ -21,6 +22,7 @@ from db.models import Job, JobTask, User
 from jobs_queue.task_queue import ACTIVE_STATUSES, enqueue_task, get_active_task, task_payload
 from core.r2_storage import require_r2_for_generation, is_r2_enabled, r2_file_exists
 from core.ffmpeg import FFMPEG_Q, FFPROBE_Q
+from core.image_pipeline import normalize_transform, KEN_BURNS_MOTIONS
 from core.text_validation import contains_emoji
 from core.colors import normalize_hex, DEFAULT_TITLE_COLOR1, DEFAULT_TITLE_COLOR2
 from config import settings
@@ -215,7 +217,7 @@ def _pending_ai_line(text: str) -> dict:
         "line_id": new_line_id(),
         "text": text,
         "image_prompt": "",
-        "motion": "zoom_in",
+        "motion": "none",  # 카드 B 기본: 움직임 없음(사용자가 줄별로 선택)
         "asset_version": 0,
         "status": "pending",
         "fail_reason": None,
@@ -399,6 +401,64 @@ async def edit_line(
     job.script_json = json.dumps(lines, ensure_ascii=False)
     db.commit()
     return {"ok": True}
+
+
+# 영상(clip) 줄은 팬/줌아웃 대신 "없음/서서히 확대"만 지원(process_user_clip 이 그 둘만 처리).
+_CLIP_MOTIONS = {"none", "zoom_in"}
+_IMAGE_MOTIONS = {"none"} | KEN_BURNS_MOTIONS
+
+
+@router.post("/{job_id}/line-visual")
+async def set_line_visual(
+    body: LineVisualRequest,
+    job_id: str = Path(..., pattern=r"^[a-f0-9]{12}$"),
+    db: Session = Depends(get_db),
+    _user: User = Depends(get_approved_user),
+):
+    """카드 B 전용: 줄별 자산 위치/배율(transform)과 움직임(motion)을 저장.
+
+    미디어 파일을 건드리지 않으므로 asset_version 을 올리지 않고(불필요한 캐시버스트 방지),
+    visual_plan 도 무효화하지 않는다(위치/배율은 이미지 프롬프트와 무관). None 필드는 미변경.
+    """
+    job = get_user_job(db, job_id, _user)
+    if job.generation_mode != "user_assets":
+        raise HTTPException(status_code=400, detail="이 작업은 카드 B 모드가 아닙니다")
+    if job.status != "preview_ready":
+        raise HTTPException(status_code=409, detail=f"카드 편집 단계가 아닙니다 (상태: {job.status})")
+
+    lines = json.loads(job.script_json or "[]")
+    ensure_line_ids(lines)
+    sources = json.loads(job.line_sources_json or "[]")
+
+    # line_id 가 오면 우선 재해석(파일 대화상자·폴링 사이 순서가 바뀌어도 엉뚱한 줄 방지).
+    idx = body.line_index
+    if body.line_id:
+        by_id = _line_index_by_id(lines, body.line_id)
+        if by_id is not None:
+            idx = by_id
+    if not (0 <= idx < len(lines)):
+        raise HTTPException(status_code=400, detail="잘못된 줄 인덱스")
+
+    line = lines[idx]
+    src = sources[idx] if idx < len(sources) else "ai"
+
+    saved_transform = None
+    if body.transform is not None:
+        saved_transform = normalize_transform(body.transform.model_dump())
+        line["transform"] = saved_transform
+
+    saved_motion = None
+    if body.motion is not None:
+        motion = body.motion.value
+        allowed = _CLIP_MOTIONS if src == "clip" else _IMAGE_MOTIONS
+        if motion not in allowed:
+            raise HTTPException(status_code=400, detail="이 자산에 사용할 수 없는 움직임 효과입니다")
+        line["motion"] = motion
+        saved_motion = motion
+
+    job.script_json = json.dumps(lines, ensure_ascii=False)
+    db.commit()
+    return {"ok": True, "transform": saved_transform, "motion": saved_motion}
 
 
 @router.post("/{job_id}/merge-line", response_model=SplitLineResponse)
@@ -975,23 +1035,34 @@ async def upload_image(
     img = ImageOps.exif_transpose(img)
     img = img.convert("RGB")
 
-    # 9:16 비율로 cover-crop
-    target_w, target_h = 1080, 1920
-    target_ratio = target_w / target_h
-
-    src_w, src_h = img.size
-    src_ratio = src_w / src_h
-
-    if src_ratio > target_ratio:
-        new_w = int(src_h * target_ratio)
-        offset = (src_w - new_w) // 2
-        img = img.crop((offset, 0, offset + new_w, src_h))
+    if job.generation_mode == "user_assets":
+        # 카드 B: 왜곡·잘림 없이 원본 비율 보존. 프리뷰에서 사용자가 위치·배율을 정하고,
+        # 최종 렌더가 transform 대로 배치한다. 여기서는 용량만 제한(긴 변 2560px 캡).
+        MAX_LONG_SIDE = 2560
+        w, h = img.size
+        if max(w, h) > MAX_LONG_SIDE:
+            if w >= h:
+                img = img.resize((MAX_LONG_SIDE, max(1, round(h * MAX_LONG_SIDE / w))), Image.LANCZOS)
+            else:
+                img = img.resize((max(1, round(w * MAX_LONG_SIDE / h)), MAX_LONG_SIDE), Image.LANCZOS)
     else:
-        new_h = int(src_w / target_ratio)
-        offset = (src_h - new_h) // 2
-        img = img.crop((0, offset, src_w, offset + new_h))
+        # 카드 A: 기존 동작 유지 — 9:16 비율로 cover-crop 후 1080×1920.
+        target_w, target_h = 1080, 1920
+        target_ratio = target_w / target_h
 
-    img = img.resize((target_w, target_h), Image.LANCZOS)
+        src_w, src_h = img.size
+        src_ratio = src_w / src_h
+
+        if src_ratio > target_ratio:
+            new_w = int(src_h * target_ratio)
+            offset = (src_w - new_w) // 2
+            img = img.crop((offset, 0, offset + new_w, src_h))
+        else:
+            new_h = int(src_w / target_ratio)
+            offset = (src_h - new_h) // 2
+            img = img.crop((0, offset, src_w, offset + new_h))
+
+        img = img.resize((target_w, target_h), Image.LANCZOS)
 
     line = lines[line_index]
     image_rel = line_asset_rel("image", line, line_index)
