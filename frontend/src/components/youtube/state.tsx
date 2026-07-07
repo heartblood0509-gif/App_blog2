@@ -18,6 +18,7 @@ import type {
   TitleOption,
 } from "@/lib/youtube/endpoints";
 import { VOICE_OPTIONS } from "@/lib/youtube/voices";
+import type { WordTime } from "@/lib/youtube/subtitle-split";
 import {
   DEFAULT_TITLE_FONT,
   DEFAULT_TITLE_FONT_WEIGHT,
@@ -54,6 +55,20 @@ export type YtScreen =
 
 export type YtCategory = "cosmetics" | "general";
 export type YtContentType = "info" | "promo" | "promo_comment";
+
+// 카드 B 음성 빌드 스냅샷. sent_XX.wav 는 빌드 순서(lineIds 순)로 저장되므로
+// 재생 시 index = lineIds.indexOf(lineId). texts 로 줄별 변경(dirty)을 감지하고,
+// durations 로 줄별/총 길이를 보여준다. version 은 오디오 URL 캐시버스터.
+export interface TtsBuildSnapshot {
+  sessionId: string;
+  lineIds: string[]; // 빌드 순서 = sent_XX 인덱스
+  texts: Record<string, string>; // line_id → 빌드 당시 텍스트
+  durations: number[]; // 빌드 순서별 길이(초)
+  // 빌드 순서별 어절 타임스탬프(자막-음성 동기화용). 폴백/구세션 줄은 null.
+  wordTimes: (WordTime[] | null)[];
+  voice: { voiceId: string; speed: number; emotion: string };
+  version: number; // 단조 증가(캐시버스터)
+}
 
 export interface YtState {
   screen: YtScreen;
@@ -104,6 +119,9 @@ export interface YtState {
   ttsDirty: boolean;
   // promo_comment: TTS 가 6초 초과 줄을 분리한 결과(이후 이미지 프롬프트 생성에 사용). 그 외 null.
   expandedSentences: string[] | null;
+  // 카드 B: 마지막으로 성공한 음성 빌드의 스냅샷. 줄별/전체 재생 매핑 + 줄별 dirty 판정의 기준.
+  // null = 아직 한 번도 안 만듦(재생 누르면 그때 생성). 화면 나갈 때 이 자체는 유지된다.
+  ttsBuild: TtsBuildSnapshot | null;
 
   // BGM
   bgmFilename: string | null;
@@ -153,6 +171,7 @@ export const initialYtState: YtState = {
   ttsSessionId: null,
   ttsDirty: false,
   expandedSentences: null,
+  ttsBuild: null,
   bgmFilename: null,
   bgmVolume: 12,
   bgmStartSec: 0,
@@ -243,11 +262,10 @@ export const CARD_A_STEPS: YtStep[] = [
   },
 ];
 
+// 카드 B: 음성·BGM·자막을 '화면·소리' 단계로 통합 → 3단계. tts/bgm 화면은 카드 A 전용으로만 남는다.
 export const CARD_B_STEPS: YtStep[] = [
   { screen: "script", label: "제목·대본" },
-  { screen: "lines", label: "자산" },
-  { screen: "tts", label: "음성" },
-  { screen: "bgm", label: "BGM" },
+  { screen: "lines", label: "화면·소리" },
   { screen: "progress", label: "영상 제작", match: ["progress", "completed"] },
 ];
 
@@ -289,6 +307,8 @@ export function restorePatchFromDraft(
     ttsSessionId: ds.tts_session_id ?? null,
     ttsDirty: false,
     expandedSentences: null,
+    // LineAssetEditor 가 마운트 시 매니페스트로 스냅샷을 복원(있으면 재빌드 없이 즉시 재생).
+    ttsBuild: null,
     bgmFilename: ds.bgm_filename ?? null,
     bgmVolume: Math.max(0, Math.min(50, vol)),
     bgmStartSec: ds.bgm_start_sec ?? 0,

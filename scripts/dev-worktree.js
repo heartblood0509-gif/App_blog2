@@ -298,8 +298,20 @@ function ensureElectronBinary(worktreeRoot, mainRoot) {
   if (wtVer && mainVer && wtVer === mainVer && fs.existsSync(mainDist) && fs.existsSync(mainPathTxt)) {
     console.log(`  electron 바이너리 깨짐 → 메인에서 복구(v${mainVer} 복사)`);
     try {
-      fs.rmSync(path.join(wtEl, "dist"), { recursive: true, force: true });
-      fs.cpSync(mainDist, path.join(wtEl, "dist"), { recursive: true });
+      const wtDist = path.join(wtEl, "dist");
+      fs.rmSync(wtDist, { recursive: true, force: true });
+      // ⚠️ macOS 의 Electron.app 은 프레임워크 내부에 심볼릭 링크(Versions/Current, Resources 등)를 쓴다.
+      // fs.cpSync 기본값은 심링크를 '역참조'해 실제 파일로 복사 → 링크 구조가 깨져 부팅 시
+      // "icudtl.dat not found / Invalid file descriptor to ICU data → SIGTRAP" 로 즉사한다.
+      // darwin 은 앱 번들 복사에 정확한 ditto(심링크·서명·리소스포크 보존)를 쓰고, 그 외엔 verbatimSymlinks.
+      if (process.platform === "darwin") {
+        const d = spawnSync("ditto", [mainDist, wtDist], { stdio: "inherit" });
+        if (d.status !== 0) {
+          throw new Error(`ditto 실패 (code=${d.status ?? d.error?.message})`);
+        }
+      } else {
+        fs.cpSync(mainDist, wtDist, { recursive: true, verbatimSymlinks: true });
+      }
       fs.copyFileSync(mainPathTxt, path.join(wtEl, "path.txt"));
     } catch (e) {
       console.log(`  ⚠ electron 복구 실패: ${e.message} — 수동: node node_modules/electron/install.js`);

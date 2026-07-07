@@ -121,6 +121,9 @@ class ScriptLine(BaseModel):
         "converting",
     ]] = None
     asset_message: Optional[str] = None
+    # 카드 B: 화면·소리 단계에서 사용자가 확정한 줄별 자막 조각. None=자동 분할(미확정).
+    # 값이 있으면 최종 영상이 이 경계 그대로 자막을 끊는다(WYSIWYG). 텍스트 편집 시 None 으로 리셋.
+    subtitle_chunks: Optional[list[str]] = None
 
 
 class ImagePromptResponse(BaseModel):

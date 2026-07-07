@@ -15,7 +15,7 @@ function Slider({ className, ...props }: SliderPrimitive.Root.Props<number>) {
       {...props}
     >
       <SliderPrimitive.Control className="flex w-full items-center py-1.5">
-        <SliderPrimitive.Track className="relative h-1.5 w-full grow overflow-hidden rounded-full bg-muted">
+        <SliderPrimitive.Track className="relative h-2 w-full grow rounded-full border border-muted-foreground/30 bg-background">
           <SliderPrimitive.Indicator className="absolute h-full rounded-full bg-primary" />
           <SliderPrimitive.Thumb className="size-4 rounded-full border border-primary/60 bg-background shadow-sm outline-none transition-colors focus-visible:ring-3 focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-50" />
         </SliderPrimitive.Track>

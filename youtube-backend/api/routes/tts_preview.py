@@ -8,7 +8,7 @@ import shutil
 import tempfile
 import uuid
 
-from fastapi import APIRouter, Query, HTTPException, Depends
+from fastapi import APIRouter, Query, HTTPException, Depends, Path
 from fastapi.responses import FileResponse
 
 import requests as http_requests
@@ -160,10 +160,11 @@ async def tts_preview(
         try:
             emo = emotion if emotion != "normal" else None
             # measure_duration=False: sf.read 디코드를 건너뛰어 ffmpeg를 첫 디코더로 세운다.
+            # 샘플은 타임스탬프가 필요 없으니 플레인 엔드포인트 사용(기존 정규화 경로 그대로).
             await generate_tts_typecast(
                 tmp_dir, [SAMPLE_TEXT],
                 voice_id=voice_id, speed=speed, emotion=emo,
-                api_key=keys["typecast"], measure_duration=False,
+                api_key=keys["typecast"], measure_duration=False, with_timestamps=False,
             )
             wav_path = os.path.join(tmp_dir, "sent_00.wav")
             if not os.path.exists(wav_path):
@@ -284,6 +285,7 @@ async def _rebuild_full(session_dir: str, req: TtsPreviewBuildRequest, typecast_
         api_key=typecast_key,
     )
     durations = [t["duration"] for t in raw_timings]
+    word_times = [t.get("word_times") for t in raw_timings]
     expanded_sentences = list(req.sentences)
     split_from_map: dict[int, int] = {}
 
@@ -291,10 +293,11 @@ async def _rebuild_full(session_dir: str, req: TtsPreviewBuildRequest, typecast_
         overlong = detect_overlong_lines(durations, LINE_DURATION_THRESHOLD)
         if overlong:
             try:
-                expanded_sentences, durations, split_from_map = await _split_overlong_lines(
+                expanded_sentences, durations, split_from_map, word_times = await _split_overlong_lines(
                     session_dir=session_dir,
                     sentences=req.sentences,
                     durations=durations,
+                    word_times=word_times,
                     overlong_indices=overlong,
                     topic=req.topic or "",
                     style=req.style or "realistic",
@@ -306,7 +309,7 @@ async def _rebuild_full(session_dir: str, req: TtsPreviewBuildRequest, typecast_
                 traceback.print_exc()
                 # 분리 실패해도 원본은 유지
 
-    return expanded_sentences, durations, split_from_map
+    return expanded_sentences, durations, split_from_map, word_times
 
 
 async def _rebuild_incremental(
@@ -314,7 +317,7 @@ async def _rebuild_incremental(
     req: TtsPreviewBuildRequest,
     typecast_key: str,
     prev_sig: dict,
-) -> tuple[list[str], list[float], list[int]]:
+) -> tuple[list[str], list[float], list[int], list]:
     """incremental rebuild — 변경된 줄만 Typecast 재호출.
 
     전제:
@@ -327,8 +330,9 @@ async def _rebuild_incremental(
     - 새 line_order 따라가며: text_hash 동일하면 _swap에서 새 인덱스로 rename, 다르면 regen 인덱스 수집
     - generate_tts_for_indices로 변경 인덱스만 합성
     - 모든 줄의 duration을 wav에서 재측정 (재사용된 wav 포함)
+    - word_times: 재생성 줄은 새 값, 재사용 줄은 line_id 로 기존 값 이월(wav는 rename만 되므로 유효)
 
-    반환: (sentences, durations, indices_to_regen)
+    반환: (sentences, durations, indices_to_regen, word_times)
     """
     n = len(req.sentences)
     line_ids = list(req.line_ids or [])
@@ -338,6 +342,17 @@ async def _rebuild_incremental(
 
     prev_order: list[str] = list(prev_sig.get("line_order") or [])
     prev_hashes: dict[str, str] = dict(prev_sig.get("line_hashes") or {})
+
+    # word_times 이월용: timings_raw.json 이 덮이기 전에 line_id 별로 미리 읽어둔다.
+    prev_word_times_by_lid: dict[str, list | None] = {}
+    try:
+        with open(os.path.join(session_dir, "timings_raw.json"), encoding="utf-8") as f:
+            prev_timings = json.load(f)
+    except Exception:
+        prev_timings = []
+    for old_idx, lid in enumerate(prev_order):
+        if lid and old_idx < len(prev_timings) and isinstance(prev_timings[old_idx], dict):
+            prev_word_times_by_lid[lid] = prev_timings[old_idx].get("word_times")
 
     # 기존 wav를 _swap/{line_id}.wav 로 옮김
     swap_dir = os.path.join(session_dir, "_swap")
@@ -382,10 +397,11 @@ async def _rebuild_incremental(
     # _swap에 남은 wav는 삭제된 줄 → 정리
     shutil.rmtree(swap_dir, ignore_errors=True)
 
-    # 변경 줄만 Typecast 호출
+    # 변경 줄만 Typecast 호출 (word_times 포함해서 받음)
+    regen_results: dict[int, dict] = {}
     if indices_to_regen:
         emotion = req.emotion if req.emotion and req.emotion != "normal" else None
-        await generate_tts_for_indices(
+        regen_results = await generate_tts_for_indices(
             session_dir,
             req.sentences,
             indices_to_regen,
@@ -401,7 +417,15 @@ async def _rebuild_incremental(
         wav_path = os.path.join(session_dir, f"sent_{i:02d}.wav")
         durations.append(round(_measure_wav_duration_safe(wav_path), 2))
 
-    return list(req.sentences), durations, indices_to_regen
+    # word_times: 재생성 줄은 방금 받은 값, 재사용 줄은 line_id 로 이월(없으면 None → 비례 폴백).
+    regen_set = set(indices_to_regen)
+    word_times = [
+        ((regen_results.get(i) or {}).get("word_times") if i in regen_set
+         else prev_word_times_by_lid.get(lid))
+        for i, lid in enumerate(line_ids)
+    ]
+
+    return list(req.sentences), durations, indices_to_regen, word_times
 
 
 @router.post("/preview-build")
@@ -441,12 +465,12 @@ async def preview_build(
 
         try:
             if incremental:
-                expanded_sentences, durations, regen_indices = await _rebuild_incremental(
+                expanded_sentences, durations, regen_indices, word_times = await _rebuild_incremental(
                     session_dir, req, keys["typecast"], prev_sig
                 )
                 split_from_map: dict[int, int] = {}
             else:
-                expanded_sentences, durations, split_from_map = await _rebuild_full(
+                expanded_sentences, durations, split_from_map, word_times = await _rebuild_full(
                     session_dir, req, keys["typecast"], keys["gemini"]
                 )
                 regen_indices = list(range(len(expanded_sentences)))
@@ -460,10 +484,10 @@ async def preview_build(
                 shutil.rmtree(session_dir, ignore_errors=True)
             raise HTTPException(500, f"TTS 생성 실패: {e}")
 
-        # timings_raw.json 갱신
+        # timings_raw.json 갱신 (word_times 포함 — 렌더·매니페스트가 어절 타이밍을 읽는다)
         raw_timings_out = [
-            {"text": s, "duration": d}
-            for s, d in zip(expanded_sentences, durations)
+            {"text": s, "duration": d, "word_times": wt}
+            for s, d, wt in zip(expanded_sentences, durations, word_times)
         ]
         with open(os.path.join(session_dir, "timings_raw.json"), "w", encoding="utf-8") as f:
             json.dump(raw_timings_out, f, ensure_ascii=False, indent=2)
@@ -476,8 +500,11 @@ async def preview_build(
             "original_sentences": list(req.sentences),
             "expanded_sentences": expanded_sentences,
             "durations": durations,
+            "word_times": word_times,
             "split_from_map": split_from_map,
             "content_type": req.content_type,
+            # 세션 오디오 서빙 시 소유권 확인용. (구세션엔 없음 → 하위호환으로 통과)
+            "user_id": _user.id,
         }
         with open(os.path.join(session_dir, "metadata.json"), "w", encoding="utf-8") as f:
             json.dump(metadata, f, ensure_ascii=False, indent=2)
@@ -497,6 +524,7 @@ async def preview_build(
         "session_id": session_id,
         "lines_count": len(expanded_sentences),
         "durations": durations,
+        "word_times": word_times,
         "split_count": len(split_from_map),
         "expanded_sentences": expanded_sentences,
         "regenerated_indices": regen_indices,
@@ -504,19 +532,93 @@ async def preview_build(
     }
 
 
+# ──────────────────────────────────────────────────────────────
+# 세션 오디오 서빙 — 화면·소리 단계의 줄별/전체 미리듣기용
+# ──────────────────────────────────────────────────────────────
+# 줄별 재생: <audio src> 가 쿠키 인증으로 이 GET 을 직접 부른다(프록시 경유, BGM 서빙과 동일 패턴).
+# 재열기(reopen) 후에도 _restore_tts_session_dir 이 세션 폴더를 복원하므로 재빌드 없이 즉시 재생 가능.
+
+def _load_session_metadata(session_dir: str) -> dict | None:
+    path = os.path.join(session_dir, "metadata.json")
+    if not os.path.exists(path):
+        return None
+    try:
+        with open(path, encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return None
+
+
+def _check_session_owner(metadata: dict, user: User) -> None:
+    """세션 소유권 확인. user_id 태그 없는 구세션은 통과(하위호환), 있으면 본인/admin 만."""
+    owner = (metadata or {}).get("user_id")
+    if owner and owner != user.id and user.role != "admin":
+        raise HTTPException(404, "세션을 찾을 수 없습니다")
+
+
+@router.get("/preview-session/{session_id}")
+async def get_preview_session(
+    session_id: str = Path(..., pattern=r"^[a-f0-9]{12}$"),
+    db: Session = Depends(get_db),
+    _user: User = Depends(get_approved_user),
+):
+    """세션 매니페스트 — 재열기 시 프론트가 재빌드 없이 스냅샷을 복원하는 데 쓴다."""
+    session_dir = os.path.join(TTS_SESSIONS_DIR, session_id)
+    metadata = _load_session_metadata(session_dir)
+    if not os.path.isdir(session_dir) or metadata is None:
+        raise HTTPException(404, "세션을 찾을 수 없습니다")
+    _check_session_owner(metadata, _user)
+    sig = _load_signature(session_dir)
+    durations = metadata.get("durations") or []
+    return {
+        "session_id": session_id,
+        "line_ids": (sig.get("line_order") if sig else None),
+        "line_hashes": (sig.get("line_hashes") if sig else None),
+        "durations": durations,
+        "word_times": metadata.get("word_times"),
+        "voice": {
+            "voice_id": metadata.get("voice_id"),
+            "speed": metadata.get("speed"),
+            "emotion": metadata.get("emotion"),
+        },
+        "lines_count": len(durations),
+    }
+
+
+@router.get("/preview-session/{session_id}/line/{index}")
+async def get_preview_session_line(
+    session_id: str = Path(..., pattern=r"^[a-f0-9]{12}$"),
+    index: int = Path(..., ge=0, le=200),
+    db: Session = Depends(get_db),
+    _user: User = Depends(get_approved_user),
+):
+    """세션의 한 줄 오디오(sent_XX.wav)를 반환. <audio> Range 요청은 FileResponse 가 처리."""
+    session_dir = os.path.join(TTS_SESSIONS_DIR, session_id)
+    metadata = _load_session_metadata(session_dir)
+    if not os.path.isdir(session_dir) or metadata is None:
+        raise HTTPException(404, "세션을 찾을 수 없습니다")
+    _check_session_owner(metadata, _user)
+    wav = os.path.join(session_dir, f"sent_{index:02d}.wav")
+    if not os.path.exists(wav):
+        raise HTTPException(404, "해당 줄 오디오가 없습니다")
+    return FileResponse(wav, media_type="audio/wav")
+
+
 async def _split_overlong_lines(
     session_dir: str,
     sentences: list[str],
     durations: list[float],
+    word_times: list,
     overlong_indices: list[int],
     topic: str,
     style: str,
     gemini_api_key: str | None,
-) -> tuple[list[str], list[float], dict[int, int]]:
+) -> tuple[list[str], list[float], dict[int, int], list]:
     """6초 초과 줄을 Gemini(1순위) 또는 구두점(폴백)으로 2분할하고
     세션 디렉토리의 sent_XX.wav 파일들을 재배치.
 
-    반환: (확장된 sentences, 확장된 durations, {새 인덱스: 원본 인덱스} 매핑)
+    분할된 줄은 wav 를 잘라내므로 원래 word_times 가 무효 → 두 조각 모두 None.
+    반환: (확장된 sentences, 확장된 durations, {새 인덱스: 원본 인덱스} 매핑, 확장된 word_times)
     """
     # 1) 각 초과 줄의 분리 텍스트 계산
     split_texts: dict[int, list[str]] = {}
@@ -534,6 +636,7 @@ async def _split_overlong_lines(
 
     expanded_sentences: list[str] = []
     expanded_durations: list[float] = []
+    expanded_word_times: list = []
     split_from_map: dict[int, int] = {}
 
     new_idx = 0
@@ -553,6 +656,7 @@ async def _split_overlong_lines(
 
             expanded_sentences.extend(parts)
             expanded_durations.extend([round(dur_a, 2), round(dur_b, 2)])
+            expanded_word_times.extend([None, None])  # wav 를 잘라 원래 타임스탬프 무효
             split_from_map[new_idx] = orig_idx
             split_from_map[new_idx + 1] = orig_idx
             new_idx += 2
@@ -561,6 +665,7 @@ async def _split_overlong_lines(
             shutil.copy(src_wav, out)
             expanded_sentences.append(sent)
             expanded_durations.append(durations[orig_idx])
+            expanded_word_times.append(word_times[orig_idx] if orig_idx < len(word_times) else None)
             new_idx += 1
 
     # 3) 원본 sent_XX.wav 삭제 후 temp 파일들을 세션 디렉토리로 이동
@@ -574,4 +679,4 @@ async def _split_overlong_lines(
         shutil.move(src, dst)
     shutil.rmtree(temp_dir, ignore_errors=True)
 
-    return expanded_sentences, expanded_durations, split_from_map
+    return expanded_sentences, expanded_durations, split_from_map, expanded_word_times
