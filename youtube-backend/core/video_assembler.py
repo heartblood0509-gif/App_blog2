@@ -76,7 +76,8 @@ async def assemble_shorts(job_id: str, config: dict, progress_callback=None):
     sentences = [line["text"] for line in config["lines"]]
     images = config["images"]
     # 카드 B 는 motion 이 없을 수 있어(기본 "없음") safe-get. 카드 A 는 항상 값이 있어 동작 불변.
-    motions = [line.get("motion", "zoom_in") for line in config["lines"]]
+    # 키가 아예 없는 옛 줄은 "없음"으로 — UI 표기('모션 없음')와 최종 영상을 일치시킨다.
+    motions = [line.get("motion", "none") for line in config["lines"]]
 
     # ── Step 1: TTS 준비 ──
     # prebuilt_tts=True면 tts_dir에 이미 sent_XX.wav + timings_raw.json 있다고 가정.
@@ -145,10 +146,13 @@ async def assemble_shorts(job_id: str, config: dict, progress_callback=None):
             if src == "clip":
                 # 사용자 업로드 영상: 길이 검증 후 원본 비율 유지 배치(+선택 시 서서히 줌인)
                 v_dur = await asyncio.to_thread(get_duration, asset)
-                if v_dur + 0.05 < dur:
+                # 선트림 조각의 재생 시작점(초). 레거시(필드 없음)면 0. 조각 밖을 가리키지 않게 방어 클램프.
+                clip_start = float(config["lines"][i].get("clip_start") or 0.0)
+                clip_start = max(0.0, min(clip_start, max(0.0, v_dur - dur)))
+                if (v_dur - clip_start) + 0.05 < dur:
                     raise RuntimeError(
                         f"{i + 1}번째 줄 영상이 음성보다 짧습니다 "
-                        f"(영상 {v_dur:.2f}초 < 음성 {dur:.2f}초). "
+                        f"(사용 가능 {v_dur - clip_start:.2f}초 < 음성 {dur:.2f}초). "
                         f"더 긴 영상으로 교체해주세요."
                     )
                 sw, sh = await asyncio.to_thread(probe_media_dims, asset)
@@ -164,6 +168,7 @@ async def assemble_shorts(job_id: str, config: dict, progress_callback=None):
                     width=W,
                     height=H,
                     fps=settings.FPS,
+                    start=clip_start,
                 )
             else:
                 # "ai" 또는 "image": 원본 비율 유지 배치 후, 사용자가 고른 모션 효과 적용.
@@ -335,7 +340,17 @@ async def assemble_shorts(job_id: str, config: dict, progress_callback=None):
     h = settings.TARGET_HEIGHT  # 1920
     sq_y = (h - sq) // 2  # 420
 
-    sub_y = sq_y + sq - 200
+    # 자막 스타일(작업 전역). 미설정(None)이면 기존 기본과 동일 — 레거시 job 은 동작 불변.
+    from core.colors import normalize_hex as _normalize_hex
+    DEFAULT_SUB_Y = sq_y + sq - 200  # 1300 (하단에서 위로)
+    sub_y = int(config.get("subtitle_y") or DEFAULT_SUB_Y)
+    sub_fontsize = int(config.get("subtitle_font_size") or 55)
+    sub_color = _normalize_hex(config.get("subtitle_color"), "#FFFFFF")
+    sub_dx = int(config.get("subtitle_dx") or 0)
+    # 테두리 굵기는 55px 기준(3px)에 비례해 큰 글씨에서도 균형 유지.
+    sub_border = max(1, round(3 * sub_fontsize / 55))
+    # 가로 위치: 중앙 정렬 + 사용자 오프셋(px). dx>0 오른쪽, dx<0 왼쪽.
+    sub_x = f"(w-text_w)/2+({sub_dx})"
 
     def _escape_filter(text):
         # ffmpeg drawtext text= 옵션에서 특수 해석되는 문자들 이스케이프.
@@ -362,8 +377,8 @@ async def assemble_shorts(job_id: str, config: dict, progress_callback=None):
         escaped = _escape_filter(text)
         sub_filters.append(
             f"drawtext=expansion=none:fontfile='{font_sub_name}':text='{escaped}':"
-            f"fontsize=55:fontcolor=white:borderw=3:bordercolor=black:"
-            f"x=(w-text_w)/2:y={sub_y}:"
+            f"fontsize={sub_fontsize}:fontcolor={sub_color}:borderw={sub_border}:bordercolor=black:"
+            f"x={sub_x}:y={sub_y}:"
             f"enable='between(t,{start},{end})'"
         )
 

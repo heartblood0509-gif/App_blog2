@@ -136,6 +136,9 @@ def mark_line_asset_ready(line: dict[str, Any], *, bump_version: bool = False) -
         # 업로드 엔드포인트가 원본 크기를 알면 곧바로 cover 초기 transform 을 다시 써 넣는다.
         # motion 은 취향 선택이라 보존한다.
         line.pop("transform", None)
+        # 영상 조각 메타도 이전 자산 것이라 무효. 선트림 업로드 경로가 이 pop 이후 다시 써 넣는다.
+        line.pop("clip_start", None)
+        line.pop("clip_duration", None)
         bump_line_asset_version(line)
     clear_line_asset_progress(line)
 

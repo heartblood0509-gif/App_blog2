@@ -10,6 +10,7 @@ import {
   hasOverflowChunk,
   wordTimesMatch,
   chunkBoundariesFromWordTimes,
+  stripSubtitlePeriods,
   type WordTime,
 } from "./subtitle-split";
 
@@ -186,5 +187,24 @@ describe("gapKinds — 자막 간격 분류", () => {
   it("글자 단위 정렬 불가면 null", () => {
     expect(gapKinds(["가나"], ["가", "다"])).toBeNull();
     expect(gapKinds(["가"], ["가", "나"])).toBeNull();
+  });
+});
+
+// 백엔드 subtitle_utils.py 의 strip_subtitle_periods 와 규칙 동일해야 함(미리보기=최종 영상).
+describe("stripSubtitlePeriods — 마침표 제거(소수점 보존)", () => {
+  it("문장 끝 마침표 제거", () => {
+    expect(stripSubtitlePeriods("때문입니다.")).toBe("때문입니다");
+    expect(stripSubtitlePeriods("5만.")).toBe("5만");
+  });
+  it("여러 마침표(생략부호)도 제거", () => {
+    expect(stripSubtitlePeriods("안녕...")).toBe("안녕");
+  });
+  it("소수점은 보존", () => {
+    expect(stripSubtitlePeriods("3.5")).toBe("3.5");
+    expect(stripSubtitlePeriods("가격은 3.5%입니다.")).toBe("가격은 3.5%입니다");
+    expect(stripSubtitlePeriods("0.5초")).toBe("0.5초");
+  });
+  it("마침표 없으면 그대로", () => {
+    expect(stripSubtitlePeriods("사라집니다")).toBe("사라집니다");
   });
 });

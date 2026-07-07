@@ -13,6 +13,16 @@ export function displayLen(text: string): number {
   return text.replace(PUNCT_RE, "").length;
 }
 
+// 자막에는 마침표를 넣지 않는다(동영상 자막 관례). 상단 대본 원문은 그대로 두고,
+// 화면에 그려지는 자막 조각에서만 마침표를 뺀다. 소수점(숫자.숫자, 예: "3.5")은 보존.
+// ⚠️ 백엔드 subtitle_utils.py 의 strip_subtitle_periods 와 규칙이 동일해야 함(미리보기=최종 영상).
+const SUB_PERIOD_RE = /(?<!\d)\.|\.(?!\d)/g;
+
+/** 자막 표시용: 마침표 제거(소수점은 보존). 원문 텍스트·TTS 타이밍에는 영향 없음. */
+export function stripSubtitlePeriods(text: string): string {
+  return text.replace(SUB_PERIOD_RE, "");
+}
+
 /** 한 줄 텍스트 → 기본 자막 조각들(쉼표 → 균형 어절 → 탐욕 어절). */
 export function naturalSplit(text: string): string[] {
   if (displayLen(text) <= MAX_DISPLAY) return [text];

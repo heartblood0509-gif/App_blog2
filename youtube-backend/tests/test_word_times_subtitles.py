@@ -121,9 +121,10 @@ def test_boundary_at_word_start_unchanged_with_subtitle_space():
     timings = [_line("홍조의 원인은 피부장벽이 무너졌기 때문입니다.", 10.0, 14.0)]
     chunks = [["홍조의 원인은", "피부 장벽이 무너졌기 때문입니다."]]
     subs = split_subtitle_natural(timings, chunks, [_WT_SPLIT])
+    # 타이밍은 원본 조각(마침표 포함)으로 정렬하고, 출력 자막에서만 마침표가 빠진다.
     assert subs == [
         (10.0, 11.3, "홍조의 원인은"),
-        (11.3, 14.0, "피부 장벽이 무너졌기 때문입니다."),
+        (11.3, 14.0, "피부 장벽이 무너졌기 때문입니다"),
     ]
 
 
@@ -133,4 +134,27 @@ def test_boundary_inside_spoken_word_interpolates():
     chunks = [["홍조의 원인은 피부", "장벽이 무너졌기 때문입니다."]]
     subs = split_subtitle_natural(timings, chunks, [_WT_SPLIT])
     assert subs[0] == (10.0, 11.7, "홍조의 원인은 피부")
-    assert subs[1] == (11.7, 14.0, "장벽이 무너졌기 때문입니다.")
+    assert subs[1] == (11.7, 14.0, "장벽이 무너졌기 때문입니다")
+
+
+# ── 자막 마침표 제거(소수점 보존) ──────────────────────────────────
+
+from core.subtitle_utils import strip_subtitle_periods  # noqa: E402
+
+
+def test_strip_subtitle_periods_removes_and_keeps_decimals():
+    assert strip_subtitle_periods("때문입니다.") == "때문입니다"
+    assert strip_subtitle_periods("안녕...") == "안녕"          # 여러 마침표(생략부호)도 제거
+    assert strip_subtitle_periods("5만.") == "5만"
+    assert strip_subtitle_periods("3.5") == "3.5"             # 소수점 보존
+    assert strip_subtitle_periods("가격은 3.5%입니다.") == "가격은 3.5%입니다"
+    assert strip_subtitle_periods("0.5초") == "0.5초"
+
+
+def test_output_strips_period_but_keeps_decimal_and_timing():
+    # 카드 B 확정 조각(마침표 포함, 소수점 포함) → 타이밍은 그대로, 출력 자막만 마침표 제거.
+    timings = [_line("가격은 3.5입니다.", 0.0, 4.0)]
+    chunks = [["가격은", "3.5입니다."]]
+    subs = split_subtitle_natural(timings, chunks, None)
+    texts = [t for _, _, t in subs]
+    assert texts == ["가격은", "3.5입니다"]  # 끝 마침표만 빠지고 소수점은 유지

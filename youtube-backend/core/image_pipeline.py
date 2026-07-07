@@ -354,18 +354,25 @@ def process_user_clip(
     width: int = 1080,
     height: int = 1920,
     fps: int = 30,
+    start: float = 0.0,
 ) -> str:
     """사용자 업로드 영상: 원본 비율 유지한 채 transform 대로 검정 캔버스에 배치 + trim.
 
     - 왜곡 없음: scale 로 비율 유지 리사이즈 후 overlay(음수 좌표·오버플로 크롭 허용).
     - motion="zoom_in" 이면 합성 프레임(9:16)에 기존과 동일한 5% 서서히 줌인을 적용.
     - setsar=1 로 휴대폰 영상의 앵글드 SAR(비정방 픽셀) 왜곡을 무력화.
+    - start>0 이면 `-ss` 를 `-i` 앞에 둬 그 지점부터 사용(선트림 조각의 앞 여유분 건너뛰기).
+      입력 시킹이라 출력 타임스탬프가 0 부터 재시작 → zoom_in 의 t/{duration} 수식이 그대로 유효.
+      start=0.0(레거시)이면 기존과 완전히 동일한 명령.
     """
     DW, DH, OX, OY = compute_placement(src_w, src_h, transform, width, height)
 
+    # setpts=PTS-STARTPTS: `-ss` 입력 시킹(start>0) 시 영상 첫 프레임의 PTS 가 정확히 0 이 아니라,
+    # 검정 배경(bg, PTS 0)에 overlay 하면 t=0 순간 배경만 보여 첫 프레임이 검정으로 깜빡인다.
+    # 타임스탬프를 0 으로 리셋해 fg 가 bg 와 t=0 부터 정렬되게 한다(start=0 이면 무해한 no-op).
     place = (
         f"color=c=black:s={width}x{height}:r={fps}:d={duration}[bg];"
-        f"[0:v]scale={DW}:{DH}:flags=lanczos,setsar=1[fg];"
+        f"[0:v]scale={DW}:{DH}:flags=lanczos,setsar=1,setpts=PTS-STARTPTS[fg];"
         f"[bg][fg]overlay={OX}:{OY}:shortest=1"
     )
     if motion == "zoom_in":
@@ -379,8 +386,9 @@ def process_user_clip(
     else:
         vf = f"{place},format=yuv420p[v]"
 
+    seek = f"-ss {start:.3f} " if start and start > 0 else ""
     cmd = (
-        f'{FFMPEG_Q} -y -i "{clip_path}" '
+        f'{FFMPEG_Q} -y {seek}-i "{clip_path}" '
         f'-t {duration} '
         f'-filter_complex "{vf}" -map "[v]" '
         f"-c:v libx264 -preset fast -crf 18 "

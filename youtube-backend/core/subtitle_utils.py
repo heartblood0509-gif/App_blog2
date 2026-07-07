@@ -78,6 +78,17 @@ def natural_split(text):
     return chunks
 
 
+# 자막에는 마침표를 넣지 않는다(동영상 자막 관례). 상단 대본 입력란(원문)은 그대로 두고,
+# 화면에 그려지는 자막 조각에서만 마침표를 뺀다. 소수점(숫자.숫자, 예: "3.5")은 보존한다.
+# ⚠️ 프론트 subtitle-split.ts 의 stripSubtitlePeriods 와 규칙이 동일해야 한다(미리보기=최종 영상).
+_SUB_PERIOD_RE = re.compile(r"(?<!\d)\.|\.(?!\d)")
+
+
+def strip_subtitle_periods(text):
+    """자막 표시용: 마침표 제거(소수점은 보존). 원문 텍스트·TTS 타이밍에는 영향 없음."""
+    return _SUB_PERIOD_RE.sub("", text)
+
+
 def _norm_joined(s):
     """공백 제거 + 끝 마침표 제거(카드 A 자동분할이 text.rstrip('.') 하는 것과 정합)."""
     return re.sub(r"\s+", "", s).rstrip(".")
@@ -192,6 +203,8 @@ def split_subtitle_natural(timings, line_chunks=None, line_word_times=None):
                 seg_end = end if i == len(chunks) - 1 else start + duration * (cum / total_w)
                 segs.append((seg_start, seg_end))
 
+        # 타이밍 정렬은 원본 조각(마침표 포함, word_times 와 글자수 정합)으로 끝냈고,
+        # 화면에 그려지는 자막 문자열에서만 마침표를 뺀다.
         for (seg_start, seg_end), chunk in zip(segs, chunks):
-            subs.append((round(seg_start, 2), round(seg_end, 2), chunk))
+            subs.append((round(seg_start, 2), round(seg_end, 2), strip_subtitle_periods(chunk)))
     return subs

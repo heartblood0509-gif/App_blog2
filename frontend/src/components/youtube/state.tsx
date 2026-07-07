@@ -23,6 +23,12 @@ import {
   DEFAULT_TITLE_FONT,
   DEFAULT_TITLE_FONT_WEIGHT,
   DEFAULT_TITLE_FONT_SIZE,
+  DEFAULT_SUBTITLE_FONT,
+  DEFAULT_SUBTITLE_FONT_WEIGHT,
+  DEFAULT_SUBTITLE_FONT_SIZE,
+  DEFAULT_SUBTITLE_COLOR,
+  DEFAULT_SUBTITLE_DX,
+  DEFAULT_SUBTITLE_Y,
   normalizeWeight,
 } from "@/lib/youtube/fonts";
 import {
@@ -31,6 +37,7 @@ import {
   normalizeHexOr,
 } from "@/lib/youtube/title-colors";
 import { loadLastUsed } from "@/lib/youtube/title-defaults";
+import { loadLastSubtitle } from "@/lib/youtube/subtitle-defaults";
 import { YT_AI_FULL_ENABLED } from "@/lib/youtube-ai-full-feature";
 
 export type YtMode = "ai_full" | "user_assets";
@@ -98,6 +105,15 @@ export interface YtState {
   titleColor1: string;
   titleColor2: string;
 
+  // 자막 스타일(작업 전역). 폰트 ""=기본 자막폰트. 크기/색/위치는 렌더 기준(1080×1920).
+  // subtitleDx=가로 중앙 오프셋(px), subtitleY=자막 상단 y(px).
+  subtitleFont: string;
+  subtitleFontWeight: string;
+  subtitleFontSize: number;
+  subtitleColor: string;
+  subtitleDx: number;
+  subtitleY: number;
+
   // Card B — 붙여넣은 원본 대본(스텝 되돌아왔을 때 유지)
   scriptText: string;
 
@@ -161,6 +177,12 @@ export const initialYtState: YtState = {
   titleFontSize: DEFAULT_TITLE_FONT_SIZE,
   titleColor1: DEFAULT_TITLE_COLOR1,
   titleColor2: DEFAULT_TITLE_COLOR2,
+  subtitleFont: DEFAULT_SUBTITLE_FONT,
+  subtitleFontWeight: DEFAULT_SUBTITLE_FONT_WEIGHT,
+  subtitleFontSize: DEFAULT_SUBTITLE_FONT_SIZE,
+  subtitleColor: DEFAULT_SUBTITLE_COLOR,
+  subtitleDx: DEFAULT_SUBTITLE_DX,
+  subtitleY: DEFAULT_SUBTITLE_Y,
   narration: [],
   narrationTitle: "",
   scriptLines: null,
@@ -186,6 +208,7 @@ export const initialYtState: YtState = {
 // 신규 프로젝트 진입점(Provider 초기화 + "새로 만들기" reset)에서 공유한다.
 export function freshYtState(): YtState {
   const last = loadLastUsed();
+  const sub = loadLastSubtitle();
   return {
     ...initialYtState,
     ...(last.font !== undefined ? { titleFont: last.font } : {}),
@@ -195,6 +218,11 @@ export function freshYtState(): YtState {
     ...(last.size !== undefined ? { titleFontSize: last.size } : {}),
     ...(last.color1 !== undefined ? { titleColor1: last.color1 } : {}),
     ...(last.color2 !== undefined ? { titleColor2: last.color2 } : {}),
+    // 자막 스타일도 이 기기 마지막값으로 seed(위치 dx/y 는 기억 안 함 — 매번 기본에서 시작).
+    ...(sub.font !== undefined ? { subtitleFont: sub.font } : {}),
+    ...(sub.weight !== undefined ? { subtitleFontWeight: sub.weight } : {}),
+    ...(sub.size !== undefined ? { subtitleFontSize: sub.size } : {}),
+    ...(sub.color !== undefined ? { subtitleColor: sub.color } : {}),
   };
 }
 
@@ -298,6 +326,12 @@ export function restorePatchFromDraft(
     titleFontSize: ds.title_font_size ?? DEFAULT_TITLE_FONT_SIZE,
     titleColor1: normalizeHexOr(ds.title_color1, DEFAULT_TITLE_COLOR1),
     titleColor2: normalizeHexOr(ds.title_color2, DEFAULT_TITLE_COLOR2),
+    subtitleFont: ds.subtitle_font ?? DEFAULT_SUBTITLE_FONT,
+    subtitleFontWeight: ds.subtitle_font_weight ?? DEFAULT_SUBTITLE_FONT_WEIGHT,
+    subtitleFontSize: ds.subtitle_font_size ?? DEFAULT_SUBTITLE_FONT_SIZE,
+    subtitleColor: normalizeHexOr(ds.subtitle_color, DEFAULT_SUBTITLE_COLOR),
+    subtitleDx: ds.subtitle_dx ?? DEFAULT_SUBTITLE_DX,
+    subtitleY: ds.subtitle_y ?? DEFAULT_SUBTITLE_Y,
     selectedTitle: ds.title ?? "",
     scriptText: lineTexts.join("\n"),
     ttsEngine: ds.tts_engine ?? "typecast",

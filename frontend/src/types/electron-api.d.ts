@@ -170,6 +170,11 @@ interface ElectronAuthApi {
   setAutoLoginEnabled: (enabled: boolean) => Promise<boolean>;
 }
 
+interface ElectronMediaApi {
+  // 렌더러 File → OS 절대경로(webUtils). 실패/비파일이면 "". 카드 B 선트림 업로드의 경로 임포트용.
+  getPathForFile: (file: File) => string;
+}
+
 interface ElectronAPI {
   platform: NodeJS.Platform;
   auth: ElectronAuthApi;
@@ -178,6 +183,8 @@ interface ElectronAPI {
   publish: ElectronPublishApi;
   blogSplit: ElectronBlogSplitApi;
   settings: ElectronSettingsApi;
+  // 구버전 데스크톱 앱엔 없을 수 있어 옵셔널 — 없으면 프론트가 웹 업로드로 폴백.
+  media?: ElectronMediaApi;
 }
 
 declare global {

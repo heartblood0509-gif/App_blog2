@@ -1,4 +1,4 @@
-import { contextBridge, ipcRenderer, IpcRendererEvent } from "electron";
+import { contextBridge, ipcRenderer, webUtils, IpcRendererEvent } from "electron";
 
 type UpdaterState =
   | "idle"
@@ -38,6 +38,18 @@ interface BlogSplitPasteProbeResult {
 
 contextBridge.exposeInMainWorld("electronAPI", {
   platform: process.platform,
+  // 렌더러가 고른 File 의 OS 절대경로를 동기로 반환(Electron webUtils, IPC 불필요).
+  // 카드 B 선트림 업로드에서 원본을 전송하지 않고 "경로만" 백엔드에 넘겨 그 자리에서 자르기 위함.
+  // 비-File 이거나 실패하면 "" 반환 → 프론트가 웹 업로드로 폴백.
+  media: {
+    getPathForFile: (file: File): string => {
+      try {
+        return webUtils.getPathForFile(file);
+      } catch {
+        return "";
+      }
+    },
+  },
   auth: {
     openExternal: (url: string): Promise<boolean> => ipcRenderer.invoke("auth:openExternal", url),
     getDeviceInfo: (): Promise<{

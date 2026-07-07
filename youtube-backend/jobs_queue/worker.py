@@ -578,10 +578,22 @@ async def render_video_for_job(job_id: str):
                 "font_title": resolve_title_font_path(
                     getattr(job, "title_font", None), getattr(job, "title_font_weight", None)
                 ),
-                "font_sub": settings.FONT_SUB,
+                # 자막 폰트: 사용자가 고른 폰트가 있으면 제목과 같은 번들 폰트로 해석, 없으면 기존 기본(settings.FONT_SUB).
+                # resolve_title_font_path 는 미설정 시 제목 기본폰트로 폴백하므로, None 일 때는 태우지 않는다.
+                "font_sub": (
+                    resolve_title_font_path(
+                        getattr(job, "subtitle_font", None), getattr(job, "subtitle_font_weight", None)
+                    )
+                    if getattr(job, "subtitle_font", None)
+                    else settings.FONT_SUB
+                ),
                 "title_font_size": getattr(job, "title_font_size", None),
                 "title_color1": getattr(job, "title_color1", None),
                 "title_color2": getattr(job, "title_color2", None),
+                "subtitle_font_size": getattr(job, "subtitle_font_size", None),
+                "subtitle_color": getattr(job, "subtitle_color", None),
+                "subtitle_dx": getattr(job, "subtitle_dx", None),
+                "subtitle_y": getattr(job, "subtitle_y", None),
                 "typecast_api_key": keys["typecast"],
             }
 

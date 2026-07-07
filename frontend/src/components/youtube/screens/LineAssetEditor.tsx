@@ -17,8 +17,6 @@ import {
   AlertTriangle,
   ArrowUpToLine,
   CheckCircle2,
-  ChevronLeft,
-  ChevronRight,
   CornerDownLeft,
   Film,
   ImageIcon,
@@ -51,6 +49,7 @@ import { ytUrl } from "@/lib/youtube/api";
 import { cn } from "@/lib/utils";
 import { ShortsPreviewFrame } from "../ShortsPreviewFrame";
 import { TransformablePreviewMedia } from "../TransformablePreviewMedia";
+import { SegmentTrack } from "../SegmentTrack";
 import {
   clampTransform,
   DEFAULT_TRANSFORM,
@@ -61,28 +60,37 @@ import {
 } from "@/lib/youtube/transform";
 import { VoiceSettingsBar } from "../shared/VoiceSettingsBar";
 import { BgmPicker, bgmAudioUrl, formatTime } from "../shared/BgmPicker";
+import { SubtitleStylePicker } from "../shared/SubtitleStylePicker";
 import { PlaybackProgressBar } from "../shared/PlaybackProgressBar";
 import { useTtsSessionPlayback } from "../useTtsSessionPlayback";
 import {
   breakSetFromChunks,
+  chunkBoundariesFromWordTimes,
   chunksForLine,
   chunksFromBreaks,
   displayLen,
   gapKinds,
   hasOverflowChunk,
   MAX_DISPLAY,
+  stripSubtitlePeriods,
   wordsOf,
+  type WordTime,
 } from "@/lib/youtube/subtitle-split";
 import {
+  cleanupClipProxy,
+  clearLineClip,
   confirmDraft,
   deleteLine,
   editLine,
   generateMissingImages,
   getDraftState,
   getTtsSessionManifest,
+  importClipSegment,
+  makeClipProxy,
   mergeLine,
   regenerateClip,
   regenerateImage,
+  saveDraftMeta,
   saveLineVisual,
   setSubtitleChunks,
   splitLine,
@@ -92,7 +100,10 @@ import {
   type BgmItem,
   type LineSource,
   type ScriptLine,
+  type UploadClipResult,
 } from "@/lib/youtube/endpoints";
+import { TrimUploadModal } from "../TrimUploadModal";
+import { saveLastSubtitle } from "@/lib/youtube/subtitle-defaults";
 
 const ACCEPT = "image/png,image/jpeg,image/webp";
 const ALLOWED_TYPES = ["image/png", "image/jpeg", "image/webp"];
@@ -134,7 +145,7 @@ const SOURCE_LABEL: Record<LineSource, string> = {
 // 움직임(모션) 효과 선택지. 영상 줄은 팬/줌아웃 대신 "없음/서서히 확대"만(백엔드 process_user_clip 제약).
 type MotionOption = { value: string; label: string };
 const IMAGE_MOTIONS: MotionOption[] = [
-  { value: "none", label: "움직임 없음" },
+  { value: "none", label: "모션 없음" },
   { value: "zoom_in", label: "줌 인 (확대)" },
   { value: "zoom_out", label: "줌 아웃 (축소)" },
   { value: "pan_left", label: "왼쪽으로" },
@@ -143,13 +154,36 @@ const IMAGE_MOTIONS: MotionOption[] = [
   { value: "pan_down", label: "아래로" },
 ];
 const CLIP_MOTIONS: MotionOption[] = [
-  { value: "none", label: "움직임 없음" },
+  { value: "none", label: "모션 없음" },
   { value: "zoom_in", label: "서서히 확대" },
 ];
 const SLIDER_COMMIT_MS = 400;
+// 크기 슬라이더 조작 뒤 외곽선/핸들을 잠깐 더 보여주는 시간(ms). "직접 잡을 수 있음" 힌트.
+const SPOTLIGHT_HOLD_MS = 1100;
 
 function errMessage(e: unknown, fallback: string): string {
   return e instanceof Error ? e.message : fallback;
+}
+
+// 정지 상태 자막 자동 순환용 — 각 조각을 몇 초 보여줄지. 음성이 있으면 실제 나레이션
+// 타이밍(word_times → 비례), 아직 음성을 안 만들었으면 글자 수 기반으로 추정한다.
+function chunkDisplayDurations(
+  chunks: string[],
+  durationSec: number | null,
+  wordTimes: WordTime[] | null,
+): number[] {
+  if (chunks.length === 0) return [];
+  if (durationSec && durationSec > 0) {
+    const bounds = chunkBoundariesFromWordTimes(chunks, wordTimes, durationSec);
+    if (bounds) {
+      return bounds.map((b, i) => Math.max(0.4, b - (i > 0 ? bounds[i - 1] : 0)));
+    }
+    const weights = chunks.map((c) => Math.max(1, displayLen(c)));
+    const total = weights.reduce((a, b) => a + b, 0) || 1;
+    return weights.map((w) => Math.max(0.4, (w / total) * durationSec));
+  }
+  // 음성 미빌드: 글자수×0.15초, 조각당 최소 1.2초로 넉넉히.
+  return chunks.map((c) => Math.max(1.2, displayLen(c) * 0.15));
 }
 
 // 자막 조각 편집 행 — 자막 어절을 칩으로 나열, 어절 사이(·)를 눌러 끊거나(⏎) 다시 합친다.
@@ -200,7 +234,9 @@ function SubtitleChunkRow({
       {words.map((w, i) => {
         const over = chunkOverflow[chunkOfWord[i]];
         const playing = activeChunkIdx != null && activeChunkIdx === chunkOfWord[i];
-        const chars = Array.from(w);
+        // 표시만 마침표 제거(자막 관례). 끊김·띄어쓰기 계산은 원본 w 로 유지.
+        // 실제 자막에서 빠지는 마침표는 항상 어절 끝이라 남는 글자들의 인덱스(onSplit 오프셋)는 안 바뀐다.
+        const chars = Array.from(stripSubtitlePeriods(w));
         return (
           <Fragment key={i}>
             {i > 0 && (
@@ -299,6 +335,8 @@ export function LineAssetEditor() {
   // 자산 위치/배율 편집 초안(line_id 기준). 2초 폴링이 드래그 중 미디어를 되돌리지 못하게
   // lines[i].transform 보다 우선한다. 서버 저장이 확정되면 lines 에 접고 초안을 지운다.
   const [transformDrafts, setTransformDrafts] = useState<Record<string, LineTransform>>({});
+  // 영상 조각 시작점(clip_start) 미세조정 초안(line_id 기준) — transformDrafts 와 같은 이유.
+  const [clipStartDrafts, setClipStartDrafts] = useState<Record<string, number>>({});
 
   // 음성 재생 컨트롤러(줄별 ▶ / 전체 미리듣기 + BGM 믹스 + 자막 조각 추적).
   const playback = useTtsSessionPlayback();
@@ -307,10 +345,30 @@ export function LineAssetEditor() {
   const [creating, setCreating] = useState(false);
   // 선택된 BGM(전체 미리듣기 믹서에 넘길 url·길이). BgmPicker 가 알려준다.
   const [selectedBgm, setSelectedBgm] = useState<BgmItem | null>(null);
-  // 정지 상태에서 선택 줄 자막을 넘겨보는 수동 페이저 인덱스.
-  const [previewChunkIdx, setPreviewChunkIdx] = useState(0);
+  // 정지 상태에서 선택 줄 자막을 나레이션 타이밍대로 자동 순환시키는 인덱스(재생 중엔 재생 훅이 몰아감).
+  const [cycleChunkIdx, setCycleChunkIdx] = useState(0);
+  // 순환 타이머가 재개(드래그·재생 전환 후)될 때 이어갈 현재 인덱스. state 와 동기 유지.
+  const cycleIdxRef = useRef(0);
+  // 크기 슬라이더를 건드리는 동안 외곽선/핸들을 잠깐 켜는 신호(포커스 없이도 "잡을 수 있음"을 노출).
+  const [sliderSpotlight, setSliderSpotlight] = useState(false);
+  // 프리뷰에서 자막을 끌고 있는 중 — 드래그 동안 자막 자동 순환을 멈춰 잡은 조각이 안 바뀌게.
+  const [subtitleDragging, setSubtitleDragging] = useState(false);
   // 프리뷰 프레임 폭 — 창 높이에 맞춰 자동(짧으면 축소, 크면 상한). 고정 크기면 짧은 창에서 잘림.
   const [previewWidth, setPreviewWidth] = useState(300);
+  // 프레임 밖 외곽선/리사이즈 핸들을 그릴 오버레이(프레임의 형제 — overflow-hidden 미적용).
+  // TransformablePreviewMedia 가 여기에 포털로 렌더한다.
+  const [previewOverlayEl, setPreviewOverlayEl] = useState<HTMLDivElement | null>(null);
+  // 선트림 업로드 모달 — 영상 파일을 고르면 업로드 전에 쓸 구간을 먼저 선택한다.
+  // srcPath: 데스크톱 원본 경로(경로 임포트·프록시용). previewSrc: 저화질 미리보기본 URL. preparing: 변환 중.
+  const [trimTarget, setTrimTarget] = useState<{
+    lineId: string;
+    file: File;
+    neededSec: number;
+    srcPath: string;
+    previewSrc: string;
+    preparing: boolean;
+  } | null>(null);
+  const [trimBusy, setTrimBusy] = useState(false);
   // 이미 매니페스트 복원을 시도했는지(중복 방지).
   const hydratedRef = useRef(false);
 
@@ -331,8 +389,17 @@ export function LineAssetEditor() {
   // 현재 프리뷰에 띄운 줄의 (line_id, index). transform 핸들러가 이벤트 시점에 참조한다.
   const activeRef = useRef<{ lineId: string; index: number }>({ lineId: "", index: -1 });
   const sliderTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const spotlightTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => () => {
     if (sliderTimer.current) clearTimeout(sliderTimer.current);
+    if (spotlightTimer.current) clearTimeout(spotlightTimer.current);
+  }, []);
+
+  // 크기 슬라이더/원래대로를 만질 때 외곽선+핸들을 잠깐 켠다(마지막 조작 뒤 SPOTLIGHT_HOLD_MS 후 꺼짐).
+  const flashSpotlight = useCallback(() => {
+    setSliderSpotlight(true);
+    if (spotlightTimer.current) clearTimeout(spotlightTimer.current);
+    spotlightTimer.current = setTimeout(() => setSliderSpotlight(false), SPOTLIGHT_HOLD_MS);
   }, []);
 
   // 위치/배율을 서버에 저장. 성공 시 lines 에 접고(서버가 클램프한 값) 초안을 지운다.
@@ -391,13 +458,14 @@ export function LineAssetEditor() {
       if (!lineId || index < 0) return;
       const t = clampTransform({ ...current, scale: scalePct / 100 });
       setTransformDrafts((d) => ({ ...d, [lineId]: t }));
+      flashSpotlight();
       if (sliderTimer.current) clearTimeout(sliderTimer.current);
       sliderTimer.current = setTimeout(
         () => persistTransform(t, lineId, index),
         SLIDER_COMMIT_MS,
       );
     },
-    [persistTransform],
+    [persistTransform, flashSpotlight],
   );
 
   // "원래대로": 기본(cover, 화면 꽉 채움)으로 복귀.
@@ -405,9 +473,10 @@ export function LineAssetEditor() {
     const { lineId, index } = activeRef.current;
     if (!lineId || index < 0) return;
     if (sliderTimer.current) clearTimeout(sliderTimer.current);
+    flashSpotlight();
     setTransformDrafts((d) => ({ ...d, [lineId]: { ...DEFAULT_TRANSFORM } }));
     persistTransform({ ...DEFAULT_TRANSFORM }, lineId, index);
-  }, [persistTransform]);
+  }, [persistTransform, flashSpotlight]);
 
   // 움직임 효과 선택: 즉시 저장 + 낙관적 반영.
   const onMotionChange = useCallback(
@@ -424,6 +493,43 @@ export function LineAssetEditor() {
           toast.error(e instanceof Error ? e.message : "효과 저장에 실패했어요.");
         }
       });
+    },
+    [jobId],
+  );
+
+  // 구간 트랙 드래그 중: 실시간 반영(초안). 미리보기가 그 구간을 바로 재생하도록.
+  const onClipStartDrag = useCallback((sec: number) => {
+    const { lineId } = activeRef.current;
+    if (!lineId) return;
+    setClipStartDrafts((d) => ({ ...d, [lineId]: sec }));
+  }, []);
+
+  // 구간 트랙 놓을 때: 서버 저장 확정 후 lines 반영·초안 정리.
+  const onClipStartCommit = useCallback(
+    (sec: number) => {
+      const { lineId, index } = activeRef.current;
+      if (!jobId || !lineId || index < 0) return;
+      setClipStartDrafts((d) => ({ ...d, [lineId]: sec }));
+      saveLineVisual(jobId, index, lineId, { clipStart: sec })
+        .then((res) => {
+          if (!mountedRef.current) return;
+          const finalV = (res.clip_start as number | null | undefined) ?? sec;
+          setLines((prev) =>
+            prev.map((l) =>
+              String(l.line_id ?? "") === lineId ? { ...l, clip_start: finalV } : l,
+            ),
+          );
+          setClipStartDrafts((d) => {
+            const n = { ...d };
+            delete n[lineId];
+            return n;
+          });
+        })
+        .catch((e) => {
+          if (mountedRef.current) {
+            toast.error(e instanceof Error ? e.message : "구간 저장에 실패했어요.");
+          }
+        });
     },
     [jobId],
   );
@@ -753,20 +859,164 @@ export function LineAssetEditor() {
     uploadTargetRef.current = "";
     void doUpload(lineId, file, "image");
   }
+  // 영상은 업로드 전에 "쓸 구간" 선택 모달을 먼저 연다(선트림). 그 폭 = 나레이션 길이라 음성이 있어야 한다.
   function onClipChosen(e: React.ChangeEvent<HTMLInputElement>) {
     const input = e.target;
     const file = input.files?.[0];
     input.value = "";
     const lineId = uploadTargetRef.current;
     uploadTargetRef.current = "";
-    void doUpload(lineId, file, "clip");
+    if (!file || !lineId || !jobId) return;
+    const i = indexOfLine(lineId);
+    if (i < 0) {
+      toast.error("그 줄이 사라졌어요. 다시 시도해 주세요.");
+      return;
+    }
+    if (file.type && !CLIP_ALLOWED_TYPES.includes(file.type)) {
+      toast.error("MP4, MOV, WebM, AVI 영상만 올릴 수 있어요.");
+      return;
+    }
+    // 데스크톱 앱이면 경로 임포트라 용량 무제한, 웹이면 50MB 제한(전송해야 하므로).
+    const desktop = !!window.electronAPI?.media?.getPathForFile;
+    if (!desktop && file.size > CLIP_MAX_BYTES) {
+      toast.error("영상은 50MB 이하만 올릴 수 있어요.");
+      return;
+    }
+    // 나레이션 길이를 알아야 창 폭이 나온다 — 음성 미빌드/수정중이면 차단(먼저 음성 만들기).
+    const needed = durationOf(lines[i]);
+    if (needed == null) {
+      toast.error("먼저 아래 '나레이션 음성 만들기'를 실행해 주세요. 영상에서 쓸 구간 길이를 알려면 음성이 필요해요.");
+      return;
+    }
+    const path = window.electronAPI?.media?.getPathForFile?.(file) ?? "";
+    if (path) {
+      // 데스크톱: 원본이 HEVC(폰 영상)여도 브라우저가 못 읽으므로, 백엔드가 저화질 H.264 미리보기본을
+      // 만들어 재생한다. 만드는 동안 모달은 "준비 중" 스피너. (최종 영상은 원본을 원화질로 잘라 씀.)
+      setTrimTarget({ lineId, file, neededSec: needed, srcPath: path, previewSrc: "", preparing: true });
+      makeClipProxy(jobId, path)
+        .then((res) => {
+          if (!mountedRef.current) return;
+          setTrimTarget((t) =>
+            t && t.lineId === lineId ? { ...t, previewSrc: ytUrl(res.proxy_url), preparing: false } : t,
+          );
+        })
+        .catch(() => {
+          if (!mountedRef.current) return;
+          // 프록시 실패 → 로컬 재생 시도로 폴백(HEVC면 모달이 숫자 입력으로 다시 폴백).
+          setTrimTarget((t) => (t && t.lineId === lineId ? { ...t, preparing: false } : t));
+        });
+    } else {
+      // 웹: 로컬 파일 blob 재생(H.264 면 재생, HEVC 면 모달이 숫자 입력 폴백).
+      setTrimTarget({ lineId, file, neededSec: needed, srcPath: "", previewSrc: "", preparing: false });
+    }
   }
 
-  // 이미지/영상 공통 업로드. kind 에 따라 검증·업로드함수·소스·메시지만 다르다.
+  // 모달 닫기(취소/완료) — 데스크톱 미리보기 임시본을 정리한다(백엔드가 확정 시엔 이미 지우지만 취소 대비).
+  function closeTrim() {
+    if (trimTarget?.srcPath && jobId) void cleanupClipProxy(jobId);
+    setTrimTarget(null);
+  }
+
+  // 모달에서 구간 확정 → 데스크톱은 경로 임포트(무제한), 웹은 파일+구간 업로드(50MB).
+  async function onTrimConfirm(inSec: number) {
+    const t = trimTarget;
+    if (!t || !jobId) return;
+    const lineId = t.lineId;
+    const i = indexOfLine(lineId);
+    if (i < 0) {
+      toast.error("그 줄이 사라졌어요. 다시 시도해 주세요.");
+      closeTrim();
+      return;
+    }
+    setTrimBusy(true);
+    setUploading((s) => new Set(s).add(lineId));
+    try {
+      const res = t.srcPath
+        ? await importClipSegment(jobId, i, lineId, t.srcPath, inSec, t.neededSec)
+        : await uploadClip(jobId, i, t.file, { inSec, neededSec: t.neededSec });
+      if (!mountedRef.current) return;
+      applyUploadSuccess(lineId, "clip", res);
+      await refresh();
+      if (mountedRef.current) {
+        const j = indexOfLine(lineId);
+        toast.success(`${(j < 0 ? i : j) + 1}번째 줄 영상을 올렸어요.`);
+      }
+      // 확정 성공: 백엔드가 import 시 프록시를 지웠으므로 여기선 상태만 닫는다.
+      setTrimTarget(null);
+    } catch (err) {
+      if (mountedRef.current) {
+        toast.error(err instanceof Error ? err.message : "업로드에 실패했어요.");
+      }
+    } finally {
+      if (mountedRef.current) {
+        setUploading((s) => {
+          const n = new Set(s);
+          n.delete(lineId);
+          return n;
+        });
+        setTrimBusy(false);
+      }
+    }
+  }
+
+  // 업로드 성공 시 낙관적 반영(line_id 기준). clip 이면 조각 메타·transform 리셋까지 반영.
+  function applyUploadSuccess(
+    lineId: string,
+    kind: "image" | "clip",
+    res: UploadClipResult | { asset_version?: number | null },
+  ) {
+    setLines((prev) =>
+      prev.map((l) =>
+        String(l.line_id ?? "") === lineId
+          ? {
+              ...l,
+              status: "ready",
+              asset_version: res.asset_version ?? (l.asset_version ?? 0) + 1,
+              asset_step: null,
+              asset_message: null,
+              fail_reason: null,
+              ...(kind === "clip"
+                ? {
+                    // 새 자산 → 위치/배율 리셋(서버와 동일). 조각 메타 반영(전체 저장이면 null).
+                    transform: null,
+                    clip_start: (res as UploadClipResult).clip_start ?? null,
+                    clip_duration: (res as UploadClipResult).clip_duration ?? null,
+                  }
+                : {}),
+            }
+          : l,
+      ),
+    );
+    setSources((prev) => {
+      const j = indexOfLine(lineId);
+      return j < 0 ? prev : prev.map((s, idx) => (idx === j ? kind : s));
+    });
+    // 새 자산이 들어왔으니 이 줄의 이전 편집 초안(위치/시작점)은 무효 —
+    // 남아 있으면 서버 리셋값을 덮어 프리뷰가 어긋난다.
+    clearLineDrafts(lineId);
+  }
+
+  // 이 줄의 위치/배율·시작점 편집 초안을 버린다(새 자산 교체·클립 삭제 시).
+  function clearLineDrafts(lineId: string) {
+    setTransformDrafts((d) => {
+      if (!(lineId in d)) return d;
+      const n = { ...d };
+      delete n[lineId];
+      return n;
+    });
+    setClipStartDrafts((d) => {
+      if (!(lineId in d)) return d;
+      const n = { ...d };
+      delete n[lineId];
+      return n;
+    });
+  }
+
+  // 이미지 업로드(영상은 선트림 모달 경유 onTrimConfirm 에서 처리).
   async function doUpload(
     lineId: string,
     file: File | undefined,
-    kind: "image" | "clip",
+    kind: "image",
   ) {
     if (!file || !lineId || !jobId) return;
     // 파일 고르는 사이 순서가 바뀌었을 수 있으니 line_id 로 현재 index 를 다시 구한다.
@@ -775,58 +1025,24 @@ export function LineAssetEditor() {
       toast.error("그 줄이 사라졌어요. 다시 시도해 주세요.");
       return;
     }
-    if (kind === "image") {
-      if (!ALLOWED_TYPES.includes(file.type)) {
-        toast.error("PNG, JPG, WebP 이미지만 올릴 수 있어요.");
-        return;
-      }
-      if (file.size > MAX_BYTES) {
-        toast.error("이미지는 10MB 이하만 올릴 수 있어요.");
-        return;
-      }
-    } else {
-      // 영상은 일부 브라우저가 MIME 을 비워 줄 수 있어, 빈 타입은 통과시키고 서버 검증에 맡긴다.
-      if (file.type && !CLIP_ALLOWED_TYPES.includes(file.type)) {
-        toast.error("MP4, MOV, WebM, AVI 영상만 올릴 수 있어요.");
-        return;
-      }
-      if (file.size > CLIP_MAX_BYTES) {
-        toast.error("영상은 50MB 이하만 올릴 수 있어요.");
-        return;
-      }
+    if (!ALLOWED_TYPES.includes(file.type)) {
+      toast.error("PNG, JPG, WebP 이미지만 올릴 수 있어요.");
+      return;
+    }
+    if (file.size > MAX_BYTES) {
+      toast.error("이미지는 10MB 이하만 올릴 수 있어요.");
+      return;
     }
     setUploading((s) => new Set(s).add(lineId));
     try {
-      const res =
-        kind === "image"
-          ? await uploadImage(jobId, i, file)
-          : await uploadClip(jobId, i, file);
+      const res = await uploadImage(jobId, i, file);
       if (!mountedRef.current) return;
-      // 낙관적 반영(line_id 기준): 업로드 응답의 asset_version 으로 즉시 캐시버스팅 + 소스 전환.
-      // (뒤이은 refresh 가 실패해도 새 자산이 보장된다.)
-      setLines((prev) =>
-        prev.map((l) =>
-          String(l.line_id ?? "") === lineId
-            ? {
-                ...l,
-                status: "ready",
-                asset_version: res.asset_version ?? (l.asset_version ?? 0) + 1,
-                asset_step: null,
-                asset_message: null,
-                fail_reason: null,
-              }
-            : l,
-        ),
-      );
-      setSources((prev) => {
-        const j = indexOfLine(lineId);
-        return j < 0 ? prev : prev.map((s, idx) => (idx === j ? kind : s));
-      });
+      // 낙관적 반영 후 refresh 로 서버 상태 동기화(refresh 실패해도 새 자산은 보장).
+      applyUploadSuccess(lineId, kind, res);
       await refresh();
       if (mountedRef.current) {
         const j = indexOfLine(lineId);
-        const what = kind === "image" ? "이미지" : "영상";
-        toast.success(`${(j < 0 ? i : j) + 1}번째 줄 ${what}을 올렸어요.`);
+        toast.success(`${(j < 0 ? i : j) + 1}번째 줄 이미지를 올렸어요.`);
       }
     } catch (err) {
       if (mountedRef.current) {
@@ -932,12 +1148,74 @@ export function LineAssetEditor() {
         version: (snap?.version ?? 0) + 1,
       };
       update({ ttsSessionId: data.session_id, ttsDirty: false, ttsBuild: newSnap });
+      // 나레이션 길이가 바뀌었으니, 선트림 조각이 새 길이보다 짧아진 줄이 있으면 정리한다.
+      void reconcileClipsWithDurations(newSnap);
       return newSnap;
     } catch (e) {
       toast.error(errMessage(e, "음성 생성에 실패했어요. (Typecast 키 확인)"));
       return null;
     } finally {
       if (mountedRef.current) setBuilding(false);
+    }
+  }
+
+  // 대본 수정으로 나레이션이 길어져 선트림 조각이 부족해졌는지 검사 → 부족 정책 실행(확정: 삭제+안내).
+  // 조각은 충분한데 시작점만 뒤로 밀린 경우엔 삭제 대신 시작점을 자동으로 당긴다(불필요한 삭제 방지).
+  // clip_duration 이 있는 줄만 대상(레거시 클립은 렌더 단계 실측 검증이 최후 방어).
+  async function reconcileClipsWithDurations(snapshot: TtsBuildSnapshot) {
+    if (!jobId) return;
+    const cur = linesRef.current;
+    for (let idx = 0; idx < cur.length; idx++) {
+      const l = cur[idx];
+      const cd = typeof l.clip_duration === "number" ? l.clip_duration : null;
+      if (cd == null) continue; // 레거시/비영상 스킵
+      const lid = String(l.line_id ?? "");
+      const di = snapshot.lineIds.indexOf(lid);
+      const needed = di >= 0 ? snapshot.durations[di] ?? null : null;
+      if (needed == null) continue;
+      const cs = typeof l.clip_start === "number" ? l.clip_start : 0;
+      if (cd - cs + 0.05 >= needed) continue; // 충분
+
+      if (cd + 0.05 < needed) {
+        // 조각 자체가 나레이션보다 짧음 → 삭제 + 안내(다시 잘라 올리도록).
+        try {
+          await clearLineClip(jobId, idx, lid);
+          if (!mountedRef.current) return;
+          setLines((prev) =>
+            prev.map((x) =>
+              String(x.line_id ?? "") === lid
+                ? { ...x, status: "pending", clip_start: null, clip_duration: null, transform: null }
+                : x,
+            ),
+          );
+          setSources((prev) => prev.map((s, i2) => (i2 === idx ? "ai" : s)));
+          clearLineDrafts(lid); // 자산이 지워졌으니 이전 편집 초안도 정리
+          toast.error(
+            `${idx + 1}번째 줄: 대본이 길어져 영상(${cd.toFixed(1)}초)이 나레이션(${needed.toFixed(1)}초)보다 짧아요. 영상을 지웠으니 다시 잘라 올려주세요.`,
+          );
+        } catch {
+          /* 삭제 실패는 다음 재빌드/렌더 검증이 다시 잡는다 */
+        }
+      } else {
+        // 조각은 충분한데 시작점이 뒤로 밀려 넘침 → 시작점만 당긴다(삭제 X).
+        const clamped = Math.max(0, cd - needed);
+        try {
+          await saveLineVisual(jobId, idx, lid, { clipStart: clamped });
+          if (!mountedRef.current) return;
+          // 서버가 클램프한 값으로 확정 → 이 줄의 시작점 초안은 버려 프리뷰가 새 값과 일치하게.
+          setClipStartDrafts((d) => {
+            if (!(lid in d)) return d;
+            const n = { ...d };
+            delete n[lid];
+            return n;
+          });
+          setLines((prev) =>
+            prev.map((x) => (String(x.line_id ?? "") === lid ? { ...x, clip_start: clamped } : x)),
+          );
+        } catch {
+          /* noop */
+        }
+      }
     }
   }
 
@@ -1136,6 +1414,12 @@ export function LineAssetEditor() {
         title_font_size: state.titleFontSize,
         title_color1: state.titleColor1,
         title_color2: state.titleColor2,
+        subtitle_font: state.subtitleFont,
+        subtitle_font_weight: state.subtitleFontWeight,
+        subtitle_font_size: state.subtitleFontSize,
+        subtitle_color: state.subtitleColor,
+        subtitle_dx: state.subtitleDx,
+        subtitle_y: state.subtitleY,
         subtitle_chunks_by_line: chunksMap,
       });
       update({ screen: "progress" });
@@ -1183,10 +1467,88 @@ export function LineAssetEditor() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loading, lines.length, state.ttsSessionId, state.ttsBuild]);
 
-  // 선택 줄이 바뀌면 자막 수동 페이저를 처음으로.
+  // 프리뷰에 실제로 뜨는 줄(활성 줄) — activeLineId 가 비었거나 안 맞으면 첫 줄로 폴백(activeIndex 와 동일 규칙).
+  const cycleLine =
+    lines.find((l) => String(l.line_id ?? "") === activeLineId) ??
+    (lines.length ? lines[0] : undefined);
+  const cycleLineId = cycleLine ? String(cycleLine.line_id ?? "") : "";
+  const cycleChunks = cycleLine ? lineChunks(cycleLine) : [];
+  const cycleChunksKey = cycleChunks.join("␟");
+  const cyclePlaying = !!cycleLineId && playback.nowPlayingLineId === cycleLineId;
+
+  // 순환 인덱스 리셋은 "선택 줄/조각 내용이 바뀔 때만". 재생·드래그 전환에는 리셋하지 않아
+  // (아래 타이머 이펙트가 그때 재실행되어도) 잡고 있던/보고 있던 조각이 튀지 않는다.
   useEffect(() => {
-    setPreviewChunkIdx(0);
-  }, [activeLineId]);
+    cycleIdxRef.current = 0;
+    setCycleChunkIdx(0);
+  }, [cycleLineId, cycleChunksKey]);
+
+  // 정지 상태 자막 자동 순환 — 재생 중/자막 드래그 중/조각 1개면 멈춘다(현재 조각 유지).
+  // 재개 시 현재 인덱스(cycleIdxRef)에서 이어간다. 나레이션 타이밍(word_times 비례, 없으면 글자수 추정)대로.
+  useEffect(() => {
+    if (cyclePlaying || subtitleDragging || cycleChunks.length <= 1) return;
+    let wt: WordTime[] | null = null;
+    if (snap) {
+      const idx = snap.lineIds.indexOf(cycleLineId);
+      wt = idx >= 0 ? snap.wordTimes[idx] ?? null : null;
+    }
+    const durs = chunkDisplayDurations(
+      cycleChunks,
+      cycleLine ? durationOf(cycleLine) : null,
+      wt,
+    );
+    let i = Math.min(cycleIdxRef.current, cycleChunks.length - 1);
+    let timer: ReturnType<typeof setTimeout>;
+    const tick = () => {
+      timer = setTimeout(() => {
+        i = (i + 1) % cycleChunks.length;
+        cycleIdxRef.current = i;
+        setCycleChunkIdx(i);
+        tick();
+      }, Math.max(300, durs[i] * 1000));
+    };
+    tick();
+    return () => clearTimeout(timer);
+    // cycleChunksKey 로 조각 내용 변화만 감지(2초 폴링의 배열 재생성엔 흔들리지 않게).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cycleLineId, cycleChunksKey, cyclePlaying, subtitleDragging, snap]);
+
+  // 자막 스타일/위치가 바뀌면 draft-meta 에 디바운스 저장(confirm 없이 닫아도 보존) + 이 기기 마지막 스타일 기억.
+  // 위치(dx/y)는 기억 안 함(매번 기본에서 시작) — 스타일 4종만 saveLastSubtitle.
+  const subtitleMetaKey = `${state.subtitleFont}|${state.subtitleFontWeight}|${state.subtitleFontSize}|${state.subtitleColor}|${state.subtitleDx}|${state.subtitleY}`;
+  const subtitleMetaTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const subtitleMetaHydrated = useRef(false);
+  useEffect(() => () => {
+    if (subtitleMetaTimer.current) clearTimeout(subtitleMetaTimer.current);
+  }, []);
+  useEffect(() => {
+    // 하이드레이션 직후 첫 값은 저장 스킵(불필요한 왕복·기존값 덮어쓰기 방지).
+    if (!subtitleMetaHydrated.current) {
+      subtitleMetaHydrated.current = true;
+      return;
+    }
+    saveLastSubtitle({
+      font: state.subtitleFont,
+      weight: state.subtitleFontWeight,
+      size: state.subtitleFontSize,
+      color: state.subtitleColor,
+    });
+    if (!jobId) return;
+    if (subtitleMetaTimer.current) clearTimeout(subtitleMetaTimer.current);
+    subtitleMetaTimer.current = setTimeout(() => {
+      saveDraftMeta(jobId, {
+        subtitle_font: state.subtitleFont,
+        subtitle_font_weight: state.subtitleFontWeight,
+        subtitle_font_size: state.subtitleFontSize,
+        subtitle_color: state.subtitleColor,
+        subtitle_dx: state.subtitleDx,
+        subtitle_y: state.subtitleY,
+      }).catch(() => {
+        /* 편집 즉시 저장 실패는 조용히 무시 — confirm 시 어차피 전송된다 */
+      });
+    }, SLIDER_COMMIT_MS);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [subtitleMetaKey, jobId]);
 
   // 프리뷰 프레임 폭을 창 높이에 맞춰 계산(헤더·자막페이저·설명·상단여백·하단 플로팅 플레이어 공간 제외).
   // → 짧은 창에서도 프리뷰 하단이 잘리거나 내부 스크롤되지 않고 항상 온전히 보인다.
@@ -1249,17 +1611,32 @@ export function LineAssetEditor() {
   const activeEditable =
     !!activeLine && isReady(activeLine) && !activeWorking;
 
+  // 영상 조각 시작점 미세조정 값(선트림 조각에서만 노출). needed = 그 줄 나레이션 길이.
+  const activeClipDuration =
+    typeof activeLine?.clip_duration === "number" ? activeLine.clip_duration : null;
+  const activeNeeded = activeLine ? durationOf(activeLine) : null;
+  const activeClipStart =
+    clipStartDrafts[activeLineIdStr] ??
+    (typeof activeLine?.clip_start === "number" ? activeLine.clip_start : 0);
+  // 시작점 슬라이더 최대치: 조각 끝에서 나레이션 길이를 뺀 지점(그 뒤론 나레이션이 넘침).
+  const clipStartMax =
+    activeClipDuration != null && activeNeeded != null
+      ? Math.max(0, activeClipDuration - activeNeeded)
+      : 0;
+  const showClipStartSlider =
+    activeSource === "clip" && activeClipDuration != null && clipStartMax > 0.05;
+
   // 프리뷰 자막: 재생 중이면 그 조각을 따라가고, 정지 상태면 수동 페이저로 넘겨본다.
   const activeChunks = activeLine ? lineChunks(activeLine) : [];
   const activePlaying =
     !!activeLine && playback.nowPlayingLineId === String(activeLine.line_id ?? "");
   const activeChunkIdx = activeChunks.length
     ? Math.min(
-        activePlaying ? playback.nowChunkIndex : previewChunkIdx,
+        activePlaying ? playback.nowChunkIndex : cycleChunkIdx,
         activeChunks.length - 1,
       )
     : 0;
-  const activeSubtitle = activeChunks[activeChunkIdx] ?? "";
+  const activeSubtitle = stripSubtitlePeriods(activeChunks[activeChunkIdx] ?? "");
   // 전체 미리듣기 진행 표시용: 현재 재생 줄의 스냅샷 인덱스 + 이전/다음 이동 기준.
   const playingSegIdx = snap
     ? snap.lineIds.indexOf(playback.nowPlayingLineId ?? "")
@@ -1324,6 +1701,11 @@ export function LineAssetEditor() {
         />
       </div>
 
+      {/* 자막 스타일 — BGM 아래 같은 디자인 카드. 폰트/굵기/크기/색(위치는 프리뷰 드래그). */}
+      <div className="mt-3">
+        <SubtitleStylePicker />
+      </div>
+
       <input
         ref={fileRef}
         type="file"
@@ -1337,6 +1719,20 @@ export function LineAssetEditor() {
         accept={CLIP_ACCEPT}
         className="hidden"
         onChange={onClipChosen}
+      />
+
+      <TrimUploadModal
+        open={!!trimTarget}
+        file={trimTarget?.file ?? null}
+        neededSec={trimTarget?.neededSec ?? 0}
+        lineNo={trimTarget ? indexOfLine(trimTarget.lineId) + 1 : 0}
+        busy={trimBusy}
+        previewSrc={trimTarget?.previewSrc || undefined}
+        preparing={trimTarget?.preparing ?? false}
+        onCancel={() => {
+          if (!trimBusy) closeTrim();
+        }}
+        onConfirm={onTrimConfirm}
       />
 
       <ul className="mt-5 space-y-2.5">
@@ -1751,50 +2147,68 @@ export function LineAssetEditor() {
               → 스티키로 따라오다 스크롤 최하단에서 카드 하단이 좌측 카드 하단과 맞물린다. */}
           <div className="flex flex-1 flex-col justify-center">
           <div className="mt-3 flex justify-center">
-            <ShortsPreviewFrame
-              titleLine1={state.titleLine1}
-              titleLine2={state.titleLine2}
-              titleFont={state.titleFont}
-              titleFontWeight={state.titleFontWeight}
-              titleFontSize={state.titleFontSize}
-              titleColor1={state.titleColor1}
-              titleColor2={state.titleColor2}
-              subtitle={activeSubtitle}
-              width={previewWidth}
-            >
-              {!activeLine ? (
-                <div className="flex h-full w-full items-center justify-center text-xs text-white/50">
-                  생성·업로드 대기
-                </div>
-              ) : isReady(activeLine) ? (
-                <TransformablePreviewMedia
-                  key={`${activeLineIdStr}:${activeSource}:${activeLine.asset_version ?? 0}`}
-                  src={
-                    activeSource === "clip"
-                      ? clipSrc(activeIndex, activeLine)
-                      : imgSrc(activeIndex, activeLine)
-                  }
-                  kind={activeSource === "clip" ? "clip" : "image"}
-                  frameWidth={350}
-                  transform={activeTransform}
-                  disabled={!activeEditable}
-                  onChange={onTransformChange}
-                  onCommit={onTransformCommit}
-                />
-              ) : activeWorking ? (
-                <div className="flex h-full w-full items-center justify-center">
-                  <Loader2 className="h-5 w-5 animate-spin text-white/70" />
-                </div>
-              ) : isFailed(activeLine) ? (
-                <div className="flex h-full w-full items-center justify-center text-xs text-red-300">
-                  생성 실패
-                </div>
-              ) : (
-                <div className="flex h-full w-full items-center justify-center text-xs text-white/50">
-                  생성·업로드 대기
-                </div>
-              )}
-            </ShortsPreviewFrame>
+            {/* relative 래퍼: 프레임(overflow-hidden) 밖으로 나가는 외곽선/핸들을 그릴
+                오버레이를 프레임과 같은 좌표계의 형제로 둔다. */}
+            <div className="relative">
+              <ShortsPreviewFrame
+                titleLine1={state.titleLine1}
+                titleLine2={state.titleLine2}
+                titleFont={state.titleFont}
+                titleFontWeight={state.titleFontWeight}
+                titleFontSize={state.titleFontSize}
+                titleColor1={state.titleColor1}
+                titleColor2={state.titleColor2}
+                subtitle={activeSubtitle}
+                subtitleFont={state.subtitleFont}
+                subtitleFontWeight={state.subtitleFontWeight}
+                subtitleFontSize={state.subtitleFontSize}
+                subtitleColor={state.subtitleColor}
+                subtitleDx={state.subtitleDx}
+                subtitleY={state.subtitleY}
+                onSubtitlePosChange={(dx, y) => update({ subtitleDx: dx, subtitleY: y })}
+                onSubtitleDragChange={setSubtitleDragging}
+                width={previewWidth}
+              >
+                {!activeLine ? (
+                  <div className="flex h-full w-full items-center justify-center text-xs text-white/50">
+                    생성·업로드 대기
+                  </div>
+                ) : isReady(activeLine) ? (
+                  <TransformablePreviewMedia
+                    key={`${activeLineIdStr}:${activeSource}:${activeLine.asset_version ?? 0}`}
+                    src={
+                      activeSource === "clip"
+                        ? clipSrc(activeIndex, activeLine)
+                        : imgSrc(activeIndex, activeLine)
+                    }
+                    kind={activeSource === "clip" ? "clip" : "image"}
+                    frameWidth={previewWidth}
+                    transform={activeTransform}
+                    disabled={!activeEditable}
+                    overlayEl={previewOverlayEl}
+                    spotlight={sliderSpotlight}
+                    clipStart={activeSource === "clip" ? activeClipStart : null}
+                    clipWindow={activeSource === "clip" ? activeNeeded : null}
+                    onChange={onTransformChange}
+                    onCommit={onTransformCommit}
+                  />
+                ) : activeWorking ? (
+                  <div className="flex h-full w-full items-center justify-center">
+                    <Loader2 className="h-5 w-5 animate-spin text-white/70" />
+                  </div>
+                ) : isFailed(activeLine) ? (
+                  <div className="flex h-full w-full items-center justify-center text-xs text-red-300">
+                    생성 실패
+                  </div>
+                ) : (
+                  <div className="flex h-full w-full items-center justify-center text-xs text-white/50">
+                    생성·업로드 대기
+                  </div>
+                )}
+              </ShortsPreviewFrame>
+              {/* 외곽선/핸들 포털 대상 — 자체는 이벤트를 안 먹고(핸들만 pointer-events-auto) */}
+              <div ref={setPreviewOverlayEl} className="pointer-events-none absolute inset-0 z-10" />
+            </div>
           </div>
 
           {/* 위치/배율 + 움직임 편집 컨트롤 (준비된 줄에서만) */}
@@ -1828,7 +2242,7 @@ export function LineAssetEditor() {
               </div>
               <div className="flex items-center gap-3">
                 <span className="w-9 shrink-0 text-xs font-medium text-muted-foreground">
-                  움직임
+                  모션
                 </span>
                 <Select
                   items={motionOptions}
@@ -1847,43 +2261,26 @@ export function LineAssetEditor() {
                   </SelectContent>
                 </Select>
               </div>
+              {/* 쓸 구간 조정 — 저장된 조각(여유분 포함) 위에서 나레이션 창을 드래그 */}
+              {showClipStartSlider ? (
+                <div className="flex items-center gap-3">
+                  <span className="w-9 shrink-0 self-start pt-1 text-xs font-medium text-muted-foreground">
+                    구간
+                  </span>
+                  <div className="flex-1">
+                    <SegmentTrack
+                      duration={activeClipDuration ?? 0}
+                      windowSec={activeNeeded ?? 0}
+                      value={activeClipStart}
+                      onChange={onClipStartDrag}
+                      onCommit={onClipStartCommit}
+                    />
+                  </div>
+                </div>
+              ) : null}
             </div>
           ) : null}
 
-          {/* 자막 조각 페이저 — 정지 상태에서 선택 줄의 자막을 넘겨본다(재생 중엔 자동 추종). */}
-          {activeChunks.length > 0 && (
-            <div className="mt-2 flex items-center justify-center gap-2 text-xs text-muted-foreground">
-              <button
-                type="button"
-                aria-label="이전 자막"
-                disabled={activePlaying || activeChunkIdx <= 0}
-                onClick={() => setPreviewChunkIdx((n) => Math.max(0, n - 1))}
-                className="inline-flex size-5 items-center justify-center rounded hover:bg-muted disabled:opacity-40"
-              >
-                <ChevronLeft className="size-3.5" />
-              </button>
-              <span className="tabular-nums">
-                자막 {activeChunkIdx + 1}/{activeChunks.length}
-              </span>
-              <button
-                type="button"
-                aria-label="다음 자막"
-                disabled={activePlaying || activeChunkIdx >= activeChunks.length - 1}
-                onClick={() =>
-                  setPreviewChunkIdx((n) => Math.min(activeChunks.length - 1, n + 1))
-                }
-                className="inline-flex size-5 items-center justify-center rounded hover:bg-muted disabled:opacity-40"
-              >
-                <ChevronRight className="size-3.5" />
-              </button>
-            </div>
-          )}
-
-          <p className="mt-2 text-center text-xs text-muted-foreground">
-            {activeEditable
-              ? "미리보기를 드래그해 위치를, 휠·슬라이더로 크기를 조절하세요. 화면을 벗어난 부분은 잘리고 빈 곳은 검게 나와요. 움직임 효과는 최종 영상에서만 보여요."
-              : "최종 쇼츠에 표시될 모습이에요."}
-          </p>
           </div>
         </div>
       </aside>

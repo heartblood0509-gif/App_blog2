@@ -842,8 +842,10 @@ Output ONLY valid JSON in this exact shape:
         item["line_id"] = line_id
         item["line_index"] = i + 1
         item["text"] = input_by_id[line_id]["text"]
+        # 카드 B 는 모션이 사용자 선택(기본 "없음")이라 visual plan 이 임의 모션을 채우지 않는다.
+        # (렌더는 script_json 줄의 motion 을 쓰므로 이 값은 표시용 — none 으로 통일.)
         if item.get("motion") not in MOTION_TYPES:
-            item["motion"] = MOTION_TYPES[i % len(MOTION_TYPES)]
+            item["motion"] = "none"
         if not str(item.get("image_prompt") or "").strip():
             raise ValueError(f"카드 B visual plan 프롬프트 누락 line_id={line_id}")
         normalized_lines.append(item)

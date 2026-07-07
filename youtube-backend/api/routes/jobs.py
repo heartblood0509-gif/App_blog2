@@ -555,6 +555,12 @@ class DraftStateResponse(BaseModel):
     title_font_size: int | None = None
     title_color1: str | None = None
     title_color2: str | None = None
+    subtitle_font: str | None = None
+    subtitle_font_weight: str | None = None
+    subtitle_font_size: int | None = None
+    subtitle_color: str | None = None
+    subtitle_dx: int | None = None
+    subtitle_y: int | None = None
     tts_engine: str | None = None
     tts_speed: float | None = None
     voice_id: str | None = None
@@ -603,6 +609,12 @@ def _build_draft_state(job: Job) -> DraftStateResponse:
         title_font_size=job.title_font_size,
         title_color1=job.title_color1,
         title_color2=job.title_color2,
+        subtitle_font=job.subtitle_font,
+        subtitle_font_weight=job.subtitle_font_weight,
+        subtitle_font_size=job.subtitle_font_size,
+        subtitle_color=job.subtitle_color,
+        subtitle_dx=job.subtitle_dx,
+        subtitle_y=job.subtitle_y,
         tts_engine=job.tts_engine,
         tts_speed=job.tts_speed,
         voice_id=job.voice_id,
@@ -632,7 +644,7 @@ async def get_draft_state(
 
 
 class UpdateDraftMetaRequest(BaseModel):
-    """카드 B draft 의 제목(2줄)을 confirm 전에 즉시 저장. None 필드는 미변경."""
+    """카드 B draft 의 제목(2줄)·자막 스타일을 confirm 전에 즉시 저장. None 필드는 미변경."""
     title: str | None = None
     title_line1: str | None = None
     title_line2: str | None = None
@@ -641,6 +653,12 @@ class UpdateDraftMetaRequest(BaseModel):
     title_font_size: int | None = None
     title_color1: str | None = None
     title_color2: str | None = None
+    subtitle_font: str | None = None
+    subtitle_font_weight: str | None = None
+    subtitle_font_size: int | None = None
+    subtitle_color: str | None = None
+    subtitle_dx: int | None = None
+    subtitle_y: int | None = None
 
 
 @router.post("/{job_id}/draft-meta", response_model=DraftStateResponse)
@@ -677,6 +695,17 @@ async def update_draft_meta(
         job.title_color1 = normalize_hex(body.title_color1, DEFAULT_TITLE_COLOR1)
     if body.title_color2 is not None:
         job.title_color2 = normalize_hex(body.title_color2, DEFAULT_TITLE_COLOR2)
+    # 자막 스타일 — confirm 과 동일한 클램프 헬퍼를 공유(편집 즉시 저장).
+    from api.routes.preview import apply_subtitle_style
+    apply_subtitle_style(
+        job,
+        font=body.subtitle_font,
+        weight=body.subtitle_font_weight,
+        size=body.subtitle_font_size,
+        color=body.subtitle_color,
+        dx=body.subtitle_dx,
+        y=body.subtitle_y,
+    )
     db.commit()
     db.refresh(job)
     return _build_draft_state(job)
