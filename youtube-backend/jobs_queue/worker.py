@@ -578,10 +578,22 @@ async def render_video_for_job(job_id: str):
                 "font_title": resolve_title_font_path(
                     getattr(job, "title_font", None), getattr(job, "title_font_weight", None)
                 ),
-                "font_sub": settings.FONT_SUB,
+                # 자막 폰트: 사용자가 고른 폰트가 있으면 제목과 같은 번들 폰트로 해석, 없으면 기존 기본(settings.FONT_SUB).
+                # resolve_title_font_path 는 미설정 시 제목 기본폰트로 폴백하므로, None 일 때는 태우지 않는다.
+                "font_sub": (
+                    resolve_title_font_path(
+                        getattr(job, "subtitle_font", None), getattr(job, "subtitle_font_weight", None)
+                    )
+                    if getattr(job, "subtitle_font", None)
+                    else settings.FONT_SUB
+                ),
                 "title_font_size": getattr(job, "title_font_size", None),
                 "title_color1": getattr(job, "title_color1", None),
                 "title_color2": getattr(job, "title_color2", None),
+                "subtitle_font_size": getattr(job, "subtitle_font_size", None),
+                "subtitle_color": getattr(job, "subtitle_color", None),
+                "subtitle_dx": getattr(job, "subtitle_dx", None),
+                "subtitle_y": getattr(job, "subtitle_y", None),
                 "typecast_api_key": keys["typecast"],
             }
 
@@ -722,7 +734,8 @@ async def regenerate_image_for_job(job_id: str, line_index: int, korean_request:
             if is_user_assets:
                 line["visual_text_hash"] = line_text_hash(line.get("text") or "")
                 if line_plan:
-                    line["motion"] = line_plan.get("motion") or line.get("motion") or "zoom_in"
+                    # 모션(움직임)은 이제 사용자가 줄별로 직접 고른다(기본 "없음").
+                    # AI visual plan 이 모션을 덮어쓰지 않도록 여기서는 설정하지 않는다.
                     line["visual_anchor"] = line_plan.get("continuity_anchor")
                     line["visual_intent"] = line_plan.get("visual_intent")
                     line.pop("qa_status", None)

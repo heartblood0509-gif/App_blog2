@@ -85,6 +85,14 @@ class Job(Base):
     # 제목 줄별 색(#RRGGBB). None=기본(윗줄 #FFFFFF, 아랫줄 #E8D44D).
     title_color1 = Column(String, nullable=True)
     title_color2 = Column(String, nullable=True)
+    # 자막 스타일(작업 전역, 모든 줄 공통). 폰트/굵기 id 는 제목과 같은 core.fonts.BUNDLED_TITLE_FONTS.
+    # None=기본(번들 기본 자막폰트·55px·흰색). 위치: dx=가로 중앙 오프셋(px, 1080폭), y=자막 상단 y(px, 1920높이).
+    subtitle_font = Column(String, nullable=True)
+    subtitle_font_weight = Column(String, nullable=True)
+    subtitle_font_size = Column(Integer, nullable=True)
+    subtitle_color = Column(String, nullable=True)
+    subtitle_dx = Column(Integer, nullable=True)
+    subtitle_y = Column(Integer, nullable=True)
     script_json = Column(Text, default="[]")
     # 카드 A("AI가 모두 생성")는 "ai_full", 카드 B("사용자 직접 제공")는 "user_assets"
     generation_mode = Column(String, default="ai_full")

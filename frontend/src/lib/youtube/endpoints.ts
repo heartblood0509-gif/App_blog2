@@ -12,6 +12,7 @@ import {
   ytPutJson,
   ytUrl,
 } from "./api";
+import type { LineTransform } from "./transform";
 import type { WordTime } from "./subtitle-split";
 
 // ── 콘텐츠 생성 ──────────────────────────────────────────────
@@ -94,6 +95,8 @@ export interface ScriptLine {
   text: string;
   image_prompt?: string;
   motion?: string;
+  // Card B 자산 위치/배율. null/미설정 = 기본(cover, 화면 꽉 채움). 프리뷰=렌더 공유.
+  transform?: { scale: number; x: number; y: number } | null;
   // Card B 줄별 자산 상태("pending" | "ready" | "failed").
   status?: string;
   asset_version?: number;
@@ -104,6 +107,10 @@ export interface ScriptLine {
   asset_message?: string | null;
   // 카드 B 자막 조각(끊는 위치). null/부재 = 자동 분할(미확정). 텍스트 편집 시 백엔드가 리셋.
   subtitle_chunks?: string[] | null;
+  // 카드 B 선트림 영상 조각. clip_start = 재생 시작 오프셋(초), clip_duration = 조각 총 길이(초).
+  // null/부재 = 레거시(전체 저장 클립) → 시작점 조정 미지원.
+  clip_start?: number | null;
+  clip_duration?: number | null;
   // 그 외 백엔드 부가 필드는 그대로 통과.
   [key: string]: unknown;
 }
@@ -344,6 +351,13 @@ export interface ConfirmDraftInput {
   title_font_size?: number;
   title_color1?: string;
   title_color2?: string;
+  // 자막 스타일(작업 전역). 미지정이면 백엔드 기본(55px·흰색·기본폰트·중앙 y1300).
+  subtitle_font?: string;
+  subtitle_font_weight?: string;
+  subtitle_font_size?: number;
+  subtitle_color?: string;
+  subtitle_dx?: number;
+  subtitle_y?: number;
   // 자막 조각 확정 맵(line_id → 조각들). 화면에 보여준 그대로 렌더에 박히게 한다(WYSIWYG).
   subtitle_chunks_by_line?: Record<string, string[]>;
 }
@@ -391,8 +405,9 @@ export interface UploadImageResult {
   asset_version?: number | null; // Card A 는 null
 }
 /**
- * 특정 줄 이미지를 사용자 파일로 교체. **동기**(즉시 저장 후 응답) — 백엔드가 9:16 으로
- * cover-crop 한다. PNG/JPG/WebP, 10MB 이하만 허용(백엔드와 동일 검사를 호출 측에서도 선행).
+ * 특정 줄 이미지를 사용자 파일로 교체. **동기**(즉시 저장 후 응답). 카드 B 는 원본 비율을
+ * 그대로 보존하고(왜곡·잘림 없음, 긴 변 2560px 캡), 위치·배율은 프리뷰에서 사용자가 정한다.
+ * PNG/JPG/WebP, 10MB 이하만 허용(백엔드와 동일 검사를 호출 측에서도 선행).
  */
 export function uploadImage(
   jobId: string,
@@ -411,22 +426,91 @@ export interface UploadClipResult {
   message?: string;
   clip_url: string; // /api/jobs/{id}/clips/{i}
   asset_version?: number | null;
+  // 선트림 업로드 시 저장된 조각 메타(전체 저장이면 null).
+  clip_start?: number | null;
+  clip_duration?: number | null;
 }
 /**
  * 특정 줄을 사용자 영상으로 교체. **동기**(저장 후 응답). MP4/MOV/WebM/AVI, 50MB 이하만 허용
  * (백엔드와 동일 검사를 호출 측에서도 선행). MP4 외 포맷은 백엔드가 FFmpeg 로 MP4 변환하므로
  * 이미지 업로드보다 응답이 느릴 수 있다. 성공 시 그 줄의 소스가 'clip' 으로 바뀐다.
+ *
+ * trim(선택 구간) 이 오면 백엔드가 선택 구간(±여유분)만 잘라 저장한다(웹 폴백 경로 — 파일 전송 O).
+ * 데스크톱에선 파일 전송 없이 importClipSegment(경로만) 를 쓴다.
  */
 export function uploadClip(
   jobId: string,
   lineIndex: number,
   file: File,
+  trim?: { inSec: number; neededSec: number },
 ): Promise<UploadClipResult> {
   const form = new FormData();
   form.append("file", file);
+  if (trim) {
+    form.append("in_sec", String(trim.inSec));
+    form.append("needed_sec", String(trim.neededSec));
+  }
   return ytPostForm<UploadClipResult>(
     `/api/jobs/${jobId}/upload-clip/${lineIndex}`,
     form,
+  );
+}
+
+/**
+ * 데스크톱 전용: 로컬 원본 영상 경로에서 선택 구간(±여유분)만 잘라 임포트(파일 전송 없음 → 용량 무제한).
+ * 백엔드는 LOCAL_SINGLE_USER(데스크톱)에서만 이 엔드포인트를 연다(웹에선 403).
+ */
+export function importClipSegment(
+  jobId: string,
+  lineIndex: number,
+  lineId: string,
+  srcPath: string,
+  inSec: number,
+  neededSec: number,
+): Promise<UploadClipResult> {
+  return ytPostJson<UploadClipResult>(
+    `/api/jobs/${jobId}/import-clip-segment`,
+    {
+      line_index: lineIndex,
+      line_id: lineId,
+      src_path: srcPath,
+      in_sec: inSec,
+      needed_sec: neededSec,
+    },
+  );
+}
+
+export interface ClipProxyResult {
+  proxy_url: string; // /api/jobs/{id}/clip-proxy-file?v=…
+  duration: number;
+}
+/**
+ * 데스크톱 전용: 로컬 원본 경로에서 저화질 H.264 미리보기본을 생성한다(HEVC 등 폰 영상 재생용).
+ * 최종 영상엔 원본을 원화질로 잘라 쓰므로, 이 임시본은 구간 고르는 동안만 재생에 쓰고 이후 삭제한다.
+ */
+export function makeClipProxy(
+  jobId: string,
+  srcPath: string,
+): Promise<ClipProxyResult> {
+  return ytPostJson<ClipProxyResult>(`/api/jobs/${jobId}/clip-proxy`, {
+    src_path: srcPath,
+  });
+}
+
+/** 미리보기 임시본 삭제(모달 취소/확정 후). 실패해도 무시. */
+export function cleanupClipProxy(jobId: string): Promise<{ ok?: boolean }> {
+  return ytPostJson<{ ok?: boolean }>(`/api/jobs/${jobId}/clip-proxy/cleanup`, {});
+}
+
+/** 카드 B: 한 줄의 영상 자산을 삭제하고 AI 대기 상태로 되돌린다(대본이 길어져 조각이 짧아졌을 때). */
+export function clearLineClip(
+  jobId: string,
+  lineIndex: number,
+  lineId: string,
+): Promise<{ ok?: boolean; asset_version?: number | null }> {
+  return ytPostJson<{ ok?: boolean; asset_version?: number | null }>(
+    `/api/jobs/${jobId}/clear-line-clip`,
+    { line_index: lineIndex, line_id: lineId },
   );
 }
 
@@ -505,6 +589,12 @@ export interface DraftState {
   title_font_size?: number | null;
   title_color1?: string | null;
   title_color2?: string | null;
+  subtitle_font?: string | null;
+  subtitle_font_weight?: string | null;
+  subtitle_font_size?: number | null;
+  subtitle_color?: string | null;
+  subtitle_dx?: number | null;
+  subtitle_y?: number | null;
   // 작업 다시 열기 복원용 음성/BGM 설정(백엔드 DraftStateResponse 제공).
   tts_engine?: string | null;
   voice_id?: string | null;
@@ -523,9 +613,9 @@ export function getDraftState(jobId: string): Promise<DraftState> {
 }
 
 /**
- * Card B(user_assets) 전용: 제목(2줄)만 고치고 되돌아갈 때 draft 에 즉시 저장.
+ * Card B(user_assets) 전용: 제목(2줄)·자막 스타일을 고치고 되돌아갈 때 draft 에 즉시 저장.
  * 줄별 자산·대본은 건드리지 않는다. preview_ready 단계에서만 동작(백엔드 가드).
- * confirm 없이 앱을 닫아도 바뀐 제목이 작업이력/최종 영상에 남게 한다.
+ * confirm 없이 앱을 닫아도 바뀐 값이 작업이력/최종 영상에 남게 한다.
  */
 export function saveDraftMeta(
   jobId: string,
@@ -538,6 +628,12 @@ export function saveDraftMeta(
     title_font_size?: number;
     title_color1?: string;
     title_color2?: string;
+    subtitle_font?: string;
+    subtitle_font_weight?: string;
+    subtitle_font_size?: number;
+    subtitle_color?: string;
+    subtitle_dx?: number;
+    subtitle_y?: number;
   },
 ): Promise<DraftState> {
   return ytPostJson<DraftState>(`/api/jobs/${jobId}/draft-meta`, meta);
@@ -584,6 +680,32 @@ export function editLine(
   return ytPostJson<{ ok?: boolean }>(`/api/jobs/${jobId}/edit-line`, {
     line_index: lineIndex,
     text,
+  });
+}
+
+export interface SaveLineVisualResult {
+  ok?: boolean;
+  transform?: LineTransform | null; // 서버가 클램프한 최종 값
+  motion?: string | null;
+  clip_start?: number | null; // 서버가 클램프한 최종 시작점(초)
+}
+/**
+ * 줄별 자산 위치/배율(transform)·움직임(motion)·영상 시작점(clipStart)을 저장. 미디어 파일은 안 바뀐다.
+ * patch 에 준 필드만 갱신(미포함=미변경). line_id 를 함께 보내 재인덱싱 레이스를 피한다.
+ * 영상(clip) 줄의 motion 은 'none'/'zoom_in' 만 허용, clipStart 는 영상 줄에만 유효(서버 검증).
+ */
+export function saveLineVisual(
+  jobId: string,
+  lineIndex: number,
+  lineId: string | null | undefined,
+  patch: { transform?: LineTransform; motion?: string; clipStart?: number },
+): Promise<SaveLineVisualResult> {
+  return ytPostJson<SaveLineVisualResult>(`/api/jobs/${jobId}/line-visual`, {
+    line_index: lineIndex,
+    line_id: lineId ?? null,
+    transform: patch.transform ?? null,
+    motion: patch.motion ?? null,
+    clip_start: patch.clipStart ?? null,
   });
 }
 

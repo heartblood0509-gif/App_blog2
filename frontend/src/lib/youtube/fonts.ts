@@ -80,6 +80,17 @@ export const DEFAULT_TITLE_FONT_SIZE = 120; // px, 1080폭 렌더 기준
 export const TITLE_FONT_SIZE_MIN = 70;
 export const TITLE_FONT_SIZE_MAX = 170;
 
+// 자막 스타일 기본값(작업 전역). 폰트는 번들 4종 중 하나(제목과 동일 목록). 기본 프리텐다드·ExtraBold.
+// 크기/색/위치는 렌더 기준(1080×1920). y=자막 상단, dx=가로 중앙 오프셋.
+export const DEFAULT_SUBTITLE_FONT = "pretendard";
+export const DEFAULT_SUBTITLE_FONT_WEIGHT = "extrabold";
+export const DEFAULT_SUBTITLE_FONT_SIZE = 55;
+export const SUBTITLE_FONT_SIZE_MIN = 36;
+export const SUBTITLE_FONT_SIZE_MAX = 80;
+export const DEFAULT_SUBTITLE_COLOR = "#FFFFFF";
+export const DEFAULT_SUBTITLE_DX = 0;
+export const DEFAULT_SUBTITLE_Y = 1300;
+
 export function getTitleFont(id: string): TitleFont {
   return TITLE_FONTS.find((f) => f.id === id) ?? TITLE_FONTS[0];
 }

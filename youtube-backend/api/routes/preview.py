@@ -1,8 +1,8 @@
 """미리보기 API — 이미지 미리보기 + AI 클립 미리보기"""
 
-from fastapi import APIRouter, HTTPException, Depends, BackgroundTasks, Path, Request, UploadFile, File
+from fastapi import APIRouter, HTTPException, Depends, BackgroundTasks, Path, Request, UploadFile, File, Form
 from fastapi.responses import FileResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing import Optional, Literal
 from sqlalchemy.orm import Session
 from api.models import (
@@ -14,18 +14,21 @@ from api.models import (
     EditLineRequest,
     MergeLineRequest,
     DeleteLineRequest,
+    LineVisualRequest,
 )
 from api.deps import get_approved_user, get_user_job
 from db.database import get_db
 from db.models import Job, JobTask, User
 from jobs_queue.task_queue import ACTIVE_STATUSES, enqueue_task, get_active_task, task_payload
 from core.r2_storage import require_r2_for_generation, is_r2_enabled, r2_file_exists
-from core.ffmpeg import FFMPEG_Q, FFPROBE_Q
+from core.ffmpeg import FFMPEG_Q, FFPROBE
+from core.image_pipeline import normalize_transform, KEN_BURNS_MOTIONS
 from core.text_validation import contains_emoji
 from core.colors import normalize_hex, DEFAULT_TITLE_COLOR1, DEFAULT_TITLE_COLOR2
 from config import settings
 from PIL import Image, ImageOps
 from core.user_assets_visual import (
+    bump_line_asset_version,
     clear_line_asset_progress,
     clear_line_visual_fields,
     ensure_line_ids,
@@ -47,11 +50,21 @@ import os
 import io
 import logging
 import shutil
+import shlex
 import subprocess
+import uuid
+import sys
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/jobs", tags=["preview"])
+
+# 카드 B 선트림 업로드: 선택 구간 앞뒤에 붙이는 여유분(초). 업로드 후 이 범위 안에서 시작점 미세조정.
+CLIP_PAD_SEC = 2.0
+# 영상 길이 대 나레이션 길이 허용 오차(초). video_assembler 의 판정 오차와 동일하게 맞춘다.
+CLIP_FIT_EPS = 0.05
+# 선트림 업로드가 원본으로 허용하는 확장자(소문자 비교). ffprobe/ffmpeg 로 실제 검증은 별도.
+CLIP_IMPORT_EXTS = {".mp4", ".mov", ".webm", ".avi", ".m4v"}
 
 
 def _require_generation_storage():
@@ -85,18 +98,243 @@ def _ai_in_flight_count(job_id: str) -> int:
 
 
 def _ffprobe_duration(path: str) -> float:
-    """영상 길이(초). 실패 시 0.0."""
+    """영상 길이(초). 실패 시 0.0.
+
+    사용자 임의 경로(선트림)가 들어오므로 shell 없이 리스트 인자로 호출한다 — 파일명에
+    `$(...)`·백틱이 있어도 셸이 없어 실행되지 않는다(경로 인젝션 차단).
+    """
     try:
-        cmd = (
-            f'{FFPROBE_Q} -v error -show_entries format=duration '
-            f'-of default=noprint_wrappers=1:nokey=1 "{path}"'
-        )
-        result = subprocess.run(cmd, shell=True, capture_output=True, text=True, encoding="utf-8", errors="replace")
+        args = [
+            FFPROBE, "-v", "error", "-show_entries", "format=duration",
+            "-of", "default=noprint_wrappers=1:nokey=1", path,
+        ]
+        result = subprocess.run(args, capture_output=True, text=True, encoding="utf-8", errors="replace")
         if result.returncode == 0 and result.stdout.strip():
             return float(result.stdout.strip())
     except Exception:
         pass
     return 0.0
+
+
+def _probe_video_info(path: str) -> tuple[str, int, int]:
+    """(codec_name, width, height). 실패 시 ("", 0, 0). 진단·다운스케일 판단용.
+
+    _ffprobe_duration 과 같은 이유로 shell 없이 리스트 인자 호출(경로 인젝션 차단).
+    """
+    try:
+        args = [
+            FFPROBE, "-v", "error", "-select_streams", "v:0",
+            "-show_entries", "stream=codec_name,width,height", "-of", "csv=p=0", path,
+        ]
+        r = subprocess.run(args, capture_output=True, text=True, encoding="utf-8", errors="replace")
+        if r.returncode == 0 and r.stdout.strip():
+            parts = r.stdout.strip().split(",")
+            codec = parts[0] if parts else ""
+            w = int(parts[1]) if len(parts) > 1 and parts[1].isdigit() else 0
+            h = int(parts[2]) if len(parts) > 2 and parts[2].isdigit() else 0
+            return codec, w, h
+    except Exception:
+        pass
+    return "", 0, 0
+
+
+# 하드웨어 디코딩 스위치 — HEVC(폰 영상) 소프트웨어 디코딩이 느려서, 지원 플랫폼은 GPU 로 푼다.
+_HWACCEL = "-hwaccel videotoolbox " if sys.platform == "darwin" else ""
+# 잘라 저장하는 조각의 긴 변 상한(px). 최종 쇼츠는 1080×1920 이라 4K 원본을 그대로 둘 이유가 없다.
+# 다운스케일하면 인코딩이 크게 빨라지고 파일도 작아진다(렌더가 어차피 1080×1920 로 다시 맞춤).
+CLIP_CUT_MAX_LONG_SIDE = 2560
+
+# ── 자막 스타일 클램프 범위 (confirm/draft-meta 양쪽에서 동일 적용) ──
+SUBTITLE_SIZE_MIN = 36
+SUBTITLE_SIZE_MAX = 80
+SUBTITLE_DX_ABS = 350   # 가로 중앙 오프셋 절대값(px, 1080폭 기준)
+SUBTITLE_Y_MIN = 60
+SUBTITLE_Y_MAX = 1750   # 자막 상단 y(px, 1920높이 기준)
+DEFAULT_SUBTITLE_COLOR = "#FFFFFF"
+
+
+def apply_subtitle_style(
+    job,
+    *,
+    font=None,
+    weight=None,
+    size=None,
+    color=None,
+    dx=None,
+    y=None,
+) -> None:
+    """자막 스타일(작업 전역)을 Job 에 클램프해서 반영. None 인 항목은 미변경.
+
+    폰트/굵기 id 유효성은 렌더 시 resolve_title_font_path 가 폴백 처리하므로 여기선 문자열만 받는다.
+    색은 drawtext 필터에 박히므로 normalize_hex 로 정규화(1차 방어). 숫자 필드는 raw JSON 이라
+    NaN/문자열 방어 후 범위 clamp. confirm(dict)·draft-meta(pydantic) 양쪽이 이 헬퍼를 공유한다.
+    """
+    if font is not None:
+        job.subtitle_font = str(font)
+    if weight is not None:
+        job.subtitle_font_weight = str(weight)
+    if size is not None:
+        try:
+            job.subtitle_font_size = max(SUBTITLE_SIZE_MIN, min(SUBTITLE_SIZE_MAX, int(float(size))))
+        except (TypeError, ValueError):
+            pass
+    if color is not None:
+        job.subtitle_color = normalize_hex(color, DEFAULT_SUBTITLE_COLOR)
+    if dx is not None:
+        try:
+            job.subtitle_dx = max(-SUBTITLE_DX_ABS, min(SUBTITLE_DX_ABS, int(float(dx))))
+        except (TypeError, ValueError):
+            pass
+    if y is not None:
+        try:
+            job.subtitle_y = max(SUBTITLE_Y_MIN, min(SUBTITLE_Y_MAX, int(float(y))))
+        except (TypeError, ValueError):
+            pass
+
+
+def _replace_with_retry(src_abs: str, dst_abs: str, *, attempts: int = 5, delay: float = 0.15) -> None:
+    """os.replace + 윈도우 재시도. 렌더/FileResponse 가 dst 를 잠깐 열고 있는 순간 교체하면
+    Windows 에서 PermissionError 가 날 수 있어 짧게 대기 후 재시도한다(다른 OS 는 대개 첫 시도 성공)."""
+    import time as _time
+    for i in range(attempts):
+        try:
+            os.replace(src_abs, dst_abs)
+            return
+        except PermissionError:
+            if i == attempts - 1:
+                raise
+            _time.sleep(delay)
+
+
+def _cut_clip_segment(
+    src_abs: str,
+    dst_abs: str,
+    in_sec: float,
+    needed_sec: float,
+    pad_sec: float = CLIP_PAD_SEC,
+) -> tuple[float, float]:
+    """원본에서 [in-pad, in+needed+pad] 구간을 재인코딩으로 잘라 dst_abs 에 저장.
+
+    - `-ss` 를 `-i` 앞에 두고 재인코딩 → 프레임 정확 + HEVC(아이폰) → H264 정규화(프리뷰 재생 보장).
+    - 앞뒤 여유분(pad)을 붙여, 업로드 후 그 범위 안에서 시작점을 미세조정할 수 있게 한다.
+    - 반환: (clip_start, clip_duration). clip_start = 조각 내에서 나레이션이 시작하는 실측 앞 패딩.
+    실패 시 RuntimeError(사용자용 메시지). 임시파일에 쓰고 성공 시 교체 → 실패해도 기존 조각 보존.
+    """
+    if '"' in src_abs or '"' in dst_abs:
+        raise RuntimeError("경로에 사용할 수 없는 문자가 있습니다")
+    src_dur = _ffprobe_duration(src_abs)
+    if src_dur <= 0:
+        raise RuntimeError("영상 정보를 읽을 수 없습니다. 다른 영상을 올려주세요.")
+    if src_dur + CLIP_FIT_EPS < needed_sec:
+        raise RuntimeError(
+            f"원본 영상({src_dur:.1f}초)이 나레이션({needed_sec:.1f}초)보다 짧습니다. "
+            f"더 긴 영상을 올려주세요."
+        )
+    # 나레이션 창(in_sec ~ in_sec+needed)이 원본 안에 들어오도록 클램프.
+    in_sec = max(0.0, min(in_sec, src_dur - needed_sec))
+    cut_start = max(0.0, in_sec - pad_sec)
+    cut_end = min(src_dur, in_sec + needed_sec + pad_sec)
+    cut_dur = cut_end - cut_start
+
+    # 진단 + 4K 원본이면 다운스케일해 인코딩을 빠르게(긴 변 CLIP_CUT_MAX_LONG_SIDE 상한).
+    codec, w, h = _probe_video_info(src_abs)
+    print(f"[clip-cut] codec={codec or '?'} {w}x{h} dur={src_dur:.1f}s needed={needed_sec:.1f}s")
+    scale = ""
+    long_side = max(w, h)
+    if long_side > CLIP_CUT_MAX_LONG_SIDE and w > 0 and h > 0:
+        ratio = CLIP_CUT_MAX_LONG_SIDE / long_side
+        tw = int(round(w * ratio / 2) * 2)
+        th = int(round(h * ratio / 2) * 2)
+        scale = f"-vf scale={tw}:{th} "
+
+    tmp_abs = dst_abs + ".part.mp4"
+    cmd = (
+        f'{FFMPEG_Q} -y {_HWACCEL}-ss {cut_start:.3f} -i "{src_abs}" -t {cut_dur:.3f} '
+        f"{scale}-c:v libx264 -preset fast -crf 18 -pix_fmt yuv420p -an "
+        f'"{tmp_abs}"'
+    )
+    # win32 는 문자열을 shell 없이 CreateProcess 로 직행, 그 외는 shlex.split(리스트). 양쪽 다
+    # shell=False — cmd.exe 의 %VAR% 확장·POSIX $() 를 원천 회피(audio_utils.run 과 동일 관례).
+    args = cmd if sys.platform == "win32" else shlex.split(cmd)
+    try:
+        result = subprocess.run(args, capture_output=True, text=True, encoding="utf-8", errors="replace")
+        if result.returncode != 0:
+            raise RuntimeError(f"영상 자르기 실패: {(result.stderr or '').strip()[-500:]}")
+        clip_duration = _ffprobe_duration(tmp_abs)
+        # 파일 끝 근처를 잘라 조각이 나레이션보다 짧게 나온 경쟁 상황 방어.
+        if clip_duration + CLIP_FIT_EPS < needed_sec:
+            raise RuntimeError("자른 영상이 나레이션보다 짧습니다. 앞쪽 구간을 선택해 다시 올려주세요.")
+        _replace_with_retry(tmp_abs, dst_abs)
+    finally:
+        if os.path.exists(tmp_abs):
+            try:
+                os.remove(tmp_abs)
+            except Exception:
+                pass
+    return (round(in_sec - cut_start, 3), round(clip_duration, 3))
+
+
+def _trim_proxy_path(job_id: str) -> str:
+    """선트림 모달의 저화질 미리보기 임시본 경로(잡당 1개). 확정/취소 시 삭제."""
+    return os.path.join(settings.STORAGE_DIR, job_id, "clips", "_trim_proxy.mp4")
+
+
+def _make_clip_proxy(src_abs: str, dst_abs: str) -> float:
+    """원본을 저화질 H.264 미리보기본으로 변환(구간 고르는 동안 움직임 스크럽용).
+
+    HEVC(폰 영상)는 Electron `<video>` 가 못 읽으므로, 백엔드 ffmpeg 가 H.264 로 낮춰 재생 가능하게 한다.
+    360p·15fps·ultrafast 로 빠르게 만들고, mac 은 VideoToolbox 하드웨어 디코딩으로 HEVC 를 빠르게 푼다.
+    반환: 임시본 길이(초, = 원본 길이). 실패 시 RuntimeError.
+    """
+    if '"' in src_abs or '"' in dst_abs:
+        raise RuntimeError("경로에 사용할 수 없는 문자가 있습니다")
+    codec, w, h = _probe_video_info(src_abs)
+    print(f"[clip-proxy] codec={codec or '?'} {w}x{h}")
+    tmp_abs = dst_abs + ".part.mp4"
+    cmd = (
+        f'{FFMPEG_Q} -y {_HWACCEL}-i "{src_abs}" '
+        f"-vf scale=-2:360 -c:v libx264 -preset ultrafast -crf 30 -r 15 -an "
+        f'-movflags +faststart "{tmp_abs}"'
+    )
+    # 자르기와 동일 관례: win32=문자열/그 외=shlex.split, 둘 다 shell 없이(경로 인젝션 차단).
+    args = cmd if sys.platform == "win32" else shlex.split(cmd)
+    try:
+        result = subprocess.run(args, capture_output=True, text=True, encoding="utf-8", errors="replace")
+        if result.returncode != 0:
+            raise RuntimeError(f"미리보기 변환 실패: {(result.stderr or '').strip()[-400:]}")
+        _replace_with_retry(tmp_abs, dst_abs)
+    finally:
+        if os.path.exists(tmp_abs):
+            try:
+                os.remove(tmp_abs)
+            except Exception:
+                pass
+    return _ffprobe_duration(dst_abs)
+
+
+def _convert_video_to_mp4(src_abs: str, dst_abs: str) -> None:
+    """레거시(트림 없이 전체 저장) MOV/WebM/AVI → MP4 재인코딩. 동기 — 호출자가 to_thread 로 감쌀 것.
+
+    _cut_clip_segment 와 동일한 shell 없는 관례로 실행(경로 인젝션 차단). 실패 시 RuntimeError.
+    """
+    cmd = (
+        f'{FFMPEG_Q} -y -i "{src_abs}" '
+        f"-c:v libx264 -preset fast -crf 18 -pix_fmt yuv420p -an "
+        f'"{dst_abs}"'
+    )
+    args = cmd if sys.platform == "win32" else shlex.split(cmd)
+    result = subprocess.run(args, capture_output=True, text=True, encoding="utf-8", errors="replace")
+    if result.returncode != 0:
+        raise RuntimeError((result.stderr or "")[:300])
+
+
+def _remove_trim_proxy(job_id: str) -> None:
+    try:
+        p = _trim_proxy_path(job_id)
+        if os.path.exists(p):
+            os.remove(p)
+    except Exception:
+        pass
 
 
 def _job_asset_exists(job_id: str, relative_path: str) -> bool:
@@ -157,8 +395,13 @@ def _raise_if_lines_have_active_tasks(db: Session, job_id: str, lines: list[dict
             raise HTTPException(status_code=409, detail="AI 자산 생성이 진행 중인 줄입니다. 잠시 후 다시 시도하세요.")
 
 
-def _set_line_source(job: Job, line_index: int, source: Literal["ai", "image", "clip"], *, status: str = "ready", fail_reason: Optional[str] = None) -> Optional[int]:
-    """줄별 자산 출처와 상태를 Job에 기록. 호출 측에서 db.commit() 필요."""
+def _set_line_source(job: Job, line_index: int, source: Literal["ai", "image", "clip"], *, status: str = "ready", fail_reason: Optional[str] = None, clip_meta: Optional[dict] = None) -> Optional[int]:
+    """줄별 자산 출처와 상태를 Job에 기록. 호출 측에서 db.commit() 필요.
+
+    clip_meta: 선트림 업로드가 {"clip_start", "clip_duration"} 을 넘기면, mark_line_asset_ready 가
+    이전 조각 메타를 pop 한 **직후** 이 값으로 다시 써 넣는다(이 함수가 script_json 을 자체 로드/저장하므로
+    반드시 여기서 넣어야 유실되지 않음).
+    """
     sources = json.loads(job.line_sources_json or "[]")
     lines = json.loads(job.script_json or "[]")
     ensure_line_ids(lines)
@@ -172,9 +415,17 @@ def _set_line_source(job: Job, line_index: int, source: Literal["ai", "image", "
         sources[line_index] = source
         if status == "ready":
             mark_line_asset_ready(lines[line_index], bump_version=True)
+            if clip_meta:
+                lines[line_index].update(clip_meta)
         else:
             lines[line_index]["status"] = status
             lines[line_index]["fail_reason"] = fail_reason
+            # 자산을 비우는 리셋(예: clear_line_clip)이므로 이전 조각/위치 메타는 무효 →
+            # pop + 버전 bump(캐시버스트). ready 경로의 mark_line_asset_ready 와 동일 정리.
+            lines[line_index].pop("transform", None)
+            lines[line_index].pop("clip_start", None)
+            lines[line_index].pop("clip_duration", None)
+            bump_line_asset_version(lines[line_index])
             clear_line_asset_progress(lines[line_index])
     job.line_sources_json = json.dumps(sources, ensure_ascii=False)
     job.script_json = json.dumps(lines, ensure_ascii=False)
@@ -215,7 +466,7 @@ def _pending_ai_line(text: str) -> dict:
         "line_id": new_line_id(),
         "text": text,
         "image_prompt": "",
-        "motion": "zoom_in",
+        "motion": "none",  # 카드 B 기본: 움직임 없음(사용자가 줄별로 선택)
         "asset_version": 0,
         "status": "pending",
         "fail_reason": None,
@@ -402,6 +653,76 @@ async def edit_line(
     job.script_json = json.dumps(lines, ensure_ascii=False)
     db.commit()
     return {"ok": True}
+
+
+# 영상(clip) 줄은 팬/줌아웃 대신 "없음/서서히 확대"만 지원(process_user_clip 이 그 둘만 처리).
+_CLIP_MOTIONS = {"none", "zoom_in"}
+_IMAGE_MOTIONS = {"none"} | KEN_BURNS_MOTIONS
+
+
+@router.post("/{job_id}/line-visual")
+async def set_line_visual(
+    body: LineVisualRequest,
+    job_id: str = Path(..., pattern=r"^[a-f0-9]{12}$"),
+    db: Session = Depends(get_db),
+    _user: User = Depends(get_approved_user),
+):
+    """카드 B 전용: 줄별 자산 위치/배율(transform)과 움직임(motion)을 저장.
+
+    미디어 파일을 건드리지 않으므로 asset_version 을 올리지 않고(불필요한 캐시버스트 방지),
+    visual_plan 도 무효화하지 않는다(위치/배율은 이미지 프롬프트와 무관). None 필드는 미변경.
+    """
+    job = get_user_job(db, job_id, _user)
+    if job.generation_mode != "user_assets":
+        raise HTTPException(status_code=400, detail="이 작업은 카드 B 모드가 아닙니다")
+    if job.status != "preview_ready":
+        raise HTTPException(status_code=409, detail=f"카드 편집 단계가 아닙니다 (상태: {job.status})")
+
+    lines = json.loads(job.script_json or "[]")
+    ensure_line_ids(lines)
+    sources = json.loads(job.line_sources_json or "[]")
+
+    # line_id 가 오면 우선 재해석(파일 대화상자·폴링 사이 순서가 바뀌어도 엉뚱한 줄 방지).
+    idx = body.line_index
+    if body.line_id:
+        by_id = _line_index_by_id(lines, body.line_id)
+        if by_id is not None:
+            idx = by_id
+    if not (0 <= idx < len(lines)):
+        raise HTTPException(status_code=400, detail="잘못된 줄 인덱스")
+
+    line = lines[idx]
+    src = sources[idx] if idx < len(sources) else "ai"
+
+    saved_transform = None
+    if body.transform is not None:
+        saved_transform = normalize_transform(body.transform.model_dump())
+        line["transform"] = saved_transform
+
+    saved_motion = None
+    if body.motion is not None:
+        motion = body.motion.value
+        allowed = _CLIP_MOTIONS if src == "clip" else _IMAGE_MOTIONS
+        if motion not in allowed:
+            raise HTTPException(status_code=400, detail="이 자산에 사용할 수 없는 움직임 효과입니다")
+        line["motion"] = motion
+        saved_motion = motion
+
+    saved_clip_start = None
+    if body.clip_start is not None:
+        # 영상 조각의 재생 시작점 미세조정 — 파일은 그대로, 시작 오프셋만 바꾼다.
+        if src != "clip":
+            raise HTTPException(status_code=400, detail="영상 줄에만 시작점을 조정할 수 있습니다")
+        cd = line.get("clip_duration")
+        if not cd:
+            raise HTTPException(status_code=400, detail="이 영상은 시작점 조정을 지원하지 않습니다(다시 업로드하면 사용 가능)")
+        # 조각 끝을 최소 0.5초 남겨 둠. 나레이션 대비 초과는 여기서 막지 않고 confirm 검증에 맡긴다.
+        line["clip_start"] = max(0.0, min(float(body.clip_start), max(0.0, float(cd) - 0.5)))
+        saved_clip_start = line["clip_start"]
+
+    job.script_json = json.dumps(lines, ensure_ascii=False)
+    db.commit()
+    return {"ok": True, "transform": saved_transform, "motion": saved_motion, "clip_start": saved_clip_start}
 
 
 class SubtitleChunksRequest(BaseModel):
@@ -777,6 +1098,17 @@ async def confirm_and_render(
         if body.get("title") is not None:
             job.title = body["title"]
 
+        # 자막 스타일(폰트/굵기/크기/색/위치) — 제목과 동일하게 여기서 흡수(클램프는 헬퍼가 담당).
+        apply_subtitle_style(
+            job,
+            font=body.get("subtitle_font"),
+            weight=body.get("subtitle_font_weight"),
+            size=body.get("subtitle_font_size"),
+            color=body.get("subtitle_color"),
+            dx=body.get("subtitle_dx"),
+            y=body.get("subtitle_y"),
+        )
+
         # 자막 조각 확정(WYSIWYG): 프론트가 화면에 보여준 줄별 조각을 line_id 맵으로 보낸다.
         # 여기서 script_json 에 확정 저장 → 렌더가 자동 분할 없이 이 경계 그대로 자막을 박는다.
         # 12자 초과 조각이 하나라도 있으면 영상이 화면 밖으로 넘치므로 400 으로 막는다(사용자에게 어느 줄인지 안내).
@@ -810,6 +1142,25 @@ async def confirm_and_render(
 
         tts_session_dir = os.path.join(settings.STORAGE_DIR, "tts_sessions", job.tts_session_id)
         timings_path = os.path.join(job_dir, "tts", "timings_raw.json")
+
+        # 선트림 조각 백스톱: 대본 수정으로 나레이션이 조각보다 길어졌으면 여기서 막는다.
+        # (정상 경로에선 프론트 buildVoices 감지가 이미 삭제 안내했으므로 도달은 드물다. 세션 이동 전에 읽는다.)
+        _dpath = os.path.join(tts_session_dir if os.path.exists(tts_session_dir) else os.path.join(job_dir, "tts"), "timings_raw.json")
+        try:
+            with open(_dpath, encoding="utf-8") as f:
+                _raw = json.load(f)
+            _durs = [e.get("duration") for e in _raw] if isinstance(_raw, list) else []
+        except Exception:
+            _durs = []
+        if len(_durs) == len(lines):
+            _conf = _find_clip_conflicts(lines, json.loads(job.line_sources_json or "[]"), _durs)
+            if _conf:
+                c = _conf[0]
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"{c['index'] + 1}번째 줄 영상이 나레이션보다 짧아요. 화면·소리 단계에서 그 줄 영상을 다시 잘라 올려주세요.",
+                )
+
         if job.tts_session_id:
             if os.path.exists(tts_session_dir):
                 import shutil
@@ -829,6 +1180,7 @@ async def confirm_and_render(
         job.status = "awaiting_confirmation"
         job.current_step = "영상 제작 준비 중..."
         db.commit()
+        _remove_trim_proxy(job_id)  # 확정됐으니 선트림 미리보기 임시본 정리(디스크 잔여물 방지)
         task, already_running = enqueue_task(
             db,
             job=job,
@@ -1050,23 +1402,34 @@ async def upload_image(
     img = ImageOps.exif_transpose(img)
     img = img.convert("RGB")
 
-    # 9:16 비율로 cover-crop
-    target_w, target_h = 1080, 1920
-    target_ratio = target_w / target_h
-
-    src_w, src_h = img.size
-    src_ratio = src_w / src_h
-
-    if src_ratio > target_ratio:
-        new_w = int(src_h * target_ratio)
-        offset = (src_w - new_w) // 2
-        img = img.crop((offset, 0, offset + new_w, src_h))
+    if job.generation_mode == "user_assets":
+        # 카드 B: 왜곡·잘림 없이 원본 비율 보존. 프리뷰에서 사용자가 위치·배율을 정하고,
+        # 최종 렌더가 transform 대로 배치한다. 여기서는 용량만 제한(긴 변 2560px 캡).
+        MAX_LONG_SIDE = 2560
+        w, h = img.size
+        if max(w, h) > MAX_LONG_SIDE:
+            if w >= h:
+                img = img.resize((MAX_LONG_SIDE, max(1, round(h * MAX_LONG_SIDE / w))), Image.LANCZOS)
+            else:
+                img = img.resize((max(1, round(w * MAX_LONG_SIDE / h)), MAX_LONG_SIDE), Image.LANCZOS)
     else:
-        new_h = int(src_w / target_ratio)
-        offset = (src_h - new_h) // 2
-        img = img.crop((0, offset, src_w, offset + new_h))
+        # 카드 A: 기존 동작 유지 — 9:16 비율로 cover-crop 후 1080×1920.
+        target_w, target_h = 1080, 1920
+        target_ratio = target_w / target_h
 
-    img = img.resize((target_w, target_h), Image.LANCZOS)
+        src_w, src_h = img.size
+        src_ratio = src_w / src_h
+
+        if src_ratio > target_ratio:
+            new_w = int(src_h * target_ratio)
+            offset = (src_w - new_w) // 2
+            img = img.crop((offset, 0, offset + new_w, src_h))
+        else:
+            new_h = int(src_w / target_ratio)
+            offset = (src_h - new_h) // 2
+            img = img.crop((0, offset, src_w, offset + new_h))
+
+        img = img.resize((target_w, target_h), Image.LANCZOS)
 
     line = lines[line_index]
     image_rel = line_asset_rel("image", line, line_index)
@@ -1267,10 +1630,13 @@ async def upload_clip(
     job_id: str = Path(..., pattern=r"^[a-f0-9]{12}$"),
     line_index: int = 0,
     file: UploadFile = File(...),
+    # 선트림 업로드(웹 폴백): 둘 다 오면 선택 구간(+여유분)만 잘라 저장. 없으면 기존 동작(전체 저장).
+    in_sec: Optional[float] = Form(None),
+    needed_sec: Optional[float] = Form(None),
     db: Session = Depends(get_db),
     _user: User = Depends(get_approved_user),
 ):
-    """사용자 영상 업로드 — AI 클립 대체"""
+    """사용자 영상 업로드 — AI 클립 대체. in_sec/needed_sec 이 오면 선트림(구간만 잘라 저장)."""
     job = get_user_job(db, job_id, _user)
     _require_generation_storage()
 
@@ -1295,27 +1661,58 @@ async def upload_clip(
     clip_rel = line_asset_rel("clip", line, line_index)
     output_path = os.path.join(settings.STORAGE_DIR, job_id, clip_rel)
 
-    if file.content_type == "video/mp4":
-        # MP4는 그대로 저장
+    clip_meta: Optional[dict] = None
+    do_trim = in_sec is not None and needed_sec is not None and needed_sec > 0
+    # 선트림은 카드 B(user_assets) 전용 — 카드 A 는 clip_meta 를 저장하지 않아 조각 시작점이
+    # 유실되므로(패딩 앞부터 렌더) 방어적으로 거부한다(현 UI 에선 도달 불가).
+    if do_trim and job.generation_mode != "user_assets":
+        raise HTTPException(status_code=400, detail="이 작업에서는 구간을 잘라 업로드할 수 없습니다")
+    # 입력 임시파일은 고유명으로(두 줄 동시 업로드가 서로 덮어쓰지 않게 — 변환을 to_thread 로
+    # 돌리면 진짜 동시 실행되므로 필수). 재인코딩(자르기·MP4 변환)은 무거워 이벤트 루프를 막지
+    # 않도록 to_thread 로 오프로드한다(웹/R2 다중 사용자에서 요청·SSE 정지 방지).
+    if do_trim:
+        # 선트림: 원본을 임시 저장 후 선택 구간(+여유분)만 재인코딩으로 잘라 output_path 에 저장.
+        # 나레이션 길이는 서버 권위(timings_raw.json)로 재검증 — 클라 값이 오래됐어도 정확히 자른다.
+        needed = _tts_needed_sec(job, line_index, float(needed_sec))
+        ext = {
+            "video/mp4": ".mp4",
+            "video/quicktime": ".mov",
+            "video/webm": ".webm",
+            "video/x-msvideo": ".avi",
+        }.get(file.content_type or "", ".tmp")
+        tmp_path = os.path.join(clips_dir, f"_upload_{uuid.uuid4().hex[:8]}{ext}")
+        with open(tmp_path, "wb") as f:
+            f.write(contents)
+        try:
+            cs, cd = await asyncio.to_thread(
+                _cut_clip_segment, tmp_path, output_path, float(in_sec), needed
+            )
+            clip_meta = {"clip_start": cs, "clip_duration": cd}
+        except RuntimeError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+        finally:
+            if os.path.exists(tmp_path):
+                os.remove(tmp_path)
+    elif file.content_type == "video/mp4":
+        # (레거시 전체 저장) MP4는 그대로 저장
         with open(output_path, "wb") as f:
             f.write(contents)
     else:
-        # MOV/WebM/AVI → FFmpeg로 MP4 변환
+        # (레거시 전체 저장) MOV/WebM/AVI → FFmpeg로 MP4 변환
         ext = {
             "video/quicktime": ".mov",
             "video/webm": ".webm",
             "video/x-msvideo": ".avi",
         }.get(file.content_type, ".tmp")
 
-        tmp_path = os.path.join(clips_dir, f"_upload_tmp{ext}")
+        tmp_path = os.path.join(clips_dir, f"_upload_{uuid.uuid4().hex[:8]}{ext}")
         with open(tmp_path, "wb") as f:
             f.write(contents)
 
         try:
-            cmd = f'{FFMPEG_Q} -y -i "{tmp_path}" -c:v libx264 -preset fast -crf 18 -pix_fmt yuv420p -an "{output_path}"'
-            result = subprocess.run(cmd, shell=True, capture_output=True, text=True, encoding="utf-8", errors="replace")
-            if result.returncode != 0:
-                raise RuntimeError(result.stderr[:300])
+            await asyncio.to_thread(_convert_video_to_mp4, tmp_path, output_path)
+        except RuntimeError as e:
+            raise HTTPException(status_code=400, detail=f"영상 변환 실패: {str(e)[:200]}")
         finally:
             if os.path.exists(tmp_path):
                 os.remove(tmp_path)
@@ -1341,14 +1738,265 @@ async def upload_clip(
     if job.generation_mode == "user_assets":
         job_dir = os.path.join(settings.STORAGE_DIR, job_id)
         await _delete_line_asset_kind(job_id, job_dir, line, line_index, "image")
-        asset_version = _set_line_source(job, line_index, "clip", status="ready")
+        asset_version = _set_line_source(job, line_index, "clip", status="ready", clip_meta=clip_meta)
         db.commit()
 
     return {
         "message": f"클립 {line_index + 1} 업로드 완료",
         "clip_url": f"/api/jobs/{job_id}/clips/{line_index}",
         "asset_version": asset_version,
+        "clip_start": clip_meta["clip_start"] if clip_meta else None,
+        "clip_duration": clip_meta["clip_duration"] if clip_meta else None,
     }
+
+
+def _find_clip_conflicts(lines: list[dict], sources: list, durations: list, *, eps: float = CLIP_FIT_EPS) -> list[dict]:
+    """clip 줄 중 나레이션(durations[i])이 조각 사용가능 길이(clip_duration - clip_start)보다 긴 것.
+
+    레거시 클립(clip_duration 없음)은 스킵 — 파일 실측 기반 assembler 검증이 최후 방어.
+    반환: [{index, line_id, needed, available}].
+    """
+    out: list[dict] = []
+    n = min(len(lines), len(durations))
+    for i in range(n):
+        src = sources[i] if i < len(sources) else "ai"
+        if src != "clip":
+            continue
+        cd = lines[i].get("clip_duration")
+        if not cd:
+            continue
+        cs = float(lines[i].get("clip_start") or 0.0)
+        avail = float(cd) - cs
+        needed = float(durations[i] or 0.0)
+        if avail + eps < needed:
+            out.append({"index": i, "line_id": lines[i].get("line_id"), "needed": needed, "available": avail})
+    return out
+
+
+def _tts_needed_sec(job: Job, idx: int, fallback: float) -> float:
+    """줄 idx 의 나레이션 길이(초)를 TTS 세션 timings_raw.json 에서 조회(서버 권위).
+
+    엔트리 수가 대본 줄 수와 다르거나 세션이 없으면 fallback(프론트가 보낸 값)을 쓴다.
+    """
+    from api.routes.tts_preview import TTS_SESSIONS_DIR
+
+    sid = str(job.tts_session_id or "").strip()
+    if not sid:
+        return fallback
+    path = os.path.join(TTS_SESSIONS_DIR, sid, "timings_raw.json")
+    try:
+        with open(path, encoding="utf-8") as f:
+            raw = json.load(f)
+        n_lines = len(json.loads(job.script_json or "[]"))
+        if isinstance(raw, list) and len(raw) == n_lines and 0 <= idx < len(raw):
+            dur = raw[idx].get("duration") if isinstance(raw[idx], dict) else None
+            if dur and float(dur) > 0:
+                return float(dur)
+    except Exception:
+        pass
+    return fallback
+
+
+class ImportClipSegmentRequest(BaseModel):
+    """카드 B 데스크톱 선트림: 원본 경로에서 선택 구간(+여유분)만 잘라 임포트."""
+    line_index: int = Field(..., ge=0)
+    line_id: Optional[str] = None          # 있으면 우선 재해석(레이스 안전)
+    src_path: str = Field(..., min_length=1)
+    in_sec: float = Field(..., ge=0)       # 원본 기준 나레이션 창 시작(초)
+    needed_sec: float = Field(..., gt=0)   # 프론트가 아는 나레이션 길이(서버 조회 실패 시 폴백)
+
+
+@router.post("/{job_id}/import-clip-segment")
+async def import_clip_segment(
+    body: ImportClipSegmentRequest,
+    job_id: str = Path(..., pattern=r"^[a-f0-9]{12}$"),
+    db: Session = Depends(get_db),
+    _user: User = Depends(get_approved_user),
+):
+    """데스크톱 전용: 로컬 원본 영상 경로에서 구간만 잘라 저장(전송 없이).
+
+    HTTP 바디에 파일이 없으므로 용량 제한과 무관 — 4GB 원본도 몇 초 조각만 저장된다.
+    보안: 임의 파일을 서버가 읽는 통로이므로 LOCAL_SINGLE_USER(데스크톱) 에서만 연다.
+    """
+    if not settings.LOCAL_SINGLE_USER:
+        raise HTTPException(status_code=403, detail="이 기능은 데스크톱 앱에서만 사용할 수 있습니다")
+
+    job = get_user_job(db, job_id, _user)
+    if job.generation_mode != "user_assets":
+        raise HTTPException(status_code=400, detail="이 작업은 카드 B 모드가 아닙니다")
+    if job.status != "preview_ready":
+        raise HTTPException(status_code=409, detail=f"카드 편집 단계가 아닙니다 (상태: {job.status})")
+    _require_generation_storage()
+
+    lines = json.loads(job.script_json or "[]")
+    ensure_line_ids(lines)
+    idx = body.line_index
+    if body.line_id:
+        by_id = _line_index_by_id(lines, body.line_id)
+        if by_id is not None:
+            idx = by_id
+    if not (0 <= idx < len(lines)):
+        raise HTTPException(status_code=400, detail="잘못된 줄 인덱스")
+    _raise_if_lines_have_active_tasks(db, job_id, lines, [idx])
+
+    # 원본 경로 검증 — 파일 존재 + 확장자 화이트리스트 + 따옴표 배제(명령 인젝션 방지).
+    src = body.src_path
+    if '"' in src or not os.path.isfile(src):
+        raise HTTPException(status_code=400, detail="영상 파일을 찾을 수 없습니다")
+    if os.path.splitext(src)[1].lower() not in CLIP_IMPORT_EXTS:
+        raise HTTPException(status_code=400, detail="MP4, MOV, WebM, AVI 영상만 사용할 수 있습니다")
+
+    needed = _tts_needed_sec(job, idx, body.needed_sec)
+
+    clips_dir = os.path.join(settings.STORAGE_DIR, job_id, "clips")
+    os.makedirs(clips_dir, exist_ok=True)
+    line = lines[idx]
+    clip_rel = line_asset_rel("clip", line, idx)
+    output_path = os.path.join(settings.STORAGE_DIR, job_id, clip_rel)
+
+    try:
+        cs, cd = await asyncio.to_thread(_cut_clip_segment, src, output_path, float(body.in_sec), float(needed))
+    except RuntimeError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    from core.r2_storage import upload_file as r2_upload, is_r2_enabled
+    if is_r2_enabled() and os.path.exists(output_path):
+        ok = await r2_upload(output_path, r2_job_asset_key(job_id, clip_rel))
+        if not ok:
+            raise HTTPException(status_code=500, detail="R2 영상 업로드 실패")
+
+    job_dir = os.path.join(settings.STORAGE_DIR, job_id)
+    await _delete_line_asset_kind(job_id, job_dir, line, idx, "image")
+    asset_version = _set_line_source(
+        job, idx, "clip", status="ready",
+        clip_meta={"clip_start": cs, "clip_duration": cd},
+    )
+    db.commit()
+    _remove_trim_proxy(job_id)  # 확정됐으니 미리보기 임시본 정리
+
+    return {
+        "message": f"클립 {idx + 1} 임포트 완료",
+        "clip_url": f"/api/jobs/{job_id}/clips/{idx}",
+        "asset_version": asset_version,
+        "clip_start": cs,
+        "clip_duration": cd,
+    }
+
+
+class ClipProxyRequest(BaseModel):
+    """카드 B 데스크톱: 원본 경로에서 저화질 미리보기본을 생성(구간 고르는 동안 재생용)."""
+    src_path: str = Field(..., min_length=1)
+
+
+@router.post("/{job_id}/clip-proxy")
+async def make_clip_proxy(
+    body: ClipProxyRequest,
+    job_id: str = Path(..., pattern=r"^[a-f0-9]{12}$"),
+    db: Session = Depends(get_db),
+    _user: User = Depends(get_approved_user),
+):
+    """데스크톱 전용: 로컬 원본을 저화질 H.264 미리보기본으로 변환(HEVC 등 폰 영상 재생용).
+
+    최종 영상엔 원본을 원화질로 잘라 쓴다(이 임시본은 미리보기 전용, 확정/취소 시 삭제).
+    """
+    if not settings.LOCAL_SINGLE_USER:
+        raise HTTPException(status_code=403, detail="이 기능은 데스크톱 앱에서만 사용할 수 있습니다")
+    job = get_user_job(db, job_id, _user)
+    if job.generation_mode != "user_assets":
+        raise HTTPException(status_code=400, detail="이 작업은 카드 B 모드가 아닙니다")
+    if job.status != "preview_ready":
+        raise HTTPException(status_code=409, detail=f"카드 편집 단계가 아닙니다 (상태: {job.status})")
+    _require_generation_storage()
+
+    src = body.src_path
+    if '"' in src or not os.path.isfile(src):
+        raise HTTPException(status_code=400, detail="영상 파일을 찾을 수 없습니다")
+    if os.path.splitext(src)[1].lower() not in CLIP_IMPORT_EXTS:
+        raise HTTPException(status_code=400, detail="MP4, MOV, WebM, AVI 영상만 사용할 수 있습니다")
+
+    proxy_abs = _trim_proxy_path(job_id)
+    os.makedirs(os.path.dirname(proxy_abs), exist_ok=True)
+    try:
+        dur = await asyncio.to_thread(_make_clip_proxy, src, proxy_abs)
+    except RuntimeError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    # 캐시버스터는 나노초 mtime — 같은 초 안에 다른 원본으로 재변환해도 URL 이 달라져
+    # 이전 프록시가 <video> 캐시로 잘못 재생되지 않게 한다.
+    ver = os.stat(proxy_abs).st_mtime_ns if os.path.exists(proxy_abs) else 0
+    return {
+        "proxy_url": f"/api/jobs/{job_id}/clip-proxy-file?v={ver}",
+        "duration": dur,
+    }
+
+
+@router.get("/{job_id}/clip-proxy-file")
+async def get_clip_proxy_file(
+    job_id: str = Path(..., pattern=r"^[a-f0-9]{12}$"),
+    db: Session = Depends(get_db),
+    _user: User = Depends(get_approved_user),
+):
+    """저화질 미리보기 임시본 스트리밍(Range 지원 — 스크럽용). 잡 소유자만."""
+    get_user_job(db, job_id, _user)
+    proxy_abs = _trim_proxy_path(job_id)
+    if not os.path.exists(proxy_abs):
+        raise HTTPException(status_code=404, detail="미리보기가 없습니다")
+    return FileResponse(proxy_abs, media_type="video/mp4")
+
+
+@router.post("/{job_id}/clip-proxy/cleanup")
+async def cleanup_clip_proxy(
+    job_id: str = Path(..., pattern=r"^[a-f0-9]{12}$"),
+    db: Session = Depends(get_db),
+    _user: User = Depends(get_approved_user),
+):
+    """미리보기 임시본 삭제(모달 취소/닫기 시 호출). 없으면 조용히 통과."""
+    get_user_job(db, job_id, _user)
+    _remove_trim_proxy(job_id)
+    return {"ok": True}
+
+
+class ClearLineClipRequest(BaseModel):
+    """카드 B: 한 줄의 영상 자산을 삭제하고 AI 대기 상태로 되돌린다(부족 정책 실행용)."""
+    line_index: int = Field(..., ge=0)
+    line_id: Optional[str] = None
+
+
+@router.post("/{job_id}/clear-line-clip")
+async def clear_line_clip(
+    body: ClearLineClipRequest,
+    job_id: str = Path(..., pattern=r"^[a-f0-9]{12}$"),
+    db: Session = Depends(get_db),
+    _user: User = Depends(get_approved_user),
+):
+    """줄의 영상 자산을 삭제하고 source="ai"/status="pending" 으로 리셋.
+
+    대본이 길어져 영상이 나레이션보다 짧아졌을 때 프론트가 호출한다(사용자가 다시 잘라 올리도록).
+    """
+    job = get_user_job(db, job_id, _user)
+    if job.generation_mode != "user_assets":
+        raise HTTPException(status_code=400, detail="이 작업은 카드 B 모드가 아닙니다")
+    if job.status != "preview_ready":
+        raise HTTPException(status_code=409, detail=f"카드 편집 단계가 아닙니다 (상태: {job.status})")
+
+    lines = json.loads(job.script_json or "[]")
+    ensure_line_ids(lines)
+    idx = body.line_index
+    if body.line_id:
+        by_id = _line_index_by_id(lines, body.line_id)
+        if by_id is not None:
+            idx = by_id
+    if not (0 <= idx < len(lines)):
+        raise HTTPException(status_code=400, detail="잘못된 줄 인덱스")
+    _raise_if_lines_have_active_tasks(db, job_id, lines, [idx])
+
+    job_dir = os.path.join(settings.STORAGE_DIR, job_id)
+    await _discard_line_assets(job_id, job_dir, lines[idx], idx)
+    # source=ai + status=pending 으로 리셋(버전 bump 로 캐시버스트, clip/ transform 메타는 pop).
+    asset_version = _set_line_source(job, idx, "ai", status="pending")
+    db.commit()
+
+    return {"ok": True, "asset_version": asset_version}
 
 
 async def _regenerate_single_clip(job_id: str, line_index: int):

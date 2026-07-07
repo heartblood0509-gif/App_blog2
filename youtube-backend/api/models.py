@@ -17,6 +17,7 @@ class TTSEngine(str, Enum):
 
 
 class MotionType(str, Enum):
+    NONE = "none"  # 카드 B 기본: 움직임 없음(정지)
     ZOOM_IN = "zoom_in"
     ZOOM_OUT = "zoom_out"
     PAN_LEFT = "pan_left"
@@ -101,11 +102,24 @@ class ImagePromptRequest(BaseModel):
     content_type: Optional[str] = None  # "info" | "promo" | "promo_comment" (cosmetics 전용)
 
 
+class LineTransform(BaseModel):
+    """카드 B 자산 위치/배율. scale=1,x=0,y=0 = 원본 전체 보임(contain)·중앙.
+    x/y 는 프레임 중심 대비 오프셋(프레임 폭/높이 비율). 렌더/프리뷰 공유 수식."""
+    scale: float = 1.0
+    x: float = 0.0
+    y: float = 0.0
+
+
 class ScriptLine(BaseModel):
     line_id: Optional[str] = None
     text: str
     image_prompt: str = ""
-    motion: MotionType = MotionType.ZOOM_IN
+    # 기본은 "없음"(정지). 카드 A(AI)는 gemini 가 줄마다 motion 을 항상 명시 부여하므로 영향 없고,
+    # 이 기본값은 카드 B 의 split/merge 재구성(ScriptLine(**l))·모션 키가 없는 레거시 줄에만 적용된다.
+    motion: MotionType = MotionType.NONE
+    # 카드 B 자산 위치/배율. None = 미설정(contain 기본). split/merge/delete 응답이
+    # ScriptLine(**l) 로 재구성되므로 필드가 없으면 조용히 탈락된다 → 반드시 선언.
+    transform: Optional[LineTransform] = None
     asset_version: int = 0
     # 카드 B에서 사용: 줄별 자산 상태 ("pending" | "ready" | "failed")
     status: Literal["pending", "ready", "failed"] = "pending"
@@ -124,6 +138,10 @@ class ScriptLine(BaseModel):
     # 카드 B: 화면·소리 단계에서 사용자가 확정한 줄별 자막 조각. None=자동 분할(미확정).
     # 값이 있으면 최종 영상이 이 경계 그대로 자막을 끊는다(WYSIWYG). 텍스트 편집 시 None 으로 리셋.
     subtitle_chunks: Optional[list[str]] = None
+    # 카드 B 선(先)트림 업로드: 저장된 영상 조각의 재생 메타. None = 레거시(전체 저장 클립).
+    # transform 과 같은 이유로 반드시 선언(없으면 split/merge 재구성에서 탈락). 새 자산 교체 시 리셋.
+    clip_start: Optional[float] = None      # 조각 내 재생 시작 오프셋(초). 초기값 = 실측 앞 패딩
+    clip_duration: Optional[float] = None   # 조각 총 길이(초, 컷 후 ffprobe 확정)
 
 
 class ImagePromptResponse(BaseModel):
@@ -219,6 +237,16 @@ class DeleteLineRequest(BaseModel):
     """카드 B 줄 삭제 요청 (× 버튼)."""
     line_index: int = Field(..., ge=0)
     line_id: Optional[str] = None
+
+
+class LineVisualRequest(BaseModel):
+    """카드 B 줄별 자산 위치/배율(transform) + 움직임(motion) 저장. None = 미변경."""
+    line_index: int = Field(..., ge=0)
+    line_id: Optional[str] = None  # 있으면 우선 재해석(재인덱싱 레이스 안전)
+    transform: Optional[LineTransform] = None
+    motion: Optional[MotionType] = None
+    # 영상 조각의 재생 시작점 미세조정(초). clip_duration 범위 안에서 클램프. None = 미변경.
+    clip_start: Optional[float] = None
 
 
 class TtsPreviewBuildRequest(BaseModel):

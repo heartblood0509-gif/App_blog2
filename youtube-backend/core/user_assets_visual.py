@@ -91,7 +91,8 @@ def visual_plan_script_hash(lines: list[dict[str, Any]]) -> str:
 
 def clear_line_visual_fields(line: dict[str, Any], *, status: str = "pending") -> None:
     line["image_prompt"] = ""
-    line["motion"] = line.get("motion") or "zoom_in"
+    # 카드 B 기본은 "없음"(사용자 선택제). 기존 값이 있으면 보존.
+    line["motion"] = line.get("motion") or "none"
     line["status"] = status
     line["fail_reason"] = None
     for key in (
@@ -131,6 +132,13 @@ def mark_line_asset_ready(line: dict[str, Any], *, bump_version: bool = False) -
     line["status"] = "ready"
     line["fail_reason"] = None
     if bump_version:
+        # 새 자산이 들어왔으므로(업로드/재생성/AI변환) 이전 자산의 위치·배율(transform)은 무의미.
+        # 업로드 엔드포인트가 원본 크기를 알면 곧바로 cover 초기 transform 을 다시 써 넣는다.
+        # motion 은 취향 선택이라 보존한다.
+        line.pop("transform", None)
+        # 영상 조각 메타도 이전 자산 것이라 무효. 선트림 업로드 경로가 이 pop 이후 다시 써 넣는다.
+        line.pop("clip_start", None)
+        line.pop("clip_duration", None)
         bump_line_asset_version(line)
     clear_line_asset_progress(line)
 
