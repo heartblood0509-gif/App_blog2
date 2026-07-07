@@ -25,7 +25,13 @@ def get_duration(filepath):
         capture_output=True,
         text=True,
         encoding="utf-8",
+        errors="replace",
     )
+    if probe.returncode != 0 or not (probe.stdout or "").strip():
+        raise RuntimeError(
+            f"ffprobe 길이 조회 실패(returncode={probe.returncode}): "
+            f"{(probe.stderr or '')[-500:]}"
+        )
     return float(json.loads(probe.stdout)["format"]["duration"])
 
 
@@ -212,9 +218,15 @@ async def assemble_shorts(job_id: str, config: dict, progress_callback=None):
     _update(progress_callback, job_id, "assembling_video", 0.72, "클립 연결 중...")
 
     concat_list = os.path.join(temp_dir, "concat_list.txt")
-    with open(concat_list, "w") as f:
+    # 윈도우 한글 계정 경로(C:\Users\한글이름\...) 대응:
+    # 목록 파일에 한글 절대경로를 적으면 cp949로 저장돼, UTF-8을 기대하는 ffmpeg
+    # concat demuxer가 경로를 못 찾아 실패한다. clip_files는 전부 temp_dir 안의
+    # clip_NN.mp4 이고 concat demuxer는 상대경로를 "목록 파일이 있는 폴더" 기준으로
+    # 해석하므로, 파일명만 적고 UTF-8로 저장하면 한글 경로가 파일에서 사라진다.
+    # (파일명은 코드가 만든 clip_NN.mp4 라 따옴표 escaping 불필요)
+    with open(concat_list, "w", encoding="utf-8") as f:
         for clip in clip_files:
-            f.write(f"file '{clip}'\n")
+            f.write(f"file '{os.path.basename(clip)}'\n")
 
     concat_out = os.path.join(temp_dir, "concat_raw.mp4")
     await asyncio.to_thread(
