@@ -41,7 +41,10 @@ npm --prefix frontend run lint
 #      · `next.config.ts`, `tsconfig.json`, 의존성(`package.json`) 변경
 #      · 여러 폴더에 걸친 큰 수정
 #      · 머지 직후 패키징/배포 예정
-npm --prefix frontend run build
+npm --prefix frontend run build          # 메인 체크아웃
+#    ⚠️ 워크트리에서는 위 명령이 Turbopack 심링크 거부로 실패한다(node_modules 가 메인 심링크).
+#    워크트리 풀 빌드는 아래 한 줄 — dev 와 동일하게 자동으로 --webpack 을 붙여준다.
+npm run build:worktree                   # 워크트리 (scripts/dev-worktree.js --build)
 ```
 
 - `next build`는 타입체크는 포함하지만 **ESLint는 돌리지 않는다**(Next.js 16에서 `next lint` 제거).
