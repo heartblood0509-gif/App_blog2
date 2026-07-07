@@ -10,7 +10,9 @@ import {
   ytPostForm,
   ytPostJson,
   ytPutJson,
+  ytUrl,
 } from "./api";
+import type { WordTime } from "./subtitle-split";
 
 // ── 콘텐츠 생성 ──────────────────────────────────────────────
 
@@ -100,6 +102,8 @@ export interface ScriptLine {
   asset_action?: string | null; // "ai_image" | "ai_clip" | "image_upload" | "clip_upload"
   asset_step?: string | null; // "queued" | "planning" | "generating" | "qa" | "retrying" | "saving" | "converting"
   asset_message?: string | null;
+  // 카드 B 자막 조각(끊는 위치). null/부재 = 자동 분할(미확정). 텍스트 편집 시 백엔드가 리셋.
+  subtitle_chunks?: string[] | null;
   // 그 외 백엔드 부가 필드는 그대로 통과.
   [key: string]: unknown;
 }
@@ -170,6 +174,8 @@ export interface TtsPreviewBuildResult {
   session_id: string;
   lines_count: number;
   durations: number[];
+  // 줄별 어절 타임스탬프(자막-음성 동기화용). 폴백/구세션 줄은 null.
+  word_times?: (WordTime[] | null)[];
   split_count: number;
   expanded_sentences: string[];
   regenerated_indices: number[];
@@ -179,6 +185,46 @@ export function ttsPreviewBuild(
   input: TtsPreviewBuildInput,
 ): Promise<TtsPreviewBuildResult> {
   return ytPostJson<TtsPreviewBuildResult>("/api/tts/preview-build", input);
+}
+
+// 세션 매니페스트 — 재열기 시 재빌드 없이 스냅샷(줄 순서·길이·음성)을 복원한다.
+export interface TtsSessionManifest {
+  session_id: string;
+  line_ids: (string | null)[] | null; // 빌드 순서(= sent_XX 인덱스). 없으면 null → 재빌드 필요.
+  line_hashes: Record<string, string> | null;
+  durations: number[];
+  word_times?: (WordTime[] | null)[] | null;
+  voice: { voice_id: string | null; speed: number | null; emotion: string | null };
+  lines_count: number;
+}
+export function getTtsSessionManifest(
+  sessionId: string,
+): Promise<TtsSessionManifest> {
+  return ytGetJson<TtsSessionManifest>(`/api/tts/preview-session/${sessionId}`);
+}
+
+/** 세션의 한 줄 음성 wav URL(프록시 경유, 쿠키 인증). v = 빌드 버전(캐시버스터). */
+export function ttsSessionLineUrl(
+  sessionId: string,
+  index: number,
+  v: number,
+): string {
+  return `${ytUrl(`/api/tts/preview-session/${sessionId}/line/${index}`)}?v=${v}`;
+}
+
+// ── 자막 조각(끊는 위치) ──────────────────────────────────────
+
+/** 카드 B: 한 줄의 자막 조각을 확정 저장. chunks=null 이면 자동 분할로 리셋.
+ * 각 조각은 12자(표시 폭) 이하여야 하며, 초과 시 백엔드가 400. */
+export function setSubtitleChunks(
+  jobId: string,
+  lineId: string,
+  chunks: string[] | null,
+): Promise<{ ok?: boolean }> {
+  return ytPostJson<{ ok?: boolean }>(`/api/jobs/${jobId}/subtitle-chunks`, {
+    line_id: lineId,
+    chunks,
+  });
 }
 
 // ── BGM ──────────────────────────────────────────────────────
@@ -298,6 +344,8 @@ export interface ConfirmDraftInput {
   title_font_size?: number;
   title_color1?: string;
   title_color2?: string;
+  // 자막 조각 확정 맵(line_id → 조각들). 화면에 보여준 그대로 렌더에 박히게 한다(WYSIWYG).
+  subtitle_chunks_by_line?: Record<string, string[]>;
 }
 export function confirmDraft(
   jobId: string,

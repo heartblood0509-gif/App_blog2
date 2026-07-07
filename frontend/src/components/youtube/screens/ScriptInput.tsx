@@ -170,7 +170,7 @@ export function ScriptInput() {
         return;
       }
       const ok = window.confirm(
-        "대본을 바꾸면 지금까지 만든 줄별 이미지·영상·음성이 사라지고 처음부터 다시 만들어집니다.\n\n계속할까요? (줄 하나만 살짝 고치려면 취소하고 '자산' 단계에서 수정하세요.)",
+        "대본을 바꾸면 지금까지 만든 줄별 이미지·영상·음성이 사라지고 처음부터 다시 만들어집니다.\n\n계속할까요? (줄 하나만 살짝 고치려면 취소하고 '화면·소리' 단계에서 수정하세요.)",
       );
       if (!ok) return;
     }
@@ -199,6 +199,11 @@ export function ScriptInput() {
         selectedTitle: combineTitle(n1, n2),
         titleLine1: n1,
         titleLine2: n2,
+        // 새 draft → 이전 job 의 음성 세션/스냅샷을 버린다(안 그러면 옛 세션에 잘못 증분 빌드).
+        ttsSessionId: null,
+        ttsDirty: false,
+        ttsBuild: null,
+        expandedSentences: null,
         screen: "lines",
       });
     } catch (e) {

@@ -37,6 +37,7 @@ export function ShortsPreviewFrame({
   titleFontSize = DEFAULT_TITLE_FONT_SIZE,
   titleColor1 = DEFAULT_TITLE_COLOR1,
   titleColor2 = DEFAULT_TITLE_COLOR2,
+  subtitle,
   children,
   className,
   width = BASE_WIDTH,
@@ -48,6 +49,7 @@ export function ShortsPreviewFrame({
   titleFontSize?: number; // 렌더 기준 px(1080폭). 미지정이면 기본 120.
   titleColor1?: string; // 윗줄 색(#RRGGBB).
   titleColor2?: string; // 아랫줄 색(#RRGGBB).
+  subtitle?: string; // 하단 자막 오버레이(현재 조각). 최종 영상 자막 위치·스타일 흉내.
   children?: ReactNode; // 미디어 배경(<img>/<video>/placeholder) — 프레임을 꽉 채우게.
   className?: string;
   width?: number; // 프레임 가로 폭(px). 높이·제목 크기는 9:16 / 비율로 자동.
@@ -88,6 +90,22 @@ export function ShortsPreviewFrame({
           style={{ ...titleBase, color: titleColor2, top: 50 * s }}
         >
           {titleLine2}
+        </div>
+      ) : null}
+
+      {/* 자막 오버레이 — 최종 영상 자막(흰색+검정 외곽선, y≈1300/1920)의 흉내.
+          렌더 fontsize 55(1080폭)을 프레임 폭으로 환산. */}
+      {subtitle ? (
+        <div
+          className="pointer-events-none absolute w-full px-1 text-center font-semibold leading-tight text-white"
+          style={{
+            bottom: height * (1 - 1300 / 1920 - 0.02),
+            fontSize: `${55 * (width / 1080)}px`,
+            WebkitTextStroke: `${Math.max(0.5, 2 * (width / 1080))}px #000`,
+            textShadow: "0 1px 2px #000, 0 0 3px #000",
+          }}
+        >
+          {subtitle}
         </div>
       ) : null}
     </div>

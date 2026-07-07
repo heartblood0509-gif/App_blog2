@@ -79,7 +79,11 @@ def stub_generate_for_indices(monkeypatch):
         for idx in indices:
             path = os.path.join(tts_dir, f"sent_{idx:02d}.wav")
             _write_dummy_wav(path, duration_sec=0.42)
-            result[idx] = {"text": sentences[idx], "duration": 0.42}
+            result[idx] = {
+                "text": sentences[idx],
+                "duration": 0.42,
+                "word_times": [{"text": sentences[idx], "start": 0.0, "end": 0.4}],
+            }
         return result
 
     monkeypatch.setattr(tp, "generate_tts_for_indices", fake)
@@ -108,7 +112,7 @@ def test_no_change_skips_all_regen(temp_session, stub_generate_for_indices):
         existing_session_id=session_id,
     )
     prev_sig = json.loads((session_dir / "signature.json").read_text(encoding="utf-8"))
-    sentences, durations, regen = _run_incremental(session_dir, req, prev_sig)
+    sentences, durations, regen, _wt = _run_incremental(session_dir, req, prev_sig)
 
     assert regen == []
     assert stub_generate_for_indices["indices"] is None  # 호출 자체가 없어야 함
@@ -134,7 +138,7 @@ def test_middle_line_text_change_regens_only_that(temp_session, stub_generate_fo
         existing_session_id=session_id,
     )
     prev_sig = json.loads((session_dir / "signature.json").read_text(encoding="utf-8"))
-    _, _, regen = _run_incremental(session_dir, req, prev_sig)
+    _, _, regen, _wt = _run_incremental(session_dir, req, prev_sig)
 
     assert regen == [1]
     assert stub_generate_for_indices["indices"] == [1]
@@ -157,7 +161,7 @@ def test_line_insertion_keeps_existing(temp_session, stub_generate_for_indices):
         existing_session_id=session_id,
     )
     prev_sig = json.loads((session_dir / "signature.json").read_text(encoding="utf-8"))
-    _, _, regen = _run_incremental(session_dir, req, prev_sig)
+    _, _, regen, _wt = _run_incremental(session_dir, req, prev_sig)
 
     # 새 인덱스 1만 재생성 — 기존 l3는 새 인덱스 2로 rename되어야 함
     assert regen == [1]
@@ -183,7 +187,7 @@ def test_line_deletion_drops_wav(temp_session, stub_generate_for_indices):
         existing_session_id=session_id,
     )
     prev_sig = json.loads((session_dir / "signature.json").read_text(encoding="utf-8"))
-    _, _, regen = _run_incremental(session_dir, req, prev_sig)
+    _, _, regen, _wt = _run_incremental(session_dir, req, prev_sig)
 
     assert regen == []  # 둘 다 재사용 가능
     assert (session_dir / "sent_00.wav").exists()
@@ -210,7 +214,7 @@ def test_missing_wav_triggers_regen(temp_session, stub_generate_for_indices):
         existing_session_id=session_id,
     )
     prev_sig = json.loads((session_dir / "signature.json").read_text(encoding="utf-8"))
-    _, _, regen = _run_incremental(session_dir, req, prev_sig)
+    _, _, regen, _wt = _run_incremental(session_dir, req, prev_sig)
 
     assert regen == [1]
 
@@ -269,3 +273,57 @@ def test_voice_change_signature_mismatch():
         sentences=["x"], voice_id="A", speed=1.0, emotion="happy"
     ))
     assert sig_a != sig_d
+
+
+# ────────────────────────────────────────────────────────────────────
+# 9. word_times 이월 — 재정렬 + 한 줄 편집: 재사용 줄은 line_id 로 이월,
+#    변경 줄은 새 word_times
+# ────────────────────────────────────────────────────────────────────
+def test_word_times_carryover_on_reorder_and_edit(temp_session, stub_generate_for_indices):
+    session_id, session_dir = temp_session
+    seed_lines = [("l1", "안녕"), ("l2", "반가워"), ("l3", "잘 가")]
+    voice = ["voice-A", 1.0, None, "typecast"]
+    _seed_session(session_dir, voice, seed_lines)
+    # timings_raw.json 에 줄별 word_times 주입 (line_order 순서)
+    timings = [
+        {"text": "안녕", "duration": 0.3, "word_times": [{"text": "안녕", "start": 0.0, "end": 0.3}]},
+        {"text": "반가워", "duration": 0.4, "word_times": [{"text": "반가워", "start": 0.0, "end": 0.4}]},
+        {"text": "잘 가", "duration": 0.5, "word_times": [
+            {"text": "잘", "start": 0.0, "end": 0.2}, {"text": "가", "start": 0.3, "end": 0.5}]},
+    ]
+    (session_dir / "timings_raw.json").write_text(json.dumps(timings), encoding="utf-8")
+
+    # 재정렬 [l3, l1, l2] + l2 텍스트 변경
+    new_lines = [("l3", "잘 가"), ("l1", "안녕"), ("l2", "반갑습니다")]
+    req = _make_req(
+        sentences=[t for _, t in new_lines],
+        line_ids=[lid for lid, _ in new_lines],
+        existing_session_id=session_id,
+    )
+    prev_sig = json.loads((session_dir / "signature.json").read_text(encoding="utf-8"))
+    _, _, regen, word_times = _run_incremental(session_dir, req, prev_sig)
+
+    assert regen == [2]  # l2만 변경
+    assert word_times[0] == timings[2]["word_times"]  # l3 → 새 idx0 이월
+    assert word_times[1] == timings[0]["word_times"]  # l1 → 새 idx1 이월
+    assert word_times[2] == [{"text": "반갑습니다", "start": 0.0, "end": 0.4}]  # 재생성
+
+
+# ────────────────────────────────────────────────────────────────────
+# 10. 구세션(timings_raw.json 없음) → 재사용 줄 word_times None, 무크래시
+# ────────────────────────────────────────────────────────────────────
+def test_word_times_missing_prev_is_none(temp_session, stub_generate_for_indices):
+    session_id, session_dir = temp_session
+    seed_lines = [("l1", "안녕"), ("l2", "반가워")]
+    voice = ["voice-A", 1.0, None, "typecast"]
+    _seed_session(session_dir, voice, seed_lines)
+    # timings_raw.json 없음 (이 change 이전에 만들어진 세션)
+    req = _make_req(
+        sentences=["안녕", "반가워"],
+        line_ids=["l1", "l2"],
+        existing_session_id=session_id,
+    )
+    prev_sig = json.loads((session_dir / "signature.json").read_text(encoding="utf-8"))
+    _, _, regen, word_times = _run_incremental(session_dir, req, prev_sig)
+    assert regen == []
+    assert word_times == [None, None]
