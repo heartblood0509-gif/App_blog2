@@ -350,6 +350,7 @@ async def split_line(
         # edit-line이 텍스트 변경 시 이미지를 유지하는 정책과 일관. 사용자가 이미지를 새 텍스트와
         # 다시 맞추려면 줄별 "AI 이미지 다시 생성" 버튼으로 명시적 재생성.
         first = {**cur, "text": body.before}
+        first.pop("subtitle_chunks", None)  # 텍스트가 바뀐 앞줄은 자막 조각 리셋(뒷줄은 새 AI줄이라 애초에 없음)
         second = _pending_ai_line(body.after)
         new_lines = lines[:L] + [first, second] + lines[L + 1:]
         new_sources = sources[:L] + [source, "ai"] + sources[L + 1:]
@@ -393,6 +394,8 @@ async def edit_line(
         return {"ok": True}
 
     lines[body.line_index]["text"] = body.text
+    # 텍스트가 바뀌면 자막 조각(subtitle_chunks)은 옛 문장 기준이라 무효 → 자동 분할로 리셋.
+    lines[body.line_index].pop("subtitle_chunks", None)
     # 이미지 보존 정책: 텍스트가 바뀌어도 AI가 만든 이미지든 사용자 업로드든
     # 자산 파일·status·sources를 건드리지 않는다. 사용자가 명시적으로
     # regenerate-image를 누를 때만 재생성. (TTS는 confirm 시점에 변경 줄만 재합성.)
@@ -461,6 +464,53 @@ async def set_line_visual(
     return {"ok": True, "transform": saved_transform, "motion": saved_motion}
 
 
+class SubtitleChunksRequest(BaseModel):
+    """카드 B: 한 줄의 자막 조각(끊김)을 사용자가 확정. chunks=None 이면 자동 분할로 리셋."""
+    line_id: str
+    chunks: Optional[list[str]] = None
+
+
+@router.post("/{job_id}/subtitle-chunks")
+async def set_subtitle_chunks(
+    body: SubtitleChunksRequest,
+    job_id: str = Path(..., pattern=r"^[a-f0-9]{12}$"),
+    db: Session = Depends(get_db),
+    _user: User = Depends(get_approved_user),
+):
+    """카드 B 전용: 줄별 자막 조각(끊는 위치)을 script_json 에 저장.
+
+    프론트 화면·소리 단계에서 어절 사이를 눌러 끊음/합침을 확정할 때 호출된다.
+    12자 초과 조각도 편집 중엔 저장한다(화면에서 경고 표시). 실제 차단은 confirm 에서. TTS 와 무관.
+    """
+    job = get_user_job(db, job_id, _user)
+    if job.generation_mode != "user_assets":
+        raise HTTPException(status_code=400, detail="이 작업은 카드 B 모드가 아닙니다")
+    if job.status != "preview_ready":
+        raise HTTPException(status_code=409, detail=f"카드 편집 단계가 아닙니다 (상태: {job.status})")
+
+    lines = json.loads(job.script_json or "[]")
+    ids_changed = ensure_line_ids(lines)
+    idx = _line_index_by_id(lines, str(body.line_id or "").strip())
+    if idx is None:
+        raise HTTPException(status_code=404, detail="해당 줄을 찾을 수 없습니다")
+
+    # 편집 중 임시 상태이므로 12자 초과 조각도 그대로 저장한다(사용자가 화면에서 경고를 보고 고칠 수 있게).
+    # 실제 차단은 confirm(영상 만들기)에서 한다.
+    if body.chunks is None:
+        lines[idx].pop("subtitle_chunks", None)
+    else:
+        cleaned = [c for c in body.chunks if c and c.strip()]
+        if not cleaned:
+            raise HTTPException(status_code=400, detail="자막 조각이 비어 있습니다")
+        lines[idx]["subtitle_chunks"] = cleaned
+
+    if ids_changed:
+        invalidate_visual_plan(job)
+    job.script_json = json.dumps(lines, ensure_ascii=False)
+    db.commit()
+    return {"ok": True}
+
+
 @router.post("/{job_id}/merge-line", response_model=SplitLineResponse)
 async def merge_line(
     body: MergeLineRequest,
@@ -510,6 +560,7 @@ async def merge_line(
     await _maybe_promote_index_assets_to_line_ids(job_id, job_dir, lines, preexisting_line_ids=preexisting_line_ids)
     # 텍스트 단순 연결 — 분할 때 보존된 공백을 그대로 복원
     lines[L - 1]["text"] = (lines[L - 1].get("text") or "") + (lines[L].get("text") or "")
+    lines[L - 1].pop("subtitle_chunks", None)  # 합쳐진 윗줄은 문장이 바뀌었으니 자막 조각 리셋
 
     # merge: prev(L-1) 줄의 line_id·이미지·자산은 보존 (edit-line/split 정책과 일관).
     # 사라지는 L 줄의 자산만 정리. 사용자가 합쳐진 텍스트에 맞춰 이미지를 새로 만들고 싶으면
@@ -785,6 +836,30 @@ async def confirm_and_render(
         # 통과하지 못해 제목 자체가 영상에 안 박힌다. 카드 B draft는 title=""로 시작하므로 여기서 흡수.
         if body.get("title") is not None:
             job.title = body["title"]
+
+        # 자막 조각 확정(WYSIWYG): 프론트가 화면에 보여준 줄별 조각을 line_id 맵으로 보낸다.
+        # 여기서 script_json 에 확정 저장 → 렌더가 자동 분할 없이 이 경계 그대로 자막을 박는다.
+        # 12자 초과 조각이 하나라도 있으면 영상이 화면 밖으로 넘치므로 400 으로 막는다(사용자에게 어느 줄인지 안내).
+        chunks_map = body.get("subtitle_chunks_by_line")
+        if isinstance(chunks_map, dict):
+            from core.subtitle_utils import display_len, MAX_DISPLAY
+            for i, line in enumerate(lines):
+                lid = str(line.get("line_id") or "")
+                if lid and lid in chunks_map:
+                    raw = chunks_map[lid]
+                    if not isinstance(raw, list):
+                        continue
+                    cleaned = [c for c in raw if isinstance(c, str) and c.strip()]
+                    if not cleaned:
+                        continue
+                    over = next((c for c in cleaned if display_len(c) > MAX_DISPLAY), None)
+                    if over is not None:
+                        raise HTTPException(
+                            status_code=400,
+                            detail=f"{i + 1}번째 줄 자막이 화면보다 길어요. 화면·소리 단계에서 더 잘게 끊어주세요.",
+                        )
+                    line["subtitle_chunks"] = cleaned
+        job.script_json = json.dumps(lines, ensure_ascii=False)
 
         # TTS 세션 디렉터리가 별도에 있으면 job_dir/tts/로 이동
         if not job.tts_session_id:

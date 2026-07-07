@@ -98,10 +98,13 @@ async def assemble_shorts(job_id: str, config: dict, progress_callback=None):
             tts_dir, sentences, voice_id=voice_id, speed=tts_speed, emotion=emotion, api_key=tc_api_key
         )
 
-    sentence_durations = [
-        t["duration"] for t in json.loads(
-            open(os.path.join(tts_dir, "timings_raw.json"), encoding="utf-8").read()
-        )
+    raw_entries = json.loads(
+        open(os.path.join(tts_dir, "timings_raw.json"), encoding="utf-8").read()
+    )
+    sentence_durations = [t["duration"] for t in raw_entries]
+    # 줄별 어절 타임스탬프(있으면 자막 조각 전환을 실제 발화에 맞춤). 구세션엔 키 없음 → None.
+    line_word_times = [
+        (t.get("word_times") if isinstance(t, dict) else None) for t in raw_entries
     ]
     clip_durations, clip_starts, total_dur = calculate_dynamic_clips_image(
         sentence_durations
@@ -316,7 +319,14 @@ async def assemble_shorts(job_id: str, config: dict, progress_callback=None):
     # ── Step 5: 자막 + 타이틀 오버레이 ──
     _update(progress_callback, job_id, "assembling_video", 0.90, "자막/타이틀 합성 중...")
 
-    subtitles = split_subtitle_natural(timings)
+    # 카드 B: 사용자가 화면·소리 단계에서 확정한 줄별 자막 조각(subtitle_chunks)을 그대로 사용.
+    # 값이 없는 줄(카드 A·레거시)만 split_subtitle_natural 이 자동 분할로 폴백한다.
+    # timings 는 config["lines"] 와 1:1 순서 정렬(build_aligned_narration)이라 인덱스로 매핑.
+    line_chunks = [
+        (line.get("subtitle_chunks") if isinstance(line, dict) else None)
+        for line in config["lines"]
+    ]
+    subtitles = split_subtitle_natural(timings, line_chunks, line_word_times)
     font_title = config.get("font_title", settings.FONT_TITLE)
     font_sub = config.get("font_sub", settings.FONT_SUB)
     title_text = config.get("title", "")
