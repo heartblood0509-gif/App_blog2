@@ -28,6 +28,8 @@
 //   node scripts/dev-worktree.js --fresh        # 빌려오지 않고 전부 새로 설치 (예전 완전 격리 방식)
 //   node scripts/dev-worktree.js --deps-only    # JS 의존성(frontend)만 준비하고 종료 (서버/Python 생략)
 //                                               #   → typecheck/lint 처럼 서버 없이 빠른 사전점검만 할 때
+//   node scripts/dev-worktree.js --build        # 프론트 프로덕션 빌드만 (next build, 심링크면 자동 --webpack)
+//                                               #   → PR 직전 "출시 형태 조립 가능?" 게이트. `npm run build:worktree` 로도 호출
 //   node scripts/dev-worktree.js --main <path>  # 메인 체크아웃 경로 명시
 //   node scripts/dev-worktree.js --frontend-port 3006 --backend-port 8006  # 포트 강제 지정 (선택)
 //
@@ -46,6 +48,9 @@ const argv = process.argv.slice(2);
 const isElectron = argv.includes("--electron");
 // JS 의존성만 빌려오고 종료 (typecheck/lint 용 — 서버 기동·Python 설치 생략)
 const depsOnly = argv.includes("--deps-only");
+// 프론트 프로덕션 빌드만 하고 종료 (PR 직전 "출시 형태 조립 가능?" 게이트).
+// 워크트리는 node_modules 가 메인 심링크라 Turbopack 이 거부 → dev 와 동일하게 자동 --webpack.
+const isBuild = argv.includes("--build");
 // 완전 격리: 메인에서 빌려오지 않고 워크트리에 전부 새로 설치(예전 방식). 기본은 "빌려오기".
 const noBorrow = argv.includes("--fresh");
 const mainArgIdx = argv.indexOf("--main");
@@ -84,6 +89,12 @@ console.log(`[dev-worktree] mode    =${isElectron ? "electron" : "web"}`);
 
   if (depsOnly) {
     console.log("\n✓ dev-worktree --deps-only 완료 (서버 미기동). typecheck/lint 실행 가능.");
+    return;
+  }
+
+  if (isBuild) {
+    // PR 직전 게이트: 프론트 프로덕션 빌드만. 서버는 안 띄운다.
+    runFrontendBuild(worktreeRoot);
     return;
   }
 
@@ -183,8 +194,8 @@ async function prepareDeps(worktreeRoot, mainRoot) {
   console.log("\n[dev-worktree] JS 의존성 준비 (frontend)");
   prepareNodeModules(path.join(worktreeRoot, "frontend"), path.join(mainRoot, "frontend"), "frontend");
 
-  // --deps-only: typecheck/lint 용 — frontend 만으로 충분.
-  if (depsOnly) return;
+  // --deps-only(typecheck/lint) / --build(프론트 빌드): frontend 만으로 충분 — Python·youtube 생략.
+  if (depsOnly || isBuild) return;
 
   // 루트(Electron 빌드·spawn, cross-env 등).
   console.log("\n[dev-worktree] JS 의존성 준비 (루트)");
@@ -645,15 +656,20 @@ function spawnBackend(worktreeRoot, port) {
   });
 }
 
+// node_modules 가 symlink 면 Turbopack 이 "filesystem root 밖을 가리킨다"며 패닉 → webpack 으로 폴백해야 한다.
+// frontend/node_modules 뿐 아니라 워크트리 ROOT node_modules(메인을 가리키는 심링크)도 확인한다.
+// Turbopack 은 패키지 해석 시 상위로 올라가 루트 node_modules 심링크에 걸리므로, frontend 것이
+// 실디렉터리여도 루트가 심링크면 패닉한다(둘 중 하나라도 심링크면 webpack). dev·build 공용 판단.
+function frontendNeedsWebpack(worktreeRoot) {
+  return (
+    isSymlink(path.join(worktreeRoot, "frontend", "node_modules")) ||
+    isSymlink(path.join(worktreeRoot, "node_modules"))
+  );
+}
+
 function spawnFrontend(worktreeRoot, frontendPort, backendPort, youtubeUrl) {
   const frontendDir = path.join(worktreeRoot, "frontend");
-  // node_modules 가 symlink 면 Turbopack 이 "filesystem root 밖을 가리킨다"며 패닉 →  webpack 으로 폴백.
-  // frontend/node_modules 뿐 아니라 워크트리 ROOT node_modules(메인을 가리키는 심링크)도 확인해야 한다.
-  // Turbopack 은 패키지 해석 시 상위로 올라가 루트 node_modules 심링크에 걸리므로, frontend 것이
-  // 실디렉터리여도 루트가 심링크면 패닉한다(둘 중 하나라도 심링크면 webpack).
-  const useWebpack =
-    isSymlink(path.join(frontendDir, "node_modules")) ||
-    isSymlink(path.join(worktreeRoot, "node_modules"));
+  const useWebpack = frontendNeedsWebpack(worktreeRoot);
   const args = ["next", "dev", "--port", String(frontendPort)];
   if (useWebpack) {
     args.push("--webpack");
@@ -668,6 +684,26 @@ function spawnFrontend(worktreeRoot, frontendPort, backendPort, youtubeUrl) {
     stdio: "inherit",
     shell: process.platform === "win32",
   });
+}
+
+// 워크트리 프론트 프로덕션 빌드(next build). 심링크 node_modules 면 자동으로 --webpack 을 붙여
+// Turbopack 패닉을 피한다. 빌드 exit code 를 그대로 전파(실패 시 die)해 PR 게이트로 쓸 수 있게 한다.
+function runFrontendBuild(worktreeRoot) {
+  const frontendDir = path.join(worktreeRoot, "frontend");
+  const useWebpack = frontendNeedsWebpack(worktreeRoot);
+  const args = ["next", "build"];
+  if (useWebpack) args.push("--webpack");
+  console.log(
+    `\n[dev-worktree] 프론트 프로덕션 빌드 (next build${useWebpack ? " --webpack" : ""})` +
+      (useWebpack ? "\n  (node_modules 가 symlink → Turbopack 호환을 위해 --webpack 모드)" : "")
+  );
+  const r = spawnSync(npxCmd(), args, {
+    cwd: frontendDir,
+    stdio: "inherit",
+    shell: process.platform === "win32",
+  });
+  if (r.status !== 0) die(`프론트 프로덕션 빌드 실패 (code=${r.status ?? r.error?.message})`);
+  console.log("\n✓ dev-worktree --build 완료 (프론트 프로덕션 빌드 성공)");
 }
 
 // youtube-backend(쇼츠 생성기)를 로컬 단일 사용자 모드로 띄운다. 웹 dev 전용.

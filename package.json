@@ -8,6 +8,7 @@
     "dev": "cross-env NODE_ENV=development tsc -p electron && cross-env NODE_ENV=development electron electron/dist/main.js",
     "dev:worktree": "node scripts/dev-worktree.js",
     "dev:worktree:electron": "node scripts/dev-worktree.js --electron",
+    "build:worktree": "node scripts/dev-worktree.js --build",
     "build:electron": "tsc -p electron",
     "prebuild:electron": "npm run check:youtube-flag-sync && npm run check:title-font-sync",
     "build:next": "npm --prefix frontend run build",
