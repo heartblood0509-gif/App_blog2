@@ -2228,13 +2228,17 @@ export function LineAssetEditor() {
           <p className="mt-0.5 text-sm font-semibold">
             {activeIndex >= 0 ? `${activeIndex + 1}번 줄` : "—"}
           </p>
-          {/* 카드에 남는 세로 여백을 흡수해 프레임·자막 페이저·설명을 세로 중앙에 모은다.
-              → 스티키로 따라오다 스크롤 최하단에서 카드 하단이 좌측 카드 하단과 맞물린다. */}
-          <div className="flex flex-1 flex-col justify-center">
-          <div className="mt-3 flex justify-center">
+          {/* 이 컨테이너 자체엔 overflow 를 걸지 않는다(visible). 걸면 overflow-x 도 auto 로 강제돼
+              프레임 밖으로 그려지는 미디어 선택 외곽선·핸들(아래 오버레이 포털)이 잘린다.
+              대신 프리뷰는 shrink-0(온전히), 컨트롤(구간 등)만 필요 시 자체 스크롤로 카드 안에 가둔다. */}
+          <div className="flex flex-1 flex-col min-h-0">
+          <div className="mt-3 flex shrink-0 justify-center">
             {/* relative 래퍼: 프레임(overflow-hidden) 밖으로 나가는 외곽선/핸들을 그릴
                 오버레이를 프레임과 같은 좌표계의 형제로 둔다. */}
             <div className="relative">
+              {/* 제목 위치·스타일은 '제목 입력' 단계에서만 조정한다. 여기선 onTitlePosChange 를
+                  넘기지 않아 제목이 드래그되지 않고, 제목 입력에서 잡은 위치·스타일 그대로
+                  정적으로 보인다(titleDx/titleDy 는 공유 상태라 렌더에도 그대로 반영). */}
               <ShortsPreviewFrame
                 titleLine1={state.titleLine1}
                 titleLine2={state.titleLine2}
@@ -2248,7 +2252,6 @@ export function LineAssetEditor() {
                 titleLineGap={state.titleLineGap}
                 titleDx={state.titleDx}
                 titleDy={state.titleDy}
-                onTitlePosChange={(dx, dy) => update({ titleDx: dx, titleDy: dy })}
                 subtitle={activeSubtitle}
                 subtitleFont={state.subtitleFont}
                 subtitleFontWeight={state.subtitleFontWeight}
@@ -2305,9 +2308,11 @@ export function LineAssetEditor() {
             </div>
           </div>
 
-          {/* 위치/배율 + 움직임 편집 컨트롤 (준비된 줄에서만) */}
+          {/* 위치/배율 + 움직임 편집 컨트롤 (준비된 줄에서만).
+              flex-1 + overflow-y-auto: 짧은 창에서 컨트롤(특히 구간)이 카드보다 길면 여기서만
+              세로 스크롤한다. 프리뷰 외곽선은 위쪽 visible 영역에 있어 잘리지 않는다. */}
           {activeEditable ? (
-            <div className="mt-3 space-y-3">
+            <div className="mt-3 min-h-0 flex-1 space-y-3 overflow-y-auto">
               <div className="flex items-center gap-3">
                 <span className="w-9 shrink-0 text-xs font-medium text-muted-foreground">
                   크기
@@ -2387,11 +2392,6 @@ export function LineAssetEditor() {
                     <RotateCcw className="size-3" /> 원래대로
                   </Button>
                 </div>
-              ) : null}
-              {activeMotion !== "none" ? (
-                <p className="pl-12 text-[0.7rem] text-muted-foreground">
-                  모든 줄에 함께 적용돼요. 영상 길이와 상관없이 같은 빠르기로 움직입니다.
-                </p>
               ) : null}
               {/* 쓸 구간 조정 — 저장된 조각(여유분 포함) 위에서 나레이션 창을 드래그 */}
               {showClipStartSlider ? (
