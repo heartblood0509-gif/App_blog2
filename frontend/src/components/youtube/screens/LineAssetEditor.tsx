@@ -1454,6 +1454,8 @@ export function LineAssetEditor() {
         title_font_size: state.titleFontSize,
         title_color1: state.titleColor1,
         title_color2: state.titleColor2,
+        title_dx: state.titleDx,
+        title_dy: state.titleDy,
         subtitle_font: state.subtitleFont,
         subtitle_font_weight: state.subtitleFontWeight,
         subtitle_font_size: state.subtitleFontSize,
@@ -1553,9 +1555,9 @@ export function LineAssetEditor() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cycleLineId, cycleChunksKey, cyclePlaying, subtitleDragging, snap]);
 
-  // 자막 스타일/위치가 바뀌면 draft-meta 에 디바운스 저장(confirm 없이 닫아도 보존) + 이 기기 마지막 스타일 기억.
-  // 위치(dx/y)는 기억 안 함(매번 기본에서 시작) — 스타일 4종만 saveLastSubtitle.
-  const subtitleMetaKey = `${state.subtitleFont}|${state.subtitleFontWeight}|${state.subtitleFontSize}|${state.subtitleColor}|${state.subtitleDx}|${state.subtitleY}`;
+  // 자막 스타일/위치·제목 위치가 바뀌면 draft-meta 에 디바운스 저장(confirm 없이 닫아도 보존)
+  // + 이 기기 마지막 스타일 기억. 위치(dx/y)는 기억 안 함(매번 기본에서 시작) — 스타일 4종만 saveLastSubtitle.
+  const subtitleMetaKey = `${state.subtitleFont}|${state.subtitleFontWeight}|${state.subtitleFontSize}|${state.subtitleColor}|${state.subtitleDx}|${state.subtitleY}|${state.titleDx}|${state.titleDy}`;
   const subtitleMetaTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const subtitleMetaHydrated = useRef(false);
   useEffect(() => () => {
@@ -1583,6 +1585,8 @@ export function LineAssetEditor() {
         subtitle_color: state.subtitleColor,
         subtitle_dx: state.subtitleDx,
         subtitle_y: state.subtitleY,
+        title_dx: state.titleDx,
+        title_dy: state.titleDy,
       }).catch(() => {
         /* 편집 즉시 저장 실패는 조용히 무시 — confirm 시 어차피 전송된다 */
       });
@@ -2211,6 +2215,9 @@ export function LineAssetEditor() {
                 titleFontSize={state.titleFontSize}
                 titleColor1={state.titleColor1}
                 titleColor2={state.titleColor2}
+                titleDx={state.titleDx}
+                titleDy={state.titleDy}
+                onTitlePosChange={(dx, dy) => update({ titleDx: dx, titleDy: dy })}
                 subtitle={activeSubtitle}
                 subtitleFont={state.subtitleFont}
                 subtitleFontWeight={state.subtitleFontWeight}

@@ -351,6 +351,9 @@ export interface ConfirmDraftInput {
   title_font_size?: number;
   title_color1?: string;
   title_color2?: string;
+  // 제목 위치 오프셋(px). dx=가로 중앙 오프셋(1080폭), dy=기본 위치 기준 세로 델타(1920높이). 0/0=기존 위치.
+  title_dx?: number;
+  title_dy?: number;
   // 자막 스타일(작업 전역). 미지정이면 백엔드 기본(55px·흰색·기본폰트·중앙 y1300).
   subtitle_font?: string;
   subtitle_font_weight?: string;
@@ -589,6 +592,8 @@ export interface DraftState {
   title_font_size?: number | null;
   title_color1?: string | null;
   title_color2?: string | null;
+  title_dx?: number | null;
+  title_dy?: number | null;
   subtitle_font?: string | null;
   subtitle_font_weight?: string | null;
   subtitle_font_size?: number | null;
@@ -628,6 +633,8 @@ export function saveDraftMeta(
     title_font_size?: number;
     title_color1?: string;
     title_color2?: string;
+    title_dx?: number;
+    title_dy?: number;
     subtitle_font?: string;
     subtitle_font_weight?: string;
     subtitle_font_size?: number;

@@ -152,6 +152,12 @@ SUBTITLE_Y_MIN = 60
 SUBTITLE_Y_MAX = 1750   # 자막 상단 y(px, 1920높이 기준)
 DEFAULT_SUBTITLE_COLOR = "#FFFFFF"
 
+# ── 제목 위치 클램프 범위 (confirm/draft-meta 양쪽에서 동일 적용, 프론트 ShortsPreviewFrame 과 동일) ──
+# dx=가로 중앙 오프셋, dy=기본 위치(폰트 크기로 계산되는 상단) 기준 세로 델타. 0=기존 고정 위치.
+TITLE_DX_ABS = 350
+TITLE_DY_MIN = -110
+TITLE_DY_MAX = 1480
+
 
 def apply_subtitle_style(
     job,
@@ -188,6 +194,25 @@ def apply_subtitle_style(
     if y is not None:
         try:
             job.subtitle_y = max(SUBTITLE_Y_MIN, min(SUBTITLE_Y_MAX, int(float(y))))
+        except (TypeError, ValueError):
+            pass
+
+
+def apply_title_pos(job, dx=None, dy=None) -> None:
+    """제목 위치 오프셋(드래그)을 Job 에 클램프해서 반영. None 인 항목은 미변경.
+
+    apply_subtitle_style 의 dx/y 와 같은 방어 패턴(raw JSON 숫자 방어 + clamp).
+    dy 는 절대 y 가 아니라 기본 위치 기준 델타 — 기본 세로 위치는 렌더 시 폰트 크기로
+    계산되므로(video_assembler) 여기선 델타만 저장한다. confirm(dict)·draft-meta(pydantic) 공유.
+    """
+    if dx is not None:
+        try:
+            job.title_dx = max(-TITLE_DX_ABS, min(TITLE_DX_ABS, int(float(dx))))
+        except (TypeError, ValueError):
+            pass
+    if dy is not None:
+        try:
+            job.title_dy = max(TITLE_DY_MIN, min(TITLE_DY_MAX, int(float(dy))))
         except (TypeError, ValueError):
             pass
 
@@ -1093,6 +1118,8 @@ async def confirm_and_render(
             job.title_color1 = normalize_hex(body["title_color1"], DEFAULT_TITLE_COLOR1)
         if body.get("title_color2") is not None:
             job.title_color2 = normalize_hex(body["title_color2"], DEFAULT_TITLE_COLOR2)
+        # 제목 위치 오프셋(드래그) — 자막 위치와 동일하게 클램프 헬퍼가 담당.
+        apply_title_pos(job, dx=body.get("title_dx"), dy=body.get("title_dy"))
         # title이 비어 있으면 video_assembler.py:306의 조건(if title_text and font_title)을
         # 통과하지 못해 제목 자체가 영상에 안 박힌다. 카드 B draft는 title=""로 시작하므로 여기서 흡수.
         if body.get("title") is not None:

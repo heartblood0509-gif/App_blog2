@@ -79,6 +79,11 @@ export const DEFAULT_TITLE_FONT_WEIGHT = "extrabold";
 export const DEFAULT_TITLE_FONT_SIZE = 120; // px, 1080폭 렌더 기준
 export const TITLE_FONT_SIZE_MIN = 70;
 export const TITLE_FONT_SIZE_MAX = 170;
+// 제목 위치 오프셋(렌더 기준 px). dx=가로 중앙 오프셋(1080폭), dy=기본 위치 기준 세로 델타(1920높이).
+// 0/0 = 기존 고정 위치(가로 중앙·상단). 자막(subtitleY=절대 y)과 달리 델타인 이유: 제목의 기본
+// 세로 위치는 백엔드가 폰트 크기로 계산하므로, 그 공식을 복제하지 않고 기존 위치에 더하기만 한다.
+export const DEFAULT_TITLE_DX = 0;
+export const DEFAULT_TITLE_DY = 0;
 
 // 자막 스타일 기본값(작업 전역). 폰트는 번들 4종 중 하나(제목과 동일 목록). 기본 프리텐다드·ExtraBold.
 // 크기/색/위치는 렌더 기준(1080×1920). y=자막 상단, dx=가로 중앙 오프셋.

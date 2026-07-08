@@ -413,27 +413,44 @@ async def assemble_shorts(job_id: str, config: dict, progress_callback=None):
             normalize_hex(config.get("title_color1"), DEFAULT_TITLE_COLOR1),
             normalize_hex(config.get("title_color2"), DEFAULT_TITLE_COLOR2),
         ]
+        # 사용자 드래그 위치 오프셋(px, API 에서 클램프됨). dx=가로 중앙 기준, dy=기본 상단 위치
+        # 기준 델타. 미설정/0=기존 고정 위치와 동일(레거시 job 동작 불변).
+        try:
+            title_dx = int(config.get("title_dx") or 0)
+        except (TypeError, ValueError):
+            title_dx = 0
+        try:
+            title_dy = int(config.get("title_dy") or 0)
+        except (TypeError, ValueError):
+            title_dy = 0
+        # 세로 델타는 1~2줄 블록 전체에 한 번만 보정해 적용 — dy 클램프만으로는 큰 폰트에서
+        # 화면 밖으로 나갈 수 있어, 첫 줄 상단·마지막 줄 하단이 화면 안에 남도록 dy 를 당긴다(줄 간격 유지).
+        if len(title_lines) == 1:
+            first_ty = sq_y - title_fontsize - 30
+        else:
+            first_ty = sq_y - (len(title_lines) * title_line_gap) - 10
+        last_ty = first_ty + (len(title_lines) - 1) * title_line_gap
+        title_dy = min(title_dy, (h - 8 - title_fontsize) - last_ty)
+        title_dy = max(title_dy, 8 - first_ty)
+        # 가로: 중앙 정렬 + 사용자 오프셋(px) — 자막 sub_x 와 동일 방식. dx>0 오른쪽, dx<0 왼쪽.
+        title_x = f"(w-text_w)/2+({title_dx})"
         font_path_escaped = font_title_name
         for j, line in enumerate(title_lines):
             escaped = _escape_filter(line)
-            if len(title_lines) == 1:
-                ty = sq_y - title_fontsize - 30
-            else:
-                base_y = sq_y - (len(title_lines) * title_line_gap) - 10
-                ty = base_y + (j * title_line_gap)
+            ty = first_ty + (j * title_line_gap) + title_dy
             line_color = title_colors[min(j, len(title_colors) - 1)]
             # 그림자 레이어 (검정, 살짝 오프셋)
             title_filters.append(
                 f"drawtext=expansion=none:fontfile='{font_path_escaped}':text='{escaped}':"
                 f"fontsize={title_fontsize}:fontcolor=black@0.5:"
-                f"x=(w-text_w)/2+{shadow_off}:y={ty}+{shadow_off}"
+                f"x={title_x}+{shadow_off}:y={ty}+{shadow_off}"
             )
             # 본문 레이어 (테두리 + 색상)
             title_filters.append(
                 f"drawtext=expansion=none:fontfile='{font_path_escaped}':text='{escaped}':"
                 f"fontsize={title_fontsize}:fontcolor={line_color}:"
                 f"borderw={border_w}:bordercolor=black@0.8:"
-                f"x=(w-text_w)/2:y={ty}"
+                f"x={title_x}:y={ty}"
             )
 
     all_filters = title_filters + sub_filters

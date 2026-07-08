@@ -9,6 +9,8 @@
 //
 // 자막은 렌더(1080×1920) 좌표계를 그대로 축소해 그린다(WYSIWYG): y=자막 상단, dx=가로 중앙
 // 오프셋. onSubtitlePosChange 가 있으면 자막을 끌어 위치를 옮길 수 있다(중앙/기본높이 마그네틱).
+// 제목도 onTitlePosChange 가 있으면 같은 방식으로 끌어 옮긴다 — 단 좌표는 절대값이 아니라
+// 기본 위치 기준 델타(titleDx/titleDy, 렌더 px). 0/0 이면 기존 고정 위치와 픽셀 동일.
 
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { cn } from "@/lib/utils";
@@ -16,6 +18,8 @@ import {
   DEFAULT_TITLE_FONT,
   DEFAULT_TITLE_FONT_WEIGHT,
   DEFAULT_TITLE_FONT_SIZE,
+  DEFAULT_TITLE_DX,
+  DEFAULT_TITLE_DY,
   DEFAULT_SUBTITLE_FONT,
   DEFAULT_SUBTITLE_FONT_WEIGHT,
   DEFAULT_SUBTITLE_FONT_SIZE,
@@ -45,6 +49,11 @@ const SUB_Y_MAX = 1750;
 const SNAP_DX = 18; // 중앙(dx=0) 마그네틱 반경(1080폭 기준)
 const SNAP_Y = 24; // 기본 높이(y=1300) 약한 스냅 반경
 
+// 제목 위치 클램프(렌더 기준 델타 px) + 스냅(dx→0 중앙, dy→0 기본높이). 백엔드 clamp 범위와 동일.
+const TITLE_DX_ABS = 350;
+const TITLE_DY_MIN = -110;
+const TITLE_DY_MAX = 1480;
+
 const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(v, hi));
 
 export function ShortsPreviewFrame({
@@ -55,6 +64,9 @@ export function ShortsPreviewFrame({
   titleFontSize = DEFAULT_TITLE_FONT_SIZE,
   titleColor1 = DEFAULT_TITLE_COLOR1,
   titleColor2 = DEFAULT_TITLE_COLOR2,
+  titleDx = DEFAULT_TITLE_DX,
+  titleDy = DEFAULT_TITLE_DY,
+  onTitlePosChange,
   subtitle,
   subtitleFont = DEFAULT_SUBTITLE_FONT,
   subtitleFontWeight = DEFAULT_SUBTITLE_FONT_WEIGHT,
@@ -75,6 +87,10 @@ export function ShortsPreviewFrame({
   titleFontSize?: number; // 렌더 기준 px(1080폭). 미지정이면 기본 120.
   titleColor1?: string; // 윗줄 색(#RRGGBB).
   titleColor2?: string; // 아랫줄 색(#RRGGBB).
+  titleDx?: number; // 제목 가로 중앙 오프셋(px, 1080폭). 기본 0(중앙).
+  titleDy?: number; // 제목 세로 델타(px, 1920높이) — 기본 위치 기준. 기본 0.
+  // 있으면 제목을 끌어 위치를 옮길 수 있다(없으면 고정 표시). 2줄은 한 덩어리로 함께 이동.
+  onTitlePosChange?: (dx: number, dy: number) => void;
   subtitle?: string; // 하단 자막 오버레이(현재 조각). 최종 영상 자막 위치·스타일 흉내.
   subtitleFont?: string; // core.fonts id 또는 ""(기본 자막폰트).
   subtitleFontWeight?: string;
@@ -100,6 +116,63 @@ export function ShortsPreviewFrame({
     ...titleFontStyle(titleFont, titleFontWeight),
     fontSize: `${titleFontSize * (width / 1080)}px`,
   } as const;
+
+  // ── 제목 드래그 ─────────────────────────────────────────────
+  // 자막 드래그와 동일 패턴. 두 줄이 하나의 드래그 상태를 공유해 어느 줄을 잡아도 함께 움직인다.
+  const titleDraggable = !!onTitlePosChange;
+  const [titleFocused, setTitleFocused] = useState(false);
+  const [titleSnap, setTitleSnap] = useState<{ v: boolean; h: boolean }>({ v: false, h: false });
+  const titleDrag = useRef<{ px: number; py: number; dx: number; dy: number } | null>(null);
+  const titleBoxRef = useRef<HTMLDivElement>(null);
+
+  const onTitleDown = useCallback(
+    (e: React.PointerEvent) => {
+      if (!onTitlePosChange) return;
+      e.stopPropagation();
+      (e.target as Element).setPointerCapture?.(e.pointerId);
+      titleDrag.current = { px: e.clientX, py: e.clientY, dx: titleDx, dy: titleDy };
+      setTitleFocused(true);
+    },
+    [onTitlePosChange, titleDx, titleDy],
+  );
+  const onTitleMove = useCallback(
+    (e: React.PointerEvent) => {
+      const d = titleDrag.current;
+      if (!d || !onTitlePosChange) return;
+      d.dx = clamp(d.dx + (e.clientX - d.px) / k, -TITLE_DX_ABS, TITLE_DX_ABS);
+      d.dy = clamp(d.dy + (e.clientY - d.py) / k, TITLE_DY_MIN, TITLE_DY_MAX);
+      d.px = e.clientX;
+      d.py = e.clientY;
+      const snapV = Math.abs(d.dx) < SNAP_DX; // 중앙 마그네틱
+      const snapH = Math.abs(d.dy) < SNAP_Y; // 기본 높이(dy=0) 약한 스냅
+      setTitleSnap((g) => (g.v === snapV && g.h === snapH ? g : { v: snapV, h: snapH }));
+      onTitlePosChange(snapV ? 0 : Math.round(d.dx), snapH ? 0 : Math.round(d.dy));
+    },
+    [onTitlePosChange, k],
+  );
+  const onTitleUp = useCallback((e: React.PointerEvent) => {
+    if (!titleDrag.current) return;
+    titleDrag.current = null;
+    setTitleSnap({ v: false, h: false });
+    (e.target as Element).releasePointerCapture?.(e.pointerId);
+  }, []);
+
+  // 제목 바깥 클릭 / Esc 로 포커스(점선 힌트) 해제.
+  useEffect(() => {
+    if (!titleFocused) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setTitleFocused(false);
+    };
+    const onDown = (e: PointerEvent) => {
+      if (!titleBoxRef.current?.contains(e.target as Node)) setTitleFocused(false);
+    };
+    document.addEventListener("keydown", onKey);
+    document.addEventListener("pointerdown", onDown, true);
+    return () => {
+      document.removeEventListener("keydown", onKey);
+      document.removeEventListener("pointerdown", onDown, true);
+    };
+  }, [titleFocused]);
 
   // ── 자막 드래그 ─────────────────────────────────────────────
   const draggable = !!onSubtitlePosChange;
@@ -179,32 +252,56 @@ export function ShortsPreviewFrame({
       {/* 미디어 배경 레이어 */}
       <div className="absolute inset-0">{children}</div>
 
-      {/* 제목 오버레이 (이미지 위) */}
-      {titleLine1 ? (
+      {/* 제목 오버레이 (이미지 위) — dx/dy 는 렌더 좌표 델타를 축소 적용(WYSIWYG). 두 줄을 하나의
+          inline-block 으로 묶어 함께 드래그하고, 포커스 점선도 두 줄을 감싸는 하나의 상자로 그린다.
+          줄 간격(top-to-top)은 기존 24/50px(=26px@200폭)을 lineHeight 로 재현해 겉모습 불변. */}
+      {titleLine1 || titleLine2 ? (
         <div
-          className="pointer-events-none absolute w-full whitespace-nowrap text-center font-extrabold"
-          style={{ ...titleBase, color: titleColor1, top: 24 * s }}
+          className="pointer-events-none absolute inset-x-0 text-center"
+          style={{ top: 24 * s + titleDy * k }}
         >
-          {titleLine1}
-        </div>
-      ) : null}
-      {titleLine2 ? (
-        <div
-          className="pointer-events-none absolute w-full whitespace-nowrap text-center font-extrabold"
-          style={{ ...titleBase, color: titleColor2, top: 50 * s }}
-        >
-          {titleLine2}
+          <div
+            ref={titleBoxRef}
+            onPointerDown={onTitleDown}
+            onPointerMove={onTitleMove}
+            onPointerUp={onTitleUp}
+            onPointerCancel={onTitleUp}
+            className={cn(
+              "inline-block whitespace-nowrap font-extrabold",
+              titleDraggable
+                ? "pointer-events-auto touch-none cursor-grab active:cursor-grabbing"
+                : "pointer-events-none",
+              titleDraggable &&
+                titleFocused &&
+                "outline-dashed outline-1 outline-offset-2 outline-sky-400/90",
+            )}
+            style={{ transform: `translateX(${titleDx * k}px)`, lineHeight: `${26 * s}px` }}
+            title={titleDraggable ? "드래그해서 제목 위치를 옮겨요" : undefined}
+          >
+            {titleLine1 ? (
+              <div style={{ ...titleBase, color: titleColor1 }}>{titleLine1}</div>
+            ) : null}
+            {titleLine2 ? (
+              <div style={{ ...titleBase, color: titleColor2 }}>{titleLine2}</div>
+            ) : null}
+          </div>
         </div>
       ) : null}
 
-      {/* 자막 마그네틱 가이드라인 — 스냅 순간에만(프레임 안, 클리핑 OK) */}
-      {draggable && snap.v && (
+      {/* 자막/제목 마그네틱 가이드라인 — 스냅 순간에만(프레임 안, 클리핑 OK) */}
+      {((draggable && snap.v) || (titleDraggable && titleSnap.v)) && (
         <div className="pointer-events-none absolute inset-y-0 left-1/2 z-20 w-px -translate-x-1/2 bg-sky-400/80" />
       )}
       {draggable && snap.h && (
         <div
           className="pointer-events-none absolute inset-x-0 z-20 h-px bg-sky-400/80"
           style={{ top: DEFAULT_SUBTITLE_Y * k }}
+        />
+      )}
+      {titleDraggable && titleSnap.h && (
+        <div
+          className="pointer-events-none absolute inset-x-0 z-20 h-px bg-sky-400/80"
+          style={{ top: 24 * s }}
         />
       )}
 
