@@ -555,6 +555,8 @@ class DraftStateResponse(BaseModel):
     title_font_size: int | None = None
     title_color1: str | None = None
     title_color2: str | None = None
+    title_dx: int | None = None
+    title_dy: int | None = None
     subtitle_font: str | None = None
     subtitle_font_weight: str | None = None
     subtitle_font_size: int | None = None
@@ -610,6 +612,8 @@ def _build_draft_state(job: Job) -> DraftStateResponse:
         title_font_size=job.title_font_size,
         title_color1=job.title_color1,
         title_color2=job.title_color2,
+        title_dx=job.title_dx,
+        title_dy=job.title_dy,
         subtitle_font=job.subtitle_font,
         subtitle_font_weight=job.subtitle_font_weight,
         subtitle_font_size=job.subtitle_font_size,
@@ -655,6 +659,8 @@ class UpdateDraftMetaRequest(BaseModel):
     title_font_size: int | None = None
     title_color1: str | None = None
     title_color2: str | None = None
+    title_dx: int | None = None
+    title_dy: int | None = None
     subtitle_font: str | None = None
     subtitle_font_weight: str | None = None
     subtitle_font_size: int | None = None
@@ -698,8 +704,9 @@ async def update_draft_meta(
         job.title_color1 = normalize_hex(body.title_color1, DEFAULT_TITLE_COLOR1)
     if body.title_color2 is not None:
         job.title_color2 = normalize_hex(body.title_color2, DEFAULT_TITLE_COLOR2)
-    # 자막 스타일·모션 속도 — confirm 과 동일한 클램프 헬퍼를 공유(편집 즉시 저장).
-    from api.routes.preview import apply_subtitle_style, apply_motion_speed
+    # 제목 위치·자막 스타일·모션 속도 — confirm 과 동일한 클램프 헬퍼를 공유(편집 즉시 저장).
+    from api.routes.preview import apply_subtitle_style, apply_title_pos, apply_motion_speed
+    apply_title_pos(job, dx=body.title_dx, dy=body.title_dy)
     apply_subtitle_style(
         job,
         font=body.subtitle_font,

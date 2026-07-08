@@ -23,6 +23,8 @@ import {
   DEFAULT_TITLE_FONT,
   DEFAULT_TITLE_FONT_WEIGHT,
   DEFAULT_TITLE_FONT_SIZE,
+  DEFAULT_TITLE_DX,
+  DEFAULT_TITLE_DY,
   DEFAULT_SUBTITLE_FONT,
   DEFAULT_SUBTITLE_FONT_WEIGHT,
   DEFAULT_SUBTITLE_FONT_SIZE,
@@ -105,6 +107,10 @@ export interface YtState {
   // 제목 줄별 색(#RRGGBB). 기본 윗줄 흰색 / 아랫줄 톤다운 노란색.
   titleColor1: string;
   titleColor2: string;
+  // 제목 위치 오프셋(렌더 기준 px). dx=가로 중앙 오프셋(1080폭), dy=기본 위치 기준 세로 델타(1920높이).
+  // 0/0=기존 고정 위치. 2줄은 한 덩어리로 함께 이동.
+  titleDx: number;
+  titleDy: number;
 
   // 자막 스타일(작업 전역). 폰트 ""=기본 자막폰트. 크기/색/위치는 렌더 기준(1080×1920).
   // subtitleDx=가로 중앙 오프셋(px), subtitleY=자막 상단 y(px).
@@ -181,6 +187,8 @@ export const initialYtState: YtState = {
   titleFontSize: DEFAULT_TITLE_FONT_SIZE,
   titleColor1: DEFAULT_TITLE_COLOR1,
   titleColor2: DEFAULT_TITLE_COLOR2,
+  titleDx: DEFAULT_TITLE_DX,
+  titleDy: DEFAULT_TITLE_DY,
   subtitleFont: DEFAULT_SUBTITLE_FONT,
   subtitleFontWeight: DEFAULT_SUBTITLE_FONT_WEIGHT,
   subtitleFontSize: DEFAULT_SUBTITLE_FONT_SIZE,
@@ -331,6 +339,8 @@ export function restorePatchFromDraft(
     titleFontSize: ds.title_font_size ?? DEFAULT_TITLE_FONT_SIZE,
     titleColor1: normalizeHexOr(ds.title_color1, DEFAULT_TITLE_COLOR1),
     titleColor2: normalizeHexOr(ds.title_color2, DEFAULT_TITLE_COLOR2),
+    titleDx: ds.title_dx ?? DEFAULT_TITLE_DX,
+    titleDy: ds.title_dy ?? DEFAULT_TITLE_DY,
     subtitleFont: ds.subtitle_font ?? DEFAULT_SUBTITLE_FONT,
     subtitleFontWeight: ds.subtitle_font_weight ?? DEFAULT_SUBTITLE_FONT_WEIGHT,
     subtitleFontSize: ds.subtitle_font_size ?? DEFAULT_SUBTITLE_FONT_SIZE,

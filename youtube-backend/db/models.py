@@ -85,6 +85,11 @@ class Job(Base):
     # 제목 줄별 색(#RRGGBB). None=기본(윗줄 #FFFFFF, 아랫줄 #E8D44D).
     title_color1 = Column(String, nullable=True)
     title_color2 = Column(String, nullable=True)
+    # 제목 위치 오프셋(px). dx=가로 중앙 오프셋(1080폭), dy=기본 위치 기준 세로 델타(1920높이).
+    # None/0=기존 고정 위치. 자막(subtitle_y=절대 y)과 달리 델타 — 기본 세로 위치가 렌더 시
+    # 폰트 크기로 계산되므로(video_assembler) 그 공식을 중복하지 않기 위해서다.
+    title_dx = Column(Integer, nullable=True)
+    title_dy = Column(Integer, nullable=True)
     # 자막 스타일(작업 전역, 모든 줄 공통). 폰트/굵기 id 는 제목과 같은 core.fonts.BUNDLED_TITLE_FONTS.
     # None=기본(번들 기본 자막폰트·55px·흰색). 위치: dx=가로 중앙 오프셋(px, 1080폭), y=자막 상단 y(px, 1920높이).
     subtitle_font = Column(String, nullable=True)

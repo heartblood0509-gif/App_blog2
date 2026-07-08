@@ -57,6 +57,8 @@ _MIGRATIONS = {
         "title_font_size": "INTEGER",
         "title_color1": "VARCHAR",
         "title_color2": "VARCHAR",
+        "title_dx": "INTEGER",
+        "title_dy": "INTEGER",
         "subtitle_font": "VARCHAR",
         "subtitle_font_weight": "VARCHAR",
         "subtitle_font_size": "INTEGER",
