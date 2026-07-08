@@ -3,10 +3,8 @@ import {
   naturalSplit,
   displayLen,
   chunksForLine,
-  wordsOf,
-  breakSetFromChunks,
-  chunksFromBreaks,
-  gapKinds,
+  parseSubtitleChunks,
+  chunksFromWordsGaps,
   hasOverflowChunk,
   wordTimesMatch,
   chunkBoundariesFromWordTimes,
@@ -59,21 +57,26 @@ describe("chunksForLine — override 우선", () => {
   });
 });
 
-describe("break/chunk 왕복 변환", () => {
-  it("chunks → breakSet → chunks 라운드트립", () => {
-    const chunks = ["안녕하세요. 저는", "곽명근입니다."];
-    const words = wordsOf("안녕하세요. 저는 곽명근입니다.");
-    const breaks = breakSetFromChunks(chunks);
-    expect(breaks).toEqual(new Set([2]));
-    expect(chunksFromBreaks(words, breaks)).toEqual(chunks);
+describe("parseSubtitleChunks / chunksFromWordsGaps — 컷·화면줄바꿈 왕복", () => {
+  it("컷 경계는 cut, 조각 안 개행은 wrap, 공백은 space", () => {
+    const chunks = ["이 저가\n상품이", "생각보다 좋아요"];
+    const p = parseSubtitleChunks(chunks);
+    expect(p.words).toEqual(["이", "저가", "상품이", "생각보다", "좋아요"]);
+    // 이|저가(space) 저가|상품이(wrap) 상품이|생각보다(cut) 생각보다|좋아요(space)
+    expect(p.gaps).toEqual(["space", "wrap", "cut", "space"]);
+    expect(p.segOfWord).toEqual([0, 0, 0, 1, 1]); // 앞 세 어절 = 컷0, 뒤 둘 = 컷1
+    expect(p.lineOfWord).toEqual([0, 0, 1, 2, 2]); // "이 저가" / "상품이" / "생각보다 좋아요"
   });
-  it("끊김 없으면 한 조각", () => {
-    const words = ["a", "b", "c"];
-    expect(chunksFromBreaks(words, new Set())).toEqual(["a b c"]);
+  it("파서 → 역변환 라운드트립", () => {
+    const chunks = ["이 저가\n상품이", "생각보다 좋아요"];
+    const p = parseSubtitleChunks(chunks);
+    expect(chunksFromWordsGaps(p.words, p.gaps)).toEqual(chunks);
   });
-  it("모든 어절 사이 끊으면 어절 수만큼", () => {
-    const words = ["a", "b", "c"];
-    expect(chunksFromBreaks(words, new Set([1, 2]))).toEqual(["a", "b", "c"]);
+  it("간격 없으면 한 조각 한 줄", () => {
+    expect(chunksFromWordsGaps(["a", "b", "c"], ["space", "space"])).toEqual(["a b c"]);
+  });
+  it("cut 은 조각을, wrap 은 화면 줄을 만든다", () => {
+    expect(chunksFromWordsGaps(["a", "b", "c"], ["cut", "wrap"])).toEqual(["a", "b\nc"]);
   });
 });
 
@@ -81,6 +84,11 @@ describe("hasOverflowChunk", () => {
   it("12자 초과 조각 감지", () => {
     expect(hasOverflowChunk(["짧은 자막"])).toBe(false);
     expect(hasOverflowChunk(["이것은아주긴한단어인데띄어쓰기가전혀없는경우"])).toBe(true);
+  });
+  it("개행(화면 줄바꿈)은 줄별로 검사 — 각 줄이 짧으면 통과", () => {
+    // 한 덩어리로는 12자 초과지만 두 줄로 나누면 각 줄은 12자 이하.
+    expect(hasOverflowChunk(["가나다라마바사\n아자차카타파하"])).toBe(false);
+    expect(hasOverflowChunk(["가나다라마바사아자차카타파하"])).toBe(true);
   });
 });
 
@@ -170,23 +178,6 @@ describe("자막 전용 띄어쓰기(발화 어절 안 경계)", () => {
     )!;
     expect(b[0]).toBeCloseTo(1.7, 5);
     expect(b[1]).toBe(4.0);
-  });
-});
-
-describe("gapKinds — 자막 간격 분류", () => {
-  it("발화 어절 안에서 생긴 간격만 split", () => {
-    expect(gapKinds(["홍조의", "피부장벽이"], ["홍조의", "피부", "장벽이"])).toEqual([
-      "natural",
-      "natural",
-      "split",
-    ]);
-  });
-  it("동일하면 전부 natural", () => {
-    expect(gapKinds(["가", "나"], ["가", "나"])).toEqual(["natural", "natural"]);
-  });
-  it("글자 단위 정렬 불가면 null", () => {
-    expect(gapKinds(["가나"], ["가", "다"])).toBeNull();
-    expect(gapKinds(["가"], ["가", "나"])).toBeNull();
   });
 });
 

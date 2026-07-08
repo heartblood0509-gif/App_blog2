@@ -238,7 +238,12 @@ export function ShortsPreviewFrame({
             }}
             title={draggable ? "드래그해서 자막 위치를 옮겨요" : undefined}
           >
-            {subtitle}
+            {/* 조각 안의 개행("\n")은 화면 줄바꿈 — 줄별 블록으로 쌓아 두 줄 자막을 흉내(최종 영상과 동일). */}
+            {subtitle.split("\n").map((ln, i) => (
+              <span key={i} className="block">
+                {ln}
+              </span>
+            ))}
           </span>
         </div>
       ) : null}

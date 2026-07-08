@@ -1124,7 +1124,15 @@ async def confirm_and_render(
                     cleaned = [c for c in raw if isinstance(c, str) and c.strip()]
                     if not cleaned:
                         continue
-                    over = next((c for c in cleaned if display_len(c) > MAX_DISPLAY), None)
+                    # 조각 안의 개행("\n")은 화면 줄바꿈 — 줄별로 나눠 12자 판정(프론트와 동일).
+                    over = next(
+                        (
+                            c
+                            for c in cleaned
+                            if any(display_len(ln) > MAX_DISPLAY for ln in c.split("\n"))
+                        ),
+                        None,
+                    )
                     if over is not None:
                         raise HTTPException(
                             status_code=400,

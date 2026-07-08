@@ -88,37 +88,81 @@ export function wordsOf(text: string): string[] {
   return text.trim().split(/\s+/).filter(Boolean);
 }
 
-/** 현재 조각들 → 각 어절이 몇 번째 조각에 속하는지(어절 인덱스 → 조각 인덱스).
- * 조각을 공백으로 나눈 어절 수의 누적으로 매핑한다. */
-export function breakSetFromChunks(chunks: string[]): Set<number> {
-  // 조각 경계(= 끊김) 뒤에 오는 어절 인덱스 집합. 예: [["a b"],["c"]] → {2}
-  const breaks = new Set<number>();
-  let acc = 0;
-  for (let i = 0; i < chunks.length - 1; i++) {
-    acc += wordsOf(chunks[i]).length;
-    breaks.add(acc);
-  }
-  return breaks;
+// ── 자막 조각 파서: chunks ↔ 어절 + 간격 ──────────────────────────
+// 조각(chunk) = 한 번에 화면에 뜨는 자막 = "컷"(시간축 단위).
+// 조각 문자열 안의 개행("\n") = 같은 컷을 화면에서 두 줄로 나눔("화면 줄바꿈", 공간축).
+// 어절 사이 간격은 세 종류:
+//   · "space" : 같은 줄(공백)        — 칩에서 클릭하면 컷으로 나뉜다
+//   · "wrap"  : 화면 줄바꿈(개행)      — 수정 모드에서만 만들고 지운다(칩에선 표시만)
+//   · "cut"   : 컷 경계(다음 화면)     — 칩에서 클릭하면 다시 합쳐진다
+export type SubtitleGap = "space" | "wrap" | "cut";
+
+export interface ParsedSubtitle {
+  words: string[]; // 자막 어절(마침표 포함 원본)
+  gaps: SubtitleGap[]; // 길이 = words.length-1, gaps[i] = words[i]와 words[i+1] 사이
+  segOfWord: number[]; // 각 어절이 몇 번째 컷(조각)에 속하는지
+  lineOfWord: number[]; // 각 어절이 몇 번째 화면 줄(전체 통산)에 속하는지
+  lineOverflow: boolean[]; // 화면 줄별 12자 초과 여부(lineOfWord 인덱스 기준)
 }
 
-/** 어절 목록 + 끊김 위치(어절 인덱스 집합) → 조각 문자열들. */
-export function chunksFromBreaks(words: string[], breaks: Set<number>): string[] {
-  const out: string[] = [];
-  let cur: string[] = [];
-  for (let i = 0; i < words.length; i++) {
-    if (i > 0 && breaks.has(i)) {
-      out.push(cur.join(" "));
-      cur = [];
+/** 자막 조각 배열 → 어절 목록 + 간격 종류(칩 렌더·컷 연산의 공통 소스). */
+export function parseSubtitleChunks(chunks: string[]): ParsedSubtitle {
+  const words: string[] = [];
+  const gaps: SubtitleGap[] = [];
+  const segOfWord: number[] = [];
+  const lineOfWord: number[] = [];
+  let curLine = -1;
+  for (let ci = 0; ci < chunks.length; ci++) {
+    const dispLines = chunks[ci].split("\n");
+    for (let li = 0; li < dispLines.length; li++) {
+      const ws = wordsOf(dispLines[li]);
+      if (ws.length === 0) continue; // 빈 줄 방어(정상 데이터엔 없음)
+      curLine += 1;
+      for (let wi = 0; wi < ws.length; wi++) {
+        if (words.length > 0) {
+          // 줄의 첫 어절이면 컷 경계(첫 줄) 또는 화면 줄바꿈(둘째 줄~), 아니면 공백.
+          gaps.push(wi === 0 ? (li === 0 ? "cut" : "wrap") : "space");
+        }
+        words.push(ws[wi]);
+        segOfWord.push(ci);
+        lineOfWord.push(curLine);
+      }
     }
-    cur.push(words[i]);
   }
-  if (cur.length) out.push(cur.join(" "));
-  return out;
+  // 화면 줄별 표시 폭(12자 기준) 초과 여부.
+  const lineText: string[] = [];
+  for (let i = 0; i < words.length; i++) {
+    const ln = lineOfWord[i];
+    lineText[ln] = lineText[ln] ? `${lineText[ln]} ${words[i]}` : words[i];
+  }
+  const lineOverflow = lineText.map((t) => displayLen(t) > MAX_DISPLAY);
+  return { words, gaps, segOfWord, lineOfWord, lineOverflow };
 }
 
-/** 12자(표시 폭) 초과 조각이 하나라도 있으면 true(영상 만들기 차단 판정). */
+/** 어절 목록 + 간격 종류 → 자막 조각 배열(파서의 역변환). */
+export function chunksFromWordsGaps(words: string[], gaps: SubtitleGap[]): string[] {
+  if (words.length === 0) return [];
+  const chunks: string[] = [];
+  let lines: string[][] = [[words[0]]];
+  for (let i = 1; i < words.length; i++) {
+    const g = gaps[i - 1];
+    if (g === "cut") {
+      chunks.push(lines.map((l) => l.join(" ")).join("\n"));
+      lines = [[words[i]]];
+    } else if (g === "wrap") {
+      lines.push([words[i]]);
+    } else {
+      lines[lines.length - 1].push(words[i]);
+    }
+  }
+  chunks.push(lines.map((l) => l.join(" ")).join("\n"));
+  return chunks;
+}
+
+/** 12자(표시 폭) 초과 화면 줄이 하나라도 있으면 true(영상 만들기 차단 판정).
+ *  조각 안의 개행("\n")은 화면 줄바꿈이므로 줄별로 나눠서 검사한다. */
 export function hasOverflowChunk(chunks: string[]): boolean {
-  return chunks.some((c) => displayLen(c) > MAX_DISPLAY);
+  return chunks.some((c) => c.split("\n").some((line) => displayLen(line) > MAX_DISPLAY));
 }
 
 // ── 어절 타임스탬프(word_times) 기반 자막 조각 경계 ─────────────
@@ -199,29 +243,3 @@ export function chunkBoundariesFromWordTimes(
   return bounds;
 }
 
-// ── 자막 전용 띄어쓰기(발화 어절 안 끊기) 간격 분류 ─────────────
-/** 자막 어절 사이 간격 분류. 반환 배열 길이 = displayWords.length, 인덱스 g = "어절 g-1과 g 사이 간격"
- * ([0]은 미사용). 발화(대본) 어절 '안'에서 생긴 간격(자막 전용 띄어쓰기)이면 "split",
- * 원래 대본에 있던 공백이면 "natural". 글자 단위로 정렬이 안 되면 null(호출부가 전부 natural 취급). */
-export function gapKinds(
-  ttsWords: string[],
-  displayWords: string[],
-): ("natural" | "split")[] | null {
-  const kinds: ("natural" | "split")[] = new Array(displayWords.length).fill("natural");
-  let j = 0;
-  let acc = "";
-  for (let k = 0; k < displayWords.length; k++) {
-    if (j >= ttsWords.length) return null;
-    acc += displayWords[k];
-    if (acc === ttsWords[j]) {
-      j++;
-      acc = "";
-    } else if (ttsWords[j].startsWith(acc)) {
-      if (k + 1 < displayWords.length) kinds[k + 1] = "split";
-    } else {
-      return null;
-    }
-  }
-  if (j !== ttsWords.length || acc) return null;
-  return kinds;
-}
