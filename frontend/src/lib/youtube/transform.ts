@@ -20,12 +20,35 @@ export const SCALE_MIN = 0.1;
 export const SCALE_MAX = 3.0;
 export const OFFSET_MAX = 1.5;
 
+// 줌(모션) 속도 — 작업 전역, 초당 확대 비율. 백엔드 image_pipeline.DEFAULT_ZOOM_RATE 와 동일.
+// 클립 길이와 무관하게 "초당 속도"가 일정 → 짧은 줄이 빨라 보이던 문제 해소.
+export const DEFAULT_MOTION_SPEED = 0.0125;
+export const MOTION_ZOOM_MAX = 1.5; // 프리뷰 줌 상한(백엔드 ZOOM_MAX 와 동일)
+
+// UI 슬라이더는 "기준 속도(=DEFAULT_MOTION_SPEED) 대비 %"로 다룬다. 100%가 기본, 크게=빠르게.
+// 범위 10~500%(0.00125~0.0625/s)는 백엔드 clamp(preview.py MOTION_SPEED_MIN/MAX 0.001~0.08) 안.
+export const MOTION_SPEED_PCT_MIN = 10;
+export const MOTION_SPEED_PCT_MAX = 500;
+export const MOTION_SPEED_PCT_STEP = 5;
+export const MOTION_SPEED_PCT_DEFAULT = 100;
+
 function finite(value: unknown, fallback: number): number {
   const n = typeof value === "number" ? value : Number(value);
   return Number.isFinite(n) ? n : fallback;
 }
 
 const clampNum = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
+
+/** 슬라이더 %(기준 속도 대비) → 초당 확대 비율(rate). 범위 밖은 클램프. */
+export function rateFromSpeedPct(pct: number): number {
+  const p = clampNum(finite(pct, MOTION_SPEED_PCT_DEFAULT), MOTION_SPEED_PCT_MIN, MOTION_SPEED_PCT_MAX);
+  return DEFAULT_MOTION_SPEED * (p / 100);
+}
+/** 초당 확대 비율(rate) → 슬라이더 %(정수, 클램프). 복원 시 저장된 rate 를 슬라이더 위치로 되돌린다. */
+export function speedPctFromRate(rate: number): number {
+  const pct = Math.round((finite(rate, DEFAULT_MOTION_SPEED) / DEFAULT_MOTION_SPEED) * 100);
+  return clampNum(pct, MOTION_SPEED_PCT_MIN, MOTION_SPEED_PCT_MAX);
+}
 
 export function clampTransform(t: Partial<LineTransform> | null | undefined): LineTransform {
   if (!t || typeof t !== "object") return { ...DEFAULT_TRANSFORM };

@@ -571,6 +571,7 @@ class DraftStateResponse(BaseModel):
     subtitle_color: str | None = None
     subtitle_dx: int | None = None
     subtitle_y: int | None = None
+    motion_speed: float | None = None
     tts_engine: str | None = None
     tts_speed: float | None = None
     voice_id: str | None = None
@@ -630,6 +631,7 @@ def _build_draft_state(job: Job) -> DraftStateResponse:
         subtitle_color=job.subtitle_color,
         subtitle_dx=job.subtitle_dx,
         subtitle_y=job.subtitle_y,
+        motion_speed=job.motion_speed,
         tts_engine=job.tts_engine,
         tts_speed=job.tts_speed,
         voice_id=job.voice_id,
@@ -679,6 +681,7 @@ class UpdateDraftMetaRequest(BaseModel):
     subtitle_color: str | None = None
     subtitle_dx: int | None = None
     subtitle_y: int | None = None
+    motion_speed: float | None = None
 
 
 @router.post("/{job_id}/draft-meta", response_model=DraftStateResponse)
@@ -715,8 +718,13 @@ async def update_draft_meta(
         job.title_color1 = normalize_hex(body.title_color1, DEFAULT_TITLE_COLOR1)
     if body.title_color2 is not None:
         job.title_color2 = normalize_hex(body.title_color2, DEFAULT_TITLE_COLOR2)
-    # 제목 위치·자막 스타일 — confirm 과 동일한 클램프 헬퍼를 공유(편집 즉시 저장).
-    from api.routes.preview import apply_subtitle_style, apply_title_pos, apply_title_sizes
+    # 제목 위치·크기·자막 스타일·모션 속도 — confirm 과 동일한 클램프 헬퍼를 공유(편집 즉시 저장).
+    from api.routes.preview import (
+        apply_subtitle_style,
+        apply_title_pos,
+        apply_title_sizes,
+        apply_motion_speed,
+    )
     apply_title_pos(job, dx=body.title_dx, dy=body.title_dy)
     apply_title_sizes(
         job,
@@ -733,6 +741,7 @@ async def update_draft_meta(
         dx=body.subtitle_dx,
         y=body.subtitle_y,
     )
+    apply_motion_speed(job, body.motion_speed)
     db.commit()
     db.refresh(job)
     return _build_draft_state(job)

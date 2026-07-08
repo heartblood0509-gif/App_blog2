@@ -152,6 +152,11 @@ SUBTITLE_Y_MIN = 60
 SUBTITLE_Y_MAX = 1750   # 자막 상단 y(px, 1920높이 기준)
 DEFAULT_SUBTITLE_COLOR = "#FFFFFF"
 
+# ── 모션(줌) 속도 클램프 범위 (작업 전역, 초당 확대 비율) ──
+# UI 슬라이더 범위(기준 0.0125/s 대비 10~500% = 0.00125~0.0625/s)를 여유 있게 포함.
+MOTION_SPEED_MIN = 0.001
+MOTION_SPEED_MAX = 0.08
+
 # ── 제목 위치 클램프 범위 (confirm/draft-meta 양쪽에서 동일 적용, 프론트 ShortsPreviewFrame 과 동일) ──
 # dx=가로 중앙 오프셋, dy=기본 위치(폰트 크기로 계산되는 상단) 기준 세로 델타. 0=기존 고정 위치.
 TITLE_DX_ABS = 350
@@ -201,6 +206,22 @@ def apply_subtitle_style(
             job.subtitle_y = max(SUBTITLE_Y_MIN, min(SUBTITLE_Y_MAX, int(float(y))))
         except (TypeError, ValueError):
             pass
+
+
+def apply_motion_speed(job, value) -> None:
+    """줌(모션) 속도(작업 전역, 초당 확대 비율)를 Job 에 클램프해서 반영. None 이면 미변경.
+
+    raw JSON(confirm) / pydantic(draft-meta) 양쪽에서 공유. NaN/문자열은 무시(기존값 유지).
+    """
+    if value is None:
+        return
+    try:
+        v = float(value)
+    except (TypeError, ValueError):
+        return
+    if v != v:  # NaN
+        return
+    job.motion_speed = max(MOTION_SPEED_MIN, min(MOTION_SPEED_MAX, v))
 
 
 def apply_title_pos(job, dx=None, dy=None) -> None:
@@ -1170,6 +1191,8 @@ async def confirm_and_render(
             dx=body.get("subtitle_dx"),
             y=body.get("subtitle_y"),
         )
+        # 줌(모션) 속도 — 작업 전역. 자막 스타일과 동일하게 confirm 시 흡수.
+        apply_motion_speed(job, body.get("motion_speed"))
 
         # 자막 조각 확정(WYSIWYG): 프론트가 화면에 보여준 줄별 조각을 line_id 맵으로 보낸다.
         # 여기서 script_json 에 확정 저장 → 렌더가 자동 분할 없이 이 경계 그대로 자막을 박는다.

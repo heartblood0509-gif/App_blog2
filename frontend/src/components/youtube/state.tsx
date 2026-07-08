@@ -42,6 +42,7 @@ import {
   DEFAULT_TITLE_COLOR2,
   normalizeHexOr,
 } from "@/lib/youtube/title-colors";
+import { DEFAULT_MOTION_SPEED } from "@/lib/youtube/transform";
 import { loadLastUsed } from "@/lib/youtube/title-defaults";
 import { loadLastSubtitle } from "@/lib/youtube/subtitle-defaults";
 import { YT_AI_FULL_ENABLED } from "@/lib/youtube-ai-full-feature";
@@ -128,6 +129,9 @@ export interface YtState {
   subtitleDx: number;
   subtitleY: number;
 
+  // 줌(모션) 속도 — 작업 전역, 모든 줄 공통. 초당 확대 비율(0.0125=1.25%/s).
+  motionSpeed: number;
+
   // Card B — 붙여넣은 원본 대본(스텝 되돌아왔을 때 유지)
   scriptText: string;
 
@@ -203,6 +207,7 @@ export const initialYtState: YtState = {
   subtitleColor: DEFAULT_SUBTITLE_COLOR,
   subtitleDx: DEFAULT_SUBTITLE_DX,
   subtitleY: DEFAULT_SUBTITLE_Y,
+  motionSpeed: DEFAULT_MOTION_SPEED,
   narration: [],
   narrationTitle: "",
   scriptLines: null,
@@ -371,6 +376,7 @@ export function restorePatchFromDraft(
     subtitleColor: normalizeHexOr(ds.subtitle_color, DEFAULT_SUBTITLE_COLOR),
     subtitleDx: ds.subtitle_dx ?? DEFAULT_SUBTITLE_DX,
     subtitleY: ds.subtitle_y ?? DEFAULT_SUBTITLE_Y,
+    motionSpeed: ds.motion_speed ?? DEFAULT_MOTION_SPEED,
     selectedTitle: ds.title ?? "",
     scriptText: lineTexts.join("\n"),
     ttsEngine: ds.tts_engine ?? "typecast",
