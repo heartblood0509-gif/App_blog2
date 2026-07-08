@@ -597,6 +597,8 @@ async def render_video_for_job(job_id: str):
                 "title_font_size": getattr(job, "title_font_size", None),
                 "title_color1": getattr(job, "title_color1", None),
                 "title_color2": getattr(job, "title_color2", None),
+                "title_dx": getattr(job, "title_dx", None),
+                "title_dy": getattr(job, "title_dy", None),
                 "subtitle_font_size": getattr(job, "subtitle_font_size", None),
                 "subtitle_color": getattr(job, "subtitle_color", None),
                 "subtitle_dx": getattr(job, "subtitle_dx", None),
