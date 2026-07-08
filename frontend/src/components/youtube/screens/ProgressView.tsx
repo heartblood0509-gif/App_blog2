@@ -78,13 +78,43 @@ export function ProgressView() {
   if (status === "failed") {
     const errMsg = frame?.error || frame?.task_error || "작업이 실패했습니다.";
     const canReopen = state.mode === "user_assets" && !!state.jobId;
+    // Windows 애플리케이션 제어(Smart App Control) 차단은 원인·해결이 분명하므로
+    // 밋밋한 한 줄 대신 단계별 해제 안내로 승격한다. 백엔드가 문구에 "Smart App Control"
+    // 표식을 담아 내려준다(youtube-backend/core/app_control.py).
+    const isSacBlocked = errMsg.includes("Smart App Control");
     return (
       <div className="rounded-xl border border-destructive/40 bg-destructive/5 p-6">
         <div className="flex items-start gap-2">
           <AlertTriangle className="mt-0.5 h-5 w-5 flex-shrink-0 text-destructive" />
-          <div>
+          <div className="min-w-0 flex-1">
             <h2 className="text-lg font-semibold text-destructive">영상 생성 실패</h2>
-            <p className="mt-1 text-sm text-muted-foreground">{errMsg}</p>
+            {isSacBlocked ? (
+              <div className="mt-2 space-y-2.5 text-sm">
+                <p className="text-foreground">
+                  Windows 11의 보안 기능(Smart App Control)이 이 앱의 영상·소리 처리 도구 실행을 막았습니다. 최근 PC를 포맷하거나 새로 설치하면 이 기능이 자동으로 켜져 발생할 수 있어요.
+                </p>
+                <p className="text-foreground">
+                  Windows는 새로 설치한 직후엔 이 기능을 잠시 지켜보며 스스로 켜거나 꺼주기도 하지만, 이미 켜져서 차단이 생긴 상태에서는 저절로 꺼지지 않아요. 아래처럼 직접 꺼주세요.
+                </p>
+                <div className="rounded-md border border-border bg-background p-3">
+                  <div className="mb-2 text-xs font-medium text-muted-foreground">해결 방법</div>
+                  <div className="flex flex-wrap items-center gap-1.5 text-[13px]">
+                    <span className="rounded border border-border bg-muted/40 px-2 py-0.5">Windows 보안</span>
+                    <span className="text-muted-foreground">›</span>
+                    <span className="rounded border border-border bg-muted/40 px-2 py-0.5">앱 및 브라우저 컨트롤</span>
+                    <span className="text-muted-foreground">›</span>
+                    <span className="rounded border border-border bg-muted/40 px-2 py-0.5">Smart App Control</span>
+                    <span className="text-muted-foreground">›</span>
+                    <span className="rounded border border-destructive/40 bg-destructive/10 px-2 py-0.5 font-medium text-destructive">끔</span>
+                  </div>
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  ※ 나중에 같은 경로에서 다시 켤 수 있어요. 회사에서 관리하는 PC라면 관리자에게 문의하세요. 다음 업데이트에서 정식 서명이 적용되면 이 안내 없이도 됩니다.
+                </p>
+              </div>
+            ) : (
+              <p className="mt-1 text-sm text-muted-foreground">{errMsg}</p>
+            )}
           </div>
         </div>
         <div className="mt-5 flex justify-end gap-2">

@@ -29,6 +29,7 @@ from core.audio_splitter import (
     get_wav_duration,
 )
 from core.user_assets_visual import line_text_hash
+from core.app_control import is_app_control_block, SAC_MESSAGE_VOICE
 from api.deps import get_approved_user, resolve_user_api_keys
 from api.models import TtsPreviewBuildRequest
 from db.database import get_db
@@ -175,7 +176,11 @@ async def tts_preview(
             norm_path = os.path.join(tmp_dir, "sent_00_norm.wav")
             try:
                 normalize_to_browser_wav(wav_path, norm_path)
-            except RuntimeError:
+            except RuntimeError as norm_err:
+                # Windows 애플리케이션 제어(Smart App Control)가 ffmpeg 실행을 막은 경우:
+                # 원인·해결을 담은 문구를 그대로 노출(프론트 토스트에 표시됨).
+                if is_app_control_block(norm_err):
+                    raise HTTPException(502, SAC_MESSAGE_VOICE)
                 raise HTTPException(502, "샘플 오디오 생성에 실패했습니다. 잠시 후 다시 시도해주세요.")
             os.replace(norm_path, cached)
 

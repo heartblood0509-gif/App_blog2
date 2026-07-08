@@ -13,6 +13,7 @@ from db.models import Job
 from jobs_queue.job_manager import update_job_progress, mark_job_failed, set_video_path
 from api.deps import resolve_user_api_keys
 from core.r2_storage import is_r2_enabled, require_r2_for_generation
+from core.app_control import is_app_control_block, SAC_MESSAGE_VIDEO
 from core.fonts import resolve_title_font_path
 from core.user_assets_visual import (
     ensure_line_ids,
@@ -43,6 +44,12 @@ def _fail_job(job_id: str, prefix: str, e: Exception) -> None:
     )
     traceback.print_exc()
     sys.stderr.flush()
+    # Windows 애플리케이션 제어(Smart App Control)가 번들 ffmpeg 실행을 막은 경우(WinError 4551):
+    # 기술 문구 대신 원인·해결을 담은 안내로 대체한다. 프론트가 이 문구의 "Smart App Control"
+    # 표식을 보고 영상 실패 패널을 구조화 안내로 승격한다. (자세한 traceback 은 위에서 이미 기록됨.)
+    if is_app_control_block(e):
+        mark_job_failed(job_id, SAC_MESSAGE_VIDEO)
+        return
     # 우리가 의도적으로 던진 RuntimeError(자산 부족·길이 검증·ffmpeg 에러 등)는 이미
     # 사용자가 조치할 수 있는 명확한 문구이므로 그대로 둔다. 그 외(TypeError·KeyError 등)
     # 예기치 못한 내부 오류는 메시지만으로 원인 파악이 안 되므로, 기술 문구는 유지하되
