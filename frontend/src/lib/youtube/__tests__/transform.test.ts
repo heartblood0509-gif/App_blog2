@@ -6,6 +6,11 @@ import {
   DEFAULT_TRANSFORM,
   SCALE_MAX,
   OFFSET_MAX,
+  DEFAULT_MOTION_SPEED,
+  MOTION_SPEED_PCT_MIN,
+  MOTION_SPEED_PCT_MAX,
+  rateFromSpeedPct,
+  speedPctFromRate,
 } from "../transform";
 
 // 백엔드 tests/test_transform_placement.py 의 PLACEMENT_CASES 와 **글자 그대로 같은 값**.
@@ -58,5 +63,25 @@ describe("cover baseline", () => {
     const p = computePlacement(1920, 1080, DEFAULT_TRANSFORM, W, H);
     expect(p.height).toBeCloseTo(1920, 3);
     expect(p.width).toBeGreaterThan(W);
+  });
+});
+
+describe("motion speed pct <-> rate", () => {
+  it("100% maps to the default rate, and round-trips", () => {
+    expect(rateFromSpeedPct(100)).toBeCloseTo(DEFAULT_MOTION_SPEED, 10);
+    expect(speedPctFromRate(DEFAULT_MOTION_SPEED)).toBe(100);
+  });
+  it("scales linearly (200% = 2x default)", () => {
+    expect(rateFromSpeedPct(200)).toBeCloseTo(DEFAULT_MOTION_SPEED * 2, 10);
+    expect(speedPctFromRate(DEFAULT_MOTION_SPEED * 2)).toBe(200);
+  });
+  it("clamps out-of-range pct to slider bounds", () => {
+    expect(rateFromSpeedPct(9999)).toBeCloseTo(DEFAULT_MOTION_SPEED * (MOTION_SPEED_PCT_MAX / 100), 10);
+    expect(rateFromSpeedPct(0)).toBeCloseTo(DEFAULT_MOTION_SPEED * (MOTION_SPEED_PCT_MIN / 100), 10);
+  });
+  it("clamps derived pct to slider bounds and survives garbage", () => {
+    expect(speedPctFromRate(999)).toBe(MOTION_SPEED_PCT_MAX);
+    expect(speedPctFromRate(0)).toBe(MOTION_SPEED_PCT_MIN);
+    expect(speedPctFromRate(NaN)).toBe(100); // finite() 폴백 = 기본 rate → 100%
   });
 });

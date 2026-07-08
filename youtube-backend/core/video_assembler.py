@@ -21,6 +21,7 @@ from core.image_pipeline import (
     probe_media_dims,
     normalize_transform,
     KEN_BURNS_MOTIONS,
+    DEFAULT_ZOOM_RATE,
 )
 from core.ffmpeg import FFMPEG_Q, FFPROBE_Q
 from config import settings
@@ -78,6 +79,8 @@ async def assemble_shorts(job_id: str, config: dict, progress_callback=None):
     # 카드 B 는 motion 이 없을 수 있어(기본 "없음") safe-get. 카드 A 는 항상 값이 있어 동작 불변.
     # 키가 아예 없는 옛 줄은 "없음"으로 — UI 표기('모션 없음')와 최종 영상을 일치시킨다.
     motions = [line.get("motion", "none") for line in config["lines"]]
+    # 줌(모션) 속도 — 작업 전역, 초당 확대 비율. None(구버전 job)이면 기본값.
+    motion_rate = float(config.get("motion_speed") or DEFAULT_ZOOM_RATE)
 
     # ── Step 1: TTS 준비 ──
     # prebuilt_tts=True면 tts_dir에 이미 sent_XX.wav + timings_raw.json 있다고 가정.
@@ -169,6 +172,7 @@ async def assemble_shorts(job_id: str, config: dict, progress_callback=None):
                     height=H,
                     fps=settings.FPS,
                     start=clip_start,
+                    zoom_rate=motion_rate,
                 )
             else:
                 # "ai" 또는 "image": 원본 비율 유지 배치 후, 사용자가 고른 모션 효과 적용.
@@ -187,6 +191,8 @@ async def assemble_shorts(job_id: str, config: dict, progress_callback=None):
                         width=W,
                         height=H,
                         fps=settings.FPS,
+                        zoom_rate=motion_rate,
+                        transform=transform,  # 줌 중심을 미디어 자체 중앙으로(옮긴 위치 반영)
                     )
                 else:
                     await asyncio.to_thread(
@@ -246,6 +252,7 @@ async def assemble_shorts(job_id: str, config: dict, progress_callback=None):
                 width=settings.TARGET_WIDTH,
                 height=settings.TARGET_HEIGHT,
                 fps=settings.FPS,
+                zoom_rate=motion_rate,
             )
             clip_files.append(clip_path)
             _update(

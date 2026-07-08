@@ -603,6 +603,7 @@ async def render_video_for_job(job_id: str):
                 "subtitle_color": getattr(job, "subtitle_color", None),
                 "subtitle_dx": getattr(job, "subtitle_dx", None),
                 "subtitle_y": getattr(job, "subtitle_y", None),
+                "motion_speed": getattr(job, "motion_speed", None),
                 "typecast_api_key": keys["typecast"],
             }
 

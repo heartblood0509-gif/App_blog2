@@ -15,6 +15,8 @@ import { createPortal } from "react-dom";
 import {
   clampTransform,
   computePlacement,
+  DEFAULT_MOTION_SPEED,
+  MOTION_ZOOM_MAX,
   OFFSET_MAX,
   SCALE_MIN,
   SCALE_MAX,
@@ -49,6 +51,9 @@ export function TransformablePreviewMedia({
   spotlight = false,
   clipStart,
   clipWindow,
+  motion,
+  motionRate,
+  motionDurationSec,
   onChange,
   onCommit,
 }: {
@@ -64,6 +69,10 @@ export function TransformablePreviewMedia({
   // 영상 조각(clip)에서 실제 쓰이는 구간 [clipStart, clipStart+clipWindow]만 반복 재생(WYSIWYG).
   clipStart?: number | null;
   clipWindow?: number | null;
+  // 줌(모션) 미리보기 — "zoom_in"/"zoom_out"이면 프레임 중심 기준 확대/축소를 반복 재생.
+  motion?: string | null;
+  motionRate?: number; // 초당 확대 비율(작업 전역)
+  motionDurationSec?: number | null; // 이 줄 나레이션 길이(초) — 반복 주기·최대 배율 계산용
   onChange: (t: LineTransform) => void; // 드래그/휠 중 실시간 갱신(미저장)
   onCommit: (t: LineTransform) => void; // 확정(서버 저장) — 드래그 끝/휠 정지 시
 }) {
@@ -83,6 +92,68 @@ export function TransformablePreviewMedia({
   useEffect(() => {
     tRef.current = transform;
   }, [transform]);
+
+  // ── 프리뷰 실시간 모션 ──
+  // 최종 렌더(ffmpeg zoompan)를 CSS scale 애니메이션으로 근사해 항상 반복 재생한다.
+  // 미디어를 감싼 "줌 레이어"(프레임과 동일 크기·중심)를 scale 하면, 렌더의 "합성 프레임 전체를
+  // 프레임 중심 기준 확대 후 중앙 크롭"과 같은 그림이 된다(검정 배경은 스케일돼도 무해).
+  const motionLayerRef = useRef<HTMLDivElement>(null);
+  const animRef = useRef<Animation | null>(null);
+  // 속도 슬라이더를 끌면 rate 가 바뀌며 애니메이션이 재생성되는데, 직전 진행 위상(ms)을 이어받아
+  // scale(1) 로 튕기지 않고 매끄럽게 이어지게 한다(같은 줄이면 주기 d 가 동일 → 위상 그대로 유효).
+  const phaseRef = useRef<number | null>(null);
+  // 편집(드래그·리사이즈·크기 슬라이더) 중엔 정지 — 좌표 수식·외곽선과 시각이 어긋나지 않게.
+  const pausedRef = useRef(false);
+  useEffect(() => {
+    pausedRef.current = focused || spotlight;
+    const anim = animRef.current;
+    if (!anim) return;
+    if (pausedRef.current) anim.pause();
+    else anim.play();
+  }, [focused, spotlight]);
+
+  useEffect(() => {
+    const layer = motionLayerRef.current;
+    if (!layer) return;
+    const zoom = motion === "zoom_in" || motion === "zoom_out";
+    const rate = motionRate ?? DEFAULT_MOTION_SPEED;
+    const d = motionDurationSec && motionDurationSec > 0 ? motionDurationSec : 4;
+    const end = Math.min(1 + rate * d, MOTION_ZOOM_MAX);
+    // 줌이 아니거나(none·레거시 팬) 편집 불가·미로드·확대량 0 이면 애니메이션 없음.
+    if (disabled || !nat || !zoom || end <= 1.0001) {
+      layer.style.transform = "";
+      return;
+    }
+    // 상한(1.5x)에 걸리면 그 지점(capT) 이후로는 등속 정지 — 렌더의 z 클램프와 동일.
+    const capT = Math.min(1, (end - 1) / (rate * d));
+    const zoomIn = motion === "zoom_in";
+    const a = zoomIn ? 1 : end; // 시작 배율
+    const b = zoomIn ? end : 1; // 목표 배율
+    const durMs = d * 1000;
+    const anim = layer.animate(
+      [
+        { transform: `scale(${a})`, offset: 0 },
+        { transform: `scale(${b})`, offset: capT },
+        { transform: `scale(${b})`, offset: 1 },
+      ],
+      { duration: durMs, iterations: Infinity, easing: "linear" },
+    );
+    if (phaseRef.current != null) {
+      try {
+        anim.currentTime = phaseRef.current % durMs; // 직전 위상 이어받기(rate 변경 시 매끄럽게)
+      } catch {
+        /* noop */
+      }
+    }
+    animRef.current = anim;
+    if (pausedRef.current) anim.pause();
+    return () => {
+      const t = anim.currentTime;
+      phaseRef.current = typeof t === "number" ? t : null;
+      anim.cancel();
+      if (animRef.current === anim) animRef.current = null;
+    };
+  }, [motion, motionRate, motionDurationSec, nat, disabled]);
 
   // 이동 드래그: 스냅과 무관한 원시 누적 위치를 따로 들고 간다(스냅에 붙어도 포인터가
   // 반경만 벗어나면 바로 풀리게 — 자석이 드래그를 "붙잡는" 느낌 방지).
@@ -300,6 +371,13 @@ export function TransformablePreviewMedia({
   const place = nat
     ? computePlacement(nat.w, nat.h, transform, frameWidth, frameHeight)
     : null;
+  // 줌 애니메이션의 중심(=미디어 자체 중앙). 위치를 옮기면 그 미디어 중앙을 축으로 확대되게
+  // transform-origin 을 미디어 중앙 px 로 둔다(렌더 zoom_anchor 와 동일). 프레임 밖은 클램프.
+  // 기본(옮기지 않음)이면 미디어 중앙 = 프레임 중앙이라 정중앙 줌.
+  const motionOrigin = place
+    ? `${Math.min(frameWidth, Math.max(0, place.left + place.width / 2))}px ` +
+      `${Math.min(frameHeight, Math.max(0, place.top + place.height / 2))}px`
+    : "center";
   const mediaStyle: React.CSSProperties = place
     ? {
         position: "absolute",
@@ -339,8 +417,15 @@ export function TransformablePreviewMedia({
           (disabled ? " cursor-default" : " cursor-grab active:cursor-grabbing")
         }
       >
-        {kind === "clip" ? (
-          <video
+        {/* 줌 레이어 — 프레임과 동일 크기. scale 애니메이션의 중심(transform-origin)은 미디어 자체
+            중앙(motionOrigin). 배치 좌표계는 보존, 줌만 미디어 중앙을 축으로 돈다. */}
+        <div
+          ref={motionLayerRef}
+          className="pointer-events-none absolute inset-0 will-change-transform"
+          style={{ transformOrigin: motionOrigin }}
+        >
+          {kind === "clip" ? (
+            <video
             ref={videoElRef}
             key={src}
             src={src}
@@ -376,15 +461,16 @@ export function TransformablePreviewMedia({
         ) : (
           // eslint-disable-next-line @next/next/no-img-element -- 프록시 경유 동적 이미지(서버 최적화 부적합)
           <img
-            src={src}
-            alt="자산 미리보기"
-            draggable={false}
-            onLoad={(e) =>
-              setNat({ w: e.currentTarget.naturalWidth, h: e.currentTarget.naturalHeight })
-            }
-            style={mediaStyle}
-          />
-        )}
+              src={src}
+              alt="자산 미리보기"
+              draggable={false}
+              onLoad={(e) =>
+                setNat({ w: e.currentTarget.naturalWidth, h: e.currentTarget.naturalHeight })
+              }
+              style={mediaStyle}
+            />
+          )}
+        </div>
 
         {/* 중앙 마그네틱 가이드라인 — 스냅 순간에만 표시(프레임 안, 클리핑 OK) */}
         {guides.v && (

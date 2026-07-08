@@ -60,6 +60,12 @@ import {
   isDefaultTransform,
   SCALE_MIN,
   SCALE_MAX,
+  MOTION_SPEED_PCT_MIN,
+  MOTION_SPEED_PCT_MAX,
+  MOTION_SPEED_PCT_STEP,
+  MOTION_SPEED_PCT_DEFAULT,
+  rateFromSpeedPct,
+  speedPctFromRate,
   type LineTransform,
 } from "@/lib/youtube/transform";
 import { VoiceSettingsBar } from "../shared/VoiceSettingsBar";
@@ -131,6 +137,11 @@ const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
 const isReady = (l: ScriptLine) => l.status === "ready";
 const isFailed = (l: ScriptLine) => l.status === "failed";
+// 프리뷰 모션 반복 주기용 줄 길이(초) 추정 — 음성 미빌드라 실제 나레이션 길이를 모를 때의 폴백.
+// 자막 순환 추정과 같은 글자수×0.15초 계수. 최소 2.5초로 너무 빠른 반복을 막는다.
+// 초당 줌 속도(rate)는 duration 과 무관하게 일정하므로, 추정이 대략만 맞아도 체감 속도는 정확.
+const estimateLineSec = (l: ScriptLine | undefined): number =>
+  l ? Math.max(2.5, displayLen(l.text ?? "") * 0.15) : 4;
 // 생성/업로드 진행 중: 아직 pending 인데 단계(asset_step)가 찍혀 있음.
 const isWorking = (l: ScriptLine) => l.status === "pending" && !!l.asset_step;
 const anyWorking = (ls: ScriptLine[]) => ls.some(isWorking);
@@ -144,21 +155,26 @@ const SOURCE_LABEL: Record<LineSource, string> = {
   clip: "영상",
 };
 
-// 움직임(모션) 효과 선택지. 영상 줄은 팬/줌아웃 대신 "없음/서서히 확대"만(백엔드 process_user_clip 제약).
+// 움직임(모션) 효과 선택지. 이미지·영상 모두 "없음/줌 인/줌 아웃" 중에서 고른다.
+// 영상 줄은 줌아웃 없이 "없음/줌 인"만(백엔드 process_user_clip 제약).
 type MotionOption = { value: string; label: string };
 const IMAGE_MOTIONS: MotionOption[] = [
   { value: "none", label: "모션 없음" },
   { value: "zoom_in", label: "줌 인 (확대)" },
   { value: "zoom_out", label: "줌 아웃 (축소)" },
-  { value: "pan_left", label: "왼쪽으로" },
-  { value: "pan_right", label: "오른쪽으로" },
-  { value: "pan_up", label: "위로" },
-  { value: "pan_down", label: "아래로" },
 ];
 const CLIP_MOTIONS: MotionOption[] = [
   { value: "none", label: "모션 없음" },
-  { value: "zoom_in", label: "서서히 확대" },
+  { value: "zoom_in", label: "줌 인 (확대)" },
 ];
+// 예전 버전에서 저장된 팬(pan) 효과 — 선택지에선 뺐지만 값은 유효(렌더는 계속 지원).
+// 옛 작업을 다시 열었을 때 드롭다운이 빈 채로 뜨지 않게 라벨만 남겨둔다.
+const LEGACY_MOTION_LABELS: Record<string, string> = {
+  pan_left: "왼쪽으로 (이전 효과)",
+  pan_right: "오른쪽으로 (이전 효과)",
+  pan_up: "위로 (이전 효과)",
+  pan_down: "아래로 (이전 효과)",
+};
 const SLIDER_COMMIT_MS = 400;
 // 크기 슬라이더 조작 뒤 외곽선/핸들을 잠깐 더 보여주는 시간(ms). "직접 잡을 수 있음" 힌트.
 const SPOTLIGHT_HOLD_MS = 1100;
@@ -1462,6 +1478,7 @@ export function LineAssetEditor() {
         subtitle_color: state.subtitleColor,
         subtitle_dx: state.subtitleDx,
         subtitle_y: state.subtitleY,
+        motion_speed: state.motionSpeed,
         subtitle_chunks_by_line: chunksMap,
       });
       update({ screen: "progress" });
@@ -1555,9 +1572,9 @@ export function LineAssetEditor() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cycleLineId, cycleChunksKey, cyclePlaying, subtitleDragging, snap]);
 
-  // 자막 스타일/위치·제목 위치가 바뀌면 draft-meta 에 디바운스 저장(confirm 없이 닫아도 보존)
-  // + 이 기기 마지막 스타일 기억. 위치(dx/y)는 기억 안 함(매번 기본에서 시작) — 스타일 4종만 saveLastSubtitle.
-  const subtitleMetaKey = `${state.subtitleFont}|${state.subtitleFontWeight}|${state.subtitleFontSize}|${state.subtitleColor}|${state.subtitleDx}|${state.subtitleY}|${state.titleDx}|${state.titleDy}`;
+  // 자막 스타일/위치·제목 위치·모션 속도가 바뀌면 draft-meta 에 디바운스 저장(confirm 없이 닫아도 보존)
+  // + 이 기기 마지막 자막 스타일 기억. 위치(dx/y)·모션 속도는 기억 안 함(자막 스타일 4종만 saveLastSubtitle).
+  const subtitleMetaKey = `${state.subtitleFont}|${state.subtitleFontWeight}|${state.subtitleFontSize}|${state.subtitleColor}|${state.subtitleDx}|${state.subtitleY}|${state.titleDx}|${state.titleDy}|${state.motionSpeed}`;
   const subtitleMetaTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const subtitleMetaHydrated = useRef(false);
   useEffect(() => () => {
@@ -1587,6 +1604,7 @@ export function LineAssetEditor() {
         subtitle_y: state.subtitleY,
         title_dx: state.titleDx,
         title_dy: state.titleDy,
+        motion_speed: state.motionSpeed,
       }).catch(() => {
         /* 편집 즉시 저장 실패는 조용히 무시 — confirm 시 어차피 전송된다 */
       });
@@ -1651,7 +1669,14 @@ export function LineAssetEditor() {
       DEFAULT_TRANSFORM,
   );
   const activeMotion = String(activeLine?.motion ?? "none");
-  const motionOptions = activeSource === "clip" ? CLIP_MOTIONS : IMAGE_MOTIONS;
+  const baseMotions = activeSource === "clip" ? CLIP_MOTIONS : IMAGE_MOTIONS;
+  // 기본 선택지에 없는 값(옛 팬 효과)이 저장돼 있으면 레거시 라벨로 뒤에 덧붙여 표시.
+  const motionOptions: MotionOption[] = baseMotions.some((m) => m.value === activeMotion)
+    ? baseMotions
+    : [
+        ...baseMotions,
+        { value: activeMotion, label: LEGACY_MOTION_LABELS[activeMotion] ?? activeMotion },
+      ];
   const activeEditable =
     !!activeLine && isReady(activeLine) && !activeWorking;
 
@@ -2249,6 +2274,9 @@ export function LineAssetEditor() {
                     spotlight={sliderSpotlight}
                     clipStart={activeSource === "clip" ? activeClipStart : null}
                     clipWindow={activeSource === "clip" ? activeNeeded : null}
+                    motion={activeMotion}
+                    motionRate={state.motionSpeed}
+                    motionDurationSec={activeNeeded ?? estimateLineSec(activeLine)}
                     onChange={onTransformChange}
                     onCommit={onTransformCommit}
                   />
@@ -2321,6 +2349,44 @@ export function LineAssetEditor() {
                   </SelectContent>
                 </Select>
               </div>
+              {/* 모션 속도 — 작업 전역(모든 줄 공통). 줌 효과가 켜진 줄에서만 노출.
+                  초당 속도 고정이라 짧은 영상도 빠르지 않게, 슬라이더로 자유롭게 조절.
+                  값은 기준 속도(100%) 대비 % — 저장은 rate 로. */}
+              {activeMotion !== "none" ? (
+                <div className="flex items-center gap-3">
+                  <span className="w-9 shrink-0 text-xs font-medium text-muted-foreground">
+                    속도
+                  </span>
+                  <Slider
+                    className="flex-1"
+                    min={MOTION_SPEED_PCT_MIN}
+                    max={MOTION_SPEED_PCT_MAX}
+                    step={MOTION_SPEED_PCT_STEP}
+                    value={speedPctFromRate(state.motionSpeed)}
+                    onValueChange={(v) =>
+                      update({ motionSpeed: rateFromSpeedPct(Number(v)) })
+                    }
+                  />
+                  <span className="w-11 shrink-0 text-right text-xs tabular-nums text-muted-foreground">
+                    {speedPctFromRate(state.motionSpeed)}%
+                  </span>
+                  <Button
+                    variant="ghost"
+                    size="xs"
+                    className="shrink-0 text-muted-foreground"
+                    onClick={() => update({ motionSpeed: rateFromSpeedPct(MOTION_SPEED_PCT_DEFAULT) })}
+                    disabled={speedPctFromRate(state.motionSpeed) === MOTION_SPEED_PCT_DEFAULT}
+                    title="속도를 기본(100%)으로 되돌려요"
+                  >
+                    <RotateCcw className="size-3" /> 원래대로
+                  </Button>
+                </div>
+              ) : null}
+              {activeMotion !== "none" ? (
+                <p className="pl-12 text-[0.7rem] text-muted-foreground">
+                  모든 줄에 함께 적용돼요. 영상 길이와 상관없이 같은 빠르기로 움직입니다.
+                </p>
+              ) : null}
               {/* 쓸 구간 조정 — 저장된 조각(여유분 포함) 위에서 나레이션 창을 드래그 */}
               {showClipStartSlider ? (
                 <div className="flex items-center gap-3">
