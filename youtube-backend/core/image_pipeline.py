@@ -10,6 +10,63 @@ from PIL import Image
 
 from core.ffmpeg import FFMPEG_Q, FFPROBE_Q
 
+# 줌(Ken Burns) 속도 모델: "초당 확대 비율" 고정. 클립 길이와 무관하게 체감 속도가 일정하다.
+# 기본 0.0125 = 초당 1.25% → 4초 줄이면 총 5% 확대(기존 "전체 5% 고정"과 같은 체감).
+# 짧은 줄은 확대량이 작고 긴 줄은 크지만(상한 ZOOM_MAX), 속도는 어떤 줄에서도 똑같이 느껴진다.
+DEFAULT_ZOOM_RATE = 0.0125
+ZOOM_MAX = 1.5  # 줌 안전 상한(4배 업스케일이라 1.5x까지 화질 여유 충분)
+
+
+def ken_burns_zoom_expr(
+    motion_type: str,
+    zoom_rate: float,
+    duration: float,
+    fps: int,
+) -> str:
+    """zoompan 의 z='...' 안에 들어갈 배율 식을 만든다(초당 zoom_rate 등속).
+
+    - zoom_in: 1.0 에서 매 프레임 zoom_rate/fps 씩 증가, 상한 ZOOM_MAX.
+    - zoom_out: 시작값 z0=min(1+zoom_rate*duration, ZOOM_MAX) 에서 1.0 까지 등속 감소.
+    - 그 외(줌 아닌 모션): 팬 고정 배율 1.15.
+    ffmpeg 없이 단위 테스트할 수 있게 순수 함수로 분리.
+    """
+    rate_per_frame = zoom_rate / fps
+    if motion_type == "zoom_in":
+        return f"min(1+{rate_per_frame:.8f}*on,{ZOOM_MAX})"
+    if motion_type == "zoom_out":
+        z0 = min(1.0 + zoom_rate * duration, ZOOM_MAX)
+        return f"max({z0:.6f}-{rate_per_frame:.8f}*on,1.0)"
+    return "1.15"
+
+
+def zoom_anchor(transform, width: int, height: int) -> tuple[float, float]:
+    """줌 중심(=미디어 자체 중앙)을 프레임 px 로 계산.
+
+    미디어 중앙 = 프레임 중앙 + transform 이동량(x,y). 위치를 옮기면 그 미디어의 중앙을
+    축으로 줌되게 한다(프리뷰와 동일). 프레임 밖으로 나간 중앙은 [0,W]×[0,H] 로 클램프
+    (오프스크린 앵커·crop 범위 이탈 방지). transform=None/기본이면 정중앙(W/2,H/2).
+    """
+    t = normalize_transform(transform)
+    cx = min(float(width), max(0.0, width / 2 + t["x"] * width))
+    cy = min(float(height), max(0.0, height / 2 + t["y"] * height))
+    return cx, cy
+
+
+def zoom_crop(zexpr: str, width: int, height: int, cx: float, cy: float) -> str:
+    """배율식(zexpr)으로 확대된 프레임을 앵커 (cx,cy) 기준으로 width×height 크롭하는 필터 조각.
+
+    ⚠️ crop 오프셋을 배율식으로 직접 계산해야 한다. scale(eval=frame) 으로 프레임이 매 프레임
+    커져도 crop 의 iw/ih 는 링크 설정 시점(첫 프레임)으로 고정 평가되므로, 흔한 `(iw-W)/2` 는
+    항상 0(좌상단)이 되어 줌 중심이 좌상단 모서리로 쏠린다(프리뷰와 불일치).
+    앵커 (cx,cy) 를 화면에 고정: 배율 z 에서 오프셋 = (cx*(z-1), cy*(z-1)).
+    cx∈[0,W] 이라 오프셋∈[0, W(z-1)]=[0, iw-W] 로 항상 유효. cx=W/2,cy=H/2 면 정중앙.
+    작은따옴표로 감싸 식 안 콤마(min 등)가 필터 구분자로 오인되지 않게 한다.
+    """
+    return (
+        f"crop={width}:{height}:"
+        f"x='{cx:.3f}*({zexpr}-1)':y='{cy:.3f}*({zexpr}-1)'"
+    )
+
 
 def apply_ken_burns(
     image_path: str,
@@ -19,14 +76,20 @@ def apply_ken_burns(
     width: int = 1080,
     height: int = 1920,
     fps: int = 30,
+    zoom_rate: float = DEFAULT_ZOOM_RATE,
+    transform=None,
 ):
     """
     이미지에 Ken Burns 효과(줌/팬)를 적용하여 영상 클립 생성.
 
     4배 업스케일 후 zoompan 적용 → 줌 시 화질 저하 방지.
+    zoom_rate 는 초당 확대 비율(줌인/줌아웃에만 유효, 팬은 고정 배율).
+    transform 은 줌 중심을 정하는 데만 쓴다(미디어 자체 중앙 = 프레임중앙+이동량). 배치 자체는
+    이미 합성된 입력 이미지에 반영돼 있고, 여기선 그 위에서 어디를 축으로 줌할지만 결정한다.
     """
     total_frames = int(duration * fps)
-    zoom_speed = 0.05 / total_frames  # 전체 5% 줌 (AI 클립 process_ai_clip 과 동일)
+    z_in = ken_burns_zoom_expr("zoom_in", zoom_rate, duration, fps)
+    z_out = ken_burns_zoom_expr("zoom_out", zoom_rate, duration, fps)
 
     # 업스케일 해상도 (4배) - 비율 유지하며 프레임을 채우도록 스케일링
     up_w = width * 4
@@ -39,15 +102,21 @@ def apply_ken_burns(
         f":flags=lanczos"
     )
 
+    # 줌 앵커(미디어 자체 중앙)를 업스케일 좌표로. 배율 z 에서 뷰포트 좌상단 = C*(z-1)/z 이면
+    # 점 C 가 화면에서 제자리(같은 위치)에 고정된다. C=중앙이면 기존 정중앙 줌과 동일.
+    cx, cy = zoom_anchor(transform, width, height)
+    zx = f"{cx * up_w / width:.3f}*(zoom-1)/zoom"
+    zy = f"{cy * up_h / height:.3f}*(zoom-1)/zoom"
+
     filter_map = {
         "zoom_in": (
-            f"zoompan=z='min(1+{zoom_speed}*on,1.05)':"
-            f"x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':"
+            f"zoompan=z='{z_in}':"
+            f"x='{zx}':y='{zy}':"
             f"d={total_frames}:s={width}x{height}:fps={fps}"
         ),
         "zoom_out": (
-            f"zoompan=z='max(1.05-{zoom_speed}*on,1.0)':"
-            f"x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':"
+            f"zoompan=z='{z_out}':"
+            f"x='{zx}':y='{zy}':"
             f"d={total_frames}:s={width}x{height}:fps={fps}"
         ),
         "pan_left": (
@@ -122,11 +191,15 @@ def process_ai_clip(
     # 1. 먼저 목표 해상도로 업스케일 (AI 클립은 512x916 등 저해상도)
     # 2. 매 프레임 점진적 확대 (1.0x → 1.05x)
     # 3. 확대된 프레임의 정중앙을 목표 크기로 crop
+    #    crop 오프셋은 t 기반 명시식 — scale(eval=frame) 뒤 crop 의 iw 가 첫 프레임값으로 고정
+    #    평가돼 (iw-W)/2 가 0(좌상단)으로 쏠리는 버그를 피하고 중앙 고정(process_user_clip 과 동일).
+    zexpr = f"({zoom_start}+{zoom_range}*t/{duration})"
+    # AI 클립은 프레임을 꽉 채우는 전체 영상이라 앵커=정중앙.
     vf = (
         f"scale={width}:{height}:flags=lanczos,"
-        f"scale=w='iw*({zoom_start}+{zoom_range}*t/{duration})':"
-        f"h='ih*({zoom_start}+{zoom_range}*t/{duration})':eval=frame:flags=lanczos,"
-        f"crop={width}:{height}:(iw-{width})/2:(ih-{height})/2"
+        f"scale=w='iw*{zexpr}':"
+        f"h='ih*{zexpr}':eval=frame:flags=lanczos,"
+        f"{zoom_crop(zexpr, width, height, width / 2, height / 2)}"
     )
 
     cmd = (
@@ -355,11 +428,12 @@ def process_user_clip(
     height: int = 1920,
     fps: int = 30,
     start: float = 0.0,
+    zoom_rate: float = DEFAULT_ZOOM_RATE,
 ) -> str:
     """사용자 업로드 영상: 원본 비율 유지한 채 transform 대로 검정 캔버스에 배치 + trim.
 
     - 왜곡 없음: scale 로 비율 유지 리사이즈 후 overlay(음수 좌표·오버플로 크롭 허용).
-    - motion="zoom_in" 이면 합성 프레임(9:16)에 기존과 동일한 5% 서서히 줌인을 적용.
+    - motion="zoom_in" 이면 합성 프레임(9:16)에 초당 zoom_rate 등속 줌인을 적용(상한 ZOOM_MAX).
     - setsar=1 로 휴대폰 영상의 앵글드 SAR(비정방 픽셀) 왜곡을 무력화.
     - start>0 이면 `-ss` 를 `-i` 앞에 둬 그 지점부터 사용(선트림 조각의 앞 여유분 건너뛰기).
       입력 시킹이라 출력 타임스탬프가 0 부터 재시작 → zoom_in 의 t/{duration} 수식이 그대로 유효.
@@ -376,12 +450,17 @@ def process_user_clip(
         f"[bg][fg]overlay={OX}:{OY}:shortest=1"
     )
     if motion == "zoom_in":
-        # process_ai_clip 과 동일한 점진 확대(1.0→1.05) — 입력이 이미 9:16 이라 왜곡 없음.
+        # 초당 zoom_rate 등속 확대(상한 ZOOM_MAX) — 입력이 이미 9:16 이라 왜곡 없음.
+        # min(...,...) 안 콤마는 작은따옴표로 보호돼 필터 구분자로 오인되지 않는다(zoompan 과 동일).
+        zexpr = f"min(1.0+{zoom_rate:.6f}*t,{ZOOM_MAX})"
+        # 미디어 자체 중앙 기준 줌(프리뷰와 일치). 위치를 옮기면 그 영상 중앙을 축으로 확대.
+        cx, cy = zoom_anchor(transform, width, height)
         vf = (
             f"{place}[comp];"
-            f"[comp]scale=w='iw*(1.0+0.05*t/{duration})':"
-            f"h='ih*(1.0+0.05*t/{duration})':eval=frame:flags=lanczos,"
-            f"crop={width}:{height}:(iw-{width})/2:(ih-{height})/2,format=yuv420p[v]"
+            f"[comp]scale=w='iw*{zexpr}':"
+            f"h='ih*{zexpr}':eval=frame:flags=lanczos,"
+            f"{zoom_crop(zexpr, width, height, cx, cy)},"
+            f"format=yuv420p[v]"
         )
     else:
         vf = f"{place},format=yuv420p[v]"

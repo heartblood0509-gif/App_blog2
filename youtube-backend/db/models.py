@@ -93,6 +93,8 @@ class Job(Base):
     subtitle_color = Column(String, nullable=True)
     subtitle_dx = Column(Integer, nullable=True)
     subtitle_y = Column(Integer, nullable=True)
+    # 줌(모션) 속도 — 작업 전역, 모든 줄 공통. 초당 확대 비율(0.0125=1.25%/s). None=기본.
+    motion_speed = Column(Float, nullable=True)
     script_json = Column(Text, default="[]")
     # 카드 A("AI가 모두 생성")는 "ai_full", 카드 B("사용자 직접 제공")는 "user_assets"
     generation_mode = Column(String, default="ai_full")
