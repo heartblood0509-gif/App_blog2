@@ -9,7 +9,7 @@
 // (scrollWidth)는 TitleSelect(Card A, 현재 비활성) 와 동일 패턴 — 향후 공통 컴포넌트로 추출 여지.
 // 제목은 선택: 비워도 진행 가능(제목 없으면 최종 영상에서 오버레이 생략).
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { ArrowRight, Loader2, Scissors } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -27,19 +27,17 @@ import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 import { useYt } from "../state";
 import { autoSplitTitle, combineTitle } from "@/lib/youtube/title";
-import {
-  TITLE_STROKE as STROKE,
-  TITLE_SHADOW as SHADOW,
-} from "../ShortsPreviewFrame";
+import { ShortsPreviewFrame } from "../ShortsPreviewFrame";
 import { TitleColorPicker } from "../TitleColorPicker";
 import {
   TITLE_FONTS,
   TITLE_FONT_SIZE_MIN,
   TITLE_FONT_SIZE_MAX,
+  TITLE_LINE_GAP_MIN,
+  TITLE_LINE_GAP_MAX,
   getTitleFont,
   titleFontStyle,
   normalizeWeight,
-  previewFontSizePx,
 } from "@/lib/youtube/fonts";
 import { saveLastUsed } from "@/lib/youtube/title-defaults";
 import { createDraft, saveDraftMeta, splitScript } from "@/lib/youtube/endpoints";
@@ -66,31 +64,8 @@ export function ScriptInput() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // 폰트 렌더 폭 기준 오버플로 측정(scrollWidth > 프레임 폭). 원본/ TitleSelect 와 동일하게 rAF.
-  const frameRef = useRef<HTMLDivElement>(null);
-  const line1Ref = useRef<HTMLDivElement>(null);
-  const line2Ref = useRef<HTMLDivElement>(null);
+  // 제목 줄이 프레임 폭을 넘는지 — ShortsPreviewFrame 이 측정해 콜백으로 알려준다(경고 표시용).
   const [overflow, setOverflow] = useState(false);
-  const [frameWidth, setFrameWidth] = useState(200);
-  useEffect(() => {
-    const frame = frameRef.current;
-    const el1 = line1Ref.current;
-    const el2 = line2Ref.current;
-    if (!frame || !el1 || !el2) return;
-    const raf = requestAnimationFrame(() => {
-      const w = frame.clientWidth;
-      setFrameWidth(w);
-      setOverflow(el1.scrollWidth > w || el2.scrollWidth > w);
-    });
-    return () => cancelAnimationFrame(raf);
-    // 폰트/굵기/크기가 바뀌면 프레임 대비 오버플로가 달라지므로 재측정한다.
-  }, [
-    state.titleLine1,
-    state.titleLine2,
-    state.titleFont,
-    state.titleFontWeight,
-    state.titleFontSize,
-  ]);
 
   // 스타일 변경을 "이 기기 마지막 스타일"로 자동 기억(디바운스). 새 영상은 이 값으로 시작.
   useEffect(() => {
@@ -98,6 +73,9 @@ export function ScriptInput() {
       font: state.titleFont,
       weight: state.titleFontWeight,
       size: state.titleFontSize,
+      line1Size: state.titleLine1Size,
+      line2Size: state.titleLine2Size,
+      lineGap: state.titleLineGap,
       color1: state.titleColor1,
       color2: state.titleColor2,
     });
@@ -105,12 +83,13 @@ export function ScriptInput() {
     state.titleFont,
     state.titleFontWeight,
     state.titleFontSize,
+    state.titleLine1Size,
+    state.titleLine2Size,
+    state.titleLineGap,
     state.titleColor1,
     state.titleColor2,
   ]);
 
-  const titleStyle = titleFontStyle(state.titleFont, state.titleFontWeight);
-  const previewPx = previewFontSizePx(state.titleFontSize, frameWidth);
   const selectedFont = getTitleFont(state.titleFont);
   // 굵기 목록은 굵은 순(위)→얇은 순(아래)으로 표시.
   const weightItems = selectedFont.weights
@@ -154,8 +133,13 @@ export function ScriptInput() {
             title_font: state.titleFont,
             title_font_weight: state.titleFontWeight,
             title_font_size: state.titleFontSize,
+            title_line1_size: state.titleLine1Size,
+            title_line2_size: state.titleLine2Size,
+            title_line_gap: state.titleLineGap,
             title_color1: state.titleColor1,
             title_color2: state.titleColor2,
+            title_dx: state.titleDx,
+            title_dy: state.titleDy,
           });
           update({
             selectedTitle: combineTitle(n1, n2),
@@ -192,6 +176,11 @@ export function ScriptInput() {
         state.titleFontSize,
         state.titleColor1,
         state.titleColor2,
+        state.titleLine1Size,
+        state.titleLine2Size,
+        state.titleLineGap,
+        state.titleDx,
+        state.titleDy,
       );
       update({
         jobId: draft.job_id,
@@ -221,55 +210,44 @@ export function ScriptInput() {
           제목은 선택이에요. 비워두면 영상에 제목 없이 만들어집니다.
         </p>
 
-        <p className="mt-4 text-sm font-medium text-foreground">
-          영상에 표시될 제목 (2줄)
-        </p>
-        <div className="mt-3 flex flex-col gap-6 sm:flex-row">
-          {/* 미리보기 프레임 (9:16) — 크게. 내부 위치는 200px 기준 metric ×1.25 로 스케일. */}
-          <div
-            ref={frameRef}
-            className={cn(
-              "relative h-[444px] w-[250px] flex-shrink-0 overflow-hidden rounded-xl border bg-[#0a0a14]",
-              overflow ? "border-destructive" : "border-border",
-            )}
-          >
-            <div
-              ref={line1Ref}
-              className="absolute top-[30px] w-full whitespace-nowrap text-center"
-              style={{
-                ...titleStyle,
-                fontSize: `${previewPx}px`,
-                color: state.titleColor1,
-                WebkitTextStroke: STROKE,
-                textShadow: SHADOW,
-              }}
-            >
-              {state.titleLine1}
-            </div>
-            <div
-              ref={line2Ref}
-              className="absolute top-[62px] w-full whitespace-nowrap text-center"
-              style={{
-                ...titleStyle,
-                fontSize: `${previewPx}px`,
-                color: state.titleColor2,
-                WebkitTextStroke: STROKE,
-                textShadow: SHADOW,
-              }}
-            >
-              {state.titleLine2}
-            </div>
-            <div className="absolute top-[97px] left-0 h-[250px] w-full border-y border-dashed border-white/15 bg-white/5" />
+        <div className="mt-4 flex flex-col gap-6 sm:flex-row">
+          {/* 미리보기 = 화면·소리 단계와 동일한 ShortsPreviewFrame(단일 출처). 이 단계엔 미디어가
+              없어 가운데는 체커보드 밴드로, 상단엔 썸네일 잘림선을 표시(showChecker/showThumbCrop).
+              제목은 드래그로 한 덩어리 이동 + 가로중앙/기본높이 마그네틱(onTitlePosChange).
+              줄별 크기·간격은 최종 렌더와 동일 공식으로 그려 WYSIWYG. */}
+          <div className="flex-shrink-0">
+            <ShortsPreviewFrame
+              width={250}
+              titleLine1={state.titleLine1}
+              titleLine2={state.titleLine2}
+              titleFont={state.titleFont}
+              titleFontWeight={state.titleFontWeight}
+              titleColor1={state.titleColor1}
+              titleColor2={state.titleColor2}
+              titleLine1Size={state.titleLine1Size}
+              titleLine2Size={state.titleLine2Size}
+              titleLineGap={state.titleLineGap}
+              titleDx={state.titleDx}
+              titleDy={state.titleDy}
+              onTitlePosChange={(dx, dy) => update({ titleDx: dx, titleDy: dy })}
+              onOverflowChange={setOverflow}
+              showChecker
+              showThumbCrop
+              className={cn(overflow && "border-destructive")}
+            />
             {overflow && (
-              <div className="absolute bottom-2 w-full text-center text-sm font-semibold text-destructive">
-                프레임을 벗어나요
-              </div>
+              <p className="mt-1.5 text-center text-sm font-semibold text-destructive">
+                제목이 프레임을 벗어나요
+              </p>
             )}
+            <p className="mt-1 text-center text-xs tabular-nums text-muted-foreground">
+              위치 가로 {state.titleDx} · 세로 {state.titleDy}
+            </p>
           </div>
 
-          {/* 오른쪽: 입력칸(위) → 글씨체 → 굵기 → 크기. 미리보기 높이(444)에 맞춰 균등 배치.
-              좁은 창(sm 미만)에선 고정높이 해제하고 자연 스택. */}
-          <div className="flex flex-1 flex-col gap-4 sm:h-[444px] sm:justify-between">
+          {/* 오른쪽: 입력칸(위) → 글씨체 → 굵기 → 크기 슬라이더 3개. 내용이 미리보기(444)보다
+              길어질 수 있어 고정높이를 두지 않고 자연 스택 — 카드가 내용에 맞춰 아래로 늘어난다. */}
+          <div className="flex flex-1 flex-col gap-4">
             {/* 제목 2줄 입력 */}
             <div className="flex flex-col gap-3">
               <div className="grid gap-1.5">
@@ -368,19 +346,47 @@ export function ScriptInput() {
               </Select>
             </div>
 
-            {/* 글자 크기 */}
+            {/* 글자 크기(줄별) + 줄 간격. 첫 줄 크기는 레거시 앵커(title_font_size)와 동기화. */}
             <div className="flex items-center gap-3">
-              <p className="whitespace-nowrap text-sm font-medium text-foreground">글자 크기</p>
+              <p className="w-20 whitespace-nowrap text-sm font-medium text-foreground">첫 줄 크기</p>
               <Slider
                 className="flex-1"
                 min={TITLE_FONT_SIZE_MIN}
                 max={TITLE_FONT_SIZE_MAX}
                 step={2}
-                value={state.titleFontSize}
-                onValueChange={(v) => update({ titleFontSize: v })}
+                value={state.titleLine1Size}
+                onValueChange={(v) => update({ titleLine1Size: v, titleFontSize: v })}
               />
               <span className="w-10 text-right text-sm tabular-nums text-muted-foreground">
-                {state.titleFontSize}
+                {state.titleLine1Size}
+              </span>
+            </div>
+            <div className="flex items-center gap-3">
+              <p className="w-20 whitespace-nowrap text-sm font-medium text-foreground">둘째 줄 크기</p>
+              <Slider
+                className="flex-1"
+                min={TITLE_FONT_SIZE_MIN}
+                max={TITLE_FONT_SIZE_MAX}
+                step={2}
+                value={state.titleLine2Size}
+                onValueChange={(v) => update({ titleLine2Size: v })}
+              />
+              <span className="w-10 text-right text-sm tabular-nums text-muted-foreground">
+                {state.titleLine2Size}
+              </span>
+            </div>
+            <div className="flex items-center gap-3">
+              <p className="w-20 whitespace-nowrap text-sm font-medium text-foreground">줄 간격</p>
+              <Slider
+                className="flex-1"
+                min={TITLE_LINE_GAP_MIN}
+                max={TITLE_LINE_GAP_MAX}
+                step={4}
+                value={state.titleLineGap}
+                onValueChange={(v) => update({ titleLineGap: v })}
+              />
+              <span className="w-10 text-right text-sm tabular-nums text-muted-foreground">
+                {state.titleLineGap}
               </span>
             </div>
           </div>

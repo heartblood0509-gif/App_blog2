@@ -79,11 +79,20 @@ export const DEFAULT_TITLE_FONT_WEIGHT = "extrabold";
 export const DEFAULT_TITLE_FONT_SIZE = 120; // px, 1080폭 렌더 기준
 export const TITLE_FONT_SIZE_MIN = 70;
 export const TITLE_FONT_SIZE_MAX = 170;
+// 제목 줄별 글자 크기(px, 1080폭). 사용자가 맞춘 기본값(첫 줄 98 / 둘째 줄 120). 백엔드 title_line1/2_size 짝.
+export const DEFAULT_TITLE_LINE1_SIZE = 98;
+export const DEFAULT_TITLE_LINE2_SIZE = DEFAULT_TITLE_FONT_SIZE; // 120
+// 첫줄↔둘째줄 세로 간격(top-to-top, px, 1080폭). 사용자가 맞춘 기본값 108.
+export const DEFAULT_TITLE_LINE_GAP = 108;
+export const TITLE_LINE_GAP_MIN = 40;
+export const TITLE_LINE_GAP_MAX = 260;
 // 제목 위치 오프셋(렌더 기준 px). dx=가로 중앙 오프셋(1080폭), dy=기본 위치 기준 세로 델타(1920높이).
-// 0/0 = 기존 고정 위치(가로 중앙·상단). 자막(subtitleY=절대 y)과 달리 델타인 이유: 제목의 기본
-// 세로 위치는 백엔드가 폰트 크기로 계산하므로, 그 공식을 복제하지 않고 기존 위치에 더하기만 한다.
+// dx=0 = 가로 중앙. dy 는 폰트 크기로 계산되는 기본 상단 위치에 더해지는 델타. 사용자가 맞춘 기본
+// 세로 위치가 +38 이라 신규 제목이 썸네일 잘림선 아래에서 시작하도록 기본 dy=38.
+// ⚠️ 신규 draft 는 이 dy 를 createDraft 로 DB 에 저장해야 렌더(=DB dy)와 프리뷰가 일치한다.
+//    레거시 job(dy=null)은 렌더가 0 을 쓰므로 복원 시 0 으로 폴백(restorePatchFromDraft).
 export const DEFAULT_TITLE_DX = 0;
-export const DEFAULT_TITLE_DY = 0;
+export const DEFAULT_TITLE_DY = 38;
 
 // 자막 스타일 기본값(작업 전역). 폰트는 번들 4종 중 하나(제목과 동일 목록). 기본 프리텐다드·ExtraBold.
 // 크기/색/위치는 렌더 기준(1080×1920). y=자막 상단, dx=가로 중앙 오프셋.
@@ -120,4 +129,22 @@ export function titleFontStyle(fontId: string, weightId: string): {
 /** 렌더 기준 px(1080폭)을 미리보기 프레임 px로 환산. */
 export function previewFontSizePx(titleFontSize: number, frameWidth: number): number {
   return Math.round(titleFontSize * (frameWidth / 1080));
+}
+
+// 상단 검정 띠 높이(1080 정사각 레터박스, video_assembler sq_y = (1920-1080)/2).
+export const TITLE_SQ_Y = 420;
+
+/** 최종 렌더(video_assembler.py)의 제목 첫 줄 상단 y(렌더 px, 1080/1920 기준)를 그대로 복제.
+ *  줄별 크기(sizes)와 줄 간격(gap)으로 블록 높이를 계산해 상단 검정 띠 하단에 앉힌다.
+ *  각 줄 상단 = firstTy + j·gap. (세로 델타 title_dy 는 호출측에서 별도 적용.)
+ *  블록 높이 = (줄수-1)·gap + 마지막 줄 크기 → 백엔드 first_ty 공식과 픽셀 정합. */
+export function titleRenderFirstTy(sizes: number[], gap: number): number {
+  const n = sizes.length;
+  if (n <= 1) return TITLE_SQ_Y - (sizes[0] ?? DEFAULT_TITLE_FONT_SIZE) - 30;
+  return TITLE_SQ_Y - ((n - 1) * gap + sizes[n - 1]) - 10;
+}
+
+/** 줄 간격 기본값: 사용자 지정 없으면 기존 공식 round(130·size/120). */
+export function defaultTitleLineGap(baseFontSize: number): number {
+  return Math.round(130 * (baseFontSize / 120));
 }

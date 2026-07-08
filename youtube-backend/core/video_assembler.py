@@ -406,13 +406,40 @@ async def assemble_shorts(job_id: str, config: dict, progress_callback=None):
             title_lines = [tl1, tl2] if tl2 else [tl1]
         else:
             title_lines = split_title(title_text, max_chars=8)
-        # 사용자가 고른 제목 크기(px, 1080폭 기준). 기본 120. 테두리·그림자·줄간격은
-        # 120 기준값에 비례 스케일해 극단 크기에서도 균형 유지.
-        title_fontsize = max(70, min(170, int(config.get("title_font_size") or 120)))
-        _sf = title_fontsize / 120
-        title_line_gap = round(130 * _sf)
-        shadow_off = max(1, round(6 * _sf))
-        border_w = max(1, round(4 * _sf))
+        # 사용자가 고른 제목 크기(px, 1080폭 기준). 기본 120. 테두리·그림자는 각 줄 크기에
+        # 비례 스케일해 극단 크기에서도 균형 유지. base_fontsize 는 레거시 단일-크기 앵커.
+        base_fontsize = max(70, min(170, int(config.get("title_font_size") or 120)))
+
+        # 줄별 크기: None 이면 base 폴백(두 줄 단일 크기 = 레거시 불변). 클램프 70~170.
+        def _line_size(key):
+            v = config.get(key)
+            if v is None:
+                return base_fontsize
+            try:
+                return max(70, min(170, int(v)))
+            except (TypeError, ValueError):
+                return base_fontsize
+        size1 = _line_size("title_line1_size")
+        size2 = _line_size("title_line2_size")
+        line_sizes = [size1 if j == 0 else size2 if j == 1 else base_fontsize
+                      for j in range(len(title_lines))]
+
+        # 줄 간격(top-to-top, px). 사용자 지정이 있으면 그 값(40~260), 없으면 기존 공식.
+        _gap_cfg = config.get("title_line_gap")
+        if _gap_cfg is not None:
+            try:
+                title_line_gap = max(40, min(260, int(_gap_cfg)))
+            except (TypeError, ValueError):
+                title_line_gap = round(130 * (base_fontsize / 120))
+        else:
+            title_line_gap = round(130 * (base_fontsize / 120))
+
+        # 그림자·테두리는 줄별 크기에 비례(각 줄 자기 크기 기준).
+        def _shadow_off(fs):
+            return max(1, round(6 * fs / 120))
+        def _border_w(fs):
+            return max(1, round(4 * fs / 120))
+
         # 윗줄/아랫줄 색. 사용자 입력이 여기서 drawtext fontcolor 로 박히므로 normalize_hex 로
         # 2차 방어(#RRGGBB 아니면 기본색). 기본: 윗줄 흰색, 아랫줄 톤다운 노란색.
         from core.colors import normalize_hex, DEFAULT_TITLE_COLOR1, DEFAULT_TITLE_COLOR2
@@ -432,31 +459,34 @@ async def assemble_shorts(job_id: str, config: dict, progress_callback=None):
             title_dy = 0
         # 세로 델타는 1~2줄 블록 전체에 한 번만 보정해 적용 — dy 클램프만으로는 큰 폰트에서
         # 화면 밖으로 나갈 수 있어, 첫 줄 상단·마지막 줄 하단이 화면 안에 남도록 dy 를 당긴다(줄 간격 유지).
+        # 블록 높이 = (줄수-1)*gap + 마지막 줄 크기. 줄별 크기가 달라도 정확히 검정 띠 하단에 앉는다.
+        # (프론트 titleRenderFirstTy 와 동일 공식 → 프리뷰=렌더 픽셀 정합.)
         if len(title_lines) == 1:
-            first_ty = sq_y - title_fontsize - 30
+            first_ty = sq_y - line_sizes[0] - 30
         else:
-            first_ty = sq_y - (len(title_lines) * title_line_gap) - 10
+            first_ty = sq_y - ((len(title_lines) - 1) * title_line_gap + line_sizes[-1]) - 10
         last_ty = first_ty + (len(title_lines) - 1) * title_line_gap
-        title_dy = min(title_dy, (h - 8 - title_fontsize) - last_ty)
+        title_dy = min(title_dy, (h - 8 - line_sizes[-1]) - last_ty)
         title_dy = max(title_dy, 8 - first_ty)
         # 가로: 중앙 정렬 + 사용자 오프셋(px) — 자막 sub_x 와 동일 방식. dx>0 오른쪽, dx<0 왼쪽.
         title_x = f"(w-text_w)/2+({title_dx})"
         font_path_escaped = font_title_name
         for j, line in enumerate(title_lines):
             escaped = _escape_filter(line)
+            fs = line_sizes[j]
             ty = first_ty + (j * title_line_gap) + title_dy
             line_color = title_colors[min(j, len(title_colors) - 1)]
             # 그림자 레이어 (검정, 살짝 오프셋)
             title_filters.append(
                 f"drawtext=expansion=none:fontfile='{font_path_escaped}':text='{escaped}':"
-                f"fontsize={title_fontsize}:fontcolor=black@0.5:"
-                f"x={title_x}+{shadow_off}:y={ty}+{shadow_off}"
+                f"fontsize={fs}:fontcolor=black@0.5:"
+                f"x={title_x}+{_shadow_off(fs)}:y={ty}+{_shadow_off(fs)}"
             )
             # 본문 레이어 (테두리 + 색상)
             title_filters.append(
                 f"drawtext=expansion=none:fontfile='{font_path_escaped}':text='{escaped}':"
-                f"fontsize={title_fontsize}:fontcolor={line_color}:"
-                f"borderw={border_w}:bordercolor=black@0.8:"
+                f"fontsize={fs}:fontcolor={line_color}:"
+                f"borderw={_border_w(fs)}:bordercolor=black@0.8:"
                 f"x={title_x}:y={ty}"
             )
 

@@ -23,6 +23,9 @@ import {
   DEFAULT_TITLE_FONT,
   DEFAULT_TITLE_FONT_WEIGHT,
   DEFAULT_TITLE_FONT_SIZE,
+  DEFAULT_TITLE_LINE1_SIZE,
+  DEFAULT_TITLE_LINE2_SIZE,
+  DEFAULT_TITLE_LINE_GAP,
   DEFAULT_TITLE_DX,
   DEFAULT_TITLE_DY,
   DEFAULT_SUBTITLE_FONT,
@@ -31,6 +34,7 @@ import {
   DEFAULT_SUBTITLE_COLOR,
   DEFAULT_SUBTITLE_DX,
   DEFAULT_SUBTITLE_Y,
+  defaultTitleLineGap,
   normalizeWeight,
 } from "@/lib/youtube/fonts";
 import {
@@ -104,6 +108,10 @@ export interface YtState {
   titleFont: string;
   titleFontWeight: string;
   titleFontSize: number;
+  // 제목 줄별 글자 크기(px, 1080폭) + 첫줄↔둘째줄 세로 간격(top-to-top, px). 기본은 단일 크기(120)·간격 130.
+  titleLine1Size: number;
+  titleLine2Size: number;
+  titleLineGap: number;
   // 제목 줄별 색(#RRGGBB). 기본 윗줄 흰색 / 아랫줄 톤다운 노란색.
   titleColor1: string;
   titleColor2: string;
@@ -184,7 +192,11 @@ export const initialYtState: YtState = {
   titleLine2: "",
   titleFont: DEFAULT_TITLE_FONT,
   titleFontWeight: DEFAULT_TITLE_FONT_WEIGHT,
-  titleFontSize: DEFAULT_TITLE_FONT_SIZE,
+  // 앵커(title_font_size)는 첫 줄 크기와 동일하게 시작(줄별 크기가 항상 우선하지만 폴백 정합).
+  titleFontSize: DEFAULT_TITLE_LINE1_SIZE,
+  titleLine1Size: DEFAULT_TITLE_LINE1_SIZE,
+  titleLine2Size: DEFAULT_TITLE_LINE2_SIZE,
+  titleLineGap: DEFAULT_TITLE_LINE_GAP,
   titleColor1: DEFAULT_TITLE_COLOR1,
   titleColor2: DEFAULT_TITLE_COLOR2,
   titleDx: DEFAULT_TITLE_DX,
@@ -228,7 +240,16 @@ export function freshYtState(): YtState {
     ...(last.font !== undefined || last.weight !== undefined
       ? { titleFontWeight: normalizeWeight(last.font ?? DEFAULT_TITLE_FONT, last.weight ?? DEFAULT_TITLE_FONT_WEIGHT) }
       : {}),
+    // 마지막 스타일에서 앵커·줄별 크기·간격을 각각 seed. 구 저장데이터(size 만 있음)는
+    // 첫 줄만 그 값으로 폴백하고, 둘째 줄·간격은 초기 기본값(120·108) 유지.
     ...(last.size !== undefined ? { titleFontSize: last.size } : {}),
+    ...(last.line1Size !== undefined
+      ? { titleLine1Size: last.line1Size }
+      : last.size !== undefined
+        ? { titleLine1Size: last.size }
+        : {}),
+    ...(last.line2Size !== undefined ? { titleLine2Size: last.line2Size } : {}),
+    ...(last.lineGap !== undefined ? { titleLineGap: last.lineGap } : {}),
     ...(last.color1 !== undefined ? { titleColor1: last.color1 } : {}),
     ...(last.color2 !== undefined ? { titleColor2: last.color2 } : {}),
     // 자막 스타일도 이 기기 마지막값으로 seed(위치 dx/y 는 기억 안 함 — 매번 기본에서 시작).
@@ -337,10 +358,18 @@ export function restorePatchFromDraft(
       ds.title_font_weight ?? DEFAULT_TITLE_FONT_WEIGHT,
     ),
     titleFontSize: ds.title_font_size ?? DEFAULT_TITLE_FONT_SIZE,
+    // 레거시 job(줄별 필드 null)은 단일 크기(title_font_size)·기존 간격 공식으로 폴백 →
+    // 재오픈 시 화면·렌더가 그대로 유지된다.
+    titleLine1Size: ds.title_line1_size ?? ds.title_font_size ?? DEFAULT_TITLE_LINE1_SIZE,
+    titleLine2Size: ds.title_line2_size ?? ds.title_font_size ?? DEFAULT_TITLE_LINE2_SIZE,
+    titleLineGap:
+      ds.title_line_gap ?? defaultTitleLineGap(ds.title_font_size ?? DEFAULT_TITLE_FONT_SIZE),
     titleColor1: normalizeHexOr(ds.title_color1, DEFAULT_TITLE_COLOR1),
     titleColor2: normalizeHexOr(ds.title_color2, DEFAULT_TITLE_COLOR2),
-    titleDx: ds.title_dx ?? DEFAULT_TITLE_DX,
-    titleDy: ds.title_dy ?? DEFAULT_TITLE_DY,
+    // 위치는 저장된 값 그대로 복원. 레거시 job(dx/dy=null)은 렌더가 0 을 썼으므로 0 으로 폴백
+    // (DEFAULT_TITLE_DY=38 로 폴백하면 옛 영상과 프리뷰가 어긋난다).
+    titleDx: ds.title_dx ?? 0,
+    titleDy: ds.title_dy ?? 0,
     subtitleFont: ds.subtitle_font ?? DEFAULT_SUBTITLE_FONT,
     subtitleFontWeight: ds.subtitle_font_weight ?? DEFAULT_SUBTITLE_FONT_WEIGHT,
     subtitleFontSize: ds.subtitle_font_size ?? DEFAULT_SUBTITLE_FONT_SIZE,

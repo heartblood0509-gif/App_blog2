@@ -162,6 +162,11 @@ MOTION_SPEED_MAX = 0.08
 TITLE_DX_ABS = 350
 TITLE_DY_MIN = -110
 TITLE_DY_MAX = 1480
+# 제목 줄별 글자 크기 / 줄 간격 클램프 (video_assembler·프론트 fonts.ts 와 동일).
+TITLE_SIZE_MIN = 70
+TITLE_SIZE_MAX = 170
+TITLE_LINE_GAP_MIN = 40
+TITLE_LINE_GAP_MAX = 260
 
 
 def apply_subtitle_style(
@@ -234,6 +239,29 @@ def apply_title_pos(job, dx=None, dy=None) -> None:
     if dy is not None:
         try:
             job.title_dy = max(TITLE_DY_MIN, min(TITLE_DY_MAX, int(float(dy))))
+        except (TypeError, ValueError):
+            pass
+
+
+def apply_title_sizes(job, *, line1=None, line2=None, gap=None) -> None:
+    """제목 줄별 글자 크기·줄 간격을 Job 에 클램프해서 반영. None 인 항목은 미변경.
+
+    line1/line2=None 이면 렌더 시 title_font_size 로 폴백(두 줄 단일 크기 = 레거시 불변).
+    gap=None 이면 기존 round(130*size/120) 공식. confirm(dict)·draft-meta(pydantic) 공유.
+    """
+    if line1 is not None:
+        try:
+            job.title_line1_size = max(TITLE_SIZE_MIN, min(TITLE_SIZE_MAX, int(float(line1))))
+        except (TypeError, ValueError):
+            pass
+    if line2 is not None:
+        try:
+            job.title_line2_size = max(TITLE_SIZE_MIN, min(TITLE_SIZE_MAX, int(float(line2))))
+        except (TypeError, ValueError):
+            pass
+    if gap is not None:
+        try:
+            job.title_line_gap = max(TITLE_LINE_GAP_MIN, min(TITLE_LINE_GAP_MAX, int(float(gap))))
         except (TypeError, ValueError):
             pass
 
@@ -1141,6 +1169,13 @@ async def confirm_and_render(
             job.title_color2 = normalize_hex(body["title_color2"], DEFAULT_TITLE_COLOR2)
         # 제목 위치 오프셋(드래그) — 자막 위치와 동일하게 클램프 헬퍼가 담당.
         apply_title_pos(job, dx=body.get("title_dx"), dy=body.get("title_dy"))
+        # 제목 줄별 크기·줄 간격 — 헬퍼가 클램프. None=title_font_size/기존 공식 폴백(레거시 불변).
+        apply_title_sizes(
+            job,
+            line1=body.get("title_line1_size"),
+            line2=body.get("title_line2_size"),
+            gap=body.get("title_line_gap"),
+        )
         # title이 비어 있으면 video_assembler.py:306의 조건(if title_text and font_title)을
         # 통과하지 못해 제목 자체가 영상에 안 박힌다. 카드 B draft는 title=""로 시작하므로 여기서 흡수.
         if body.get("title") is not None:

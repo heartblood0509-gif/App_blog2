@@ -349,6 +349,10 @@ export interface ConfirmDraftInput {
   title_font?: string;
   title_font_weight?: string;
   title_font_size?: number;
+  // 제목 줄별 크기 + 줄 간격(px, 1080폭). 미지정이면 백엔드에서 title_font_size/기존 공식 폴백.
+  title_line1_size?: number;
+  title_line2_size?: number;
+  title_line_gap?: number;
   title_color1?: string;
   title_color2?: string;
   // 제목 위치 오프셋(px). dx=가로 중앙 오프셋(1080폭), dy=기본 위치 기준 세로 델타(1920높이). 0/0=기존 위치.
@@ -566,6 +570,11 @@ export function createDraft(
   titleFontSize?: number,
   titleColor1?: string,
   titleColor2?: string,
+  titleLine1Size?: number,
+  titleLine2Size?: number,
+  titleLineGap?: number,
+  titleDx?: number,
+  titleDy?: number,
 ): Promise<DraftJobResponse> {
   return ytPostJson<DraftJobResponse>("/api/jobs/draft", {
     lines,
@@ -574,6 +583,11 @@ export function createDraft(
     title_font: titleFont,
     title_font_weight: titleFontWeight,
     title_font_size: titleFontSize,
+    title_line1_size: titleLine1Size,
+    title_line2_size: titleLine2Size,
+    title_line_gap: titleLineGap,
+    title_dx: titleDx,
+    title_dy: titleDy,
     title_color1: titleColor1,
     title_color2: titleColor2,
   });
@@ -592,6 +606,9 @@ export interface DraftState {
   title_font?: string | null;
   title_font_weight?: string | null;
   title_font_size?: number | null;
+  title_line1_size?: number | null;
+  title_line2_size?: number | null;
+  title_line_gap?: number | null;
   title_color1?: string | null;
   title_color2?: string | null;
   title_dx?: number | null;
@@ -634,6 +651,9 @@ export function saveDraftMeta(
     title_font?: string;
     title_font_weight?: string;
     title_font_size?: number;
+    title_line1_size?: number;
+    title_line2_size?: number;
+    title_line_gap?: number;
     title_color1?: string;
     title_color2?: string;
     title_dx?: number;

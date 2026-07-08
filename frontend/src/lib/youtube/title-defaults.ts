@@ -6,13 +6,21 @@
 //
 // SSR 안전: 모든 함수가 typeof window 가드를 거친다. (패턴: draft-storage.ts)
 
-import { TITLE_FONT_SIZE_MIN, TITLE_FONT_SIZE_MAX } from "./fonts";
+import {
+  TITLE_FONT_SIZE_MIN,
+  TITLE_FONT_SIZE_MAX,
+  TITLE_LINE_GAP_MIN,
+  TITLE_LINE_GAP_MAX,
+} from "./fonts";
 import { normalizeHex } from "./title-colors";
 
 export interface TitleStyle {
   font: string;
   weight: string;
-  size: number;
+  size: number; // 레거시 단일 크기(=첫 줄 크기 앵커). 하위호환 위해 유지.
+  line1Size: number;
+  line2Size: number;
+  lineGap: number;
   color1: string;
   color2: string;
 }
@@ -31,8 +39,18 @@ export function loadLastUsed(): Partial<TitleStyle> {
     const out: Partial<TitleStyle> = {};
     if (typeof p.font === "string") out.font = p.font;
     if (typeof p.weight === "string") out.weight = p.weight;
-    if (typeof p.size === "number" && Number.isFinite(p.size)) {
-      out.size = Math.max(TITLE_FONT_SIZE_MIN, Math.min(TITLE_FONT_SIZE_MAX, Math.round(p.size)));
+    const clampSize = (v: unknown) =>
+      typeof v === "number" && Number.isFinite(v)
+        ? Math.max(TITLE_FONT_SIZE_MIN, Math.min(TITLE_FONT_SIZE_MAX, Math.round(v)))
+        : undefined;
+    const s = clampSize(p.size);
+    if (s !== undefined) out.size = s;
+    const l1 = clampSize(p.line1Size);
+    if (l1 !== undefined) out.line1Size = l1;
+    const l2 = clampSize(p.line2Size);
+    if (l2 !== undefined) out.line2Size = l2;
+    if (typeof p.lineGap === "number" && Number.isFinite(p.lineGap)) {
+      out.lineGap = Math.max(TITLE_LINE_GAP_MIN, Math.min(TITLE_LINE_GAP_MAX, Math.round(p.lineGap)));
     }
     if (typeof p.color1 === "string") {
       const c = normalizeHex(p.color1);

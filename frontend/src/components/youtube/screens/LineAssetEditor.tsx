@@ -1468,6 +1468,9 @@ export function LineAssetEditor() {
         title_font: state.titleFont,
         title_font_weight: state.titleFontWeight,
         title_font_size: state.titleFontSize,
+        title_line1_size: state.titleLine1Size,
+        title_line2_size: state.titleLine2Size,
+        title_line_gap: state.titleLineGap,
         title_color1: state.titleColor1,
         title_color2: state.titleColor2,
         title_dx: state.titleDx,
@@ -2240,6 +2243,9 @@ export function LineAssetEditor() {
                 titleFontSize={state.titleFontSize}
                 titleColor1={state.titleColor1}
                 titleColor2={state.titleColor2}
+                titleLine1Size={state.titleLine1Size}
+                titleLine2Size={state.titleLine2Size}
+                titleLineGap={state.titleLineGap}
                 titleDx={state.titleDx}
                 titleDy={state.titleDy}
                 onTitlePosChange={(dx, dy) => update({ titleDx: dx, titleDy: dy })}
