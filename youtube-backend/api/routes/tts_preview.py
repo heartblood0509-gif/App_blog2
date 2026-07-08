@@ -176,13 +176,20 @@ async def tts_preview(
             norm_path = os.path.join(tmp_dir, "sent_00_norm.wav")
             try:
                 normalize_to_browser_wav(wav_path, norm_path)
+                os.replace(norm_path, cached)
             except RuntimeError as norm_err:
-                # Windows 애플리케이션 제어(Smart App Control)가 ffmpeg 실행을 막은 경우:
-                # 원인·해결을 담은 문구를 그대로 노출(프론트 토스트에 표시됨).
-                if is_app_control_block(norm_err):
+                # 정규화(ffmpeg)가 실패 — 대표적으로 Windows Smart App Control 이 ffmpeg 실행을
+                # 통째로 막는 경우(WinError 4551). 정규화는 "모든 브라우저 호환용" 마무리 단계일 뿐,
+                # Typecast 원본 WAV 자체는 데스크톱(크로미움)에서 그대로 재생된다
+                # (preview-build 가 원본을 그대로 서빙해 재생되는 것으로 이미 검증됨).
+                # 따라서 원본이 재생 가능한 정상 WAV 면 그것으로 폴백 → ffmpeg 없이도 샘플이 들린다.
+                if is_playable_wav(wav_path):
+                    os.replace(wav_path, cached)
+                elif is_app_control_block(norm_err):
+                    # 원본조차 못 쓰는데 원인이 SAC 차단이면 원인·해결 문구를 노출(프론트 토스트).
                     raise HTTPException(502, SAC_MESSAGE_VOICE)
-                raise HTTPException(502, "샘플 오디오 생성에 실패했습니다. 잠시 후 다시 시도해주세요.")
-            os.replace(norm_path, cached)
+                else:
+                    raise HTTPException(502, "샘플 오디오 생성에 실패했습니다. 잠시 후 다시 시도해주세요.")
 
         except HTTPException:
             raise
