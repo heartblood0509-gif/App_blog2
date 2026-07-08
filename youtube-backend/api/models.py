@@ -200,6 +200,13 @@ class DraftJobRequest(BaseModel):
     title_font: Optional[str] = None
     title_font_weight: Optional[str] = None
     title_font_size: Optional[int] = None
+    # 제목 줄별 글자 크기·줄 간격. None=title_font_size/기존 공식 폴백(레거시 불변).
+    title_line1_size: Optional[int] = None
+    title_line2_size: Optional[int] = None
+    title_line_gap: Optional[int] = None
+    # 제목 위치 오프셋(드래그). None=0(기본 위치). draft 생성 시 함께 저장해 프리뷰=렌더 정합.
+    title_dx: Optional[int] = None
+    title_dy: Optional[int] = None
     # 제목 줄별 색(#RRGGBB, 라우터에서 normalize_hex 로 흡수).
     title_color1: Optional[str] = None
     title_color2: Optional[str] = None

@@ -82,6 +82,11 @@ class Job(Base):
     title_font = Column(String, nullable=True)
     title_font_weight = Column(String, nullable=True)
     title_font_size = Column(Integer, nullable=True)
+    # 제목 줄별 글자 크기(px, 1080폭). None=title_font_size 폴백(두 줄 단일 크기, 레거시 불변).
+    title_line1_size = Column(Integer, nullable=True)
+    title_line2_size = Column(Integer, nullable=True)
+    # 첫줄↔둘째줄 세로 간격(top-to-top, px, 1080폭). None=기존 round(130*size/120) 공식.
+    title_line_gap = Column(Integer, nullable=True)
     # 제목 줄별 색(#RRGGBB). None=기본(윗줄 #FFFFFF, 아랫줄 #E8D44D).
     title_color1 = Column(String, nullable=True)
     title_color2 = Column(String, nullable=True)

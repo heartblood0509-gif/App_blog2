@@ -306,6 +306,11 @@ async def create_draft_job(
         title_font=request.title_font,
         title_font_weight=request.title_font_weight,
         title_font_size=(max(70, min(170, request.title_font_size)) if request.title_font_size is not None else None),
+        title_line1_size=(max(70, min(170, request.title_line1_size)) if request.title_line1_size is not None else None),
+        title_line2_size=(max(70, min(170, request.title_line2_size)) if request.title_line2_size is not None else None),
+        title_line_gap=(max(40, min(260, request.title_line_gap)) if request.title_line_gap is not None else None),
+        title_dx=(max(-350, min(350, request.title_dx)) if request.title_dx is not None else None),
+        title_dy=(max(-110, min(1480, request.title_dy)) if request.title_dy is not None else None),
         title_color1=(normalize_hex(request.title_color1, DEFAULT_TITLE_COLOR1) if request.title_color1 is not None else None),
         title_color2=(normalize_hex(request.title_color2, DEFAULT_TITLE_COLOR2) if request.title_color2 is not None else None),
         script_json=json.dumps(script_lines, ensure_ascii=False),
@@ -553,6 +558,9 @@ class DraftStateResponse(BaseModel):
     title_font: str | None = None
     title_font_weight: str | None = None
     title_font_size: int | None = None
+    title_line1_size: int | None = None
+    title_line2_size: int | None = None
+    title_line_gap: int | None = None
     title_color1: str | None = None
     title_color2: str | None = None
     title_dx: int | None = None
@@ -609,6 +617,9 @@ def _build_draft_state(job: Job) -> DraftStateResponse:
         title_font=job.title_font,
         title_font_weight=job.title_font_weight,
         title_font_size=job.title_font_size,
+        title_line1_size=job.title_line1_size,
+        title_line2_size=job.title_line2_size,
+        title_line_gap=job.title_line_gap,
         title_color1=job.title_color1,
         title_color2=job.title_color2,
         title_dx=job.title_dx,
@@ -655,6 +666,9 @@ class UpdateDraftMetaRequest(BaseModel):
     title_font: str | None = None
     title_font_weight: str | None = None
     title_font_size: int | None = None
+    title_line1_size: int | None = None
+    title_line2_size: int | None = None
+    title_line_gap: int | None = None
     title_color1: str | None = None
     title_color2: str | None = None
     title_dx: int | None = None
@@ -702,8 +716,14 @@ async def update_draft_meta(
     if body.title_color2 is not None:
         job.title_color2 = normalize_hex(body.title_color2, DEFAULT_TITLE_COLOR2)
     # 제목 위치·자막 스타일 — confirm 과 동일한 클램프 헬퍼를 공유(편집 즉시 저장).
-    from api.routes.preview import apply_subtitle_style, apply_title_pos
+    from api.routes.preview import apply_subtitle_style, apply_title_pos, apply_title_sizes
     apply_title_pos(job, dx=body.title_dx, dy=body.title_dy)
+    apply_title_sizes(
+        job,
+        line1=body.title_line1_size,
+        line2=body.title_line2_size,
+        gap=body.title_line_gap,
+    )
     apply_subtitle_style(
         job,
         font=body.subtitle_font,
