@@ -16,6 +16,7 @@ import {
   AlertCircle,
   AlertTriangle,
   ArrowUpToLine,
+  Check,
   CheckCircle2,
   CornerDownLeft,
   Film,
@@ -23,14 +24,17 @@ import {
   ImageUp,
   Loader2,
   Pause,
+  Pencil,
   Play,
   RefreshCw,
   RotateCcw,
+  Scissors,
   SkipBack,
   SkipForward,
   Sparkles,
   Trash2,
   Video,
+  X,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
@@ -64,16 +68,14 @@ import { SubtitleStylePicker } from "../shared/SubtitleStylePicker";
 import { PlaybackProgressBar } from "../shared/PlaybackProgressBar";
 import { useTtsSessionPlayback } from "../useTtsSessionPlayback";
 import {
-  breakSetFromChunks,
   chunkBoundariesFromWordTimes,
   chunksForLine,
-  chunksFromBreaks,
+  chunksFromWordsGaps,
   displayLen,
-  gapKinds,
   hasOverflowChunk,
   MAX_DISPLAY,
+  parseSubtitleChunks,
   stripSubtitlePeriods,
-  wordsOf,
   type WordTime,
 } from "@/lib/youtube/subtitle-split";
 import {
@@ -186,45 +188,27 @@ function chunkDisplayDurations(
   return chunks.map((c) => Math.max(1.2, displayLen(c) * 0.15));
 }
 
-// 자막 조각 편집 행 — 자막 어절을 칩으로 나열, 어절 사이(·)를 눌러 끊거나(⏎) 다시 합친다.
-// 어절 '안'의 글자 사이를 누르면 자막에서만 띄어쓴다(음성·대본 그대로 — 발음용으로 붙여 쓴 말 교정).
-// 그렇게 생긴 간격에는 ␣ 칩이 붙고, 누르면 다시 붙는다.
-// 12자 초과 조각은 경고색으로 표시(최종 영상이 화면 밖으로 넘침 → 영상 만들기 차단). 재생 중 조각은 강조.
+// 자막 조각 편집 행 — 자막 어절을 칩으로 나열한다. 어절 사이 간격 3종:
+//   · = 같은 줄(누르면 컷으로 나눠 다음 화면으로), ✂ = 컷 경계(누르면 합침),
+//   ↵(초록) = 화면 줄바꿈(같은 화면 두 줄; 수정 모드에서만 바꾸고 여기선 표시만).
+// 글자 수정·화면 줄바꿈은 [수정] 버튼으로 연다. 재생 중 조각은 강조.
+// 12자 초과 화면 줄은 경고색(최종 영상이 화면 밖으로 넘침 → 영상 만들기 차단).
 function SubtitleChunkRow({
-  text,
   chunks,
   onToggle,
-  onSplit,
-  onUnsplit,
+  onEdit,
   disabled,
   activeChunkIdx,
 }: {
-  text: string;
   chunks: string[];
   onToggle: (wordIndex: number) => void;
-  onSplit: (wordIndex: number, charOffset: number) => void;
-  onUnsplit: (gapIndex: number) => void;
+  onEdit: () => void;
   disabled?: boolean;
   activeChunkIdx?: number | null;
 }) {
-  // 자막 어절은 chunks 에서 도출(자막 전용 띄어쓰기 반영). 대본 어절과 정렬해 간격 종류를 구분.
-  const words = wordsOf(chunks.join(" "));
+  const { words, gaps, segOfWord, lineOfWord, lineOverflow } = parseSubtitleChunks(chunks);
   if (words.length === 0) return null;
-  const kinds = gapKinds(wordsOf(text), words) ?? words.map(() => "natural" as const);
-  const breaks = breakSetFromChunks(chunks);
-  // 각 어절이 몇 번째 조각에 속하는지 + 조각별 12자 초과 여부.
-  const chunkOfWord: number[] = [];
-  {
-    let ci = 0;
-    for (let i = 0; i < words.length; i++) {
-      if (i > 0 && breaks.has(i)) ci++;
-      chunkOfWord.push(ci);
-    }
-  }
-  const chunkOverflow = chunks.map((c) => displayLen(c) > MAX_DISPLAY);
-  const anyOverflow = chunkOverflow.some(Boolean);
-  const singleWordOverflow =
-    anyOverflow && chunks.some((c) => displayLen(c) > MAX_DISPLAY && wordsOf(c).length <= 1);
+  const anyOverflow = lineOverflow.some(Boolean);
 
   return (
     <div className="mt-1.5 flex flex-wrap items-center gap-y-1 text-xs">
@@ -232,40 +216,42 @@ function SubtitleChunkRow({
         <span className="rounded border border-border px-1 text-[0.6rem] font-medium">자막</span>
       </span>
       {words.map((w, i) => {
-        const over = chunkOverflow[chunkOfWord[i]];
-        const playing = activeChunkIdx != null && activeChunkIdx === chunkOfWord[i];
-        // 표시만 마침표 제거(자막 관례). 끊김·띄어쓰기 계산은 원본 w 로 유지.
-        // 실제 자막에서 빠지는 마침표는 항상 어절 끝이라 남는 글자들의 인덱스(onSplit 오프셋)는 안 바뀐다.
-        const chars = Array.from(stripSubtitlePeriods(w));
+        const over = lineOverflow[lineOfWord[i]];
+        const playing = activeChunkIdx != null && activeChunkIdx === segOfWord[i];
+        const gap = i > 0 ? gaps[i - 1] : null;
         return (
           <Fragment key={i}>
-            {i > 0 && (
+            {gap === "cut" && (
               <button
                 type="button"
                 onClick={() => onToggle(i)}
                 disabled={disabled}
-                aria-label={breaks.has(i) ? "여기서 합치기" : "여기서 끊기"}
-                className={cn(
-                  "mx-0.5 inline-flex h-5 items-center justify-center rounded transition-colors disabled:opacity-40",
-                  breaks.has(i)
-                    ? "w-5 bg-primary text-primary-foreground"
-                    : "w-3 text-muted-foreground hover:bg-muted hover:text-foreground",
-                )}
-                title={breaks.has(i) ? "이 줄바꿈을 없애 합쳐요" : "여기서 자막을 끊어요"}
+                aria-label="컷 합치기"
+                title="다음 화면으로 넘어가는 자리예요 — 누르면 합쳐요"
+                className="mx-0.5 inline-flex h-5 w-5 items-center justify-center rounded bg-primary text-primary-foreground transition-colors disabled:opacity-40"
               >
-                {breaks.has(i) ? <CornerDownLeft className="size-3" /> : "·"}
+                <Scissors className="size-3" />
               </button>
             )}
-            {i > 0 && kinds[i] === "split" && (
+            {gap === "wrap" && (
+              <span
+                aria-label="화면 줄바꿈"
+                title="같은 화면에서 두 줄로 나뉜 자리예요 (수정에서 바꿔요)"
+                className="mx-0.5 inline-flex h-5 items-center justify-center px-0.5 text-emerald-600 dark:text-emerald-400"
+              >
+                <CornerDownLeft className="size-3" />
+              </span>
+            )}
+            {gap === "space" && (
               <button
                 type="button"
-                onClick={() => onUnsplit(i)}
+                onClick={() => onToggle(i)}
                 disabled={disabled}
-                aria-label="자막 띄어쓰기 취소"
-                title="자막에서만 띄어 쓴 자리예요 — 누르면 다시 붙어요"
-                className="mr-0.5 inline-flex h-5 items-center rounded bg-primary/10 px-1 font-medium text-primary transition-colors hover:bg-primary/20 disabled:opacity-40"
+                aria-label="여기서 컷 나누기"
+                title="누르면 여기서 자막을 끊어 다음 화면으로 넘겨요"
+                className="mx-0.5 inline-flex h-5 w-3 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:opacity-40"
               >
-                ␣
+                ·
               </button>
             )}
             <span
@@ -278,37 +264,123 @@ function SubtitleChunkRow({
                     : "text-foreground",
               )}
             >
-              {chars.map((ch, ci) => (
-                <Fragment key={ci}>
-                  {ci > 0 && (
-                    // 히트 영역은 넓게(양옆 글자 위까지 겹침) — 근처만 가도 활성화.
-                    // 보이는 선은 안쪽 얇은 막대로, hover 시에만 표시.
-                    <button
-                      type="button"
-                      onClick={() => onSplit(i, ci)}
-                      disabled={disabled}
-                      aria-label="자막에서만 띄어쓰기"
-                      title="누르면 자막에서만 띄어 써요 (음성은 그대로)"
-                      className="group/split relative z-10 -mx-2 inline-flex h-4 w-4 cursor-text items-center justify-center align-middle disabled:pointer-events-none"
-                    >
-                      <span className="h-3.5 w-[3px] rounded-full bg-primary/70 opacity-0 transition-opacity group-hover/split:opacity-100" />
-                    </button>
-                  )}
-                  {ch}
-                </Fragment>
-              ))}
+              {stripSubtitlePeriods(w)}
             </span>
           </Fragment>
         );
       })}
+      <button
+        type="button"
+        onClick={onEdit}
+        disabled={disabled}
+        aria-label="자막 글자 수정"
+        title="글자를 고치거나 화면을 두 줄로 나눠요"
+        className="ml-1.5 inline-flex items-center gap-1 rounded border border-border px-1.5 py-0.5 text-[0.7rem] text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:opacity-40"
+      >
+        <Pencil className="size-3" />
+        수정
+      </button>
       {anyOverflow && (
         <span className="ml-1.5 inline-flex items-center gap-1 text-[0.7rem] text-amber-700 dark:text-amber-400">
           <AlertTriangle className="size-3" />
-          {singleWordOverflow
-            ? "너무 긴 단어예요 — 글자 사이를 누르면 자막에서만 띄어 쓸 수 있어요"
-            : "화면보다 길어요 — 끊어주세요"}
+          화면보다 길어요 — 끊거나 수정에서 줄을 나눠주세요
         </span>
       )}
+    </div>
+  );
+}
+
+// 자막 수정 모드 — 컷별 입력창. 글자 수정(발음≠표시)·스페이스 띄어쓰기·Enter 화면 줄바꿈을
+// 자유 타이핑으로 처리한다. 컷 나누기/합치기는 칩에서만 하므로 여기선 컷 개수를 고정.
+function SubtitleEditRow({
+  initialChunks,
+  disabled,
+  onSave,
+  onCancel,
+}: {
+  initialChunks: string[];
+  disabled?: boolean;
+  onSave: (chunks: string[]) => void;
+  onCancel: () => void;
+}) {
+  const [values, setValues] = useState<string[]>(() =>
+    initialChunks.length > 0 ? initialChunks : [""],
+  );
+  const multi = values.length > 1;
+
+  function commit() {
+    // 조각별: 줄마다 trim, 빈 줄 제거, \n 로 다시 이어붙임. 통째로 빈 조각은 버린다.
+    const cleaned = values
+      .map((v) =>
+        v
+          .split("\n")
+          .map((ln) => ln.trim())
+          .filter(Boolean)
+          .join("\n"),
+      )
+      .filter((c) => c.length > 0);
+    onSave(cleaned);
+  }
+
+  return (
+    <div className="mt-1.5 rounded-md border border-primary/40 bg-primary/[0.03] p-2 text-xs">
+      <div className="mb-1.5 flex items-center gap-1 text-[0.7rem] text-muted-foreground">
+        <Pencil className="size-3 text-primary" />
+        <span>
+          글자를 고치고, <span className="font-medium text-foreground">Enter로 화면을 두 줄</span>로
+          나눠요. 음성은 그대로예요.
+        </span>
+      </div>
+      <div className="space-y-1.5">
+        {values.map((v, i) => {
+          const overLine = v.split("\n").some((ln) => displayLen(ln.trim()) > MAX_DISPLAY);
+          return (
+            <div key={i}>
+              {multi && (
+                <span className="mb-0.5 inline-block rounded bg-primary/10 px-1.5 text-[0.6rem] font-medium text-primary">
+                  컷 {i + 1}
+                </span>
+              )}
+              <Textarea
+                value={v}
+                autoFocus={i === 0}
+                disabled={disabled}
+                onChange={(e) =>
+                  setValues((prev) => prev.map((x, j) => (j === i ? e.target.value : x)))
+                }
+                onKeyDown={(e) => {
+                  if (e.key === "Escape") {
+                    e.preventDefault();
+                    onCancel();
+                  } else if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+                    e.preventDefault();
+                    commit();
+                  }
+                }}
+                rows={Math.max(1, v.split("\n").length)}
+                className="min-h-0 resize-y py-1 text-sm leading-snug"
+                aria-label={multi ? `컷 ${i + 1} 자막` : "자막"}
+              />
+              {overLine && (
+                <span className="mt-0.5 inline-flex items-center gap-1 text-[0.7rem] text-amber-700 dark:text-amber-400">
+                  <AlertTriangle className="size-3" />
+                  화면보다 긴 줄이 있어요 — Enter로 나눠주세요
+                </span>
+              )}
+            </div>
+          );
+        })}
+      </div>
+      <div className="mt-2 flex items-center gap-1.5">
+        <Button size="xs" onClick={commit} disabled={disabled}>
+          <Check className="size-3" />
+          완료
+        </Button>
+        <Button size="xs" variant="outline" onClick={onCancel} disabled={disabled}>
+          <X className="size-3" />
+          취소
+        </Button>
+      </div>
     </div>
   );
 }
@@ -347,6 +419,8 @@ export function LineAssetEditor() {
   const [selectedBgm, setSelectedBgm] = useState<BgmItem | null>(null);
   // 정지 상태에서 선택 줄 자막을 나레이션 타이밍대로 자동 순환시키는 인덱스(재생 중엔 재생 훅이 몰아감).
   const [cycleChunkIdx, setCycleChunkIdx] = useState(0);
+  // 자막 "수정" 모드에 들어간 줄(line_id). null 이면 모든 줄이 칩 보기.
+  const [editingSubLineId, setEditingSubLineId] = useState<string | null>(null);
   // 순환 타이머가 재개(드래그·재생 전환 후)될 때 이어갈 현재 인덱스. state 와 동기 유지.
   const cycleIdxRef = useRef(0);
   // 크기 슬라이더를 건드리는 동안 외곽선/핸들을 잠깐 켜는 신호(포커스 없이도 "잡을 수 있음"을 노출).
@@ -715,6 +789,9 @@ export function LineAssetEditor() {
             : l,
         ),
       );
+      // 텍스트가 바뀌면 자막 조각이 자동 분할로 리셋되므로, 이 줄의 자막 수정 모드도 닫는다
+      // (열린 채 두면 낡은 드래프트를 되살릴 수 있음).
+      setEditingSubLineId((cur) => (cur === lineId ? null : cur));
       clearDraft(lineId);
       // 줄 텍스트가 바뀌었으니 음성 재빌드 필요 표시(세션은 유지 = incremental: 바뀐 줄만 재합성).
       update({ ttsDirty: true });
@@ -1300,66 +1377,29 @@ export function LineAssetEditor() {
   playAllToggleRef.current = playAllToggle;
 
   // 자막 조각 저장(공통): 로컬 즉시 반영 + 서버 영속. 텍스트는 안 건드림 → TTS 무관.
-  async function saveChunks(l: ScriptLine, next: string[]) {
+  // 빈 배열이면 null 로 저장 → 자동 분할로 복귀(백엔드가 subtitle_chunks 를 지운다).
+  async function saveChunks(l: ScriptLine, next: string[] | null) {
     const id = String(l.line_id ?? "");
     if (!id || !jobId) return;
+    const value = next && next.length > 0 ? next : null;
     setLines((prev) =>
       prev.map((x) =>
-        String(x.line_id ?? "") === id ? { ...x, subtitle_chunks: next } : x,
+        String(x.line_id ?? "") === id ? { ...x, subtitle_chunks: value } : x,
       ),
     );
     try {
-      await setSubtitleChunks(jobId, id, next);
+      await setSubtitleChunks(jobId, id, value);
     } catch (e) {
       if (mountedRef.current) toast.error(errMessage(e, "자막 저장에 실패했어요."));
     }
   }
-  // 이 줄의 자막 어절(자막 전용 띄어쓰기 반영 — 대본 어절과 다를 수 있음).
-  function displayWords(l: ScriptLine): string[] {
-    return wordsOf(lineChunks(l).join(" "));
-  }
-  // 자막 조각 끊김 토글(어절 사이 클릭).
+  // 어절 사이 간격 토글(칩 클릭): 같은 줄(·) ↔ 컷 경계(✂). 화면 줄바꿈(↵)은 여기서 안 건드림.
   async function toggleBreak(l: ScriptLine, wordIndex: number) {
-    const current = lineChunks(l);
-    const words = displayWords(l);
-    const breaks = breakSetFromChunks(current);
-    if (breaks.has(wordIndex)) breaks.delete(wordIndex);
-    else breaks.add(wordIndex);
-    await saveChunks(l, chunksFromBreaks(words, breaks));
-  }
-  // 자막 전용 띄어쓰기: 어절 안 글자 사이 클릭 → 자막에서만 띄운다(대본·음성 그대로).
-  async function splitWord(l: ScriptLine, wordIndex: number, charOffset: number) {
-    const current = lineChunks(l);
-    const words = displayWords(l);
-    const chars = Array.from(words[wordIndex] ?? "");
-    if (charOffset <= 0 || charOffset >= chars.length) return;
-    // 쪼개진 어절 뒤의 끊김 위치는 한 칸씩 밀린다.
-    const breaks = new Set<number>();
-    for (const b of breakSetFromChunks(current)) breaks.add(b > wordIndex ? b + 1 : b);
-    const next = [
-      ...words.slice(0, wordIndex),
-      chars.slice(0, charOffset).join(""),
-      chars.slice(charOffset).join(""),
-      ...words.slice(wordIndex + 1),
-    ];
-    await saveChunks(l, chunksFromBreaks(next, breaks));
-  }
-  // 자막 전용 띄어쓰기 취소(␣ 클릭): 간격 앞뒤 어절을 다시 붙인다. 그 자리 끊김도 함께 제거.
-  async function unsplitGap(l: ScriptLine, gapIndex: number) {
-    const current = lineChunks(l);
-    const words = displayWords(l);
-    if (gapIndex <= 0 || gapIndex >= words.length) return;
-    const breaks = new Set<number>();
-    for (const b of breakSetFromChunks(current)) {
-      if (b === gapIndex) continue;
-      breaks.add(b > gapIndex ? b - 1 : b);
-    }
-    const next = [
-      ...words.slice(0, gapIndex - 1),
-      words[gapIndex - 1] + words[gapIndex],
-      ...words.slice(gapIndex + 1),
-    ];
-    await saveChunks(l, chunksFromBreaks(next, breaks));
+    const { words, gaps } = parseSubtitleChunks(lineChunks(l));
+    const gi = wordIndex - 1;
+    if (gi < 0 || gi >= gaps.length || gaps[gi] === "wrap") return;
+    gaps[gi] = gaps[gi] === "cut" ? "space" : "cut";
+    await saveChunks(l, chunksFromWordsGaps(words, gaps));
   }
 
   const readyCount = lines.filter(isReady).length;
@@ -1998,21 +2038,34 @@ export function LineAssetEditor() {
                   </p>
                 )}
 
-                {hasId && (l.text ?? "").trim() !== "" && (
-                  <SubtitleChunkRow
-                    text={l.text ?? ""}
-                    chunks={lineChunks(l)}
-                    disabled={editLocked}
-                    onToggle={(wi) => toggleBreak(l, wi)}
-                    onSplit={(wi, co) => splitWord(l, wi, co)}
-                    onUnsplit={(gi) => unsplitGap(l, gi)}
-                    activeChunkIdx={
-                      playback.nowPlayingLineId === lineId
-                        ? playback.nowChunkIndex
-                        : null
-                    }
-                  />
-                )}
+                {hasId &&
+                  (l.text ?? "").trim() !== "" &&
+                  (editingSubLineId === lineId ? (
+                    <SubtitleEditRow
+                      initialChunks={lineChunks(l)}
+                      disabled={editLocked}
+                      onCancel={() => setEditingSubLineId(null)}
+                      onSave={(chunks) => {
+                        setEditingSubLineId(null);
+                        void saveChunks(l, chunks);
+                      }}
+                    />
+                  ) : (
+                    <SubtitleChunkRow
+                      chunks={lineChunks(l)}
+                      disabled={editLocked}
+                      onToggle={(wi) => toggleBreak(l, wi)}
+                      onEdit={() => {
+                        playback.stop();
+                        setEditingSubLineId(lineId);
+                      }}
+                      activeChunkIdx={
+                        playback.nowPlayingLineId === lineId
+                          ? playback.nowChunkIndex
+                          : null
+                      }
+                    />
+                  ))}
 
                 <div className="mt-2 flex flex-wrap items-center gap-1.5">
                   <Button

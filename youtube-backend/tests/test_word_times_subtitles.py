@@ -137,6 +137,39 @@ def test_boundary_inside_spoken_word_interpolates():
     assert subs[1] == (11.7, 14.0, "장벽이 무너졌기 때문입니다")
 
 
+# ── 화면 줄바꿈: 조각 안의 "\n" 은 시간축이 아니라 공간축(같은 컷, 두 줄) ──
+# 개행이 들어가도 타이밍 정합(word_times)은 유지되고(공백류 무시), split_subtitle_natural 은
+# 출력 자막에 "\n" 을 그대로 보존한다 → video_assembler 가 줄별 drawtext 로 두 줄을 그린다.
+
+
+def test_linebreak_in_chunk_matches_word_times():
+    # 공백 제거 문자열이 같으면(개행 포함) 정합 → 정밀 타이밍 유지.
+    wt = [
+        {"text": "이", "start": 0.0, "end": 0.3},
+        {"text": "저가", "start": 0.4, "end": 0.9},
+        {"text": "상품이", "start": 1.0, "end": 1.6},
+    ]
+    assert word_times_match(["이 저가\n상품이"], wt)
+
+
+def test_linebreak_preserved_in_output_text():
+    timings = [_line("이 저가 상품이 생각보다 좋아요", 0.0, 4.0)]
+    # 컷1은 화면 줄바꿈("\n")으로 두 줄, 컷2는 한 줄.
+    chunks = [["이 저가\n상품이", "생각보다 좋아요"]]
+    wt = [[
+        {"text": "이", "start": 0.0, "end": 0.3},
+        {"text": "저가", "start": 0.4, "end": 0.9},
+        {"text": "상품이", "start": 1.0, "end": 1.6},
+        {"text": "생각보다", "start": 1.8, "end": 2.6},
+        {"text": "좋아요", "start": 2.7, "end": 3.5},
+    ]]
+    subs = split_subtitle_natural(timings, chunks, wt)
+    texts = [t for _, _, t in subs]
+    assert texts == ["이 저가\n상품이", "생각보다 좋아요"]  # 개행 보존
+    # 컷 경계 = 다음 컷 첫 어절(생각보다) start=1.8 → 0.0+1.8
+    assert subs[0][1] == 1.8
+
+
 # ── 자막 마침표 제거(소수점 보존) ──────────────────────────────────
 
 from core.subtitle_utils import strip_subtitle_periods  # noqa: E402

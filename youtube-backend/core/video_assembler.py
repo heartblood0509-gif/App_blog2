@@ -372,15 +372,24 @@ async def assemble_shorts(job_id: str, config: dict, progress_callback=None):
     font_sub_name = os.path.basename(font_sub) if font_sub else ""
     font_title_name = os.path.basename(font_title) if font_title else ""
 
+    # 조각 문자열 안의 개행("\n")은 "화면 줄바꿈" — 같은 시간대에 화면을 두 줄로 나눈다.
+    # 미리보기(ShortsPreviewFrame)와 동일하게 첫 줄을 sub_y 에 두고 아래로 쌓는다(위 기준 정렬).
+    # 줄 간격은 글씨 크기에 비례(leading-tight ≈ 1.25). 각 줄은 자기 폭 기준으로 중앙 정렬된다.
+    sub_line_gap = round(sub_fontsize * 1.25)
     sub_filters = []
     for start, end, text in subtitles:
-        escaped = _escape_filter(text)
-        sub_filters.append(
-            f"drawtext=expansion=none:fontfile='{font_sub_name}':text='{escaped}':"
-            f"fontsize={sub_fontsize}:fontcolor={sub_color}:borderw={sub_border}:bordercolor=black:"
-            f"x={sub_x}:y={sub_y}:"
-            f"enable='between(t,{start},{end})'"
-        )
+        lines = str(text).split("\n")
+        for li, line in enumerate(lines):
+            if not line.strip():
+                continue
+            escaped = _escape_filter(line)
+            line_y = sub_y + li * sub_line_gap
+            sub_filters.append(
+                f"drawtext=expansion=none:fontfile='{font_sub_name}':text='{escaped}':"
+                f"fontsize={sub_fontsize}:fontcolor={sub_color}:borderw={sub_border}:bordercolor=black:"
+                f"x={sub_x}:y={line_y}:"
+                f"enable='between(t,{start},{end})'"
+            )
 
     title_filters = []
     if title_text and font_title:
