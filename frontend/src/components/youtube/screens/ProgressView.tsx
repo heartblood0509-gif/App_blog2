@@ -94,7 +94,7 @@ export function ProgressView() {
                   Windows 11의 보안 기능(Smart App Control)이 이 앱의 영상·소리 처리 도구 실행을 막았습니다. 최근 PC를 포맷하거나 새로 설치하면 이 기능이 자동으로 켜져 발생할 수 있어요.
                 </p>
                 <p className="text-foreground">
-                  Windows는 새로 설치한 직후엔 이 기능을 잠시 지켜보며 스스로 켜거나 꺼주기도 하지만, 이미 켜져서 차단이 생긴 상태에서는 저절로 꺼지지 않아요. 아래처럼 직접 꺼주세요.
+                  한 번 켜지면 저절로 꺼지지 않으니, 아래처럼 직접 꺼주세요.
                 </p>
                 <div className="rounded-md border border-border bg-background p-3">
                   <div className="mb-2 text-xs font-medium text-muted-foreground">해결 방법</div>
