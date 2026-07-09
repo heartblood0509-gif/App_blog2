@@ -572,6 +572,7 @@ class DraftStateResponse(BaseModel):
     subtitle_dx: int | None = None
     subtitle_y: int | None = None
     motion_speed: float | None = None
+    layout_mode: str | None = None
     tts_engine: str | None = None
     tts_speed: float | None = None
     voice_id: str | None = None
@@ -632,6 +633,7 @@ def _build_draft_state(job: Job) -> DraftStateResponse:
         subtitle_dx=job.subtitle_dx,
         subtitle_y=job.subtitle_y,
         motion_speed=job.motion_speed,
+        layout_mode=job.layout_mode,
         tts_engine=job.tts_engine,
         tts_speed=job.tts_speed,
         voice_id=job.voice_id,
@@ -682,6 +684,7 @@ class UpdateDraftMetaRequest(BaseModel):
     subtitle_dx: int | None = None
     subtitle_y: int | None = None
     motion_speed: float | None = None
+    layout_mode: str | None = None
 
 
 @router.post("/{job_id}/draft-meta", response_model=DraftStateResponse)
@@ -724,6 +727,7 @@ async def update_draft_meta(
         apply_title_pos,
         apply_title_sizes,
         apply_motion_speed,
+        apply_layout_mode,
     )
     apply_title_pos(job, dx=body.title_dx, dy=body.title_dy)
     apply_title_sizes(
@@ -742,6 +746,7 @@ async def update_draft_meta(
         y=body.subtitle_y,
     )
     apply_motion_speed(job, body.motion_speed)
+    apply_layout_mode(job, body.layout_mode)
     db.commit()
     db.refresh(job)
     return _build_draft_state(job)

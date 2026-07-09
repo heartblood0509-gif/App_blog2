@@ -27,6 +27,27 @@ from core.ffmpeg import FFMPEG_Q, FFPROBE_Q
 from config import settings
 
 
+# ── 레이아웃(상·하단 검정 박스) ──────────────────────────────
+# "boxed" 레이아웃: 미디어 위에 순검정 박스 2개를 덮어 미디어를 가운데 밴드로 가둔다.
+# 제목·자막은 이 박스보다 뒤에 조립되므로(all_filters 에서 뒤에 붙음) 박스 위에 또렷하게 올라간다.
+# 좌표는 1080×1920 기준. 프론트 프리뷰(제목 입력 단계 밴드 도식)와 동일 비율:
+#   상단 박스 0..469, 가운데 미디어 밴드 469..1445(=469+976), 하단 박스 1445..1920.
+LAYOUT_BOX_TOP_H = 469
+LAYOUT_BOX_BOTTOM_Y = 1445
+LAYOUT_BOX_BOTTOM_H = settings.TARGET_HEIGHT - LAYOUT_BOX_BOTTOM_Y  # 475
+
+
+def build_layout_filters(layout_mode) -> list[str]:
+    """레이아웃 오버레이 필터. "boxed" 일 때만 상·하단 검정 박스 drawbox 2개, 그 외엔 빈 리스트.
+    반환 순서대로 미디어 위에 그려지며, 제목·자막 필터보다 앞에 놓여야 한다(z순서: 박스 아래 제목·자막)."""
+    if (layout_mode or "") != "boxed":
+        return []
+    return [
+        f"drawbox=x=0:y=0:w=iw:h={LAYOUT_BOX_TOP_H}:color=black:t=fill",
+        f"drawbox=x=0:y={LAYOUT_BOX_BOTTOM_Y}:w=iw:h={LAYOUT_BOX_BOTTOM_H}:color=black:t=fill",
+    ]
+
+
 def get_duration(filepath):
     """ffprobe로 미디어 길이 조회"""
     probe = subprocess.run(
@@ -490,7 +511,9 @@ async def assemble_shorts(job_id: str, config: dict, progress_callback=None):
                 f"x={title_x}:y={ty}"
             )
 
-    all_filters = title_filters + sub_filters
+    # z순서: 미디어(이미 조립됨) → 레이아웃 박스 → 제목 → 자막.
+    # drawbox 는 enable 없이 전체 길이 적용, drawtext(제목/자막)의 시간 enable 과 독립이라 충돌 없음.
+    all_filters = build_layout_filters(config.get("layout_mode")) + title_filters + sub_filters
     output_path = os.path.join(output_dir, "shorts_final.mp4")
     # 재제작 시 기존 완성본을 ffmpeg가 직접 덮어쓰면, 중간에 실패할 경우
     # 작업이력의 영상이 손상될 수 있다. tmp 파일로 렌더한 뒤 atomic replace.

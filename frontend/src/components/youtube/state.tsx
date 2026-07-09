@@ -43,6 +43,7 @@ import {
   normalizeHexOr,
 } from "@/lib/youtube/title-colors";
 import { DEFAULT_MOTION_SPEED } from "@/lib/youtube/transform";
+import { type LayoutMode, DEFAULT_LAYOUT_MODE } from "@/lib/youtube/layout";
 import { loadLastUsed } from "@/lib/youtube/title-defaults";
 import { loadLastSubtitle } from "@/lib/youtube/subtitle-defaults";
 import { YT_AI_FULL_ENABLED } from "@/lib/youtube-ai-full-feature";
@@ -132,6 +133,9 @@ export interface YtState {
   // 줌(모션) 속도 — 작업 전역, 모든 줄 공통. 초당 확대 비율(0.0125=1.25%/s).
   motionSpeed: number;
 
+  // 레이아웃 — 작업 전역. "full"=꽉 채움(기본), "boxed"=상·하단 검정 박스.
+  layoutMode: LayoutMode;
+
   // Card B — 붙여넣은 원본 대본(스텝 되돌아왔을 때 유지)
   scriptText: string;
 
@@ -208,6 +212,7 @@ export const initialYtState: YtState = {
   subtitleDx: DEFAULT_SUBTITLE_DX,
   subtitleY: DEFAULT_SUBTITLE_Y,
   motionSpeed: DEFAULT_MOTION_SPEED,
+  layoutMode: DEFAULT_LAYOUT_MODE,
   narration: [],
   narrationTitle: "",
   scriptLines: null,
@@ -377,6 +382,8 @@ export function restorePatchFromDraft(
     subtitleDx: ds.subtitle_dx ?? DEFAULT_SUBTITLE_DX,
     subtitleY: ds.subtitle_y ?? DEFAULT_SUBTITLE_Y,
     motionSpeed: ds.motion_speed ?? DEFAULT_MOTION_SPEED,
+    // 백엔드는 boxed 만 저장(그 외 NULL=꽉 채움). 재열기 시 사용자가 고른 박스가 유지되게 필수 복원.
+    layoutMode: ds.layout_mode === "boxed" ? "boxed" : "full",
     selectedTitle: ds.title ?? "",
     scriptText: lineTexts.join("\n"),
     ttsEngine: ds.tts_engine ?? "typecast",
