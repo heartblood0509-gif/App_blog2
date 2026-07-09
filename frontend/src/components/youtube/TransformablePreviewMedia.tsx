@@ -49,6 +49,7 @@ export function TransformablePreviewMedia({
   transform,
   disabled = false,
   emptyBg = "black",
+  blurSigma = null,
   overlayEl,
   spotlight = false,
   clipStart,
@@ -67,6 +68,9 @@ export function TransformablePreviewMedia({
   // 미디어가 안 덮는 빈 공간의 배경. "black"=검정(기본, 최종 렌더와 동일). "checker"=체커보드
   // (full 레이아웃 편집 시 "여기 비어있음" 표시 — 최종 영상은 검정). boxed 는 박스가 덮으므로 black.
   emptyBg?: "black" | "checker";
+  // 흐림 배경(blur 레이아웃) sigma(1080폭 기준). null 이면 배경층 없음. 값이 있으면 같은 미디어를
+  // 화면 가득 늘려 CSS blur 한 층을 fg 뒤에 깔아 최종 렌더(gblur)를 흉내낸다.
+  blurSigma?: number | null;
   // 프레임 밖 외곽선/핸들을 그릴 컨테이너(프레임의 형제, overflow 미적용). 없으면 핸들 기능 생략.
   overlayEl?: HTMLElement | null;
   // 외부에서 잠깐 외곽선+핸들을 켜는 신호(크기 슬라이더 조작 중). 포커스 없이도 "잡을 수 있음"을 노출.
@@ -397,6 +401,26 @@ export function TransformablePreviewMedia({
       }
     : { opacity: 0, pointerEvents: "none" };
 
+  // 흐림 배경층: 같은 미디어를 cover 1.06배(가장자리 halo 은폐)로 깔고 CSS blur. fg 뒤에 그린다.
+  // sigma 는 1080폭 기준이라 프리뷰 폭 비율(frameWidth/1080)로 스케일해 렌더와 시각 정합.
+  const bgPlace =
+    nat && blurSigma
+      ? computePlacement(nat.w, nat.h, { scale: 1.06, x: 0, y: 0 }, frameWidth, frameHeight)
+      : null;
+  const blurBgStyle: React.CSSProperties | null = bgPlace
+    ? {
+        position: "absolute",
+        left: `${bgPlace.left}px`,
+        top: `${bgPlace.top}px`,
+        width: `${bgPlace.width}px`,
+        height: `${bgPlace.height}px`,
+        maxWidth: "none",
+        pointerEvents: "none",
+        userSelect: "none",
+        filter: `blur(${(blurSigma as number) * (frameWidth / 1080)}px)`,
+      }
+    : null;
+
   // 8개 핸들의 외곽선 기준 위치(%). 꼭지점 4 + 변 중앙 4.
   const handlePos: Record<HandleId, { left: string; top: string }> = {
     nw: { left: "0%", top: "0%" },
@@ -431,6 +455,25 @@ export function TransformablePreviewMedia({
           className="pointer-events-none absolute inset-0 will-change-transform"
           style={{ transformOrigin: motionOrigin }}
         >
+          {/* 흐림 배경층 — fg 뒤(먼저 그림). 같은 미디어를 화면 가득 늘려 CSS blur. */}
+          {blurBgStyle ? (
+            kind === "clip" ? (
+              <video
+                key={`bg-${src}`}
+                src={src}
+                autoPlay
+                muted
+                loop
+                playsInline
+                draggable={false}
+                aria-hidden
+                style={blurBgStyle}
+              />
+            ) : (
+              // eslint-disable-next-line @next/next/no-img-element -- 프록시 경유 동적 이미지
+              <img src={src} alt="" aria-hidden draggable={false} style={blurBgStyle} />
+            )
+          ) : null}
           {kind === "clip" ? (
             <video
             ref={videoElRef}

@@ -105,9 +105,12 @@ class Job(Base):
     subtitle_y = Column(Integer, nullable=True)
     # 줌(모션) 속도 — 작업 전역, 모든 줄 공통. 초당 확대 비율(0.0125=1.25%/s). None=기본.
     motion_speed = Column(Float, nullable=True)
-    # 레이아웃(작업 전역). None=꽉 채움(기존 동작), "boxed"=상·하단 검정 박스(미디어를 박스 뒤에 두고
-    # 제목·자막을 박스 위에). video_assembler 가 boxed 일 때만 drawbox 필터를 앞에 끼운다.
+    # 레이아웃(작업 전역). None=꽉 채움(기존 동작), "boxed"=상·하단 검정 박스, "blur"=흐림 배경
+    # (빈 공간을 같은 미디어의 가우시안 블러로 채움 — 캡컷 방식). boxed 는 전역 drawbox,
+    # blur 는 줄별 합성 단계에서 처리한다.
     layout_mode = Column(String, nullable=True)
+    # 흐림 배경 강도(가우시안 sigma). None=기본(25). blur 모드에서만 의미. 5~50 클램프.
+    layout_blur_sigma = Column(Float, nullable=True)
     script_json = Column(Text, default="[]")
     # 카드 A("AI가 모두 생성")는 "ai_full", 카드 B("사용자 직접 제공")는 "user_assets"
     generation_mode = Column(String, default="ai_full")

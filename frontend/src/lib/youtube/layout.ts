@@ -7,9 +7,30 @@
 // 밴드 비율은 백엔드 video_assembler.LAYOUT_BOX_* (상단 0..469 / 가운데 469..1445 / 하단 1445..1920,
 // 1080×1920 기준)와 정합해야 한다. 프레임 컴포넌트가 아니라 이 모듈이 상수의 단일 출처다(순환 import 방지).
 
-export type LayoutMode = "full" | "boxed";
+export type LayoutMode = "full" | "boxed" | "blur";
 
 export const DEFAULT_LAYOUT_MODE: LayoutMode = "full";
+
+// 흐림 배경(blur) 강도(가우시안 sigma). UI 는 기준 25 대비 %로 다룬다(모션 속도 슬라이더 패턴).
+// 20~200% × 25 = 5~50, 백엔드 clamp(BLUR_SIGMA_MIN/MAX)와 정합.
+export const BLUR_SIGMA_DEFAULT = 25;
+export const BLUR_PCT_MIN = 20;
+export const BLUR_PCT_MAX = 200;
+export const BLUR_PCT_STEP = 5;
+export const BLUR_PCT_DEFAULT = 100;
+
+const clampNum = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
+
+/** 슬라이더 %(기준 sigma 대비) → 실제 sigma. 범위 밖은 클램프. */
+export function sigmaFromBlurPct(pct: number): number {
+  const p = clampNum(Number.isFinite(pct) ? pct : BLUR_PCT_DEFAULT, BLUR_PCT_MIN, BLUR_PCT_MAX);
+  return BLUR_SIGMA_DEFAULT * (p / 100);
+}
+/** sigma → 슬라이더 %(정수, 클램프). 저장된 sigma 를 슬라이더 위치로 되돌린다. */
+export function blurPctFromSigma(sigma: number): number {
+  const s = Number.isFinite(sigma) ? sigma : BLUR_SIGMA_DEFAULT;
+  return clampNum(Math.round((s / BLUR_SIGMA_DEFAULT) * 100), BLUR_PCT_MIN, BLUR_PCT_MAX);
+}
 
 // 상단 검정 박스 높이(=가운데 밴드 상단), 프레임 높이 대비 비율.
 export const LAYOUT_BAND_TOP_FRAC = 469 / 1920; // 0.24427

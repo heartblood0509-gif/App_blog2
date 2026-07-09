@@ -22,7 +22,7 @@ from db.models import Job, JobTask, User
 from jobs_queue.task_queue import ACTIVE_STATUSES, enqueue_task, get_active_task, task_payload
 from core.r2_storage import require_r2_for_generation, is_r2_enabled, r2_file_exists
 from core.ffmpeg import FFMPEG_Q, FFPROBE
-from core.image_pipeline import normalize_transform, KEN_BURNS_MOTIONS
+from core.image_pipeline import normalize_transform, KEN_BURNS_MOTIONS, fit_transform, probe_media_dims
 from core.text_validation import contains_emoji
 from core.colors import normalize_hex, DEFAULT_TITLE_COLOR1, DEFAULT_TITLE_COLOR2
 from config import settings
@@ -157,6 +157,11 @@ DEFAULT_SUBTITLE_COLOR = "#FFFFFF"
 MOTION_SPEED_MIN = 0.001
 MOTION_SPEED_MAX = 0.08
 
+# ── 흐림 배경(blur 레이아웃) 강도 클램프 범위 (가우시안 sigma) ──
+# UI 슬라이더 20~200% × 기준 25 = 5~50.
+BLUR_SIGMA_MIN = 5.0
+BLUR_SIGMA_MAX = 50.0
+
 # ── 제목 위치 클램프 범위 (confirm/draft-meta 양쪽에서 동일 적용, 프론트 ShortsPreviewFrame 과 동일) ──
 # dx=가로 중앙 오프셋, dy=기본 위치(폰트 크기로 계산되는 상단) 기준 세로 델타. 0=기존 고정 위치.
 TITLE_DX_ABS = 350
@@ -224,21 +229,38 @@ def apply_motion_speed(job, value) -> None:
     job.motion_speed = max(MOTION_SPEED_MIN, min(MOTION_SPEED_MAX, v))
 
 
-ALLOWED_LAYOUT_MODES = {"boxed"}
+ALLOWED_LAYOUT_MODES = {"boxed", "blur"}
 
 
 def apply_layout_mode(job, value) -> None:
     """레이아웃(작업 전역)을 Job 에 반영. None 이면 미변경.
 
-    ⚠️ 다른 apply_* 헬퍼(잘못된 값=무시)와 규칙이 다르다. "boxed" 만 저장하고
+    ⚠️ 다른 apply_* 헬퍼(잘못된 값=무시)와 규칙이 다르다. "boxed"/"blur" 만 저장하고
     그 외 값("full" 포함)은 None(=꽉 채움 복귀)으로 '해제'한다. 프론트가 confirm·draft-meta
-    두 페이로드에 layout_mode 를 '항상' 실어 보내는 계약과 한 쌍 — 그래야 boxed→full 복귀가
+    두 페이로드에 layout_mode 를 '항상' 실어 보내는 계약과 한 쌍 — 그래야 →full 복귀가
     저장된다(옵셔널로 빼먹으면 해제가 반영 안 됨). raw JSON(confirm)·pydantic(draft-meta) 공유.
     """
     if value is None:
         return
     v = str(value).strip().lower()
     job.layout_mode = v if v in ALLOWED_LAYOUT_MODES else None
+
+
+def apply_blur_sigma(job, value) -> None:
+    """흐림 배경 강도(가우시안 sigma)를 Job 에 클램프해서 반영. None=미변경.
+
+    layout_mode 와 달리 '값이 오면 클램프 저장, 이상값(NaN/문자열/None)은 무시'하는
+    apply_motion_speed 와 같은 규칙 — layout_blur_sigma 는 blur 모드에서만 의미가 있다.
+    """
+    if value is None:
+        return
+    try:
+        v = float(value)
+    except (TypeError, ValueError):
+        return
+    if v != v:  # NaN
+        return
+    job.layout_blur_sigma = max(BLUR_SIGMA_MIN, min(BLUR_SIGMA_MAX, v))
 
 
 def apply_title_pos(job, dx=None, dy=None) -> None:
@@ -486,12 +508,14 @@ def _raise_if_lines_have_active_tasks(db: Session, job_id: str, lines: list[dict
             raise HTTPException(status_code=409, detail="AI 자산 생성이 진행 중인 줄입니다. 잠시 후 다시 시도하세요.")
 
 
-def _set_line_source(job: Job, line_index: int, source: Literal["ai", "image", "clip"], *, status: str = "ready", fail_reason: Optional[str] = None, clip_meta: Optional[dict] = None) -> Optional[int]:
+def _set_line_source(job: Job, line_index: int, source: Literal["ai", "image", "clip"], *, status: str = "ready", fail_reason: Optional[str] = None, clip_meta: Optional[dict] = None, initial_transform: Optional[dict] = None) -> Optional[int]:
     """줄별 자산 출처와 상태를 Job에 기록. 호출 측에서 db.commit() 필요.
 
     clip_meta: 선트림 업로드가 {"clip_start", "clip_duration"} 을 넘기면, mark_line_asset_ready 가
     이전 조각 메타를 pop 한 **직후** 이 값으로 다시 써 넣는다(이 함수가 script_json 을 자체 로드/저장하므로
     반드시 여기서 넣어야 유실되지 않음).
+    initial_transform: 새 자산의 초기 위치·배율. mark_line_asset_ready 가 transform 을 pop 한 직후
+    써 넣는다. 흐림 배경(blur) 모드 업로드에서 곧바로 fit(원본 전체 보임) 로 시작시키는 용도.
     """
     sources = json.loads(job.line_sources_json or "[]")
     lines = json.loads(job.script_json or "[]")
@@ -508,6 +532,8 @@ def _set_line_source(job: Job, line_index: int, source: Literal["ai", "image", "
             mark_line_asset_ready(lines[line_index], bump_version=True)
             if clip_meta:
                 lines[line_index].update(clip_meta)
+            if initial_transform:
+                lines[line_index]["transform"] = initial_transform
         else:
             lines[line_index]["status"] = status
             lines[line_index]["fail_reason"] = fail_reason
@@ -814,6 +840,53 @@ async def set_line_visual(
     job.script_json = json.dumps(lines, ensure_ascii=False)
     db.commit()
     return {"ok": True, "transform": saved_transform, "motion": saved_motion, "clip_start": saved_clip_start}
+
+
+@router.post("/{job_id}/layout-fit-transforms", response_model=SplitLineResponse)
+async def layout_fit_transforms(
+    job_id: str = Path(..., pattern=r"^[a-f0-9]{12}$"),
+    db: Session = Depends(get_db),
+    _user: User = Depends(get_approved_user),
+):
+    """카드 B 전용: 준비된 모든 줄의 transform 을 fit(원본 전체 보임)으로 일괄 재계산.
+
+    흐림 배경(blur)을 켤 때 호출한다 — 미디어가 화면을 꽉 채우고 있으면 흐린 배경이 안 보이므로,
+    각 줄을 원본 비율 맞춤으로 되돌려 빈 공간(=흐린 배경)이 드러나게 한다. 프론트는 다른 줄의
+    원본 크기를 모르므로 서버가 자산 파일을 probe 해서 계산한다.
+
+    파일은 안 건드리므로 asset_version bump·visual_plan 무효화 안 함(line-visual 과 동일 근거).
+    미준비/파일없음/probe실패 줄은 건너뛴다(부분 성공 허용).
+    """
+    from jobs_queue.worker import _ensure_r2_asset_local_any  # 지연 import (순환 방지, jobs.py 선례)
+
+    job = get_user_job(db, job_id, _user)
+    if job.generation_mode != "user_assets":
+        raise HTTPException(status_code=400, detail="이 작업은 카드 B 모드가 아닙니다")
+    if job.status != "preview_ready":
+        raise HTTPException(status_code=409, detail=f"카드 편집 단계가 아닙니다 (상태: {job.status})")
+
+    lines = json.loads(job.script_json or "[]")
+    ensure_line_ids(lines)
+    sources = json.loads(job.line_sources_json or "[]")
+    W, H = settings.TARGET_WIDTH, settings.TARGET_HEIGHT
+    job_dir = os.path.join(settings.STORAGE_DIR, job_id)
+
+    for i, line in enumerate(lines):
+        if line.get("status") != "ready":
+            continue
+        kind = "clip" if (i < len(sources) and sources[i] == "clip") else "image"
+        rel = await _ensure_r2_asset_local_any(job_id, line_asset_rel_candidates(kind, line, i))
+        if not rel:
+            continue
+        try:
+            sw, sh = await asyncio.to_thread(probe_media_dims, os.path.join(job_dir, rel))
+        except Exception:
+            continue  # 손상/미지원 파일은 건너뜀
+        line["transform"] = fit_transform(sw, sh, W, H)
+
+    job.script_json = json.dumps(lines, ensure_ascii=False)
+    db.commit()
+    return SplitLineResponse(lines=lines, sources=sources)
 
 
 class SubtitleChunksRequest(BaseModel):
@@ -1210,8 +1283,10 @@ async def confirm_and_render(
         )
         # 줌(모션) 속도 — 작업 전역. 자막 스타일과 동일하게 confirm 시 흡수.
         apply_motion_speed(job, body.get("motion_speed"))
-        # 레이아웃(작업 전역) — 프론트가 항상 값을 보낸다(계약). "boxed"→저장, "full"→해제.
+        # 레이아웃(작업 전역) — 프론트가 항상 값을 보낸다(계약). "boxed"/"blur"→저장, "full"→해제.
         apply_layout_mode(job, body.get("layout_mode"))
+        # 흐림 강도 — blur 모드에서만 의미. None=미변경(값 오면 클램프).
+        apply_blur_sigma(job, body.get("layout_blur_sigma"))
 
         # 자막 조각 확정(WYSIWYG): 프론트가 화면에 보여준 줄별 조각을 line_id 맵으로 보낸다.
         # 여기서 script_json 에 확정 저장 → 렌더가 자동 분할 없이 이 경계 그대로 자막을 박는다.
@@ -1560,7 +1635,9 @@ async def upload_image(
     if job.generation_mode == "user_assets":
         job_dir = os.path.join(settings.STORAGE_DIR, job_id)
         await _delete_line_asset_kind(job_id, job_dir, line, line_index, "clip")
-        asset_version = _set_line_source(job, line_index, "image", status="ready")
+        # 흐림 배경 모드면 새 이미지를 fit(원본 전체 보임)으로 시작 → 켜자마자 흐린 배경이 보임.
+        init_t = fit_transform(img.width, img.height, 1080, 1920) if job.layout_mode == "blur" else None
+        asset_version = _set_line_source(job, line_index, "image", status="ready", initial_transform=init_t)
         db.commit()
 
     return {
@@ -1850,7 +1927,14 @@ async def upload_clip(
     if job.generation_mode == "user_assets":
         job_dir = os.path.join(settings.STORAGE_DIR, job_id)
         await _delete_line_asset_kind(job_id, job_dir, line, line_index, "image")
-        asset_version = _set_line_source(job, line_index, "clip", status="ready", clip_meta=clip_meta)
+        init_t = None
+        if job.layout_mode == "blur":
+            try:
+                sw, sh = await asyncio.to_thread(probe_media_dims, output_path)
+                init_t = fit_transform(sw, sh, 1080, 1920)
+            except Exception:
+                init_t = None  # probe 실패 시 기본(cover) — 흐림 배경 안 보여도 렌더는 정상
+        asset_version = _set_line_source(job, line_index, "clip", status="ready", clip_meta=clip_meta, initial_transform=init_t)
         db.commit()
 
     return {
@@ -1979,9 +2063,17 @@ async def import_clip_segment(
 
     job_dir = os.path.join(settings.STORAGE_DIR, job_id)
     await _delete_line_asset_kind(job_id, job_dir, line, idx, "image")
+    init_t = None
+    if job.layout_mode == "blur":
+        try:
+            sw, sh = await asyncio.to_thread(probe_media_dims, output_path)
+            init_t = fit_transform(sw, sh, 1080, 1920)
+        except Exception:
+            init_t = None
     asset_version = _set_line_source(
         job, idx, "clip", status="ready",
         clip_meta={"clip_start": cs, "clip_duration": cd},
+        initial_transform=init_t,
     )
     db.commit()
     _remove_trim_proxy(job_id)  # 확정됐으니 미리보기 임시본 정리

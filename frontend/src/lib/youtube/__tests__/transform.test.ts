@@ -11,6 +11,8 @@ import {
   MOTION_SPEED_PCT_MAX,
   rateFromSpeedPct,
   speedPctFromRate,
+  fitScale,
+  SCALE_MIN,
 } from "../transform";
 
 // 백엔드 tests/test_transform_placement.py 의 PLACEMENT_CASES 와 **글자 그대로 같은 값**.
@@ -83,5 +85,22 @@ describe("motion speed pct <-> rate", () => {
     expect(speedPctFromRate(999)).toBe(MOTION_SPEED_PCT_MAX);
     expect(speedPctFromRate(0)).toBe(MOTION_SPEED_PCT_MIN);
     expect(speedPctFromRate(NaN)).toBe(100); // finite() 폴백 = 기본 rate → 100%
+  });
+});
+
+// 백엔드 tests/test_layout_blur.py 의 fit_transform 값과 **글자 그대로 같은 값**(WYSIWYG).
+describe("fitScale matches backend fit_transform", () => {
+  it("landscape 1920x1080 → 0.31640625", () => {
+    expect(fitScale(1920, 1080, W, H)).toBeCloseTo(0.31640625, 6);
+  });
+  it("square 1000x1000 → 0.5625", () => {
+    expect(fitScale(1000, 1000, W, H)).toBeCloseTo(0.5625, 6);
+  });
+  it("9:16 media → 1.0 (fit == cover)", () => {
+    expect(fitScale(1080, 1920, W, H)).toBeCloseTo(1.0, 6);
+    expect(fitScale(864, 1536, W, H)).toBeCloseTo(1.0, 6);
+  });
+  it("extreme panorama clamps to SCALE_MIN", () => {
+    expect(fitScale(10000, 500, W, H)).toBe(SCALE_MIN);
   });
 });
