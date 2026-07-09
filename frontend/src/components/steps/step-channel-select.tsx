@@ -25,7 +25,7 @@ const CHANNELS: Array<{
 }> = [
   { id: "blog", name: "블로그", description: "네이버 블로그 포스팅", icon: Layers, logoSrc: "/channel-logos/blog.svg", enabled: true },
   { id: "thread", name: "쓰레드", description: "짧은 호흡의 SNS 포스팅", icon: MessageSquare, logoSrc: "/channel-logos/thread.svg", enabled: true },
-  { id: "youtube", name: "유튜브", description: "쇼츠 영상 자동 생성", icon: SquarePlay, logoSrc: "/channel-logos/youtube.svg", enabled: true },
+  { id: "youtube", name: "숏폼", description: "유튜브 · 릴스 · 틱톡", icon: SquarePlay, logoSrc: "/channel-logos/youtube.svg", enabled: true },
 ];
 
 interface StepChannelSelectProps {

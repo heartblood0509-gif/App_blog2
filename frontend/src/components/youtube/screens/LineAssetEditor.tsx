@@ -1998,71 +1998,55 @@ export function LineAssetEditor() {
                     )}
                   </Button>
                 </div>
-                <Textarea
-                  data-line-id={lineId}
-                  value={textValue}
-                  onChange={(e) =>
-                    setDrafts((d) => ({ ...d, [lineId]: e.target.value }))
-                  }
-                  onBlur={() => saveText(lineId)}
-                  onFocus={() => hasId && setActiveLineId(lineId)}
-                  onKeyDown={(e) => {
-                    // Enter = 커서 위치에서 줄 나누기. Shift+Enter = 줄바꿈, IME 조합 중 Enter = 글자 확정(무시).
-                    if (
-                      e.key === "Enter" &&
-                      !e.shiftKey &&
-                      !e.nativeEvent.isComposing
-                    ) {
-                      e.preventDefault();
-                      if (structLocked) {
-                        toast.info(
-                          "생성·업로드가 끝난 뒤에 줄을 나눌 수 있어요.",
+                {/* 음성 라벨 — 아래 자막 칩과 동일 스타일. 둘 다 두 글자라 칩 폭이 같아
+                    입력란과 자막 어절의 시작점이 세로로 정렬된다. */}
+                <div className="mt-1 flex items-start gap-1.5">
+                  <span className="mt-1.5 shrink-0 rounded border border-border px-1 text-[0.6rem] font-medium leading-4 text-muted-foreground">
+                    음성
+                  </span>
+                  <Textarea
+                    data-line-id={lineId}
+                    value={textValue}
+                    onChange={(e) =>
+                      setDrafts((d) => ({ ...d, [lineId]: e.target.value }))
+                    }
+                    onBlur={() => saveText(lineId)}
+                    onFocus={() => hasId && setActiveLineId(lineId)}
+                    onKeyDown={(e) => {
+                      // Enter = 커서 위치에서 줄 나누기. Shift+Enter = 줄바꿈, IME 조합 중 Enter = 글자 확정(무시).
+                      if (
+                        e.key === "Enter" &&
+                        !e.shiftKey &&
+                        !e.nativeEvent.isComposing
+                      ) {
+                        e.preventDefault();
+                        if (structLocked) {
+                          toast.info(
+                            "생성·업로드가 끝난 뒤에 줄을 나눌 수 있어요.",
+                          );
+                          return;
+                        }
+                        const ta = e.currentTarget;
+                        const start = ta.selectionStart ?? ta.value.length;
+                        const end = ta.selectionEnd ?? start;
+                        void doSplit(
+                          lineId,
+                          ta.value.slice(0, start),
+                          ta.value.slice(end),
                         );
                         return;
                       }
-                      const ta = e.currentTarget;
-                      const start = ta.selectionStart ?? ta.value.length;
-                      const end = ta.selectionEnd ?? start;
-                      void doSplit(
-                        lineId,
-                        ta.value.slice(0, start),
-                        ta.value.slice(end),
-                      );
-                      return;
-                    }
-                    // 맨 앞에서 Backspace = 윗줄과 합치기(빈 줄이면 그 줄 삭제). 원본 쇼츠픽과 동일.
-                    // IME 조합 중·Shift·선택영역이 있을 땐 일반 글자 지우기(기본 동작).
-                    if (
-                      e.key === "Backspace" &&
-                      !e.shiftKey &&
-                      !e.nativeEvent.isComposing &&
-                      i > 0
-                    ) {
-                      const ta = e.currentTarget;
-                      if (ta.selectionStart !== 0 || ta.selectionEnd !== 0) return;
-                      if (structLocked) return; // 잠금 중엔 보류(맨 앞 Backspace 는 어차피 무동작)
-                      e.preventDefault();
-                      const prevId = String(
-                        linesRef.current[i - 1]?.line_id ?? "",
-                      );
-                      const prevText =
-                        prevId && drafts[prevId] !== undefined
-                          ? drafts[prevId]
-                          : linesRef.current[i - 1]?.text ?? "";
-                      const restoreCaret = () => {
-                        if (prevId) focusLineCaret(prevId, prevText.length);
-                      };
-                      if (!ta.value.trim()) {
-                        void del(lineId).then(restoreCaret); // 빈 줄 → 삭제
-                      } else {
-                        void mergeUp(lineId).then(restoreCaret); // 윗줄과 병합
-                      }
-                    }
-                    // 화살표 위/아래로 줄 간 커서 이동. 각 줄이 독립 textarea 라 기본으론 한 칸에 갇힌다.
-                    // 줄 맨 앞에서 ↑ → 윗줄 끝, 줄 맨 끝에서 ↓ → 아랫줄 맨 앞. 그 외엔 기본 동작(텍스트 내 이동).
-                    if (e.key === "ArrowUp" && !e.nativeEvent.isComposing && i > 0) {
-                      const ta = e.currentTarget;
-                      if (ta.selectionStart === 0 && ta.selectionEnd === 0) {
+                      // 맨 앞에서 Backspace = 윗줄과 합치기(빈 줄이면 그 줄 삭제). 원본 쇼츠픽과 동일.
+                      // IME 조합 중·Shift·선택영역이 있을 땐 일반 글자 지우기(기본 동작).
+                      if (
+                        e.key === "Backspace" &&
+                        !e.shiftKey &&
+                        !e.nativeEvent.isComposing &&
+                        i > 0
+                      ) {
+                        const ta = e.currentTarget;
+                        if (ta.selectionStart !== 0 || ta.selectionEnd !== 0) return;
+                        if (structLocked) return; // 잠금 중엔 보류(맨 앞 Backspace 는 어차피 무동작)
                         e.preventDefault();
                         const prevId = String(
                           linesRef.current[i - 1]?.line_id ?? "",
@@ -2071,33 +2055,56 @@ export function LineAssetEditor() {
                           prevId && drafts[prevId] !== undefined
                             ? drafts[prevId]
                             : linesRef.current[i - 1]?.text ?? "";
-                        if (prevId) focusLineCaret(prevId, prevText.length);
+                        const restoreCaret = () => {
+                          if (prevId) focusLineCaret(prevId, prevText.length);
+                        };
+                        if (!ta.value.trim()) {
+                          void del(lineId).then(restoreCaret); // 빈 줄 → 삭제
+                        } else {
+                          void mergeUp(lineId).then(restoreCaret); // 윗줄과 병합
+                        }
                       }
-                      return;
-                    }
-                    if (
-                      e.key === "ArrowDown" &&
-                      !e.nativeEvent.isComposing &&
-                      i < linesRef.current.length - 1
-                    ) {
-                      const ta = e.currentTarget;
-                      const end = ta.value.length;
-                      if (ta.selectionStart === end && ta.selectionEnd === end) {
-                        e.preventDefault();
-                        const nextId = String(
-                          linesRef.current[i + 1]?.line_id ?? "",
-                        );
-                        if (nextId) focusLineCaret(nextId, 0);
+                      // 화살표 위/아래로 줄 간 커서 이동. 각 줄이 독립 textarea 라 기본으론 한 칸에 갇힌다.
+                      // 줄 맨 앞에서 ↑ → 윗줄 끝, 줄 맨 끝에서 ↓ → 아랫줄 맨 앞. 그 외엔 기본 동작(텍스트 내 이동).
+                      if (e.key === "ArrowUp" && !e.nativeEvent.isComposing && i > 0) {
+                        const ta = e.currentTarget;
+                        if (ta.selectionStart === 0 && ta.selectionEnd === 0) {
+                          e.preventDefault();
+                          const prevId = String(
+                            linesRef.current[i - 1]?.line_id ?? "",
+                          );
+                          const prevText =
+                            prevId && drafts[prevId] !== undefined
+                              ? drafts[prevId]
+                              : linesRef.current[i - 1]?.text ?? "";
+                          if (prevId) focusLineCaret(prevId, prevText.length);
+                        }
+                        return;
                       }
-                      return;
-                    }
-                  }}
-                  readOnly={structuringThis}
-                  disabled={working || deletingThis || !hasId || savingThis}
-                  rows={2}
-                  className="mt-1 min-h-0 resize-y py-1.5 text-sm"
-                  aria-label={`${i + 1}번째 줄 텍스트`}
-                />
+                      if (
+                        e.key === "ArrowDown" &&
+                        !e.nativeEvent.isComposing &&
+                        i < linesRef.current.length - 1
+                      ) {
+                        const ta = e.currentTarget;
+                        const end = ta.value.length;
+                        if (ta.selectionStart === end && ta.selectionEnd === end) {
+                          e.preventDefault();
+                          const nextId = String(
+                            linesRef.current[i + 1]?.line_id ?? "",
+                          );
+                          if (nextId) focusLineCaret(nextId, 0);
+                        }
+                        return;
+                      }
+                    }}
+                    readOnly={structuringThis}
+                    disabled={working || deletingThis || !hasId || savingThis}
+                    rows={2}
+                    className="min-h-0 flex-1 resize-y py-1.5 text-sm"
+                    aria-label={`${i + 1}번째 줄 음성 텍스트`}
+                  />
+                </div>
                 {failed && l.fail_reason && (
                   <p className="mt-0.5 line-clamp-1 text-[0.7rem] text-destructive">
                     {l.fail_reason}
