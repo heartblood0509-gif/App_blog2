@@ -22,6 +22,7 @@ from core.image_pipeline import (
     normalize_transform,
     KEN_BURNS_MOTIONS,
     DEFAULT_ZOOM_RATE,
+    DEFAULT_BLUR_SIGMA,
 )
 from core.ffmpeg import FFMPEG_Q, FFPROBE_Q
 from config import settings
@@ -158,6 +159,13 @@ async def assemble_shorts(job_id: str, config: dict, progress_callback=None):
         )
         W = settings.TARGET_WIDTH
         H = settings.TARGET_HEIGHT
+        # 흐림 배경(blur 레이아웃): 빈 공간을 같은 미디어의 가우시안 블러로 채운다.
+        # None 이면 기존 검정 배경. boxed/full 에서는 None.
+        blur_sigma = (
+            float(config.get("layout_blur_sigma") or DEFAULT_BLUR_SIGMA)
+            if config.get("layout_mode") == "blur"
+            else None
+        )
         for i in range(N):
             src = line_sources[i]
             asset = asset_paths[i]
@@ -194,13 +202,14 @@ async def assemble_shorts(job_id: str, config: dict, progress_callback=None):
                     fps=settings.FPS,
                     start=clip_start,
                     zoom_rate=motion_rate,
+                    blur_sigma=blur_sigma,
                 )
             else:
                 # "ai" 또는 "image": 원본 비율 유지 배치 후, 사용자가 고른 모션 효과 적용.
                 # 배치가 꽉 채움 그대로(원본이 이미 프레임 크기)면 합성 생략 → AI 이미지는 기존과 동일.
                 composed = os.path.join(temp_dir, f"compose_{i:02d}.png")
                 composed = await asyncio.to_thread(
-                    prepare_image_canvas, asset, composed, transform, W, H
+                    prepare_image_canvas, asset, composed, transform, W, H, blur_sigma
                 )
                 if motion in KEN_BURNS_MOTIONS:
                     await asyncio.to_thread(

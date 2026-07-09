@@ -608,6 +608,7 @@ async def render_video_for_job(job_id: str):
                 "subtitle_y": getattr(job, "subtitle_y", None),
                 "motion_speed": getattr(job, "motion_speed", None),
                 "layout_mode": getattr(job, "layout_mode", None),
+                "layout_blur_sigma": getattr(job, "layout_blur_sigma", None),
                 "typecast_api_key": keys["typecast"],
             }
 

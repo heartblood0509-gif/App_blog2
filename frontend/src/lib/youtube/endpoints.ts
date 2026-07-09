@@ -367,8 +367,10 @@ export interface ConfirmDraftInput {
   subtitle_y?: number;
   // 줌(모션) 속도 — 작업 전역, 초당 확대 비율. 미지정이면 백엔드 기본(0.0125).
   motion_speed?: number;
-  // 레이아웃 — "full"(꽉 채움)/"boxed"(상·하 박스). 항상 보낸다(백엔드가 "그 외=해제"로 처리).
+  // 레이아웃 — "full"(꽉 채움)/"boxed"(상·하 박스)/"blur"(흐림 배경). 항상 보낸다(백엔드가 "그 외=해제"로 처리).
   layout_mode?: string;
+  // 흐림 배경 강도(가우시안 sigma). blur 모드에서만 의미.
+  layout_blur_sigma?: number;
   // 자막 조각 확정 맵(line_id → 조각들). 화면에 보여준 그대로 렌더에 박히게 한다(WYSIWYG).
   subtitle_chunks_by_line?: Record<string, string[]>;
 }
@@ -622,7 +624,8 @@ export interface DraftState {
   subtitle_dx?: number | null;
   subtitle_y?: number | null;
   motion_speed?: number | null; // 줌(모션) 속도 — 작업 전역, 초당 확대 비율
-  layout_mode?: string | null; // 레이아웃 — null=꽉 채움(기본), "boxed"=상·하 박스
+  layout_mode?: string | null; // 레이아웃 — null=꽉 채움(기본), "boxed"=상·하 박스, "blur"=흐림 배경
+  layout_blur_sigma?: number | null; // 흐림 배경 강도(가우시안 sigma) — blur 모드에서만
   // 작업 다시 열기 복원용 음성/BGM 설정(백엔드 DraftStateResponse 제공).
   tts_engine?: string | null;
   voice_id?: string | null;
@@ -669,9 +672,16 @@ export function saveDraftMeta(
     subtitle_y?: number;
     motion_speed?: number;
     layout_mode?: string;
+    layout_blur_sigma?: number;
   },
 ): Promise<DraftState> {
   return ytPostJson<DraftState>(`/api/jobs/${jobId}/draft-meta`, meta);
+}
+
+/** 흐림 배경을 켤 때: 준비된 모든 줄의 transform 을 fit(원본 전체 보임)으로 서버에서 일괄 재계산.
+ *  갱신된 줄 목록을 돌려받아 프론트가 통째로 반영한다(개별 저장 루프 불필요). */
+export function applyLayoutFitTransforms(jobId: string): Promise<LineEditResult> {
+  return ytPostJson<LineEditResult>(`/api/jobs/${jobId}/layout-fit-transforms`, {});
 }
 
 export interface GenerateMissingImagesResult {

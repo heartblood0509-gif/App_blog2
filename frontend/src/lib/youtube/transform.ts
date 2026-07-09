@@ -85,6 +85,16 @@ export function computePlacement(
   return { width, height, left, top };
 }
 
+/** 원본 전체가 프레임 안에 다 보이는(contain) scale. 흐림 배경의 기본 배치.
+ *  base(cover)와 fit(contain)의 비 — 9:16 원본이면 1.0. 백엔드 fit_transform 과 동일 수식. */
+export function fitScale(srcW: number, srcH: number, frameW: number, frameH: number): number {
+  const sw = Math.max(1, srcW || 1);
+  const sh = Math.max(1, srcH || 1);
+  const base = Math.max(frameW / sw, frameH / sh);
+  const fit = Math.min(frameW / sw, frameH / sh);
+  return Math.max(SCALE_MIN, fit / base);
+}
+
 export function isDefaultTransform(t: Partial<LineTransform> | null | undefined): boolean {
   const c = clampTransform(t);
   return c.scale === 1 && c.x === 0 && c.y === 0;

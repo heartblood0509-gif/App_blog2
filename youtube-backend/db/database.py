@@ -70,6 +70,7 @@ _MIGRATIONS = {
         "subtitle_y": "INTEGER",
         "motion_speed": "FLOAT",
         "layout_mode": "VARCHAR",
+        "layout_blur_sigma": "FLOAT",
         "user_id": "VARCHAR",
         "r2_synced": "VARCHAR DEFAULT 'none'",
         "files_expired_at": "TIMESTAMP",

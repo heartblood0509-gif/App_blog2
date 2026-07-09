@@ -6,9 +6,12 @@ import shlex
 import subprocess
 import sys
 
-from PIL import Image
+from PIL import Image, ImageFilter, ImageOps
 
 from core.ffmpeg import FFMPEG_Q, FFPROBE_Q
+
+# 흐림 배경(blur 레이아웃) 기본 가우시안 sigma. 프론트 BLUR_SIGMA_DEFAULT 와 일치.
+DEFAULT_BLUR_SIGMA = 25.0
 
 # 줌(Ken Burns) 속도 모델: "초당 확대 비율" 고정. 클립 길이와 무관하게 체감 속도가 일정하다.
 # 기본 0.0125 = 초당 1.25% → 4초 줄이면 총 5% 확대(기존 "전체 5% 고정"과 같은 체감).
@@ -307,6 +310,54 @@ def is_identity_placement(src_w: int, src_h: int, transform: dict, width: int, h
     return DW == width and DH == height and OX == 0 and OY == 0
 
 
+def fit_transform(src_w: int, src_h: int, width: int, height: int) -> dict:
+    """원본 전체가 프레임 안에 다 보이는(contain) transform. 흐림 배경 켤 때의 기본 배치.
+
+    base(=cover 배율)와 fit(=contain 배율)의 비가 곧 scale — 9:16 원본이면 1.0(=cover).
+    SCALE_MIN 하한에 걸리는 극단 파노라마는 완전 contain 이 안 되고 양옆이 살짝 잘린다(알려진 한계).
+    """
+    sw = max(1, int(src_w))
+    sh = max(1, int(src_h))
+    base = max(width / sw, height / sh)
+    fit = min(width / sw, height / sh)
+    scale = max(SCALE_MIN, fit / base)
+    return {"scale": scale, "x": 0.0, "y": 0.0}
+
+
+def placement_covers_frame(src_w: int, src_h: int, transform: dict, width: int, height: int) -> bool:
+    """배치된 미디어가 프레임을 완전히 덮는지(빈 공간 0). 참이면 흐림 배경이 안 보이므로 생략 가능."""
+    DW, DH, OX, OY = compute_placement(src_w, src_h, transform, width, height)
+    return OX <= 0 and OY <= 0 and OX + DW >= width and OY + DH >= height
+
+
+def build_user_clip_place_chain(
+    DW: int, DH: int, OX: int, OY: int,
+    width: int, height: int, fps: int, duration: float,
+    blur_sigma: float | None = None,
+) -> str:
+    """사용자 영상의 배경+전경 합성 filter_complex 조각(라벨 없는 overlay 로 끝남 → zoom_in 접합 가능).
+
+    blur_sigma 없으면 검정 배경(기존과 바이트 동일). 있으면 같은 입력을 split 해 한쪽은 화면을
+    가득 채우는 가우시안 블러 배경으로(¼ 해상도에서 블러 후 업스케일 — 시각 동일·훨씬 빠름),
+    다른 쪽은 transform 대로 얹는다. setpts 는 split 앞 1회면 -ss 입력시킹 PTS 리셋이 양쪽에 전파된다.
+    """
+    if not blur_sigma or blur_sigma <= 0:
+        return (
+            f"color=c=black:s={width}x{height}:r={fps}:d={duration}[bg];"
+            f"[0:v]scale={DW}:{DH}:flags=lanczos,setsar=1,setpts=PTS-STARTPTS[fg];"
+            f"[bg][fg]overlay={OX}:{OY}:shortest=1"
+        )
+    bw = max(2, (width // 4) - (width // 4) % 2)   # 1080 → 270
+    bh = max(2, (height // 4) - (height // 4) % 2)  # 1920 → 480
+    return (
+        f"[0:v]setpts=PTS-STARTPTS,split=2[bsrc][fsrc];"
+        f"[bsrc]scale={bw}:{bh}:force_original_aspect_ratio=increase,crop={bw}:{bh},"
+        f"gblur=sigma={blur_sigma / 4:.3f},scale={width}:{height},setsar=1[bg];"
+        f"[fsrc]scale={DW}:{DH}:flags=lanczos,setsar=1[fg];"
+        f"[bg][fg]overlay={OX}:{OY}:shortest=1"
+    )
+
+
 def probe_media_dims(filepath: str) -> tuple[int, int]:
     """영상/이미지의 픽셀 크기(가로, 세로)를 ffprobe 로 조회.
 
@@ -354,17 +405,29 @@ def compose_image_canvas(
     transform: dict,
     width: int = 1080,
     height: int = 1920,
+    blur_sigma: float | None = None,
 ) -> str:
-    """이미지를 transform 대로 검정 1080×1920 캔버스에 비율 유지 배치(합성).
+    """이미지를 transform 대로 1080×1920 캔버스에 비율 유지 배치(합성).
 
     PIL 로 처리해 win32 filter 인용 문제를 피하고, 원본 해상도에서 바로 LANCZOS 리샘플한다.
     paste 는 음수/프레임 밖 좌표를 자동으로 잘라내므로 = 오버플로 크롭(의도된 동작).
+    blur_sigma 가 있고 배치가 프레임을 다 못 덮으면 빈 공간을 같은 이미지의 흐린 배경으로 채운다
+    (¼ 해상도에서 블러 후 업스케일 — process_user_clip 의 영상 블러와 시각 정합).
     """
     with Image.open(image_path) as im:
         src = im.convert("RGB")
-        DW, DH, OX, OY = compute_placement(src.width, src.height, transform, width, height)
+        sw, sh = src.width, src.height
+        DW, DH, OX, OY = compute_placement(sw, sh, transform, width, height)
         fg = src.resize((DW, DH), Image.LANCZOS)
-    canvas = Image.new("RGB", (width, height), (0, 0, 0))
+        use_blur = bool(blur_sigma) and not placement_covers_frame(sw, sh, transform, width, height)
+        if use_blur:
+            bw = max(2, width // 4)
+            bh = max(2, height // 4)
+            bg_small = ImageOps.fit(src, (bw, bh), Image.LANCZOS)  # cover + 중앙크롭
+            bg_small = bg_small.filter(ImageFilter.GaussianBlur(radius=blur_sigma / 4))
+            canvas = bg_small.resize((width, height), Image.BILINEAR)
+        else:
+            canvas = Image.new("RGB", (width, height), (0, 0, 0))
     canvas.paste(fg, (OX, OY))
     canvas.save(output_path, "PNG")
     return output_path
@@ -376,17 +439,19 @@ def prepare_image_canvas(
     transform: dict,
     width: int = 1080,
     height: int = 1920,
+    blur_sigma: float | None = None,
 ) -> str:
     """배치가 꽉 채움 그대로(원본이 이미 프레임 크기)면 원본 경로를 반환(합성 생략),
     아니면 compose_image_canvas 로 합성 후 output_path 반환.
 
     → AI/기존에 1080×1920 로 저장된 이미지는 합성을 건너뛰어 오늘과 동일 경로를 탄다.
+    이 shortcut 은 미디어가 정확히 프레임을 꽉 덮는 경우라 흐린 배경이 0px 노출 = 생략 무해.
     """
     with Image.open(image_path) as im:
         sw, sh = im.width, im.height
     if is_identity_placement(sw, sh, transform, width, height):
         return image_path
-    return compose_image_canvas(image_path, output_path, transform, width, height)
+    return compose_image_canvas(image_path, output_path, transform, width, height, blur_sigma=blur_sigma)
 
 
 def render_still_clip(
@@ -429,10 +494,13 @@ def process_user_clip(
     fps: int = 30,
     start: float = 0.0,
     zoom_rate: float = DEFAULT_ZOOM_RATE,
+    blur_sigma: float | None = None,
 ) -> str:
-    """사용자 업로드 영상: 원본 비율 유지한 채 transform 대로 검정 캔버스에 배치 + trim.
+    """사용자 업로드 영상: 원본 비율 유지한 채 transform 대로 배치 + trim.
 
     - 왜곡 없음: scale 로 비율 유지 리사이즈 후 overlay(음수 좌표·오버플로 크롭 허용).
+    - blur_sigma 가 있고 미디어가 프레임을 다 못 덮으면, 빈 공간을 같은 영상의 흐린 배경으로 채운다.
+      배치가 이미 프레임을 꽉 덮으면 배경이 안 보이므로 검정(기존 경로)으로 둔다(불필요한 블러 회피).
     - motion="zoom_in" 이면 합성 프레임(9:16)에 초당 zoom_rate 등속 줌인을 적용(상한 ZOOM_MAX).
     - setsar=1 로 휴대폰 영상의 앵글드 SAR(비정방 픽셀) 왜곡을 무력화.
     - start>0 이면 `-ss` 를 `-i` 앞에 둬 그 지점부터 사용(선트림 조각의 앞 여유분 건너뛰기).
@@ -441,13 +509,13 @@ def process_user_clip(
     """
     DW, DH, OX, OY = compute_placement(src_w, src_h, transform, width, height)
 
-    # setpts=PTS-STARTPTS: `-ss` 입력 시킹(start>0) 시 영상 첫 프레임의 PTS 가 정확히 0 이 아니라,
-    # 검정 배경(bg, PTS 0)에 overlay 하면 t=0 순간 배경만 보여 첫 프레임이 검정으로 깜빡인다.
-    # 타임스탬프를 0 으로 리셋해 fg 가 bg 와 t=0 부터 정렬되게 한다(start=0 이면 무해한 no-op).
-    place = (
-        f"color=c=black:s={width}x{height}:r={fps}:d={duration}[bg];"
-        f"[0:v]scale={DW}:{DH}:flags=lanczos,setsar=1,setpts=PTS-STARTPTS[fg];"
-        f"[bg][fg]overlay={OX}:{OY}:shortest=1"
+    effective_blur = (
+        blur_sigma
+        if blur_sigma and not placement_covers_frame(src_w, src_h, transform, width, height)
+        else None
+    )
+    place = build_user_clip_place_chain(
+        DW, DH, OX, OY, width, height, fps, duration, blur_sigma=effective_blur
     )
     if motion == "zoom_in":
         # 초당 zoom_rate 등속 확대(상한 ZOOM_MAX) — 입력이 이미 9:16 이라 왜곡 없음.

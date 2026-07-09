@@ -72,6 +72,7 @@ import { VoiceSettingsBar } from "../shared/VoiceSettingsBar";
 import { BgmPicker, bgmAudioUrl, formatTime } from "../shared/BgmPicker";
 import { SubtitleStylePicker } from "../shared/SubtitleStylePicker";
 import { LayoutPicker } from "../shared/LayoutPicker";
+import { type LayoutMode } from "@/lib/youtube/layout";
 import { PlaybackProgressBar } from "../shared/PlaybackProgressBar";
 import { useTtsSessionPlayback } from "../useTtsSessionPlayback";
 import {
@@ -101,6 +102,7 @@ import {
   regenerateImage,
   saveDraftMeta,
   saveLineVisual,
+  applyLayoutFitTransforms,
   setSubtitleChunks,
   splitLine,
   ttsPreviewBuild,
@@ -568,6 +570,28 @@ export function LineAssetEditor() {
     setTransformDrafts((d) => ({ ...d, [lineId]: { ...DEFAULT_TRANSFORM } }));
     persistTransform({ ...DEFAULT_TRANSFORM }, lineId, index);
   }, [persistTransform, flashSpotlight]);
+
+  // 레이아웃 선택: blur 를 켜면 모든 준비된 줄을 fit(원본 전체 보임)으로 서버에서 일괄 재계산 →
+  // 켜자마자 흐린 배경이 드러난다. layoutMode 자체는 LayoutPicker 가 이미 state 에 반영했다.
+  const onLayoutSelect = useCallback(
+    (mode: LayoutMode) => {
+      if (mode !== "blur" || !jobId) return;
+      if (sliderTimer.current) clearTimeout(sliderTimer.current);
+      setTransformDrafts({}); // 진행 중이던 로컬 초안 폐기(fit 결과로 대체됨)
+      applyLayoutFitTransforms(jobId)
+        .then((res) => {
+          if (!mountedRef.current) return;
+          setLines(res.lines);
+          setSources(res.sources);
+        })
+        .catch((e) => {
+          if (mountedRef.current) {
+            toast.error(e instanceof Error ? e.message : "레이아웃 맞춤에 실패했어요.");
+          }
+        });
+    },
+    [jobId],
+  );
 
   // 움직임 효과 선택: 즉시 저장 + 낙관적 반영.
   const onMotionChange = useCallback(
@@ -1484,6 +1508,7 @@ export function LineAssetEditor() {
         subtitle_y: state.subtitleY,
         motion_speed: state.motionSpeed,
         layout_mode: state.layoutMode ?? "full", // 항상 전송(백엔드가 "그 외=해제" 처리)
+        layout_blur_sigma: state.blurSigma, // 흐림 강도(blur 모드에서만 렌더에 반영)
         subtitle_chunks_by_line: chunksMap,
       });
       update({ screen: "progress" });
@@ -1579,7 +1604,7 @@ export function LineAssetEditor() {
 
   // 자막 스타일/위치·제목 위치·모션 속도가 바뀌면 draft-meta 에 디바운스 저장(confirm 없이 닫아도 보존)
   // + 이 기기 마지막 자막 스타일 기억. 위치(dx/y)·모션 속도는 기억 안 함(자막 스타일 4종만 saveLastSubtitle).
-  const subtitleMetaKey = `${state.subtitleFont}|${state.subtitleFontWeight}|${state.subtitleFontSize}|${state.subtitleColor}|${state.subtitleDx}|${state.subtitleY}|${state.titleDx}|${state.titleDy}|${state.motionSpeed}|${state.layoutMode}`;
+  const subtitleMetaKey = `${state.subtitleFont}|${state.subtitleFontWeight}|${state.subtitleFontSize}|${state.subtitleColor}|${state.subtitleDx}|${state.subtitleY}|${state.titleDx}|${state.titleDy}|${state.motionSpeed}|${state.layoutMode}|${state.blurSigma}`;
   const subtitleMetaTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const subtitleMetaHydrated = useRef(false);
   useEffect(() => () => {
@@ -1611,6 +1636,7 @@ export function LineAssetEditor() {
         title_dy: state.titleDy,
         motion_speed: state.motionSpeed,
         layout_mode: state.layoutMode ?? "full", // 항상 전송(백엔드가 "그 외=해제" 처리)
+        layout_blur_sigma: state.blurSigma, // 흐림 강도(blur 모드에서만 렌더에 반영)
       }).catch(() => {
         /* 편집 즉시 저장 실패는 조용히 무시 — confirm 시 어차피 전송된다 */
       });
@@ -1783,7 +1809,7 @@ export function LineAssetEditor() {
 
       {/* 레이아웃 — 자막 스타일 아래 같은 디자인 카드. 꽉 채움 / 상·하 박스. */}
       <div className="mt-3">
-        <LayoutPicker />
+        <LayoutPicker onSelect={onLayoutSelect} />
       </div>
 
       <input
@@ -2289,6 +2315,7 @@ export function LineAssetEditor() {
                     transform={activeTransform}
                     disabled={!activeEditable}
                     emptyBg={(state.layoutMode ?? "full") === "full" ? "checker" : "black"}
+                    blurSigma={(state.layoutMode ?? "full") === "blur" ? state.blurSigma : null}
                     overlayEl={previewOverlayEl}
                     spotlight={sliderSpotlight}
                     clipStart={activeSource === "clip" ? activeClipStart : null}
