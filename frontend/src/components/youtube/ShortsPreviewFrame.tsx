@@ -34,6 +34,12 @@ import {
   DEFAULT_TITLE_COLOR1,
   DEFAULT_TITLE_COLOR2,
 } from "@/lib/youtube/title-colors";
+import {
+  LAYOUT_BAND_TOP_FRAC,
+  LAYOUT_BAND_MID_FRAC,
+  LAYOUT_BAND_BOTTOM_TOP_FRAC,
+  CHECKER_BG_STYLE,
+} from "@/lib/youtube/layout";
 
 // 제목 오버레이 외곽선/그림자 — 자막 가독성용. TitleSelect 와 공유.
 export const TITLE_STROKE = "0.7px rgba(0,0,0,0.8)";
@@ -57,9 +63,7 @@ const TITLE_DY_MIN = -110;
 const TITLE_DY_MAX = 1480;
 
 // 제목-입력 단계 프리뷰 전용 가이드(옵션). 렌더 무관, 시각 안내만.
-// 미디어 밴드: 실제 영상은 미디어가 cover 로 꽉 차지만, 이 단계엔 미디어가 없어 "의도한 틀"만 도식으로.
-const CHECKER_TOP_FRAC = 0.24427; // 위 검정 띠(469/1920)
-const CHECKER_H_FRAC = 0.50833; // 가운데 밴드(976/1920)
+// 미디어 밴드 비율은 레이아웃 상수(@/lib/youtube/layout)와 공유 — boxed 박스와 정확히 여집합.
 // 썸네일 상단 잘림선 — 군림보 실제 쇼츠 제목 첫 줄 상단(208/1920=10.833%) 실측값.
 const THUMB_CROP_FRAC = 0.10833;
 
@@ -82,6 +86,7 @@ export function ShortsPreviewFrame({
   onOverflowChange,
   showChecker = false,
   showThumbCrop = false,
+  layoutBoxes = false,
   subtitle,
   subtitleFont = DEFAULT_SUBTITLE_FONT,
   subtitleFontWeight = DEFAULT_SUBTITLE_FONT_WEIGHT,
@@ -112,6 +117,7 @@ export function ShortsPreviewFrame({
   onOverflowChange?: (overflow: boolean) => void; // 제목 줄이 프레임 폭을 넘으면 알림(경고 표시용).
   showChecker?: boolean; // 가운데 미디어 밴드를 체커보드로 표시(제목-입력 단계, 미디어 없음).
   showThumbCrop?: boolean; // 썸네일 상단 잘림선(점선) 표시(제목-입력 단계).
+  layoutBoxes?: boolean; // boxed 레이아웃: 상·하단 검정 박스를 미디어 위·제목 아래에 덮는다(최종 렌더와 정합).
   subtitle?: string; // 하단 자막 오버레이(현재 조각). 최종 영상 자막 위치·스타일 흉내.
   subtitleFont?: string; // core.fonts id 또는 ""(기본 자막폰트).
   subtitleFontWeight?: string;
@@ -301,12 +307,28 @@ export function ShortsPreviewFrame({
         <div
           className="pointer-events-none absolute inset-x-0"
           style={{
-            top: `${CHECKER_TOP_FRAC * 100}%`,
-            height: `${CHECKER_H_FRAC * 100}%`,
-            background: "repeating-conic-gradient(#d4d4d8 0% 25%, #f4f4f5 0% 50%)",
-            backgroundSize: "20px 20px",
+            top: `${LAYOUT_BAND_TOP_FRAC * 100}%`,
+            height: `${LAYOUT_BAND_MID_FRAC * 100}%`,
+            ...CHECKER_BG_STYLE,
           }}
         />
+      ) : null}
+
+      {/* boxed 레이아웃: 상·하단 순검정 박스. 미디어(위 children) 위, 제목·자막(아래) 뒤에 그려져
+          "미디어 → 박스 → 제목·자막" z순서를 DOM 순서만으로 만든다(최종 drawbox 와 정합).
+          pointer-events-none 필수 — 미디어 드래그가 박스 영역을 통과해야 한다.
+          미디어 쪽 경계선(white/10)은 편집 시 박스 위치를 알아보기 위한 표시(최종 영상엔 없음). */}
+      {layoutBoxes ? (
+        <>
+          <div
+            className="pointer-events-none absolute inset-x-0 top-0 border-b border-white/10 bg-black"
+            style={{ height: `${LAYOUT_BAND_TOP_FRAC * 100}%` }}
+          />
+          <div
+            className="pointer-events-none absolute inset-x-0 bottom-0 border-t border-white/10 bg-black"
+            style={{ top: `${LAYOUT_BAND_BOTTOM_TOP_FRAC * 100}%` }}
+          />
+        </>
       ) : null}
 
       {/* 제목 오버레이 — dx/dy 는 렌더 좌표 델타를 축소 적용(WYSIWYG). 두 줄을 하나의 상자로 묶어

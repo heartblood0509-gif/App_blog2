@@ -224,6 +224,23 @@ def apply_motion_speed(job, value) -> None:
     job.motion_speed = max(MOTION_SPEED_MIN, min(MOTION_SPEED_MAX, v))
 
 
+ALLOWED_LAYOUT_MODES = {"boxed"}
+
+
+def apply_layout_mode(job, value) -> None:
+    """레이아웃(작업 전역)을 Job 에 반영. None 이면 미변경.
+
+    ⚠️ 다른 apply_* 헬퍼(잘못된 값=무시)와 규칙이 다르다. "boxed" 만 저장하고
+    그 외 값("full" 포함)은 None(=꽉 채움 복귀)으로 '해제'한다. 프론트가 confirm·draft-meta
+    두 페이로드에 layout_mode 를 '항상' 실어 보내는 계약과 한 쌍 — 그래야 boxed→full 복귀가
+    저장된다(옵셔널로 빼먹으면 해제가 반영 안 됨). raw JSON(confirm)·pydantic(draft-meta) 공유.
+    """
+    if value is None:
+        return
+    v = str(value).strip().lower()
+    job.layout_mode = v if v in ALLOWED_LAYOUT_MODES else None
+
+
 def apply_title_pos(job, dx=None, dy=None) -> None:
     """제목 위치 오프셋(드래그)을 Job 에 클램프해서 반영. None 인 항목은 미변경.
 
@@ -1193,6 +1210,8 @@ async def confirm_and_render(
         )
         # 줌(모션) 속도 — 작업 전역. 자막 스타일과 동일하게 confirm 시 흡수.
         apply_motion_speed(job, body.get("motion_speed"))
+        # 레이아웃(작업 전역) — 프론트가 항상 값을 보낸다(계약). "boxed"→저장, "full"→해제.
+        apply_layout_mode(job, body.get("layout_mode"))
 
         # 자막 조각 확정(WYSIWYG): 프론트가 화면에 보여준 줄별 조각을 line_id 맵으로 보낸다.
         # 여기서 script_json 에 확정 저장 → 렌더가 자동 분할 없이 이 경계 그대로 자막을 박는다.

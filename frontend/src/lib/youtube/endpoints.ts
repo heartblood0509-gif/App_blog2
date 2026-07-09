@@ -367,6 +367,8 @@ export interface ConfirmDraftInput {
   subtitle_y?: number;
   // 줌(모션) 속도 — 작업 전역, 초당 확대 비율. 미지정이면 백엔드 기본(0.0125).
   motion_speed?: number;
+  // 레이아웃 — "full"(꽉 채움)/"boxed"(상·하 박스). 항상 보낸다(백엔드가 "그 외=해제"로 처리).
+  layout_mode?: string;
   // 자막 조각 확정 맵(line_id → 조각들). 화면에 보여준 그대로 렌더에 박히게 한다(WYSIWYG).
   subtitle_chunks_by_line?: Record<string, string[]>;
 }
@@ -620,6 +622,7 @@ export interface DraftState {
   subtitle_dx?: number | null;
   subtitle_y?: number | null;
   motion_speed?: number | null; // 줌(모션) 속도 — 작업 전역, 초당 확대 비율
+  layout_mode?: string | null; // 레이아웃 — null=꽉 채움(기본), "boxed"=상·하 박스
   // 작업 다시 열기 복원용 음성/BGM 설정(백엔드 DraftStateResponse 제공).
   tts_engine?: string | null;
   voice_id?: string | null;
@@ -665,6 +668,7 @@ export function saveDraftMeta(
     subtitle_dx?: number;
     subtitle_y?: number;
     motion_speed?: number;
+    layout_mode?: string;
   },
 ): Promise<DraftState> {
   return ytPostJson<DraftState>(`/api/jobs/${jobId}/draft-meta`, meta);

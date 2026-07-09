@@ -71,6 +71,7 @@ import {
 import { VoiceSettingsBar } from "../shared/VoiceSettingsBar";
 import { BgmPicker, bgmAudioUrl, formatTime } from "../shared/BgmPicker";
 import { SubtitleStylePicker } from "../shared/SubtitleStylePicker";
+import { LayoutPicker } from "../shared/LayoutPicker";
 import { PlaybackProgressBar } from "../shared/PlaybackProgressBar";
 import { useTtsSessionPlayback } from "../useTtsSessionPlayback";
 import {
@@ -1482,6 +1483,7 @@ export function LineAssetEditor() {
         subtitle_dx: state.subtitleDx,
         subtitle_y: state.subtitleY,
         motion_speed: state.motionSpeed,
+        layout_mode: state.layoutMode ?? "full", // 항상 전송(백엔드가 "그 외=해제" 처리)
         subtitle_chunks_by_line: chunksMap,
       });
       update({ screen: "progress" });
@@ -1577,7 +1579,7 @@ export function LineAssetEditor() {
 
   // 자막 스타일/위치·제목 위치·모션 속도가 바뀌면 draft-meta 에 디바운스 저장(confirm 없이 닫아도 보존)
   // + 이 기기 마지막 자막 스타일 기억. 위치(dx/y)·모션 속도는 기억 안 함(자막 스타일 4종만 saveLastSubtitle).
-  const subtitleMetaKey = `${state.subtitleFont}|${state.subtitleFontWeight}|${state.subtitleFontSize}|${state.subtitleColor}|${state.subtitleDx}|${state.subtitleY}|${state.titleDx}|${state.titleDy}|${state.motionSpeed}`;
+  const subtitleMetaKey = `${state.subtitleFont}|${state.subtitleFontWeight}|${state.subtitleFontSize}|${state.subtitleColor}|${state.subtitleDx}|${state.subtitleY}|${state.titleDx}|${state.titleDy}|${state.motionSpeed}|${state.layoutMode}`;
   const subtitleMetaTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const subtitleMetaHydrated = useRef(false);
   useEffect(() => () => {
@@ -1608,6 +1610,7 @@ export function LineAssetEditor() {
         title_dx: state.titleDx,
         title_dy: state.titleDy,
         motion_speed: state.motionSpeed,
+        layout_mode: state.layoutMode ?? "full", // 항상 전송(백엔드가 "그 외=해제" 처리)
       }).catch(() => {
         /* 편집 즉시 저장 실패는 조용히 무시 — confirm 시 어차피 전송된다 */
       });
@@ -1776,6 +1779,11 @@ export function LineAssetEditor() {
       {/* 자막 스타일 — BGM 아래 같은 디자인 카드. 폰트/굵기/크기/색(위치는 프리뷰 드래그). */}
       <div className="mt-3">
         <SubtitleStylePicker />
+      </div>
+
+      {/* 레이아웃 — 자막 스타일 아래 같은 디자인 카드. 꽉 채움 / 상·하 박스. */}
+      <div className="mt-3">
+        <LayoutPicker />
       </div>
 
       <input
@@ -2261,6 +2269,7 @@ export function LineAssetEditor() {
                 subtitleY={state.subtitleY}
                 onSubtitlePosChange={(dx, y) => update({ subtitleDx: dx, subtitleY: y })}
                 onSubtitleDragChange={setSubtitleDragging}
+                layoutBoxes={(state.layoutMode ?? "full") === "boxed"}
                 width={previewWidth}
               >
                 {!activeLine ? (
@@ -2279,6 +2288,7 @@ export function LineAssetEditor() {
                     frameWidth={previewWidth}
                     transform={activeTransform}
                     disabled={!activeEditable}
+                    emptyBg={(state.layoutMode ?? "full") === "full" ? "checker" : "black"}
                     overlayEl={previewOverlayEl}
                     spotlight={sliderSpotlight}
                     clipStart={activeSource === "clip" ? activeClipStart : null}

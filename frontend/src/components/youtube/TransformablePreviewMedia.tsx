@@ -22,6 +22,7 @@ import {
   SCALE_MAX,
   type LineTransform,
 } from "@/lib/youtube/transform";
+import { CHECKER_BG_STYLE } from "@/lib/youtube/layout";
 
 const WHEEL_STEP = 1.05;
 const COMMIT_DEBOUNCE_MS = 400;
@@ -47,6 +48,7 @@ export function TransformablePreviewMedia({
   frameWidth,
   transform,
   disabled = false,
+  emptyBg = "black",
   overlayEl,
   spotlight = false,
   clipStart,
@@ -62,6 +64,9 @@ export function TransformablePreviewMedia({
   frameWidth: number;
   transform: LineTransform;
   disabled?: boolean;
+  // 미디어가 안 덮는 빈 공간의 배경. "black"=검정(기본, 최종 렌더와 동일). "checker"=체커보드
+  // (full 레이아웃 편집 시 "여기 비어있음" 표시 — 최종 영상은 검정). boxed 는 박스가 덮으므로 black.
+  emptyBg?: "black" | "checker";
   // 프레임 밖 외곽선/핸들을 그릴 컨테이너(프레임의 형제, overflow 미적용). 없으면 핸들 기능 생략.
   overlayEl?: HTMLElement | null;
   // 외부에서 잠깐 외곽선+핸들을 켜는 신호(크기 슬라이더 조작 중). 포커스 없이도 "잡을 수 있음"을 노출.
@@ -413,9 +418,11 @@ export function TransformablePreviewMedia({
         onPointerUp={endDrag}
         onPointerCancel={endDrag}
         className={
-          "absolute inset-0 touch-none overflow-hidden bg-black" +
+          "absolute inset-0 touch-none overflow-hidden" +
+          (emptyBg === "checker" ? "" : " bg-black") +
           (disabled ? " cursor-default" : " cursor-grab active:cursor-grabbing")
         }
+        style={emptyBg === "checker" ? CHECKER_BG_STYLE : undefined}
       >
         {/* 줌 레이어 — 프레임과 동일 크기. scale 애니메이션의 중심(transform-origin)은 미디어 자체
             중앙(motionOrigin). 배치 좌표계는 보존, 줌만 미디어 중앙을 축으로 돈다. */}
