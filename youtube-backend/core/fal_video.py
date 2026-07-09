@@ -31,6 +31,14 @@ def _raise_with_detail(resp: httpx.Response, where: str):
         resp.request.url if resp.request else "?",
         detail_short,
     )
+    # 콘텐츠 정책 위반(HTTP 422 + content_policy_violation)으로 영상화가 거부된 경우:
+    # fal 이 돌려준 영어 원문은 위 로그에만 남기고, 사용자 화면에는 무엇이 왜 막혔는지
+    # 바로 알 수 있는 안내 문구를 대신 보여준다. (그 외 4xx/5xx 는 기존 메시지 유지)
+    if resp.status_code == 422 and "content_policy_violation" in detail:
+        raise RuntimeError(
+            "아기·아동·미성년·임산부·실사 인물이 담긴 이미지는 AI 검열에 차단돼 "
+            "영상으로 만들 수 없어요. 다른 이미지로 교체해 주세요."
+        )
     raise RuntimeError(f"fal.ai {where} 실패 (HTTP {resp.status_code}): {detail_short}")
 
 # ── fal.ai 모델 설정 ──
