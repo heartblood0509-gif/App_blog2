@@ -11,6 +11,7 @@ class Settings(BaseSettings):
     # API 키
     GEMINI_API_KEY: str = ""
     TYPECAST_API_KEY: str = ""
+    ELEVENLABS_API_KEY: str = ""
     FAL_KEY: str = ""
 
     # 데이터베이스 (빈 값이면 로컬 SQLite, Railway 배포 시 자동 설정)

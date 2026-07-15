@@ -214,6 +214,10 @@ async def create_job(
         tts_speed=request.tts_speed,
         voice_id=request.voice_id,
         emotion=request.emotion,
+        tts_options_json=(
+            json.dumps(request.tts_options.model_dump(), ensure_ascii=False)
+            if request.tts_options else None
+        ),
         title=request.title,
         title_line1=request.title_line1,
         title_line2=request.title_line2,
@@ -578,6 +582,7 @@ class DraftStateResponse(BaseModel):
     tts_speed: float | None = None
     voice_id: str | None = None
     emotion: str | None = None
+    tts_options: dict | None = None
     tts_session_id: str | None = None
     bgm_filename: str | None = None
     bgm_volume: float | None = None
@@ -602,6 +607,10 @@ def _build_draft_state(job: Job) -> DraftStateResponse:
         last_sig = json.loads(job.last_render_signature) if job.last_render_signature else None
     except Exception:
         last_sig = None
+    try:
+        tts_options = json.loads(getattr(job, "tts_options_json", None) or "null")
+    except Exception:
+        tts_options = None
 
     video_url = None
     if job.video_path and (os.path.exists(job.video_path) or getattr(job, "r2_synced", "") == "synced"):
@@ -640,6 +649,7 @@ def _build_draft_state(job: Job) -> DraftStateResponse:
         tts_speed=job.tts_speed,
         voice_id=job.voice_id,
         emotion=job.emotion,
+        tts_options=tts_options,
         tts_session_id=job.tts_session_id,
         bgm_filename=job.bgm_filename,
         bgm_volume=job.bgm_volume,

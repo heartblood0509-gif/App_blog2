@@ -610,6 +610,8 @@ async def render_video_for_job(job_id: str):
                 "layout_mode": getattr(job, "layout_mode", None),
                 "layout_blur_sigma": getattr(job, "layout_blur_sigma", None),
                 "typecast_api_key": keys["typecast"],
+                "elevenlabs_api_key": keys["elevenlabs"],
+                "tts_options": json.loads(getattr(job, "tts_options_json", None) or "null"),
             }
 
             # 카드 B 재제작 시 비교용 signature 미리 계산 (현재 상태 기준)
@@ -623,8 +625,24 @@ async def render_video_for_job(job_id: str):
                     for i, lid in enumerate(line_order)
                     if lid
                 }
+                # voice 시그니처는 tts_preview._voice_signature 와 동일 형태로 맞춘다
+                # (Typecast=4-list 유지, ElevenLabs=+[model,stability,similarity,style]).
+                # 프론트(LineAssetEditor) 재렌더 감지도 같은 shape 로 비교해야 한다.
+                if (job.tts_engine or "typecast") == "elevenlabs":
+                    _o = json.loads(getattr(job, "tts_options_json", None) or "null") or {}
+                    voice_sig = [
+                        job.voice_id, float(job.tts_speed or 1.0), None, "elevenlabs",
+                        [
+                            _o.get("model_id") or "eleven_multilingual_v2",
+                            float(_o.get("stability", 0.5)),
+                            float(_o.get("similarity_boost", 0.75)),
+                            float(_o.get("style", 0.0)),
+                        ],
+                    ]
+                else:
+                    voice_sig = [job.voice_id, float(job.tts_speed or 1.0), job.emotion, "typecast"]
                 new_signature_json = json.dumps({
-                    "voice": [job.voice_id, float(job.tts_speed or 1.0), job.emotion, job.tts_engine or "typecast"],
+                    "voice": voice_sig,
                     "line_order": line_order,
                     "line_hashes": line_hashes,
                 }, ensure_ascii=False)

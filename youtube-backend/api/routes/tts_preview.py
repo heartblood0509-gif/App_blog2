@@ -6,6 +6,7 @@ import os
 import re
 import shutil
 import tempfile
+import time
 import uuid
 
 from fastapi import APIRouter, Query, HTTPException, Depends, Path
@@ -17,7 +18,7 @@ from sqlalchemy.orm import Session
 from config import settings
 from core.ffmpeg import FFPROBE
 from core.audio_utils import normalize_to_browser_wav, is_playable_wav
-from core.tts_engines import generate_tts_typecast, generate_tts_for_indices
+from core.tts_engines import generate_tts, generate_tts_typecast, generate_tts_for_indices
 from core.line_splitter import (
     detect_overlong_lines,
     split_long_line_with_gemini,
@@ -57,11 +58,14 @@ SAMPLE_TEXT = "안녕하세요, 반갑습니다."
 _SAFE_FILENAME = re.compile(r"^[\w\-]+$")
 
 
-def _cache_path(user_id: str, engine: str, voice_id: str, speed: float, emotion: str) -> str:
+def _cache_path(user_id: str, engine: str, voice_id: str, speed: float, emotion: str, extra: str = "") -> str:
     safe_id = voice_id.replace("-", "_")
-    # Typecast 응답은 실제로 WAV 다. 예전엔 .mp3 로 저장+audio/mpeg 로 서빙해
+    # Typecast/ElevenLabs 최종 파일은 실제로 WAV 다. 예전엔 .mp3 로 저장+audio/mpeg 로 서빙해
     # "내용은 WAV 인데 라벨은 MP3" 가 되어 엄격한 브라우저(Safari/WebKit)가
     # "no supported source" 로 재생 거부했다. 정직하게 .wav 로 저장 → audio/wav 서빙.
+    if engine == "elevenlabs":
+        # 감정 프리셋 대신 모델·stability 등이 샘플을 바꾸므로 extra 로 캐시 키를 구분한다.
+        return os.path.join(PREVIEW_DIR, f"{user_id}_elevenlabs_{safe_id}_s{speed}_{extra or 'def'}.wav")
     return os.path.join(
         PREVIEW_DIR,
         f"{user_id}_{engine}_{safe_id}_s{speed}_{emotion}.wav"
@@ -123,27 +127,111 @@ async def get_voice_emotions(voice_id: str = Query(..., min_length=1), db: Sessi
     ]
 
 
-@router.get("/preview")
-async def tts_preview(
-    engine: str = Query(..., pattern="^typecast$"),
-    voice_id: str = Query(..., min_length=1, max_length=100),
-    speed: float = Query(default=1.0, ge=0.5, le=2.0),
-    emotion: str = Query(default="normal", max_length=20),
+# ── ElevenLabs 음성 목록 ──
+# Typecast 성우는 프론트 상수(voices.ts)라 목록 API 가 없다. ElevenLabs 는 계정마다
+# (특히 사용자가 웹에서 만든 보이스 클론이) 다르므로 계정 음성을 실시간 조회한다.
+# "내 음성"은 사용자가 직접 만든/소유한 것만(is_owner=true) 앞에 그룹핑한다.
+# 카테고리(cloned/professional)로 나누면 라이브러리에서 "가져온" 음성도 그 카테고리를
+# 달고 있어 남의 음성이 섞인다 → is_owner 로 걸러야 실제 내가 만든 것만 잡힌다.
+
+# per-process 5분 TTL 캐시 {user_id: (expires_monotonic, payload)}. 매 클릭마다 외부 호출 방지.
+_ELEVEN_VOICES_CACHE: dict[str, tuple[float, dict]] = {}
+_ELEVEN_VOICES_TTL = 300.0
+
+
+def _fetch_elevenlabs_voices(api_key: str) -> list[dict]:
+    """GET /v2/voices(실패 시 /v1/voices 폴백) → 정규화된 음성 목록."""
+    headers = {"xi-api-key": api_key}
+    resp = http_requests.get(
+        "https://api.elevenlabs.io/v2/voices",
+        headers=headers, params={"page_size": 100}, timeout=30,
+    )
+    if resp.status_code >= 400 and resp.status_code != 401:
+        resp = http_requests.get(
+            "https://api.elevenlabs.io/v1/voices", headers=headers, timeout=30,
+        )
+    if resp.status_code == 401:
+        raise HTTPException(400, "ElevenLabs API 키가 유효하지 않습니다. 설정 페이지에서 키를 다시 확인하세요.")
+    if resp.status_code >= 400:
+        raise HTTPException(502, "ElevenLabs 음성 목록 조회에 실패했습니다. 잠시 후 다시 시도해주세요.")
+    try:
+        data = resp.json()
+    except Exception:
+        raise HTTPException(502, "ElevenLabs 음성 목록 응답을 해석할 수 없습니다.")
+
+    raw = data.get("voices") if isinstance(data, dict) else None
+    out: list[dict] = []
+    for v in raw or []:
+        if not isinstance(v, dict):
+            continue
+        vid = v.get("voice_id")
+        if not vid:
+            continue
+        category = v.get("category") or "premade"
+        is_owner = bool(v.get("is_owner"))
+        out.append({
+            "voice_id": vid,
+            "name": v.get("name") or vid,
+            "category": category,
+            # is_owner=true = 사용자가 직접 만든/소유한 음성 → "내 음성". 그 외(기본·가져온 음성)는 "기본 음성".
+            "group": "mine" if is_owner else "library",
+            "preview_url": v.get("preview_url"),
+        })
+    # 내 음성(클론·전문) 먼저, 그 다음 이름순.
+    out.sort(key=lambda x: (0 if x["group"] == "mine" else 1, (x["name"] or "").lower()))
+    return out
+
+
+@router.get("/voices")
+async def get_engine_voices(
+    engine: str = Query(..., pattern="^elevenlabs$"),
     db: Session = Depends(get_db),
     _user: User = Depends(get_approved_user),
 ):
-    """선택한 엔진+음성+속도+감정으로 샘플 오디오 생성/반환"""
+    """ElevenLabs 계정 음성 목록(보이스 클론 포함). 클론/전문을 '내 음성'으로 앞에 그룹핑."""
     keys = resolve_user_api_keys(db, _user.id)
-    if not keys["typecast"]:
-        raise HTTPException(400, "Typecast API 키가 설정되지 않았습니다. 설정 페이지에서 사용자 본인의 키를 입력하세요.")
+    el_key = keys["elevenlabs"]
+    if not el_key:
+        raise HTTPException(400, "ElevenLabs API 키가 설정되지 않았습니다. 설정 페이지에서 사용자 본인의 키를 입력하세요.")
+
+    now = time.monotonic()
+    cached = _ELEVEN_VOICES_CACHE.get(_user.id)
+    if cached and cached[0] > now:
+        return cached[1]
+
+    payload = {"engine": "elevenlabs", "voices": _fetch_elevenlabs_voices(el_key)}
+    _ELEVEN_VOICES_CACHE[_user.id] = (now + _ELEVEN_VOICES_TTL, payload)
+    return payload
+
+
+@router.get("/preview")
+async def tts_preview(
+    engine: str = Query("typecast", pattern="^(typecast|elevenlabs)$"),
+    voice_id: str = Query(..., min_length=1, max_length=100),
+    speed: float = Query(default=1.0, ge=0.5, le=2.0),
+    emotion: str = Query(default="normal", max_length=20),
+    model: str = Query(default="eleven_multilingual_v2", pattern="^(eleven_multilingual_v2|eleven_v3)$"),
+    stability: float = Query(default=0.5, ge=0.0, le=1.0),
+    similarity: float = Query(default=0.75, ge=0.0, le=1.0),
+    style: float = Query(default=0.0, ge=0.0, le=1.0),
+    db: Session = Depends(get_db),
+    _user: User = Depends(get_approved_user),
+):
+    """선택한 엔진+음성+속도+(감정 또는 stability 등)으로 샘플 오디오 생성/반환"""
+    keys = resolve_user_api_keys(db, _user.id)
+    key_name = "elevenlabs" if engine == "elevenlabs" else "typecast"
+    if not keys[key_name]:
+        label = "ElevenLabs" if engine == "elevenlabs" else "Typecast"
+        raise HTTPException(400, f"{label} API 키가 설정되지 않았습니다. 설정 페이지에서 사용자 본인의 키를 입력하세요.")
 
     if not _SAFE_FILENAME.match(voice_id.replace("-", "_").replace(".", "_")):
         raise HTTPException(400, "잘못된 voice_id 형식입니다")
 
     os.makedirs(PREVIEW_DIR, exist_ok=True)
-    cached = _cache_path(_user.id, engine, voice_id, speed, emotion)
+    extra = f"{model}_st{stability}_si{similarity}_sy{style}" if engine == "elevenlabs" else ""
+    cached = _cache_path(_user.id, engine, voice_id, speed, emotion, extra)
 
-    # 같은 캐시 키(성우·속도·감정)의 동시 요청 직렬화 — 중복 생성과 tmp 경합 방지.
+    # 같은 캐시 키(성우·속도·설정)의 동시 요청 직렬화 — 중복 생성과 tmp 경합 방지.
     lock = _get_session_lock(cached)
     async with lock:
         # 캐시 히트: 서빙 전 구조 검증. 불량(잘림·HTML·MP3·비-PCM)이면 삭제 후 재생성으로 폴백
@@ -159,17 +247,28 @@ async def tts_preview(
         # 요청마다 고유한 tmp 디렉토리 — 동시 요청의 finally rmtree가 서로를 지우지 않게.
         tmp_dir = tempfile.mkdtemp(prefix=f"tmp_{engine}_", dir=PREVIEW_DIR)
         try:
-            emo = emotion if emotion != "normal" else None
             # measure_duration=False: sf.read 디코드를 건너뛰어 ffmpeg를 첫 디코더로 세운다.
-            # 샘플은 타임스탬프가 필요 없으니 플레인 엔드포인트 사용(기존 정규화 경로 그대로).
-            await generate_tts_typecast(
-                tmp_dir, [SAMPLE_TEXT],
-                voice_id=voice_id, speed=speed, emotion=emo,
-                api_key=keys["typecast"], measure_duration=False, with_timestamps=False,
-            )
+            # 샘플은 타임스탬프가 필요 없으니 with_timestamps=False(기존 정규화 경로 그대로).
+            if engine == "elevenlabs":
+                await generate_tts(
+                    "elevenlabs", tmp_dir, [SAMPLE_TEXT],
+                    voice_id=voice_id, speed=speed, api_key=keys["elevenlabs"],
+                    tts_options={
+                        "model_id": model, "stability": stability,
+                        "similarity_boost": similarity, "style": style,
+                    },
+                    measure_duration=False, with_timestamps=False,
+                )
+            else:
+                emo = emotion if emotion != "normal" else None
+                await generate_tts_typecast(
+                    tmp_dir, [SAMPLE_TEXT],
+                    voice_id=voice_id, speed=speed, emotion=emo,
+                    api_key=keys["typecast"], measure_duration=False, with_timestamps=False,
+                )
             wav_path = os.path.join(tmp_dir, "sent_00.wav")
             if not os.path.exists(wav_path):
-                raise HTTPException(500, "Typecast 오디오 생성 실패")
+                raise HTTPException(500, "오디오 생성 실패")
 
             # 브라우저 재생용 표준 WAV로 정규화 → 검증된 파일만 캐시에 들어간다.
             # ⚠️ 순서 중요: 정규화 성공 후 정규화 결과물에서 캐시로 이동(raw 바이트를 캐시하면 버그 재발).
@@ -213,7 +312,21 @@ async def tts_preview(
 # 커밋 5에서 promo_comment 한정 6초 초과 자동 분리가 이 엔드포인트에 통합될 예정.
 
 def _voice_signature(req: TtsPreviewBuildRequest) -> list:
-    """voice 변경 감지용 4-tuple — 직렬화 안전하게 list로 반환."""
+    """voice 변경 감지용 시그니처 — 직렬화 안전하게 list로 반환.
+
+    Typecast 는 기존 4-list 를 그대로 유지(구세션 incremental 재빌드 보존).
+    ElevenLabs 는 5번째 원소로 [model_id, stability, similarity_boost, style] 를 붙여
+    모델/슬라이더가 바뀌면 full rebuild 되게 한다.
+    """
+    if req.engine == "elevenlabs":
+        o = req.tts_options
+        opt_list = [
+            (o.model_id if o else "eleven_multilingual_v2"),
+            float(o.stability if o else 0.5),
+            float(o.similarity_boost if o else 0.75),
+            float(o.style if o else 0.0),
+        ]
+        return [req.voice_id, float(req.speed), None, "elevenlabs", opt_list]
     return [req.voice_id, float(req.speed), req.emotion or None, "typecast"]
 
 
@@ -280,24 +393,31 @@ def _measure_wav_duration_safe(path: str) -> float:
     return 0.0
 
 
-async def _rebuild_full(session_dir: str, req: TtsPreviewBuildRequest, typecast_key: str, gemini_key: str | None):
-    """기존 동작과 동일한 full rebuild — 모든 wav 새로 생성 + promo_comment 분리."""
+async def _rebuild_full(session_dir: str, req: TtsPreviewBuildRequest, tts_key: str, gemini_key: str | None):
+    """기존 동작과 동일한 full rebuild — 모든 wav 새로 생성 + promo_comment 분리.
+
+    반환: (expanded_sentences, durations, split_from_map, word_times, char_alignments)
+    char_alignments 는 ElevenLabs 글자 원본(Typecast 는 전부 None). 분리가 일어나면 무효 → None.
+    """
     # 세션 정리 후 새 wav 생성
     if os.path.exists(session_dir):
         shutil.rmtree(session_dir)
     os.makedirs(session_dir, exist_ok=True)
 
     emotion = req.emotion if req.emotion and req.emotion != "normal" else None
-    raw_timings = await generate_tts_typecast(
+    raw_timings = await generate_tts(
+        req.engine,
         session_dir,
         req.sentences,
         voice_id=req.voice_id,
         speed=req.speed,
         emotion=emotion,
-        api_key=typecast_key,
+        api_key=tts_key,
+        tts_options=(req.tts_options.model_dump() if req.tts_options else None),
     )
     durations = [t["duration"] for t in raw_timings]
     word_times = [t.get("word_times") for t in raw_timings]
+    char_alignments = [t.get("char_alignment") for t in raw_timings]
     expanded_sentences = list(req.sentences)
     split_from_map: dict[int, int] = {}
 
@@ -315,21 +435,23 @@ async def _rebuild_full(session_dir: str, req: TtsPreviewBuildRequest, typecast_
                     style=req.style or "realistic",
                     gemini_api_key=gemini_key,
                 )
+                # wav 를 잘라 재배치했으므로 글자 원본은 무효 → 확장 길이만큼 None.
+                char_alignments = [None] * len(expanded_sentences)
             except Exception as e:
                 import traceback
                 print(f"[preview-build] 분리 실패 err={e}")
                 traceback.print_exc()
                 # 분리 실패해도 원본은 유지
 
-    return expanded_sentences, durations, split_from_map, word_times
+    return expanded_sentences, durations, split_from_map, word_times, char_alignments
 
 
 async def _rebuild_incremental(
     session_dir: str,
     req: TtsPreviewBuildRequest,
-    typecast_key: str,
+    tts_key: str,
     prev_sig: dict,
-) -> tuple[list[str], list[float], list[int], list]:
+) -> tuple[list[str], list[float], list[int], list, list]:
     """incremental rebuild — 변경된 줄만 Typecast 재호출.
 
     전제:
@@ -355,8 +477,9 @@ async def _rebuild_incremental(
     prev_order: list[str] = list(prev_sig.get("line_order") or [])
     prev_hashes: dict[str, str] = dict(prev_sig.get("line_hashes") or {})
 
-    # word_times 이월용: timings_raw.json 이 덮이기 전에 line_id 별로 미리 읽어둔다.
+    # word_times / char_alignment 이월용: timings_raw.json 이 덮이기 전에 line_id 별로 미리 읽어둔다.
     prev_word_times_by_lid: dict[str, list | None] = {}
+    prev_alignment_by_lid: dict[str, dict | None] = {}
     try:
         with open(os.path.join(session_dir, "timings_raw.json"), encoding="utf-8") as f:
             prev_timings = json.load(f)
@@ -365,6 +488,7 @@ async def _rebuild_incremental(
     for old_idx, lid in enumerate(prev_order):
         if lid and old_idx < len(prev_timings) and isinstance(prev_timings[old_idx], dict):
             prev_word_times_by_lid[lid] = prev_timings[old_idx].get("word_times")
+            prev_alignment_by_lid[lid] = prev_timings[old_idx].get("char_alignment")
 
     # 기존 wav를 _swap/{line_id}.wav 로 옮김
     swap_dir = os.path.join(session_dir, "_swap")
@@ -409,7 +533,7 @@ async def _rebuild_incremental(
     # _swap에 남은 wav는 삭제된 줄 → 정리
     shutil.rmtree(swap_dir, ignore_errors=True)
 
-    # 변경 줄만 Typecast 호출 (word_times 포함해서 받음)
+    # 변경 줄만 선택 엔진으로 호출 (word_times 포함해서 받음)
     regen_results: dict[int, dict] = {}
     if indices_to_regen:
         emotion = req.emotion if req.emotion and req.emotion != "normal" else None
@@ -420,7 +544,9 @@ async def _rebuild_incremental(
             voice_id=req.voice_id,
             speed=req.speed,
             emotion=emotion,
-            api_key=typecast_key,
+            api_key=tts_key,
+            engine=req.engine,
+            tts_options=(req.tts_options.model_dump() if req.tts_options else None),
         )
 
     # 모든 줄 duration 측정 (재사용 줄도 wav 기반으로 재측정 — 단일 진실원)
@@ -429,15 +555,20 @@ async def _rebuild_incremental(
         wav_path = os.path.join(session_dir, f"sent_{i:02d}.wav")
         durations.append(round(_measure_wav_duration_safe(wav_path), 2))
 
-    # word_times: 재생성 줄은 방금 받은 값, 재사용 줄은 line_id 로 이월(없으면 None → 비례 폴백).
+    # word_times / char_alignment: 재생성 줄은 방금 받은 값, 재사용 줄은 line_id 로 이월.
     regen_set = set(indices_to_regen)
     word_times = [
         ((regen_results.get(i) or {}).get("word_times") if i in regen_set
          else prev_word_times_by_lid.get(lid))
         for i, lid in enumerate(line_ids)
     ]
+    char_alignments = [
+        ((regen_results.get(i) or {}).get("char_alignment") if i in regen_set
+         else prev_alignment_by_lid.get(lid))
+        for i, lid in enumerate(line_ids)
+    ]
 
-    return list(req.sentences), durations, indices_to_regen, word_times
+    return list(req.sentences), durations, indices_to_regen, word_times, char_alignments
 
 
 @router.post("/preview-build")
@@ -450,8 +581,11 @@ async def preview_build(
         raise HTTPException(400, "sentences가 비어있습니다")
 
     keys = resolve_user_api_keys(db, _user.id)
-    if not keys["typecast"]:
-        raise HTTPException(400, "Typecast API 키가 설정되지 않았습니다. 설정 페이지에서 사용자 본인의 키를 입력하세요.")
+    key_name = "elevenlabs" if req.engine == "elevenlabs" else "typecast"
+    if not keys[key_name]:
+        label = "ElevenLabs" if req.engine == "elevenlabs" else "Typecast"
+        raise HTTPException(400, f"{label} API 키가 설정되지 않았습니다. 설정 페이지에서 사용자 본인의 키를 입력하세요.")
+    tts_key = keys[key_name]
 
     # 세션 id 결정: 재빌드면 기존 id 재사용, 아니면 새로 생성
     existing_id = req.existing_session_id
@@ -477,13 +611,13 @@ async def preview_build(
 
         try:
             if incremental:
-                expanded_sentences, durations, regen_indices, word_times = await _rebuild_incremental(
-                    session_dir, req, keys["typecast"], prev_sig
+                expanded_sentences, durations, regen_indices, word_times, char_alignments = await _rebuild_incremental(
+                    session_dir, req, tts_key, prev_sig
                 )
                 split_from_map: dict[int, int] = {}
             else:
-                expanded_sentences, durations, split_from_map, word_times = await _rebuild_full(
-                    session_dir, req, keys["typecast"], keys["gemini"]
+                expanded_sentences, durations, split_from_map, word_times, char_alignments = await _rebuild_full(
+                    session_dir, req, tts_key, keys["gemini"]
                 )
                 regen_indices = list(range(len(expanded_sentences)))
         except HTTPException:
@@ -496,10 +630,13 @@ async def preview_build(
                 shutil.rmtree(session_dir, ignore_errors=True)
             raise HTTPException(500, f"TTS 생성 실패: {e}")
 
-        # timings_raw.json 갱신 (word_times 포함 — 렌더·매니페스트가 어절 타이밍을 읽는다)
+        # timings_raw.json 갱신 (word_times + char_alignment 포함 — 렌더·매니페스트가 어절 타이밍을 읽는다)
+        # char_alignment 는 ElevenLabs 글자 원본(Typecast/미지원 줄은 None) — 미래 확장용.
+        if not char_alignments or len(char_alignments) != len(expanded_sentences):
+            char_alignments = [None] * len(expanded_sentences)
         raw_timings_out = [
-            {"text": s, "duration": d, "word_times": wt}
-            for s, d, wt in zip(expanded_sentences, durations, word_times)
+            {"text": s, "duration": d, "word_times": wt, "char_alignment": ca}
+            for s, d, wt, ca in zip(expanded_sentences, durations, word_times, char_alignments)
         ]
         with open(os.path.join(session_dir, "timings_raw.json"), "w", encoding="utf-8") as f:
             json.dump(raw_timings_out, f, ensure_ascii=False, indent=2)
@@ -507,6 +644,8 @@ async def preview_build(
         # metadata.json (기존 형식 유지 — 호환성)
         metadata = {
             "voice_id": req.voice_id,
+            "engine": req.engine,
+            "tts_options": (req.tts_options.model_dump() if req.tts_options else None),
             "speed": req.speed,
             "emotion": req.emotion,
             "original_sentences": list(req.sentences),
@@ -590,6 +729,8 @@ async def get_preview_session(
         "word_times": metadata.get("word_times"),
         "voice": {
             "voice_id": metadata.get("voice_id"),
+            "engine": metadata.get("engine") or "typecast",
+            "tts_options": metadata.get("tts_options"),
             "speed": metadata.get("speed"),
             "emotion": metadata.get("emotion"),
         },

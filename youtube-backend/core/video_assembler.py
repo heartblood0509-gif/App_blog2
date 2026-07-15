@@ -11,7 +11,7 @@ from core.audio_utils import (
     build_aligned_narration,
 )
 from core.subtitle_utils import split_subtitle_natural, split_title
-from core.tts_engines import generate_tts_typecast
+from core.tts_engines import generate_tts
 from core.image_pipeline import (
     apply_ken_burns,
     process_ai_clip,
@@ -119,9 +119,14 @@ async def assemble_shorts(job_id: str, config: dict, progress_callback=None):
             raise RuntimeError(f"prebuilt_tts 활성인데 timings_raw.json 없음: {timings_path}")
     else:
         _update(progress_callback, job_id, "generating_tts", 0.4, "TTS 나레이션 생성 중...")
-        tc_api_key = config.get("typecast_api_key")
-        await generate_tts_typecast(
-            tts_dir, sentences, voice_id=voice_id, speed=tts_speed, emotion=emotion, api_key=tc_api_key
+        tts_engine = config.get("tts_engine") or "typecast"
+        if tts_engine == "elevenlabs":
+            api_key = config.get("elevenlabs_api_key")
+        else:
+            api_key = config.get("typecast_api_key")
+        await generate_tts(
+            tts_engine, tts_dir, sentences, voice_id=voice_id, speed=tts_speed,
+            emotion=emotion, api_key=api_key, tts_options=config.get("tts_options"),
         )
 
     raw_entries = json.loads(

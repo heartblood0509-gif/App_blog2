@@ -16,6 +16,7 @@
 
 import { useEffect, useState, type ReactNode } from "react";
 import {
+  AudioLines,
   Check,
   ChevronDown,
   ChevronRight,
@@ -47,6 +48,7 @@ import { getApiKeys, updateApiKeys } from "@/lib/youtube/endpoints";
 const AISTUDIO_URL = "https://aistudio.google.com/";
 const FAL_KEYS_URL = "https://fal.ai/dashboard";
 const TYPECAST_URL = "https://typecast.ai/developers/api";
+const ELEVENLABS_URL = "https://elevenlabs.io/app/settings/api-keys";
 const GUIDE_URL =
   "https://pickso.notion.site/36f2aa17591b80fca1b2c1969403422c?v=36f2aa17591b80aa8542000cc68cb670";
 const GEMINI_KEY_GUIDE_URL =
@@ -107,6 +109,12 @@ export function AiKeysPanel({ youtubeAllowed, className }: AiKeysPanelProps) {
   const [tcLoadError, setTcLoadError] = useState(false);
   const [tcGuideOpen, setTcGuideOpen] = useState(false);
 
+  // ── ElevenLabs (쇼츠, 선택) ──
+  const [elSet, setElSet] = useState<string | null>(null);
+  const [elPlain, setElPlain] = useState("");
+  const [elSaving, setElSaving] = useState(false);
+  const [elGuideOpen, setElGuideOpen] = useState(false);
+
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -153,11 +161,12 @@ export function AiKeysPanel({ youtubeAllowed, className }: AiKeysPanelProps) {
         .finally(() => setLoading(false));
     }
 
-    // Typecast 상태는 쇼츠 구매자에게만 — youtube 백엔드에서 로드.
+    // Typecast·ElevenLabs 상태는 쇼츠 구매자에게만 — youtube 백엔드에서 로드.
     if (youtubeAllowed) {
       getApiKeys()
         .then((s) => {
           setTcSet(s.typecast);
+          setElSet(s.elevenlabs);
           setTcLoadError(false);
         })
         .catch(() => setTcLoadError(true));
@@ -394,6 +403,57 @@ export function AiKeysPanel({ youtubeAllowed, className }: AiKeysPanelProps) {
     }
   };
 
+  // ── ElevenLabs 저장/삭제 (youtube 백엔드 PUT + Electron 시드) ──
+  const persistElevenLabsToElectron = async (value: string) => {
+    const api = window.electronAPI?.settings;
+    if (!api) return;
+    try {
+      await api.setElevenLabsKey(value);
+    } catch {
+      /* youtube DB 에는 이미 반영됨 — 부팅 시드 보관만 실패 */
+    }
+  };
+
+  const saveElevenLabs = async () => {
+    if (!elPlain.trim()) {
+      toast.error("ElevenLabs API 키를 입력해주세요.");
+      return;
+    }
+    setElSaving(true);
+    try {
+      const v = elPlain.trim();
+      await updateApiKeys({ elevenlabs_api_key: v });
+      await persistElevenLabsToElectron(v);
+      setElPlain("");
+      toast.success("저장되었습니다. 재시작 없이 바로 적용돼요.");
+      const s = await getApiKeys();
+      setElSet(s.elevenlabs);
+      setTcLoadError(false);
+    } catch (e) {
+      toast.error(
+        e instanceof Error ? e.message : "저장에 실패했습니다. (키가 올바른지 확인해주세요)"
+      );
+    } finally {
+      setElSaving(false);
+    }
+  };
+
+  const clearElevenLabs = async () => {
+    if (elSaving) return;
+    setElSaving(true);
+    try {
+      await updateApiKeys({ elevenlabs_api_key: "" });
+      await persistElevenLabsToElectron("");
+      setElPlain("");
+      setElSet(null);
+      toast.success("키를 지웠어요.");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "삭제에 실패했습니다.");
+    } finally {
+      setElSaving(false);
+    }
+  };
+
   return (
     <div className={cn("mx-auto flex max-w-lg flex-col gap-10", className)}>
       <UsageGuideCard
@@ -522,6 +582,39 @@ export function AiKeysPanel({ youtubeAllowed, className }: AiKeysPanelProps) {
                   onOpenSite={() => openExternal(TYPECAST_URL)}
                   onOpenGuide={() => openExternal(TYPECAST_KEY_GUIDE_URL)}
                   onCollapse={() => setTcGuideOpen(false)}
+                />
+              ) : null
+            }
+          />
+        )}
+
+        {/* ───────────────── ElevenLabs (선택·쇼츠 전용) ───────────────── */}
+        {youtubeAllowed && (
+          <KeyRow
+            icon={<AudioLines className="h-4 w-4 text-muted-foreground" />}
+            title="ElevenLabs API 키를 입력해주세요 (선택)"
+            badge={null}
+            description="입력하면 쇼츠 음성에서 ElevenLabs와 보이스 클론을 쓸 수 있어요. 안 넣으면 Typecast만 사용돼요."
+            loading={loading}
+            hasKey={!!elSet}
+            masked={elSet}
+            envBadge={false}
+            value={elPlain}
+            onChange={setElPlain}
+            placeholder="키 입력 (sk_...)"
+            onSave={saveElevenLabs}
+            onDelete={elSet ? clearElevenLabs : undefined}
+            saving={elSaving}
+            saveLabel={elSaving ? "저장 중..." : "저장"}
+            issueLabel="키 발급 방법"
+            onIssue={() => setElGuideOpen((v) => !v)}
+            issueIsToggle
+            issueOpen={elGuideOpen}
+            extraBottom={
+              elGuideOpen ? (
+                <ElevenLabsGuide
+                  onOpenSite={() => openExternal(ELEVENLABS_URL)}
+                  onCollapse={() => setElGuideOpen(false)}
                 />
               ) : null
             }
@@ -893,6 +986,14 @@ function UsageGuideCard({
                   use="AI 목소리"
                   keyName="Typecast API 키"
                   pay="free"
+                />
+              )}
+              {youtubeAllowed && (
+                <GuideRow
+                  icon={<AudioLines className="h-4 w-4" />}
+                  use="AI 목소리 (선택)"
+                  keyName="ElevenLabs API 키"
+                  pay="paid"
                 />
               )}
             </tbody>
@@ -1340,6 +1441,82 @@ function FalGuide({
           <li>크레딧을 충전하지 않으면 이미지, 영상 생성이 안 됩니다</li>
           <li>사용한 만큼만 과금(월 정액 아님) — 이미지 생성을 안 하면 청구액 0원</li>
           <li>fal API 키는 발급 후 복사해 메모장 같은 안전한 곳에 보관하세요</li>
+          <li>키는 비밀번호와 같습니다 — 절대 남에게 공유하지 마세요</li>
+          <li>노출됐다면 즉시 삭제 후 새로 발급</li>
+        </ul>
+      </div>
+
+      <div className="border-t pt-3">
+        <button
+          type="button"
+          onClick={onCollapse}
+          className="inline-flex items-center gap-1 text-xs text-primary underline underline-offset-2 hover:opacity-80"
+        >
+          <ChevronUp className="h-3 w-3" aria-hidden />
+          접기
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────
+// ElevenLabs 발급/안내 가이드
+// ─────────────────────────────────────────────
+function ElevenLabsGuide({
+  onOpenSite,
+  onCollapse,
+}: {
+  onOpenSite: () => void;
+  onCollapse: () => void;
+}) {
+  return (
+    <div className="space-y-8 pt-1 text-sm">
+      {/* 왜 ElevenLabs 키를 쓰나 */}
+      <div className="space-y-2 leading-relaxed text-muted-foreground">
+        <p className="text-xl font-medium text-foreground">🎙️ 더 자연스러운 목소리 + 내 보이스 클론</p>
+        <p>
+          ElevenLabs 키를 넣으면 쇼츠 음성에서 Typecast 대신 ElevenLabs를 고를 수 있어요.
+          자연스러운 표현과 <span className="font-medium text-foreground">직접 만든 보이스 클론 목소리</span>
+          까지 쓸 수 있습니다.
+        </p>
+        <p>
+          웹사이트에서 만든 보이스 클론은 앱 음성 목록에 <span className="font-medium text-foreground">자동으로</span>{" "}
+          나타나요. 키만 넣으면 됩니다. (클론·라이브러리 음성은 유료 플랜이 필요할 수 있어요.)
+        </p>
+      </div>
+
+      {/* 발급 방법 */}
+      <div>
+        <div className="mb-2 text-xl font-medium">📋 ElevenLabs API 키 발급 방법</div>
+        <ol className="list-decimal space-y-2.5 pl-5 text-muted-foreground">
+          <li>
+            <button
+              type="button"
+              onClick={onOpenSite}
+              className="cursor-pointer text-primary underline underline-offset-2 hover:opacity-80"
+            >
+              ElevenLabs API 키 설정
+            </button>{" "}
+            페이지 접속 (구글 계정 등으로 로그인)
+          </li>
+          <li>
+            <span className="font-semibold">Create API Key</span> 클릭
+          </li>
+          <li>
+            생성된 키를 복사{" "}
+            <span className="font-semibold">(이후 다시 볼 수 없으니 꼭 저장하세요)</span>
+          </li>
+          <li>
+            블로그 앱 입력란에 붙여넣고 <span className="font-semibold">저장</span>
+          </li>
+        </ol>
+      </div>
+
+      {/* 주의 */}
+      <div>
+        <div className="mb-2 text-xl font-medium">⚠️ 주의</div>
+        <ul className="ml-4 list-disc space-y-1 text-muted-foreground">
           <li>키는 비밀번호와 같습니다 — 절대 남에게 공유하지 마세요</li>
           <li>노출됐다면 즉시 삭제 후 새로 발급</li>
         </ul>

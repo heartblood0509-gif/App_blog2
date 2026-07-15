@@ -14,6 +14,15 @@ class StylePreset(str, Enum):
 
 class TTSEngine(str, Enum):
     TYPECAST = "typecast"
+    ELEVENLABS = "elevenlabs"
+
+
+class ElevenLabsOptions(BaseModel):
+    """ElevenLabs 엔진 전용 음성 설정. Typecast 사용 시엔 이 값이 None."""
+    model_id: Literal["eleven_multilingual_v2", "eleven_v3"] = "eleven_multilingual_v2"
+    stability: float = Field(default=0.5, ge=0.0, le=1.0)
+    similarity_boost: float = Field(default=0.75, ge=0.0, le=1.0)
+    style: float = Field(default=0.0, ge=0.0, le=1.0)
 
 
 class MotionType(str, Enum):
@@ -156,6 +165,8 @@ class JobCreateRequest(BaseModel):
     tts_speed: float = Field(default=1.0, ge=0.5, le=2.0)
     voice_id: Optional[str] = None
     emotion: Optional[str] = None
+    # ElevenLabs 엔진 선택 시 모델·stability 등 추가 설정. Typecast면 None.
+    tts_options: Optional[ElevenLabsOptions] = None
     title: Optional[str] = ""
     title_line1: Optional[str] = None
     title_line2: Optional[str] = None
@@ -260,8 +271,12 @@ class TtsPreviewBuildRequest(BaseModel):
     """음성 설정 단계에서 TTS를 미리 생성해 세션에 저장하는 요청."""
     sentences: list[str]
     voice_id: str
+    # 기본값 typecast → 기존 클라이언트/테스트 호환.
+    engine: Literal["typecast", "elevenlabs"] = "typecast"
     speed: float = Field(default=1.0, ge=0.5, le=2.0)
     emotion: Optional[str] = None
+    # ElevenLabs 엔진 전용 설정(모델·stability 등). Typecast면 무시.
+    tts_options: Optional[ElevenLabsOptions] = None
     # 카드 B incremental rebuild — sentences와 1:1 대응하는 line_id 목록.
     # 제공되면 기존 세션의 line_id별 text_hash와 비교해 변경 줄만 재생성.
     line_ids: Optional[list[str]] = None
@@ -350,6 +365,7 @@ class UserResponse(BaseModel):
     approved: bool = False
     has_gemini_key: bool = False
     has_typecast_key: bool = False
+    has_elevenlabs_key: bool = False
     has_fal_key: bool = False
 
 
@@ -358,10 +374,12 @@ class UserResponse(BaseModel):
 class ApiKeysUpdateRequest(BaseModel):
     gemini_api_key: Optional[str] = None
     typecast_api_key: Optional[str] = None
+    elevenlabs_api_key: Optional[str] = None
     fal_key: Optional[str] = None
 
 
 class ApiKeysResponse(BaseModel):
     gemini: Optional[str] = None
     typecast: Optional[str] = None
+    elevenlabs: Optional[str] = None
     fal: Optional[str] = None

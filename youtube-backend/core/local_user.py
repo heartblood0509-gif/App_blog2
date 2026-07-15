@@ -59,6 +59,9 @@ def _seed_api_keys_from_env(db: Session, user: User) -> None:
     if settings.TYPECAST_API_KEY and not user.typecast_api_key_enc:
         user.typecast_api_key_enc = encrypt_api_key(settings.TYPECAST_API_KEY)
         changed = True
+    if settings.ELEVENLABS_API_KEY and not user.elevenlabs_api_key_enc:
+        user.elevenlabs_api_key_enc = encrypt_api_key(settings.ELEVENLABS_API_KEY)
+        changed = True
     if settings.FAL_KEY and not user.fal_key_enc:
         user.fal_key_enc = encrypt_api_key(settings.FAL_KEY)
         changed = True
