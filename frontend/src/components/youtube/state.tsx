@@ -147,6 +147,9 @@ export interface YtState {
 
   // Card B — 붙여넣은 원본 대본(스텝 되돌아왔을 때 유지)
   scriptText: string;
+  // 대본 단계에서 textarea 를 고쳤지만 아직 "쪼개기/다음"으로 반영하지 않은 상태(기존 작업 재편집 시).
+  // ScriptInput 이 게시하고 Stepper 가 이 값으로 이탈 경고를 띄운다(미저장 편집 유실 방지).
+  scriptDraftDirty: boolean;
 
   // 나레이션 (줄마다 text + role)
   narration: NarrationLine[];
@@ -204,6 +207,7 @@ export const initialYtState: YtState = {
   productImageId: null,
   keywordAtTitleGen: "",
   scriptText: "",
+  scriptDraftDirty: false,
   titleOptions: [],
   selectedTitle: "",
   titleLine1: "",
@@ -406,6 +410,7 @@ export function restorePatchFromDraft(
     blurSigma: ds.layout_blur_sigma ?? BLUR_SIGMA_DEFAULT,
     selectedTitle: ds.title ?? "",
     scriptText: lineTexts.join("\n"),
+    scriptDraftDirty: false,
     ttsEngine: ds.tts_engine ?? "typecast",
     // ElevenLabs 재열기인데 음성이 없으면 ""(강제 선택). Typecast 는 기존처럼 첫 성우 폴백.
     voiceId:

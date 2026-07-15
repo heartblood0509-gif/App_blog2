@@ -237,6 +237,8 @@ export interface TtsSessionManifest {
   session_id: string;
   line_ids: (string | null)[] | null; // 빌드 순서(= sent_XX 인덱스). 없으면 null → 재빌드 필요.
   line_hashes: Record<string, string> | null;
+  // 빌드 당시 원문(line_ids 와 같은 순서). 재열기 시 dirty 감지의 기준. 구세션은 null.
+  line_texts: string[] | null;
   durations: number[];
   word_times?: (WordTime[] | null)[] | null;
   voice: {

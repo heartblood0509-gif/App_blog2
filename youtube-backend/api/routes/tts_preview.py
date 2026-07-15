@@ -721,10 +721,14 @@ async def get_preview_session(
     _check_session_owner(metadata, _user)
     sig = _load_signature(session_dir)
     durations = metadata.get("durations") or []
+    # 빌드 당시 원문(line_ids 와 같은 순서). 재열기 시 프론트가 "이 음성은 이 문장으로 만들었다"를
+    # 복원해 현재 대본과 대조 → 고친 줄을 dirty 로 감지하는 근거. signature 있을 때만 순서가 보장된다.
+    line_texts = (metadata.get("original_sentences") if sig else None)
     return {
         "session_id": session_id,
         "line_ids": (sig.get("line_order") if sig else None),
         "line_hashes": (sig.get("line_hashes") if sig else None),
+        "line_texts": line_texts,
         "durations": durations,
         "word_times": metadata.get("word_times"),
         "voice": {

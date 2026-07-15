@@ -21,6 +21,15 @@ export function Stepper() {
   // (작업이력/실패복귀와 동일한 reopen+restore 메커니즘.) 그 외 이동은 화면만 전환.
   async function goToStep(target: YtScreen, jumpable: boolean) {
     if (!jumpable || reopening) return;
+    // 대본 단계에서 고친 텍스트를 아직 반영(쪼개기/다음)하지 않았으면, 이동 시 그 편집이 사라진다.
+    // 사용자가 "수정했다"고 착각한 채 옛 대본으로 영상이 만들어지는 것을 막기 위해 먼저 알려준다.
+    if (state.screen === "script" && state.scriptDraftDirty) {
+      const ok = window.confirm(
+        "고친 대본이 아직 반영되지 않았어요. 지금 다른 단계로 이동하면 수정한 내용이 사라집니다.\n\n반영하려면 '문장으로 쪼개기'(대본을 바꿨을 때) 또는 '다음' 버튼을 먼저 눌러주세요.\n\n그래도 이동할까요?",
+      );
+      if (!ok) return;
+      update({ scriptDraftDirty: false }); // 편집 버림을 확정 — 다음 진입까지 재경고 방지
+    }
     const jobId = state.jobId;
     const needsReopen =
       state.mode === "user_assets" && state.screen === "completed" && !!jobId;
