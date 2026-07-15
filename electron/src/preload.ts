@@ -168,6 +168,8 @@ contextBridge.exposeInMainWorld("electronAPI", {
     // 유튜브 전용 키(다음 부팅 시 youtube-backend 에 env 시드용). 빈 문자열=지우기.
     setTypecastKey: (plaintext: string): Promise<{ ok: boolean; encryption_available: boolean }> =>
       ipcRenderer.invoke("settings:setTypecastKey", plaintext),
+    setElevenLabsKey: (plaintext: string): Promise<{ ok: boolean; encryption_available: boolean }> =>
+      ipcRenderer.invoke("settings:setElevenLabsKey", plaintext),
     setFalKey: (plaintext: string): Promise<{ ok: boolean; encryption_available: boolean }> =>
       ipcRenderer.invoke("settings:setFalKey", plaintext),
     // fal 키 상태(블로그 통합 키 패널이 Electron 에서 표시).

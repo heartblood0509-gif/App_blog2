@@ -39,6 +39,7 @@ import {
   loadOpenAIApiKey,
   aiProviderConfigPath,
   loadTypecastApiKey,
+  loadElevenLabsApiKey,
   registerSettingsIpc,
   saveFrontendPort,
   setAutoLoginEnabled,
@@ -1842,9 +1843,10 @@ async function boot(): Promise<void> {
       jwtSecret: getOrCreateYoutubeJwtSecret(),
       storageDir: path.join(paths.userData, "youtube", "storage"),
       bgmDir: path.join(paths.userData, "youtube", "bgm"),
-      // 3키 모두 부팅 시 env 시드(youtube-backend DB 가 비어있을 때만 반영). 변경 즉시 적용은 설정 UI 의 PUT.
+      // 키 모두 부팅 시 env 시드(youtube-backend DB 가 비어있을 때만 반영). 변경 즉시 적용은 설정 UI 의 PUT.
       geminiApiKey: loadGeminiApiKey(),
       typecastApiKey: loadTypecastApiKey(),
+      elevenlabsApiKey: loadElevenLabsApiKey(),
       falKey: loadFalKey(),
       ffmpegBin: paths.ffmpegBin || undefined,
       ffprobeBin: paths.ffprobeBin || undefined,

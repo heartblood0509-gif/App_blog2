@@ -19,6 +19,7 @@ export interface YoutubeManagerOptions {
   geminiApiKey?: string;
   falKey?: string;
   typecastApiKey?: string;
+  elevenlabsApiKey?: string;
   // 번들 ffmpeg/ffprobe 경로 (packaged). dev 는 시스템 PATH.
   ffmpegBin?: string;
   ffprobeBin?: string;
@@ -59,6 +60,7 @@ export class YoutubeManager {
     if (this.opts.geminiApiKey) env.GEMINI_API_KEY = this.opts.geminiApiKey;
     if (this.opts.falKey) env.FAL_KEY = this.opts.falKey;
     if (this.opts.typecastApiKey) env.TYPECAST_API_KEY = this.opts.typecastApiKey;
+    if (this.opts.elevenlabsApiKey) env.ELEVENLABS_API_KEY = this.opts.elevenlabsApiKey;
     if (this.opts.ffmpegBin) env.FFMPEG_BIN = this.opts.ffmpegBin;
     if (this.opts.ffprobeBin) env.FFPROBE_BIN = this.opts.ffprobeBin;
 

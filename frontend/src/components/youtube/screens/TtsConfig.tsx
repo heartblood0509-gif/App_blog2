@@ -13,14 +13,23 @@ import { Label } from "@/components/ui/label";
 import { Slider } from "@/components/ui/slider";
 import { cn } from "@/lib/utils";
 import { useYt } from "../state";
-import { TTS_ENGINE, VOICE_OPTIONS } from "@/lib/youtube/voices";
+import { TTS_ENGINES, VOICE_OPTIONS } from "@/lib/youtube/voices";
 import {
   getDraftState,
   ttsEmotions,
   ttsPreviewBlob,
   ttsPreviewBuild,
   type TtsEmotion,
+  type ElevenLabsOptions,
 } from "@/lib/youtube/endpoints";
+import {
+  ElevenVoiceControls,
+  useElevenVoices,
+  clampElevenSpeed,
+  ELEVEN_SPEED_MIN,
+  ELEVEN_SPEED_MAX,
+  type ElevenPatch,
+} from "../shared/eleven-voice";
 
 const SELECT_CLS =
   "h-8 w-full rounded-lg border border-input bg-transparent px-2.5 text-sm outline-none transition-colors focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50";
@@ -35,6 +44,18 @@ export function TtsConfig() {
   const isUserAssets = state.mode === "user_assets";
   const isCosmetics = state.category === "cosmetics";
   const isPromoComment = isCosmetics && state.contentType === "promo_comment";
+  const isEleven = state.ttsEngine === "elevenlabs";
+
+  const elVoices = useElevenVoices(isEleven);
+  // ElevenLabs 엔진일 때 preview/build 에 실어보낼 설정.
+  function elevenOptions(): ElevenLabsOptions {
+    return {
+      model_id: state.elModel,
+      stability: state.elStability,
+      similarity_boost: state.elSimilarity,
+      style: state.elStyle,
+    };
+  }
 
   const [emotions, setEmotions] = useState<TtsEmotion[]>([]);
   const [emotionsLoading, setEmotionsLoading] = useState(false);
@@ -53,7 +74,10 @@ export function TtsConfig() {
 
   // 성우가 바뀌면 그 성우의 감정 목록을 불러온다(typecast 전용). 키 없으면 빈 목록 → 기본 음색만.
   useEffect(() => {
-    if (!state.voiceId) return;
+    if (isEleven || !state.voiceId) {
+      setEmotions([]);
+      return;
+    }
     let cancelled = false;
     (async () => {
       setEmotionsLoading(true);
@@ -69,7 +93,7 @@ export function TtsConfig() {
     return () => {
       cancelled = true;
     };
-  }, [state.voiceId]);
+  }, [state.voiceId, isEleven]);
 
   // 언마운트 시 미리듣기 오디오 + objectURL 정리.
   useEffect(() => {
@@ -111,10 +135,11 @@ export function TtsConfig() {
     setPreview("loading");
     try {
       const blob = await ttsPreviewBlob({
-        engine: TTS_ENGINE,
+        engine: state.ttsEngine,
         voice_id: state.voiceId,
         speed: state.ttsSpeed,
         emotion: state.emotion,
+        options: isEleven ? elevenOptions() : null,
       });
       // 빈 응답이면 재생 시도 없이 명확한 메시지로 실패시킨다.
       if (blob.size === 0) throw new Error("미리듣기 오디오가 비어 있습니다.");
@@ -142,7 +167,8 @@ export function TtsConfig() {
     } catch (e) {
       releaseUrl();
       if (mountedRef.current) {
-        toast.error(errMessage(e, "미리듣기에 실패했습니다. (Typecast 키 확인)"));
+        const keyHint = isEleven ? "ElevenLabs" : "Typecast";
+        toast.error(errMessage(e, `미리듣기에 실패했습니다. (${keyHint} 키 확인)`));
         setPreview("idle");
       }
     }
@@ -180,8 +206,10 @@ export function TtsConfig() {
         const data = await ttsPreviewBuild({
           sentences: lines.map((l) => l.text.trim()),
           voice_id: state.voiceId,
+          engine: state.ttsEngine,
           speed: state.ttsSpeed,
-          emotion: state.emotion,
+          emotion: isEleven ? "normal" : state.emotion,
+          tts_options: isEleven ? elevenOptions() : null,
           content_type: "user_assets",
           topic: state.selectedTitle,
           style: "realistic",
@@ -219,8 +247,10 @@ export function TtsConfig() {
       const data = await ttsPreviewBuild({
         sentences,
         voice_id: state.voiceId,
+        engine: state.ttsEngine,
         speed: state.ttsSpeed,
-        emotion: state.emotion,
+        emotion: isEleven ? "normal" : state.emotion,
+        tts_options: isEleven ? elevenOptions() : null,
         content_type: "promo_comment",
         topic: state.topic.trim(),
         style: "realistic",
@@ -246,62 +276,112 @@ export function TtsConfig() {
       </p>
 
       <div className="mt-5 space-y-5">
-        {/* 엔진(현재 typecast 단일) + 성우 */}
+        {/* 음성 엔진 선택 */}
         <div className="grid gap-1.5">
-          <Label htmlFor="yt-voice">성우</Label>
-          <select
-            id="yt-voice"
-            className={SELECT_CLS}
-            value={state.voiceId}
-            onChange={(e) =>
-              patchInvalidate({ voiceId: e.target.value, emotion: "normal" })
-            }
-          >
-            {VOICE_OPTIONS.map((v) => (
-              <option key={v.value} value={v.value}>
-                {v.label}
-              </option>
-            ))}
-          </select>
-          <p className="text-xs text-muted-foreground">엔진: Typecast (고품질)</p>
+          <Label>음성 엔진</Label>
+          <div className="flex gap-1.5">
+            {TTS_ENGINES.map((eng) => {
+              const active = state.ttsEngine === eng.value;
+              return (
+                <button
+                  key={eng.value}
+                  type="button"
+                  onClick={() => {
+                    if (eng.value === state.ttsEngine) return;
+                    patchInvalidate({
+                      ttsEngine: eng.value,
+                      emotion: "normal",
+                      voiceId:
+                        eng.value === "elevenlabs" ? "" : VOICE_OPTIONS[0].value,
+                      ttsSpeed:
+                        eng.value === "elevenlabs"
+                          ? clampElevenSpeed(state.ttsSpeed)
+                          : state.ttsSpeed,
+                    });
+                  }}
+                  className={cn(
+                    "rounded-lg border px-3 py-1.5 text-sm transition-colors",
+                    active
+                      ? "border-primary bg-primary text-primary-foreground"
+                      : "border-border bg-background hover:bg-muted",
+                  )}
+                >
+                  {eng.label}
+                </button>
+              );
+            })}
+          </div>
         </div>
 
-        {/* 감정 */}
-        <div className="grid gap-1.5">
-          <Label>감정 / 말투</Label>
-          {emotionsLoading ? (
-            <p className="flex items-center gap-1.5 text-sm text-muted-foreground">
-              <Loader2 className="h-3.5 w-3.5 animate-spin" /> 감정 목록 불러오는 중...
-            </p>
-          ) : emotions.length === 0 ? (
-            <p className="text-xs text-muted-foreground">
-              감정 목록을 불러오지 못했어요. 기본 음색으로 진행됩니다.
-            </p>
-          ) : (
-            <div className="flex flex-wrap gap-1.5">
-              {emotions.map((emo) => {
-                const active = state.emotion === emo.value;
-                return (
-                  <button
-                    key={emo.value}
-                    type="button"
-                    onClick={() => patchInvalidate({ emotion: emo.value })}
-                    className={cn(
-                      "rounded-full border px-3 py-1 text-sm transition-colors",
-                      active
-                        ? "border-primary bg-primary text-primary-foreground"
-                        : "border-border bg-background hover:bg-muted",
-                    )}
-                  >
-                    {emo.label}
-                  </button>
-                );
-              })}
+        {isEleven ? (
+          <ElevenVoiceControls
+            voiceId={state.voiceId}
+            model={state.elModel}
+            stability={state.elStability}
+            similarity={state.elSimilarity}
+            style={state.elStyle}
+            voicesState={elVoices}
+            onPatch={(p: ElevenPatch) => patchInvalidate(p)}
+          />
+        ) : (
+          <>
+            {/* 성우 */}
+            <div className="grid gap-1.5">
+              <Label htmlFor="yt-voice">성우</Label>
+              <select
+                id="yt-voice"
+                className={SELECT_CLS}
+                value={state.voiceId}
+                onChange={(e) =>
+                  patchInvalidate({ voiceId: e.target.value, emotion: "normal" })
+                }
+              >
+                {VOICE_OPTIONS.map((v) => (
+                  <option key={v.value} value={v.value}>
+                    {v.label}
+                  </option>
+                ))}
+              </select>
             </div>
-          )}
-        </div>
 
-        {/* 속도 */}
+            {/* 감정 */}
+            <div className="grid gap-1.5">
+              <Label>감정 / 말투</Label>
+              {emotionsLoading ? (
+                <p className="flex items-center gap-1.5 text-sm text-muted-foreground">
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" /> 감정 목록 불러오는 중...
+                </p>
+              ) : emotions.length === 0 ? (
+                <p className="text-xs text-muted-foreground">
+                  감정 목록을 불러오지 못했어요. 기본 음색으로 진행됩니다.
+                </p>
+              ) : (
+                <div className="flex flex-wrap gap-1.5">
+                  {emotions.map((emo) => {
+                    const active = state.emotion === emo.value;
+                    return (
+                      <button
+                        key={emo.value}
+                        type="button"
+                        onClick={() => patchInvalidate({ emotion: emo.value })}
+                        className={cn(
+                          "rounded-full border px-3 py-1 text-sm transition-colors",
+                          active
+                            ? "border-primary bg-primary text-primary-foreground"
+                            : "border-border bg-background hover:bg-muted",
+                        )}
+                      >
+                        {emo.label}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          </>
+        )}
+
+        {/* 속도 (공유) */}
         <div className="grid gap-2">
           <div className="flex items-center justify-between">
             <Label>읽는 속도</Label>
@@ -310,15 +390,15 @@ export function TtsConfig() {
             </span>
           </div>
           <Slider
-            min={0.5}
-            max={2}
+            min={isEleven ? ELEVEN_SPEED_MIN : 0.5}
+            max={isEleven ? ELEVEN_SPEED_MAX : 2}
             step={0.05}
             value={state.ttsSpeed}
             onValueChange={(v) => patchInvalidate({ ttsSpeed: v })}
           />
           <div className="flex justify-between text-xs text-muted-foreground">
-            <span>느리게 0.5×</span>
-            <span>빠르게 2.0×</span>
+            <span>느리게 {isEleven ? ELEVEN_SPEED_MIN : 0.5}×</span>
+            <span>빠르게 {isEleven ? ELEVEN_SPEED_MAX : 2}×</span>
           </div>
         </div>
 

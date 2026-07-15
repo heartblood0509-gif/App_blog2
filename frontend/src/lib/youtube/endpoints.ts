@@ -147,11 +147,40 @@ export function ttsEmotions(voiceId: string): Promise<TtsEmotion[]> {
   );
 }
 
+/** ElevenLabs 엔진 전용 음성 설정(모델·slider). Typecast 사용 시엔 무의미. */
+export interface ElevenLabsOptions {
+  model_id: string; // "eleven_multilingual_v2" | "eleven_v3"
+  stability: number; // 0~1 (v3 는 사실상 0/0.5/1)
+  similarity_boost: number; // 0~1
+  style: number; // 0~1
+}
+
+/** ElevenLabs 계정 음성 1건(보이스 클론 포함). group="mine"=클론/전문, "library"=기본/추가. */
+export interface ElevenVoice {
+  voice_id: string;
+  name: string;
+  category: string; // cloned | professional | premade | generated | ...
+  group: "mine" | "library";
+  preview_url?: string | null;
+}
+export interface TtsVoicesResult {
+  engine: string;
+  voices: ElevenVoice[];
+}
+/** 선택 엔진의 계정 음성 목록. Typecast 는 프런트 상수(voices.ts)라 호출하지 않는다(elevenlabs 전용). */
+export function ttsVoices(engine: string): Promise<TtsVoicesResult> {
+  return ytGetJson<TtsVoicesResult>(
+    `/api/tts/voices?engine=${encodeURIComponent(engine)}`,
+  );
+}
+
 export interface TtsPreviewParams {
   engine: string;
   voice_id: string;
   speed: number;
   emotion: string;
+  // ElevenLabs 전용(engine==="elevenlabs"일 때만 붙는다).
+  options?: ElevenLabsOptions | null;
 }
 /** 샘플 문장 미리듣기 mp3(고정 텍스트). */
 export function ttsPreviewBlob(p: TtsPreviewParams): Promise<Blob> {
@@ -161,6 +190,12 @@ export function ttsPreviewBlob(p: TtsPreviewParams): Promise<Blob> {
     speed: String(p.speed),
     emotion: p.emotion,
   });
+  if (p.engine === "elevenlabs" && p.options) {
+    q.set("model", p.options.model_id);
+    q.set("stability", String(p.options.stability));
+    q.set("similarity", String(p.options.similarity_boost));
+    q.set("style", String(p.options.style));
+  }
   return ytGetBlob(`/api/tts/preview?${q.toString()}`);
 }
 
@@ -168,8 +203,11 @@ export function ttsPreviewBlob(p: TtsPreviewParams): Promise<Blob> {
 export interface TtsPreviewBuildInput {
   sentences: string[];
   voice_id: string;
+  // 엔진 명시(기본 typecast). ElevenLabs면 tts_options 도 함께 보낸다.
+  engine: string;
   speed: number;
   emotion: string;
+  tts_options?: ElevenLabsOptions | null;
   content_type?: string;
   topic?: string;
   style?: string;
@@ -201,7 +239,13 @@ export interface TtsSessionManifest {
   line_hashes: Record<string, string> | null;
   durations: number[];
   word_times?: (WordTime[] | null)[] | null;
-  voice: { voice_id: string | null; speed: number | null; emotion: string | null };
+  voice: {
+    voice_id: string | null;
+    engine?: string | null;
+    tts_options?: ElevenLabsOptions | null;
+    speed: number | null;
+    emotion: string | null;
+  };
   lines_count: number;
 }
 export function getTtsSessionManifest(
@@ -272,6 +316,7 @@ export interface JobCreateInput {
   tts_speed: number;
   voice_id: string | null;
   emotion: string | null;
+  tts_options?: ElevenLabsOptions | null;
   title: string;
   title_line1: string;
   title_line2: string;
@@ -339,6 +384,7 @@ export interface ConfirmDraftInput {
   tts_speed: number;
   voice_id: string;
   emotion: string | null;
+  tts_options?: ElevenLabsOptions | null;
   tts_session_id: string | null;
   bgm_filename: string | null;
   bgm_start_sec: number;
@@ -630,6 +676,7 @@ export interface DraftState {
   tts_engine?: string | null;
   voice_id?: string | null;
   emotion?: string | null;
+  tts_options?: ElevenLabsOptions | null;
   tts_speed?: number | null;
   tts_session_id?: string | null;
   bgm_filename?: string | null;
@@ -842,6 +889,7 @@ export function discardJob(jobId: string): Promise<{ ok: boolean }> {
 export interface ApiKeysStatus {
   gemini: string | null;
   typecast: string | null;
+  elevenlabs: string | null;
   fal: string | null;
 }
 export function getApiKeys(): Promise<ApiKeysStatus> {
@@ -851,6 +899,7 @@ export function getApiKeys(): Promise<ApiKeysStatus> {
 export interface ApiKeysUpdateInput {
   gemini_api_key?: string;
   typecast_api_key?: string;
+  elevenlabs_api_key?: string;
   fal_key?: string;
 }
 export function updateApiKeys(

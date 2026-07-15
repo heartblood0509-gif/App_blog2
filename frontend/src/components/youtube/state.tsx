@@ -17,7 +17,7 @@ import type {
   ScriptLine,
   TitleOption,
 } from "@/lib/youtube/endpoints";
-import { VOICE_OPTIONS } from "@/lib/youtube/voices";
+import { VOICE_OPTIONS, ELEVEN_DEFAULTS } from "@/lib/youtube/voices";
 import type { WordTime } from "@/lib/youtube/subtitle-split";
 import {
   DEFAULT_TITLE_FONT,
@@ -81,7 +81,14 @@ export interface TtsBuildSnapshot {
   durations: number[]; // 빌드 순서별 길이(초)
   // 빌드 순서별 어절 타임스탬프(자막-음성 동기화용). 폴백/구세션 줄은 null.
   wordTimes: (WordTime[] | null)[];
-  voice: { voiceId: string; speed: number; emotion: string };
+  voice: {
+    voiceId: string;
+    engine: string;
+    // ElevenLabs 엔진일 때만 채워짐(모델·slider). Typecast면 null.
+    options: { model_id: string; stability: number; similarity_boost: number; style: number } | null;
+    speed: number;
+    emotion: string;
+  };
   version: number; // 단조 증가(캐시버스터)
 }
 
@@ -152,6 +159,11 @@ export interface YtState {
   ttsEngine: string;
   voiceId: string;
   emotion: string;
+  // ElevenLabs 전용 설정(엔진=elevenlabs 일 때만 의미). 기본값=ELEVEN_DEFAULTS.
+  elModel: string;
+  elStability: number;
+  elSimilarity: number;
+  elStyle: number;
   ttsSpeed: number;
   ttsSessionId: string | null;
   // 줄 텍스트/구조가 바뀌어 음성 재빌드가 필요한 상태. true면 BGM/렌더 전 음성 단계를 한 번 거쳐야 한다.
@@ -222,6 +234,10 @@ export const initialYtState: YtState = {
   ttsEngine: "typecast",
   voiceId: VOICE_OPTIONS[0].value,
   emotion: "normal",
+  elModel: ELEVEN_DEFAULTS.model,
+  elStability: ELEVEN_DEFAULTS.stability,
+  elSimilarity: ELEVEN_DEFAULTS.similarity,
+  elStyle: ELEVEN_DEFAULTS.style,
   ttsSpeed: 1.0,
   ttsSessionId: null,
   ttsDirty: false,
@@ -391,8 +407,14 @@ export function restorePatchFromDraft(
     selectedTitle: ds.title ?? "",
     scriptText: lineTexts.join("\n"),
     ttsEngine: ds.tts_engine ?? "typecast",
-    voiceId: ds.voice_id ?? VOICE_OPTIONS[0].value,
+    // ElevenLabs 재열기인데 음성이 없으면 ""(강제 선택). Typecast 는 기존처럼 첫 성우 폴백.
+    voiceId:
+      ds.voice_id ?? (ds.tts_engine === "elevenlabs" ? "" : VOICE_OPTIONS[0].value),
     emotion: ds.emotion ?? "normal",
+    elModel: ds.tts_options?.model_id ?? ELEVEN_DEFAULTS.model,
+    elStability: ds.tts_options?.stability ?? ELEVEN_DEFAULTS.stability,
+    elSimilarity: ds.tts_options?.similarity_boost ?? ELEVEN_DEFAULTS.similarity,
+    elStyle: ds.tts_options?.style ?? ELEVEN_DEFAULTS.style,
     ttsSpeed: ds.tts_speed ?? 1.0,
     ttsSessionId: ds.tts_session_id ?? null,
     ttsDirty: false,

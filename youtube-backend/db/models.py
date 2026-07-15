@@ -23,6 +23,7 @@ class User(Base):
     reset_token_expires = Column(DateTime, nullable=True)
     gemini_api_key_enc = Column(String, nullable=True)
     typecast_api_key_enc = Column(String, nullable=True)
+    elevenlabs_api_key_enc = Column(String, nullable=True)
     fal_key_enc = Column(String, nullable=True)
     created_at = Column(DateTime, default=utc_now_naive)
 
@@ -74,6 +75,9 @@ class Job(Base):
     tts_speed = Column(Float, default=1.1)
     voice_id = Column(String, nullable=True)
     emotion = Column(String, nullable=True)
+    # 엔진별 추가 음성 설정 JSON. None=typecast(감정 프리셋). ElevenLabs 예:
+    # {"model_id":"eleven_multilingual_v2","stability":0.5,"similarity_boost":0.75,"style":0.0}
+    tts_options_json = Column(Text, nullable=True)
     title = Column(Text, default="")
     title_line1 = Column(String, nullable=True)
     title_line2 = Column(String, nullable=True)

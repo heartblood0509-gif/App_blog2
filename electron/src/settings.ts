@@ -17,6 +17,8 @@ interface SettingsFile {
   // 유튜브 쇼츠 전용 키. 부팅 시 YoutubeManager 가 env 로 시드(youtube-backend DB 가 비어있을 때만).
   // 변경 즉시 적용은 설정 UI 가 youtube 백엔드에 PUT 으로 직접 갱신(여긴 다음 부팅용 보관).
   typecast_api_key_encrypted?: string; // base64 DPAPI
+  // ElevenLabs 쇼츠 음성 키(선택). Typecast 와 동일하게 부팅 시 env 시드 + 설정 UI 가 직접 PUT.
+  elevenlabs_api_key_encrypted?: string; // base64 DPAPI
   fal_key_encrypted?: string; // base64 DPAPI
   device_id_encrypted?: string; // base64 DPAPI
   device_id_plain?: string; // fallback only when safeStorage is unavailable
@@ -81,6 +83,10 @@ export function loadTypecastApiKey(): string | undefined {
   return loadEncryptedKey(readRaw().typecast_api_key_encrypted);
 }
 
+export function loadElevenLabsApiKey(): string | undefined {
+  return loadEncryptedKey(readRaw().elevenlabs_api_key_encrypted);
+}
+
 export function loadFalKey(): string | undefined {
   return loadEncryptedKey(readRaw().fal_key_encrypted);
 }
@@ -128,7 +134,10 @@ function writeAiProviderConfig(cfg: AiProviderConfig): void {
 }
 
 // 유튜브 전용 키(typecast/fal) 저장. 빈 문자열이면 해당 필드를 지운다(설정 UI '지우기'와 정합).
-type YoutubeKeyField = "typecast_api_key_encrypted" | "fal_key_encrypted";
+type YoutubeKeyField =
+  | "typecast_api_key_encrypted"
+  | "elevenlabs_api_key_encrypted"
+  | "fal_key_encrypted";
 function setEncryptedYoutubeKey(
   field: YoutubeKeyField,
   plaintext: string,
@@ -259,6 +268,10 @@ export function registerSettingsIpc(): void {
   // Typecast: 유튜브 전용 키(다음 부팅 시 youtube-backend 에 env 시드용). 빈 문자열=지우기.
   ipcMain.handle("settings:setTypecastKey", async (_e, plaintext: string) =>
     setEncryptedYoutubeKey("typecast_api_key_encrypted", plaintext),
+  );
+  // ElevenLabs: Typecast 와 동일 패턴(다음 부팅 시 env 시드용). 빈 문자열=지우기.
+  ipcMain.handle("settings:setElevenLabsKey", async (_e, plaintext: string) =>
+    setEncryptedYoutubeKey("elevenlabs_api_key_encrypted", plaintext),
   );
   // fal: 블로그 이미지(fal 우선) + 유튜브 공용 키. 같은 저장소(fal_key_encrypted)를 공유하고,
   //      블로그 next-server 는 부팅 시 FAL_API_KEY 로 주입받는다(키 변경은 재시작 후 반영).

@@ -1223,7 +1223,11 @@ async def confirm_and_render(
         if body.get("voice_id"):
             job.voice_id = body["voice_id"]
         if body.get("tts_engine"):
-            job.tts_engine = body["tts_engine"]
+            # 화이트리스트 밖 엔진은 무시하고 기본값으로 폴백(잘못된 입력 방어).
+            job.tts_engine = body["tts_engine"] if body["tts_engine"] in ("typecast", "elevenlabs") else "typecast"
+        if "tts_options" in body:
+            _opts = body["tts_options"]
+            job.tts_options_json = json.dumps(_opts, ensure_ascii=False) if _opts else None
         if body.get("tts_speed") is not None:
             job.tts_speed = float(body["tts_speed"])
         if body.get("emotion") is not None:

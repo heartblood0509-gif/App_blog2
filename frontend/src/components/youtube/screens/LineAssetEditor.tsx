@@ -109,6 +109,7 @@ import {
   uploadClip,
   uploadImage,
   type BgmItem,
+  type ElevenLabsOptions,
   type LineSource,
   type ScriptLine,
   type UploadClipResult,
@@ -1186,11 +1187,38 @@ export function LineAssetEditor() {
 
   // ── 음성 빌드 스냅샷 기반 파생값 ──────────────────────────────
   const snap = state.ttsBuild;
+  const isEleven = state.ttsEngine === "elevenlabs";
+  // ElevenLabs 설정(엔진=elevenlabs 일 때만). Typecast면 null.
+  function elevenOptions(): ElevenLabsOptions | null {
+    return isEleven
+      ? {
+          model_id: state.elModel,
+          stability: state.elStability,
+          similarity_boost: state.elSimilarity,
+          style: state.elStyle,
+        }
+      : null;
+  }
+  function sameElevenOptions(
+    a: ElevenLabsOptions | null | undefined,
+    b: ElevenLabsOptions | null,
+  ): boolean {
+    if (!a && !b) return true;
+    if (!a || !b) return false;
+    return (
+      a.model_id === b.model_id &&
+      a.stability === b.stability &&
+      a.similarity_boost === b.similarity_boost &&
+      a.style === b.style
+    );
+  }
   const voiceChanged =
     !!snap &&
     (snap.voice.voiceId !== state.voiceId ||
+      (snap.voice.engine ?? "typecast") !== state.ttsEngine ||
       snap.voice.speed !== state.ttsSpeed ||
-      snap.voice.emotion !== state.emotion);
+      snap.voice.emotion !== state.emotion ||
+      !sameElevenOptions(snap.voice.options, elevenOptions()));
   // 이 줄이 마지막 빌드 이후 바뀌었나(텍스트/미저장 draft/음성설정). 바뀌면 ▶ 시 그 줄만 재생성.
   function isLineDirty(l: ScriptLine): boolean {
     if (!snap || voiceChanged) return true;
@@ -1243,8 +1271,10 @@ export function LineAssetEditor() {
       const data = await ttsPreviewBuild({
         sentences: ls.map((l) => (l.text ?? "").trim()),
         voice_id: state.voiceId,
+        engine: state.ttsEngine,
         speed: state.ttsSpeed,
-        emotion: state.emotion,
+        emotion: isEleven ? "normal" : state.emotion,
+        tts_options: elevenOptions(),
         content_type: "user_assets",
         topic: state.selectedTitle,
         style: "realistic",
@@ -1262,7 +1292,13 @@ export function LineAssetEditor() {
         texts,
         durations: data.durations,
         wordTimes: data.word_times ?? lineIds.map(() => null),
-        voice: { voiceId: state.voiceId, speed: state.ttsSpeed, emotion: state.emotion },
+        voice: {
+          voiceId: state.voiceId,
+          engine: state.ttsEngine,
+          options: elevenOptions(),
+          speed: state.ttsSpeed,
+          emotion: state.emotion,
+        },
         version: (snap?.version ?? 0) + 1,
       };
       update({ ttsSessionId: data.session_id, ttsDirty: false, ttsBuild: newSnap });
@@ -1270,7 +1306,12 @@ export function LineAssetEditor() {
       void reconcileClipsWithDurations(newSnap);
       return newSnap;
     } catch (e) {
-      toast.error(errMessage(e, "음성 생성에 실패했어요. (Typecast 키 확인)"));
+      toast.error(
+        errMessage(
+          e,
+          `음성 생성에 실패했어요. (${isEleven ? "ElevenLabs" : "Typecast"} 키 확인)`,
+        ),
+      );
       return null;
     } finally {
       if (mountedRef.current) setBuilding(false);
@@ -1543,6 +1584,8 @@ export function LineAssetEditor() {
             wordTimes: man.word_times ?? lineIds.map(() => null),
             voice: {
               voiceId: man.voice.voice_id ?? state.voiceId,
+              engine: man.voice.engine ?? state.ttsEngine,
+              options: man.voice.tts_options ?? elevenOptions(),
               speed: man.voice.speed ?? state.ttsSpeed,
               emotion: man.voice.emotion ?? state.emotion,
             },
@@ -1775,9 +1818,14 @@ export function LineAssetEditor() {
       {/* 음성 설정 — 모든 줄 공통. 값이 바뀌면 전 줄 음성이 낡음(dirty) → 다음 재생 때 새로 만들어진다. */}
       <div className="mt-4">
         <VoiceSettingsBar
+          engine={state.ttsEngine}
           voiceId={state.voiceId}
           emotion={state.emotion}
           ttsSpeed={state.ttsSpeed}
+          elModel={state.elModel}
+          elStability={state.elStability}
+          elSimilarity={state.elSimilarity}
+          elStyle={state.elStyle}
           disabled={building}
           onPatch={(p) => {
             playback.stop();
@@ -1786,7 +1834,7 @@ export function LineAssetEditor() {
         />
         {built && voiceChanged && (
           <p className="mt-1 text-xs text-amber-700 dark:text-amber-400">
-            성우·속도·감정을 바꿨어요. 다음 재생 때 모든 줄 음성을 새로 만들어요.
+            음성 설정을 바꿨어요. 다음 재생 때 모든 줄 음성을 새로 만들어요.
           </p>
         )}
       </div>

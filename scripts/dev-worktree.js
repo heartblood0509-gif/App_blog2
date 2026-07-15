@@ -26,8 +26,8 @@
 //   node scripts/dev-worktree.js                # 웹 브라우저 테스트 (기본, 빌려오기)
 //   node scripts/dev-worktree.js --electron     # Electron 데스크톱 앱
 //   node scripts/dev-worktree.js --fresh        # 빌려오지 않고 전부 새로 설치 (예전 완전 격리 방식)
-//   node scripts/dev-worktree.js --deps-only    # JS 의존성(frontend)만 준비하고 종료 (서버/Python 생략)
-//                                               #   → typecheck/lint 처럼 서버 없이 빠른 사전점검만 할 때
+//   node scripts/dev-worktree.js --deps-only    # JS 의존성(frontend + 루트)만 준비하고 종료 (서버/Python 생략)
+//                                               #   → typecheck/lint(프론트·electron) 처럼 서버 없이 빠른 사전점검만 할 때
 //   node scripts/dev-worktree.js --build        # 프론트 프로덕션 빌드만 (next build, 심링크면 자동 --webpack)
 //                                               #   → PR 직전 "출시 형태 조립 가능?" 게이트. `npm run build:worktree` 로도 호출
 //   node scripts/dev-worktree.js --main <path>  # 메인 체크아웃 경로 명시
@@ -194,14 +194,18 @@ async function prepareDeps(worktreeRoot, mainRoot) {
   console.log("\n[dev-worktree] JS 의존성 준비 (frontend)");
   prepareNodeModules(path.join(worktreeRoot, "frontend"), path.join(mainRoot, "frontend"), "frontend");
 
-  // --deps-only(typecheck/lint) / --build(프론트 빌드): frontend 만으로 충분 — Python·youtube 생략.
-  if (depsOnly || isBuild) return;
+  // --build(프론트 프로덕션 빌드)는 frontend 만으로 충분 — 루트·Python·youtube 생략.
+  if (isBuild) return;
 
-  // 루트(Electron 빌드·spawn, cross-env 등).
+  // 루트(Electron 빌드·spawn, cross-env 등). --deps-only(typecheck/lint)도 electron/ 을 검사하므로
+  // 루트 node_modules(electron 타입 등)가 필요하다 → frontend 다음에 항상 준비한다.
   console.log("\n[dev-worktree] JS 의존성 준비 (루트)");
   prepareNodeModules(worktreeRoot, mainRoot, "루트");
   // electron 바이너리가 설치 스크립트 차단(npm allow-scripts) 등으로 깨졌으면 메인에서 자동 복구.
   ensureElectronBinary(worktreeRoot, mainRoot);
+
+  // --deps-only(typecheck/lint): 여기까지(frontend + 루트 JS)면 충분 — Python·youtube·ffmpeg 생략.
+  if (depsOnly) return;
 
   // Python(backend) 의존성 — requirements 가 메인과 같으면 전역에 이미 있다고 보고 건너뜀.
   preparePythonDeps(worktreeRoot, mainRoot, pythonCmd);

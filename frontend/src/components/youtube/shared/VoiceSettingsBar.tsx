@@ -18,8 +18,21 @@ import {
 } from "@/components/ui/select";
 import { Slider } from "@/components/ui/slider";
 import { cn } from "@/lib/utils";
-import { TTS_ENGINE, VOICE_OPTIONS } from "@/lib/youtube/voices";
-import { ttsEmotions, ttsPreviewBlob, type TtsEmotion } from "@/lib/youtube/endpoints";
+import { TTS_ENGINES, VOICE_OPTIONS } from "@/lib/youtube/voices";
+import {
+  ttsEmotions,
+  ttsPreviewBlob,
+  type TtsEmotion,
+  type ElevenLabsOptions,
+} from "@/lib/youtube/endpoints";
+import {
+  ElevenVoiceControls,
+  useElevenVoices,
+  clampElevenSpeed,
+  ELEVEN_SPEED_MIN,
+  ELEVEN_SPEED_MAX,
+  type ElevenPatch,
+} from "./eleven-voice";
 
 function errMessage(e: unknown, fallback: string): string {
   return e instanceof Error ? e.message : fallback;
@@ -29,27 +42,53 @@ export interface VoiceSettingsPatch {
   voiceId?: string;
   emotion?: string;
   ttsSpeed?: number;
+  ttsEngine?: string;
+  elModel?: string;
+  elStability?: number;
+  elSimilarity?: number;
+  elStyle?: number;
 }
 
 export function VoiceSettingsBar({
+  engine,
   voiceId,
   emotion,
   ttsSpeed,
+  elModel,
+  elStability,
+  elSimilarity,
+  elStyle,
   onPatch,
   disabled,
 }: {
+  engine: string;
   voiceId: string;
   emotion: string;
   ttsSpeed: number;
+  elModel: string;
+  elStability: number;
+  elSimilarity: number;
+  elStyle: number;
   onPatch: (p: VoiceSettingsPatch) => void;
   disabled?: boolean;
 }) {
+  const isEleven = engine === "elevenlabs";
+  const elVoices = useElevenVoices(isEleven);
   const [emotions, setEmotions] = useState<TtsEmotion[]>([]);
   const [emotionsLoading, setEmotionsLoading] = useState(false);
   const [preview, setPreview] = useState<"idle" | "loading" | "playing">("idle");
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const urlRef = useRef<string | null>(null);
   const mountedRef = useRef(true);
+
+  function elevenOptions(): ElevenLabsOptions {
+    return {
+      model_id: elModel,
+      stability: elStability,
+      similarity_boost: elSimilarity,
+      style: elStyle,
+    };
+  }
 
   useEffect(() => {
     mountedRef.current = true;
@@ -58,9 +97,12 @@ export function VoiceSettingsBar({
     };
   }, []);
 
-  // 성우별 감정 목록(typecast). 키 없으면 빈 목록 → 기본 음색만.
+  // 성우별 감정 목록(typecast 전용). 키 없으면 빈 목록 → 기본 음색만.
   useEffect(() => {
-    if (!voiceId) return;
+    if (isEleven || !voiceId) {
+      setEmotions([]);
+      return;
+    }
     let cancelled = false;
     (async () => {
       setEmotionsLoading(true);
@@ -76,7 +118,7 @@ export function VoiceSettingsBar({
     return () => {
       cancelled = true;
     };
-  }, [voiceId]);
+  }, [voiceId, isEleven]);
 
   // 언마운트 시 샘플 오디오 + objectURL 정리.
   useEffect(() => {
@@ -113,10 +155,11 @@ export function VoiceSettingsBar({
     setPreview("loading");
     try {
       const blob = await ttsPreviewBlob({
-        engine: TTS_ENGINE,
+        engine,
         voice_id: voiceId,
         speed: ttsSpeed,
         emotion,
+        options: isEleven ? elevenOptions() : null,
       });
       if (blob.size === 0) throw new Error("미리듣기 오디오가 비어 있습니다.");
       if (!mountedRef.current) return;
@@ -140,7 +183,8 @@ export function VoiceSettingsBar({
     } catch (e) {
       releaseUrl();
       if (mountedRef.current) {
-        toast.error(errMessage(e, "미리듣기에 실패했습니다. (Typecast 키 확인)"));
+        const keyHint = isEleven ? "ElevenLabs" : "Typecast";
+        toast.error(errMessage(e, `미리듣기에 실패했습니다. (${keyHint} 키 확인)`));
         setPreview("idle");
       }
     }
@@ -160,6 +204,35 @@ export function VoiceSettingsBar({
     emotionValue = emotion;
     emotionItems = emotions;
   }
+
+  // 엔진(Typecast/ElevenLabs) 선택. ElevenLabs면 ElevenVoiceControls 1행 슬롯으로, Typecast면 인라인.
+  const engineSelectNode = (
+    <Select
+      items={TTS_ENGINES}
+      value={engine}
+      disabled={disabled}
+      onValueChange={(v) => {
+        if (!v || v === engine) return;
+        onPatch({
+          ttsEngine: v,
+          emotion: "normal",
+          voiceId: v === "elevenlabs" ? "" : VOICE_OPTIONS[0].value,
+          ttsSpeed: v === "elevenlabs" ? clampElevenSpeed(ttsSpeed) : ttsSpeed,
+        });
+      }}
+    >
+      <SelectTrigger aria-label="음성 엔진" className="h-8 w-[124px] bg-background">
+        <SelectValue />
+      </SelectTrigger>
+      <SelectContent>
+        {TTS_ENGINES.map((eng) => (
+          <SelectItem key={eng.value} value={eng.value}>
+            {eng.label}
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
+  );
 
   return (
     <div className="rounded-lg border border-muted-foreground/20 bg-muted/50 p-3 text-card-foreground">
@@ -184,60 +257,92 @@ export function VoiceSettingsBar({
           {preview === "playing" ? "정지" : "샘플 듣기"}
         </Button>
       </div>
-      <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
-        <Select
-          items={VOICE_OPTIONS}
-          value={voiceId}
-          disabled={disabled}
-          onValueChange={(v) => v && onPatch({ voiceId: v, emotion: "normal" })}
-        >
-          <SelectTrigger aria-label="성우" className="h-8 w-[136px] bg-background">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            {VOICE_OPTIONS.map((v) => (
-              <SelectItem key={v.value} value={v.value}>
-                {v.label}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-
-        <Select
-          items={emotionItems}
-          value={emotionValue}
-          disabled={disabled || emotionsLoading || emotions.length === 0}
-          onValueChange={(v) => v && onPatch({ emotion: v })}
-        >
-          <SelectTrigger aria-label="감정" className="h-8 w-[112px] bg-background">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            {emotionItems.map((emo) => (
-              <SelectItem key={emo.value} value={emo.value}>
-                {emo.label}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-
-        <div className="flex min-w-[220px] flex-1 items-center gap-2">
-          <span className="text-sm text-muted-foreground">속도</span>
-          <Slider
-            min={0.5}
-            max={2}
-            step={0.05}
-            value={ttsSpeed}
+      {isEleven ? (
+        <div className="flex flex-col gap-3">
+          <ElevenVoiceControls
+            engineSelect={engineSelectNode}
+            voiceId={voiceId}
+            model={elModel}
+            stability={elStability}
+            similarity={elSimilarity}
+            style={elStyle}
+            voicesState={elVoices}
             disabled={disabled}
-            onValueChange={(v) => onPatch({ ttsSpeed: v })}
-            className="flex-1"
+            onPatch={(p: ElevenPatch) => onPatch(p)}
           />
-          <span className="w-9 text-sm tabular-nums font-medium">
-            {ttsSpeed.toFixed(1)}×
-          </span>
+          {/* 3행: 속도 (ElevenLabs 범위 0.7~1.2) */}
+          <div className="flex items-center gap-2">
+            <span className="text-sm text-muted-foreground">속도</span>
+            <Slider
+              min={ELEVEN_SPEED_MIN}
+              max={ELEVEN_SPEED_MAX}
+              step={0.05}
+              value={ttsSpeed}
+              disabled={disabled}
+              onValueChange={(v) => onPatch({ ttsSpeed: v })}
+              className="flex-1"
+            />
+            <span className="w-9 text-sm tabular-nums font-medium">
+              {ttsSpeed.toFixed(1)}×
+            </span>
+          </div>
         </div>
+      ) : (
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+          {engineSelectNode}
+          <Select
+            items={VOICE_OPTIONS}
+            value={voiceId}
+            disabled={disabled}
+            onValueChange={(v) => v && onPatch({ voiceId: v, emotion: "normal" })}
+          >
+            <SelectTrigger aria-label="성우" className="h-8 w-[136px] bg-background">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {VOICE_OPTIONS.map((v) => (
+                <SelectItem key={v.value} value={v.value}>
+                  {v.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
 
-      </div>
+          <Select
+            items={emotionItems}
+            value={emotionValue}
+            disabled={disabled || emotionsLoading || emotions.length === 0}
+            onValueChange={(v) => v && onPatch({ emotion: v })}
+          >
+            <SelectTrigger aria-label="감정" className="h-8 w-[112px] bg-background">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {emotionItems.map((emo) => (
+                <SelectItem key={emo.value} value={emo.value}>
+                  {emo.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+
+          <div className="flex min-w-[220px] flex-1 items-center gap-2">
+            <span className="text-sm text-muted-foreground">속도</span>
+            <Slider
+              min={0.5}
+              max={2}
+              step={0.05}
+              value={ttsSpeed}
+              disabled={disabled}
+              onValueChange={(v) => onPatch({ ttsSpeed: v })}
+              className="flex-1"
+            />
+            <span className="w-9 text-sm tabular-nums font-medium">
+              {ttsSpeed.toFixed(1)}×
+            </span>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

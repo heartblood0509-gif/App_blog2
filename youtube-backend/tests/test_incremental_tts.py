@@ -72,7 +72,8 @@ def stub_generate_for_indices(monkeypatch):
     """generate_tts_for_indices 호출을 캡처해 wav 파일만 만든다. (실제 Typecast 호출 차단)"""
     calls = {"indices": None, "sentences": None}
 
-    async def fake(tts_dir, sentences, indices, voice_id=None, speed=None, emotion=None, api_key=None):
+    async def fake(tts_dir, sentences, indices, voice_id=None, speed=None, emotion=None,
+                   api_key=None, engine="typecast", tts_options=None):
         calls["indices"] = list(indices)
         calls["sentences"] = list(sentences)
         result = {}
@@ -91,10 +92,14 @@ def stub_generate_for_indices(monkeypatch):
 
 
 def _run_incremental(session_dir, req, prev_sig):
-    """동기 래퍼 — _rebuild_incremental은 비동기."""
-    return asyncio.run(
-        tp._rebuild_incremental(str(session_dir), req, typecast_key="fake", prev_sig=prev_sig)
+    """동기 래퍼 — _rebuild_incremental은 비동기.
+
+    _rebuild_incremental 은 이제 5-tuple(+char_alignments)을 반환하지만, 기존 테스트
+    호출부는 4개만 언팩하므로 여기서 5번째를 흡수해 4-tuple 로 돌려준다."""
+    sentences, durations, regen, word_times, _char = asyncio.run(
+        tp._rebuild_incremental(str(session_dir), req, tts_key="fake", prev_sig=prev_sig)
     )
+    return sentences, durations, regen, word_times
 
 
 # ────────────────────────────────────────────────────────────────────

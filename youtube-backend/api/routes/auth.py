@@ -70,6 +70,7 @@ def _user_response(user: User) -> dict:
         "approved": user.approved,
         "has_gemini_key": bool(user.gemini_api_key_enc),
         "has_typecast_key": bool(user.typecast_api_key_enc),
+        "has_elevenlabs_key": bool(user.elevenlabs_api_key_enc),
         "has_fal_key": bool(user.fal_key_enc),
         # 로컬 단일 사용자 모드: 프런트가 로그아웃 버튼 등을 숨길 수 있게 노출.
         "single_user": settings.LOCAL_SINGLE_USER,
@@ -209,11 +210,13 @@ def _mask_key(key: str) -> str:
 @router.get("/api-keys")
 async def get_api_keys(user: User = Depends(get_approved_user)):
     """현재 사용자의 API 키 상태 조회 (마스킹)"""
-    result = {"gemini": None, "typecast": None, "fal": None}
+    result = {"gemini": None, "typecast": None, "elevenlabs": None, "fal": None}
     if user.gemini_api_key_enc:
         result["gemini"] = _mask_key(decrypt_api_key(user.gemini_api_key_enc))
     if user.typecast_api_key_enc:
         result["typecast"] = _mask_key(decrypt_api_key(user.typecast_api_key_enc))
+    if user.elevenlabs_api_key_enc:
+        result["elevenlabs"] = _mask_key(decrypt_api_key(user.elevenlabs_api_key_enc))
     if user.fal_key_enc:
         result["fal"] = _mask_key(decrypt_api_key(user.fal_key_enc))
     return result
@@ -257,6 +260,23 @@ async def update_api_keys(
             except Exception:
                 raise HTTPException(status_code=400, detail="Typecast API 키가 유효하지 않습니다")
             user.typecast_api_key_enc = encrypt_api_key(req.typecast_api_key)
+
+    # ElevenLabs 키 검증 + 저장
+    if req.elevenlabs_api_key is not None:
+        if req.elevenlabs_api_key == "":
+            user.elevenlabs_api_key_enc = None
+        else:
+            try:
+                async with httpx.AsyncClient() as client:
+                    resp = await client.get(
+                        "https://api.elevenlabs.io/v1/voices",
+                        headers={"xi-api-key": req.elevenlabs_api_key},
+                    )
+                    if resp.status_code == 401:
+                        raise ValueError("Unauthorized")
+            except Exception:
+                raise HTTPException(status_code=400, detail="ElevenLabs API 키가 유효하지 않습니다")
+            user.elevenlabs_api_key_enc = encrypt_api_key(req.elevenlabs_api_key)
 
     # FAL 키 검증 + 저장
     if req.fal_key is not None:

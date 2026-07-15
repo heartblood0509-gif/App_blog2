@@ -138,6 +138,15 @@ export function BgmConfig() {
           tts_speed: state.ttsSpeed,
           voice_id: state.voiceId,
           emotion: state.ttsEngine === "typecast" ? state.emotion : null,
+          tts_options:
+            state.ttsEngine === "elevenlabs"
+              ? {
+                  model_id: state.elModel,
+                  stability: state.elStability,
+                  similarity_boost: state.elSimilarity,
+                  style: state.elStyle,
+                }
+              : null,
           tts_session_id: state.ttsSessionId,
           bgm_filename: state.bgmFilename,
           bgm_start_sec: state.bgmStartSec,
@@ -196,6 +205,15 @@ export function BgmConfig() {
         tts_speed: state.ttsSpeed,
         voice_id: state.voiceId,
         emotion: state.ttsEngine === "typecast" ? state.emotion : null,
+        tts_options:
+          state.ttsEngine === "elevenlabs"
+            ? {
+                model_id: state.elModel,
+                stability: state.elStability,
+                similarity_boost: state.elSimilarity,
+                style: state.elStyle,
+              }
+            : null,
         title: state.selectedTitle,
         title_line1: state.titleLine1,
         title_line2: state.titleLine2,

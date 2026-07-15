@@ -81,10 +81,12 @@ _MIGRATIONS = {
         "visual_plan_json": "TEXT DEFAULT ''",
         "intermediates_purged": "BOOLEAN DEFAULT TRUE NOT NULL",
         "last_render_signature": "TEXT",
+        "tts_options_json": "TEXT",
     },
     "users": {
         "gemini_api_key_enc": "VARCHAR",
         "typecast_api_key_enc": "VARCHAR",
+        "elevenlabs_api_key_enc": "VARCHAR",
         "fal_key_enc": "VARCHAR",
         "approved": "BOOLEAN DEFAULT FALSE",
     },
