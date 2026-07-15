@@ -1571,10 +1571,18 @@ export function LineAssetEditor() {
         if (!mountedRef.current) return;
         if (!man.line_ids || man.line_ids.length === 0) return;
         const lineIds = man.line_ids.map((x) => String(x ?? ""));
+        // 빌드 당시 원문을 매니페스트에서 복원한다(현재 대본이 아니라!). 이게 dirty 판정의 기준:
+        // 재열기 후 대본을 고친 줄이 snap.texts(옛 원문) 와 달라져 isLineDirty 가 그 줄을 잡아낸다.
+        // 현재 대본을 넣으면 항상 "수정 없음"으로 오판해 고친 줄이 옛 음성으로 렌더된다(이 버그의 원인).
+        // line_texts 가 없으면(구세션) texts 를 비워 전 줄을 dirty 로 → '영상 만들기' 시 안전하게 전체 재빌드.
         const texts: Record<string, string> = {};
-        linesRef.current.forEach((l) => {
-          texts[String(l.line_id ?? "")] = l.text ?? "";
-        });
+        const buildTexts = man.line_texts;
+        if (Array.isArray(buildTexts)) {
+          lineIds.forEach((lid, i) => {
+            const t = buildTexts[i];
+            if (lid && typeof t === "string") texts[lid] = t;
+          });
+        }
         update({
           ttsBuild: {
             sessionId: man.session_id,

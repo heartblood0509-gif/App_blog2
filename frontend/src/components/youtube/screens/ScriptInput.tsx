@@ -111,6 +111,13 @@ export function ScriptInput() {
   const scriptUnchanged =
     !!state.jobId && script.trim() === state.scriptText.trim();
 
+  // 기존 작업(jobId 보유)에서 대본을 고쳤지만 아직 반영(쪼개기/다음) 안 한 상태를 전역에 게시한다.
+  // Stepper 가 이 값을 보고 단계 이탈 시 "미저장 편집이 사라진다"고 경고한다(신규 작업은 잃을 게 없어 제외).
+  useEffect(() => {
+    const dirty = !!state.jobId && script.trim() !== state.scriptText.trim();
+    if (dirty !== state.scriptDraftDirty) update({ scriptDraftDirty: dirty });
+  }, [script, state.scriptText, state.jobId, state.scriptDraftDirty, update]);
+
   async function handleNext() {
     if (!canProceed) return;
 
@@ -145,6 +152,7 @@ export function ScriptInput() {
             selectedTitle: combineTitle(n1, n2),
             titleLine1: n1,
             titleLine2: n2,
+            scriptDraftDirty: false, // 제목만 저장(대본 미변경) — 이탈 경고 해제
             screen: "lines",
           });
         } catch (e) {
@@ -185,6 +193,7 @@ export function ScriptInput() {
       update({
         jobId: draft.job_id,
         scriptText: script,
+        scriptDraftDirty: false, // 새 대본을 반영(재쪼개기)했으니 이탈 경고 해제
         selectedTitle: combineTitle(n1, n2),
         titleLine1: n1,
         titleLine2: n2,

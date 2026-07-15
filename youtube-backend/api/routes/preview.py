@@ -36,6 +36,7 @@ from core.user_assets_visual import (
     legacy_line_asset_rel,
     line_asset_rel,
     line_asset_rel_candidates,
+    line_text_hash,
     mark_line_asset_ready,
     new_line_id,
     parse_visual_plan,
@@ -1172,6 +1173,39 @@ def _assert_no_emoji(job, body: dict | None = None) -> None:
         )
 
 
+def _voice_script_mismatch(sig_dir: str, lines: list[dict]) -> str | None:
+    """세션 signature(줄별 음성 지문)와 현재 대본을 대조하는 렌더 직전 백스톱.
+
+    signature.json 은 "이 음성을 어떤 문장으로 만들었는지"를 line_id→text hash 로 기록한다.
+    현재 대본의 지문과 다르면 = 대본을 고쳤는데 그 줄 음성을 새로 만들지 않은 것 → 옛 목소리로
+    렌더되는 사고를 막아야 한다(이 함수가 그 판정만 담당; 차단은 호출부가 HTTPException 으로).
+
+    반환: 불일치 시 사용자용 한국어 메시지, 일치하거나 검증 불가(구세션·signature 없음)면 None.
+    - buildVoices 는 text.trim() 으로 음성을 만들어 signature 도 trim 기준이므로, 저장된
+      line["text"] 를 같은 기준(strip)으로 해시해야 오탐(정상 렌더 차단)이 없다.
+    """
+    sig_path = os.path.join(sig_dir, "signature.json")
+    if not os.path.exists(sig_path):
+        return None  # 구세션 — 검증 불가, 통과(프론트 dirty 감지에 의존)
+    try:
+        with open(sig_path, encoding="utf-8") as f:
+            sig = json.load(f)
+    except Exception:
+        return None
+    sig_hashes = dict((sig or {}).get("line_hashes") or {})
+    sig_order = list((sig or {}).get("line_order") or [])
+    if not sig_hashes:
+        return None
+    # 줄 수가 다르면 = 줄 추가/삭제 후 재빌드 안 함 → 구조 불일치.
+    if len(sig_order) != len(lines):
+        return "음성과 대본의 줄 수가 달라요. 화면·소리 단계에서 '나레이션 음성 만들기'를 다시 실행해주세요."
+    for i, line in enumerate(lines):
+        lid = str(line.get("line_id") or "")
+        if not lid or sig_hashes.get(lid) != line_text_hash((line.get("text") or "").strip()):
+            return f"{i + 1}번째 줄 음성이 현재 대본과 일치하지 않아요. 화면·소리 단계에서 '나레이션 음성 만들기'를 다시 실행해주세요."
+    return None
+
+
 @router.post("/{job_id}/confirm")
 async def confirm_and_render(
     request: Request,
@@ -1351,6 +1385,15 @@ async def confirm_and_render(
                     status_code=400,
                     detail=f"{c['index'] + 1}번째 줄 영상이 나레이션보다 짧아요. 화면·소리 단계에서 그 줄 영상을 다시 잘라 올려주세요.",
                 )
+
+        # ── 대본-음성 일치 최종 검문(백스톱) ──
+        # 세션이 옮겨지기 전(아래 move)에 signature 를 읽어 현재 대본과 대조한다.
+        # 정상 경로는 buildVoices 가 방금 새 signature 를 남겨 통과하고, 대본을 고쳤는데
+        # 음성을 안 만든 예외 경로만 여기서 차단돼 옛 목소리 렌더 사고를 막는다.
+        _sig_dir = tts_session_dir if os.path.exists(tts_session_dir) else os.path.join(job_dir, "tts")
+        _mismatch = _voice_script_mismatch(_sig_dir, lines)
+        if _mismatch:
+            raise HTTPException(status_code=400, detail=_mismatch)
 
         if job.tts_session_id:
             if os.path.exists(tts_session_dir):
