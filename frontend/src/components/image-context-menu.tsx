@@ -15,12 +15,24 @@ export function ImageContextMenu({
   y,
   onDownload,
   onClose,
+  label = "이미지 다운로드",
+  items,
 }: {
   x: number;
   y: number;
-  onDownload: () => void;
+  // 단일 항목(기존 호출부 호환). items 를 주면 무시된다.
+  onDownload?: () => void;
   onClose: () => void;
+  label?: string;
+  // 여러 항목(예: AI 변환 클립 → 영상·이미지 동시 제공).
+  items?: { label: string; onSelect: () => void }[];
 }) {
+  const resolvedItems =
+    items && items.length > 0
+      ? items
+      : onDownload
+        ? [{ label, onSelect: onDownload }]
+        : [];
   const ref = useRef<HTMLDivElement>(null);
   const [pos, setPos] = useState({ x, y });
 
@@ -65,17 +77,20 @@ export function ImageContextMenu({
       onClick={(e) => e.stopPropagation()}
       onContextMenu={(e) => e.preventDefault()}
     >
-      <button
-        type="button"
-        className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-sm hover:bg-accent hover:text-accent-foreground"
-        onClick={() => {
-          onDownload();
-          onClose();
-        }}
-      >
-        <Download className="h-4 w-4" />
-        이미지 다운로드
-      </button>
+      {resolvedItems.map((item, i) => (
+        <button
+          key={i}
+          type="button"
+          className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-sm hover:bg-accent hover:text-accent-foreground"
+          onClick={() => {
+            item.onSelect();
+            onClose();
+          }}
+        >
+          <Download className="h-4 w-4" />
+          {item.label}
+        </button>
+      ))}
     </div>
   );
 }

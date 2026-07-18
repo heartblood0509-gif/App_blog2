@@ -21,6 +21,9 @@
 
 import JSZip from "jszip";
 import type { ImageSlot } from "@/types";
+// triggerDownload 는 download.ts 로 이동(경량 분리). 기존 import 경로 호환 위해 re-export.
+import { triggerDownload } from "./download";
+export { triggerDownload };
 
 export interface ExportZipInput {
   title: string;
@@ -245,18 +248,6 @@ export function downloadImageFromBase64(base64: string, fileNameNoExt: string): 
   triggerDownload(blob, `${sanitizeFileName(fileNameNoExt, 60)}.${ext}`);
 }
 
-/** Blob 을 파일로 다운로드시킨다. (Electron: will-download 핸들러가 저장 위치 선택 창을 띄움) */
-export function triggerDownload(blob: Blob, fileName: string): void {
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = fileName;
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  // 다운로드가 시작될 시간을 준 뒤 정리
-  setTimeout(() => URL.revokeObjectURL(url), 1000);
-}
 
 /**
  * 현재 작업물(또는 보관함 항목)을 ZIP 으로 내보내고 다운로드시킨다.

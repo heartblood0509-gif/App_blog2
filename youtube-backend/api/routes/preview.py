@@ -1378,13 +1378,36 @@ async def confirm_and_render(
         except Exception:
             _durs = []
         if len(_durs) == len(lines):
-            _conf = _find_clip_conflicts(lines, json.loads(job.line_sources_json or "[]"), _durs)
+            _srcs = json.loads(job.line_sources_json or "[]")
+            _conf = _find_clip_conflicts(lines, _srcs, _durs)
             if _conf:
                 c = _conf[0]
                 raise HTTPException(
                     status_code=400,
                     detail=f"{c['index'] + 1}번째 줄 영상이 나레이션보다 짧아요. 화면·소리 단계에서 그 줄 영상을 다시 잘라 올려주세요.",
                 )
+            # clip_duration 이 없는 clip 줄(구버전 AI 변환·레거시 전체저장 업로드)은 위 검사에서 빠진다.
+            # 로컬 파일이 있으면 실측(ffprobe)해 확정 전에 잡는다(R2-only 자산은 렌더 실측이 최후 방어).
+            for _i in range(len(lines)):
+                if (_srcs[_i] if _i < len(_srcs) else "ai") != "clip":
+                    continue
+                if lines[_i].get("clip_duration"):
+                    continue  # 위 _find_clip_conflicts 가 이미 검사함
+                _need = float(_durs[_i] or 0.0)
+                if _need <= 0:
+                    continue
+                _cpath = next(
+                    (p for p in (os.path.join(job_dir, r) for r in line_asset_rel_candidates("clip", lines[_i], _i)) if os.path.exists(p)),
+                    None,
+                )
+                if not _cpath:
+                    continue  # 로컬에 없음(R2-only) → 렌더 실측이 방어
+                _vd = _ffprobe_duration(_cpath)
+                if _vd > 0 and _vd + CLIP_FIT_EPS < _need:
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"{_i + 1}번째 줄 영상이 나레이션보다 짧아요. 화면·소리 단계에서 그 줄 영상을 다시 만들거나 대본을 줄여주세요.",
+                    )
 
         # ── 대본-음성 일치 최종 검문(백스톱) ──
         # 세션이 옮겨지기 전(아래 move)에 signature 를 읽어 현재 대본과 대조한다.
@@ -1811,6 +1834,15 @@ async def regenerate_clip(
             raise HTTPException(status_code=400, detail=f"{line_index + 1}번째 줄에 이미지가 없습니다")
 
         await _delete_line_asset_kind(job_id, job_dir, lines[line_index], line_index, "clip")
+
+        # AI 영상은 veo 6초 고정 — 나레이션이 6초를 넘으면 변환해도 렌더에서 막힌다.
+        # 생성(fal 비용·수 분) 전에 미리 차단한다. 음성 미빌드면 needed=0 → 통과(프론트 추정 차단이 방어).
+        _needed = _tts_needed_sec(job, line_index, 0.0)
+        if _needed > 6.0 + CLIP_FIT_EPS:
+            raise HTTPException(
+                status_code=400,
+                detail=f"이 줄 나레이션이 {_needed:.1f}초예요. AI 영상은 최대 6초까지만 만들 수 있어요. 대본을 줄이거나 영상을 직접 올려주세요.",
+            )
 
         set_line_asset_progress(lines[line_index], "ai_clip", "queued", "AI 영상 변환 대기 중")
         job.script_json = json.dumps(lines, ensure_ascii=False)
