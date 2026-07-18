@@ -54,6 +54,8 @@ import { cn } from "@/lib/utils";
 import { ShortsPreviewFrame } from "../ShortsPreviewFrame";
 import { TransformablePreviewMedia } from "../TransformablePreviewMedia";
 import { SegmentTrack } from "../SegmentTrack";
+import { ImageContextMenu } from "@/components/image-context-menu";
+import { triggerDownload } from "@/lib/download";
 import {
   clampTransform,
   DEFAULT_TRANSFORM,
@@ -88,7 +90,6 @@ import {
 } from "@/lib/youtube/subtitle-split";
 import {
   cleanupClipProxy,
-  clearLineClip,
   confirmDraft,
   deleteLine,
   editLine,
@@ -158,6 +159,22 @@ const SOURCE_LABEL: Record<LineSource, string> = {
   image: "내 사진",
   clip: "영상",
 };
+
+// 선트림 업로드 영상 조각이 그 줄 나레이션보다 짧으면 부족분(초)을, 아니면 null 을 돌려준다.
+// 대상은 clip 소스 + clip_duration 이 있는 줄뿐(레거시/AI변환/이미지 줄은 confirm·렌더 실측이 백스톱).
+// 시작점(clip_start)은 보지 않는다 — 조각 자체 길이가 짧으면 "더 긴 영상으로 교체"만이 해법이고,
+// 시작점 초과는 SegmentTrack 제약·reconcile 자동 보정으로 이미 해소되기 때문이다.
+const CLIP_SHORTFALL_EPS = 0.05; // 백엔드 _find_clip_conflicts 허용오차와 동일
+const AI_CLIP_MAX_SEC = 6; // veo3.1 lite 고정 길이(백엔드 fal_video "6s" / LINE_DURATION_THRESHOLD 와 동일)
+function clipShortfallSec(
+  source: LineSource,
+  clipDuration: number | null | undefined,
+  needed: number | null,
+): number | null {
+  if (source !== "clip" || typeof clipDuration !== "number" || needed == null) return null;
+  const gap = needed - clipDuration;
+  return gap > CLIP_SHORTFALL_EPS ? gap : null;
+}
 
 // 움직임(모션) 효과 선택지. 이미지·영상 모두 "없음/줌 인/줌 아웃" 중에서 고른다.
 // 영상 줄은 줌아웃 없이 "없음/줌 인"만(백엔드 process_user_clip 제약).
@@ -429,6 +446,11 @@ export function LineAssetEditor() {
   const [transformDrafts, setTransformDrafts] = useState<Record<string, LineTransform>>({});
   // 영상 조각 시작점(clip_start) 미세조정 초안(line_id 기준) — transformDrafts 와 같은 이유.
   const [clipStartDrafts, setClipStartDrafts] = useState<Record<string, number>>({});
+  // 자산(이미지/영상) 우클릭 다운로드 메뉴. null = 닫힘.
+  // items = 이 줄에서 받을 수 있는 자산들(AI 변환 클립이면 영상+원본이미지 둘 다).
+  const [assetMenu, setAssetMenu] = useState<
+    { x: number; y: number; items: { label: string; url: string; filename: string }[] } | null
+  >(null);
 
   // 음성 재생 컨트롤러(줄별 ▶ / 전체 미리듣기 + BGM 믹스 + 자막 조각 추적).
   const playback = useTtsSessionPlayback();
@@ -793,6 +815,21 @@ export function LineAssetEditor() {
   // 준비된 이미지를 AI 로 움직이는 영상으로 변환(비동기, fal.ai). 상태는 폴링으로 추적.
   async function convertToClip(i: number) {
     if (!jobId) return;
+    // AI 영상은 6초 고정 — 나레이션이 6초를 넘으면 변환해도 마지막 렌더에서 막힌다.
+    // 생성(비용·수 분) 전에 미리 차단한다. 음성 미빌드/dirty면 글자수 추정으로 폴백해 안내.
+    const line = linesRef.current[i];
+    if (line) {
+      const measured = durationOf(line);
+      const needed = measured ?? estimateLineSec(line);
+      if (needed > AI_CLIP_MAX_SEC + CLIP_SHORTFALL_EPS) {
+        toast.error(
+          measured != null
+            ? `이 줄 나레이션은 ${measured.toFixed(1)}초예요. AI 영상은 최대 6초라 다 담을 수 없어요. 대본을 줄이거나 영상을 직접 올려주세요.`
+            : `이 줄은 나레이션이 약 ${Math.round(needed)}초로 예상돼요. AI 영상은 최대 6초예요. 먼저 나레이션 음성을 만들어 길이를 확인하거나 대본을 줄여주세요.`,
+        );
+        return;
+      }
+    }
     try {
       await regenerateClip(jobId, i);
     } catch (e) {
@@ -1185,6 +1222,54 @@ export function LineAssetEditor() {
     return `${ytUrl(`/api/jobs/${jobId}/clips/${i}`)}?v=${l.asset_version ?? 0}`;
   }
 
+  // 자산 우클릭 → 다운로드 메뉴 열기(준비된 줄만).
+  // 이미지/AI이미지 줄: 이미지만. 클립 줄: 영상 + (원본 이미지가 있으면) 이미지.
+  // AI 변환 클립은 원본 이미지를 지우지 않아 그대로 남는다 — clip_kind="ai" 는 즉시 확정,
+  // 표식 없는 옛 변환분·레거시는 이미지 파일 존재를 HEAD 로 확인해 재변환 없이 커버한다.
+  async function openAssetMenu(e: React.MouseEvent, i: number, l: ScriptLine) {
+    if (!isReady(l) || !jobId) return;
+    e.preventDefault();
+    const x = e.clientX;
+    const y = e.clientY;
+    const imgItem = {
+      label: "이미지 다운로드",
+      url: imgSrc(i, l),
+      filename: `쇼츠_${i + 1}번줄_이미지.png`,
+    };
+    const clipItem = {
+      label: "영상 다운로드",
+      url: clipSrc(i, l),
+      filename: `쇼츠_${i + 1}번줄_영상.mp4`,
+    };
+    if ((sources[i] ?? "ai") !== "clip") {
+      setAssetMenu({ x, y, items: [imgItem] });
+      return;
+    }
+    const items = [clipItem];
+    if (l.clip_kind === "ai" || (await assetExists(imgItem.url))) items.push(imgItem);
+    setAssetMenu({ x, y, items });
+  }
+  // 자산 파일이 실제로 존재하는지 가볍게 확인(HEAD, 본문 없음). 실패/부재 시 false.
+  async function assetExists(url: string): Promise<boolean> {
+    try {
+      const res = await fetch(url, { method: "HEAD" });
+      return res.ok;
+    } catch {
+      return false;
+    }
+  }
+  // same-origin 프록시 URL(쿠키 인증 자동)을 blob 으로 받아 저장한다. 웹은 즉시 저장,
+  // Electron 은 will-download(blob) 핸들러가 저장 대화상자를 띄운다.
+  async function downloadAsset(url: string, filename: string) {
+    try {
+      const res = await fetch(url);
+      if (!res.ok) throw new Error(String(res.status));
+      triggerDownload(await res.blob(), filename);
+    } catch {
+      toast.error("다운로드에 실패했어요. 잠시 후 다시 시도해 주세요.");
+    }
+  }
+
   // ── 음성 빌드 스냅샷 기반 파생값 ──────────────────────────────
   const snap = state.ttsBuild;
   const isEleven = state.ttsEngine === "elevenlabs";
@@ -1247,6 +1332,12 @@ export function LineAssetEditor() {
   // 화면 폭을 넘치는 자막이 있는 줄들(영상 만들기 차단 대상).
   const overflowLineIdx = lines.findIndex((l) => hasOverflowChunk(lineChunks(l)));
   const hasOverflow = overflowLineIdx >= 0;
+  // 올린 영상이 나레이션보다 짧은 줄(영상 만들기 차단 대상). needed 는 durationOf 로 스냅샷 조회.
+  function clipShortfallOf(l: ScriptLine, i: number): number | null {
+    return clipShortfallSec(sources[i] ?? "ai", l.clip_duration, durationOf(l));
+  }
+  const shortClipLineIdx = lines.findIndex((l, i) => clipShortfallOf(l, i) != null);
+  const hasShortClip = shortClipLineIdx >= 0;
 
   // 음성 세션 (재)빌드 — 미저장 편집 반영 → preview-build(incremental) → 스냅샷 저장. 성공 시 새 스냅샷 반환.
   async function buildVoices(): Promise<TtsBuildSnapshot | null> {
@@ -1318,8 +1409,9 @@ export function LineAssetEditor() {
     }
   }
 
-  // 대본 수정으로 나레이션이 길어져 선트림 조각이 부족해졌는지 검사 → 부족 정책 실행(확정: 삭제+안내).
-  // 조각은 충분한데 시작점만 뒤로 밀린 경우엔 삭제 대신 시작점을 자동으로 당긴다(불필요한 삭제 방지).
+  // 대본 수정으로 나레이션이 길어져 선트림 조각이 부족해졌는지 검사 → 부족 정책 실행.
+  // 조각 자체가 짧으면 영상을 지우지 않고 보존한 채 안내만 한다(줄 배지·프리뷰 안내가 위치를 표시하고,
+  // 영상 만들기 게이트가 렌더 진입을 막는다). 조각은 충분한데 시작점만 뒤로 밀린 경우엔 시작점을 자동으로 당긴다.
   // clip_duration 이 있는 줄만 대상(레거시 클립은 렌더 단계 실측 검증이 최후 방어).
   async function reconcileClipsWithDurations(snapshot: TtsBuildSnapshot) {
     if (!jobId) return;
@@ -1336,25 +1428,14 @@ export function LineAssetEditor() {
       if (cd - cs + 0.05 >= needed) continue; // 충분
 
       if (cd + 0.05 < needed) {
-        // 조각 자체가 나레이션보다 짧음 → 삭제 + 안내(다시 잘라 올리도록).
-        try {
-          await clearLineClip(jobId, idx, lid);
-          if (!mountedRef.current) return;
-          setLines((prev) =>
-            prev.map((x) =>
-              String(x.line_id ?? "") === lid
-                ? { ...x, status: "pending", clip_start: null, clip_duration: null, transform: null }
-                : x,
-            ),
-          );
-          setSources((prev) => prev.map((s, i2) => (i2 === idx ? "ai" : s)));
-          clearLineDrafts(lid); // 자산이 지워졌으니 이전 편집 초안도 정리
-          toast.error(
-            `${idx + 1}번째 줄: 대본이 길어져 영상(${cd.toFixed(1)}초)이 나레이션(${needed.toFixed(1)}초)보다 짧아요. 영상을 지웠으니 다시 잘라 올려주세요.`,
-          );
-        } catch {
-          /* 삭제 실패는 다음 재빌드/렌더 검증이 다시 잡는다 */
-        }
+        // 조각 자체가 나레이션보다 짧음 → 지우지 않고 보존 + 안내(다시 올리거나 대본을 줄이도록).
+        // 줄 카드 배지·프리뷰 안내가 어느 줄인지 표시하고, 영상 만들기 게이트가 렌더 진입을 막는다.
+        // AI 변환 영상(6초 고정)은 "다시 올리기"가 해법이 아니므로 문구를 분기한다.
+        toast.error(
+          l.clip_kind === "ai"
+            ? `${idx + 1}번째 줄: 대본이 길어져 AI 영상(6초)이 나레이션(${needed.toFixed(1)}초)을 다 담지 못해요. 대본을 6초 이내로 줄이거나 영상을 직접 올려주세요.`
+            : `${idx + 1}번째 줄: 대본이 길어져 영상(${cd.toFixed(1)}초)이 나레이션(${needed.toFixed(1)}초)보다 짧아요. 더 긴 구간으로 다시 올리거나 대본을 줄여주세요.`,
+        );
       } else {
         // 조각은 충분한데 시작점이 뒤로 밀려 넘침 → 시작점만 당긴다(삭제 X).
         const clamped = Math.max(0, cd - needed);
@@ -1490,6 +1571,21 @@ export function LineAssetEditor() {
   // (업로드 도중 "모두 생성"/"다음"을 누르면 AI 워커가 업로드를 덮어쓸 수 있음 — Codex HIGH.)
   const busyGlobal = polling || uploading.size > 0;
 
+  // 영상이 짧은 줄로 사용자를 데려간다 — 안내 + 그 줄 선택 + 스크롤. AI 영상(6초 고정)은 문구 분기.
+  function focusShortClip(idx: number) {
+    const line = linesRef.current[idx];
+    const lid = String(line?.line_id ?? "");
+    toast.error(
+      line?.clip_kind === "ai"
+        ? `${idx + 1}번째 줄 AI 영상(6초)이 나레이션보다 짧아요. 대본을 6초 이내로 줄이거나 영상을 직접 올려주세요.`
+        : `${idx + 1}번째 줄 영상이 나레이션보다 짧아요. 더 긴 영상으로 다시 올리거나 대본을 줄여주세요.`,
+    );
+    if (lid) {
+      setActiveLineId(lid);
+      scrollLineIntoView(lid);
+    }
+  }
+
   // 영상 만들기: 자막 넘침 차단 → (필요 시 음성 빌드) → 자막 조각 확정 맵과 함께 confirm → 진행 화면.
   async function handleCreate() {
     if (creating || building) return;
@@ -1502,6 +1598,10 @@ export function LineAssetEditor() {
       setActiveLineId(String(lines[overflowLineIdx]?.line_id ?? ""));
       return;
     }
+    if (hasShortClip) {
+      focusShortClip(shortClipLineIdx);
+      return;
+    }
     playback.stop();
     setCreating(true);
     try {
@@ -1509,6 +1609,19 @@ export function LineAssetEditor() {
       if (!state.ttsSessionId || state.ttsDirty || anyDirty || !s) {
         s = await buildVoices();
         if (!s) {
+          setCreating(false);
+          return;
+        }
+        // 대본만 고치고 바로 눌렀다면 위 사전 검사(hasShortClip)는 needed=null 로 유보됐다.
+        // 방금 만든 스냅샷 s 의 확정 길이로 다시 검사해, 짧은 영상이 있으면 confirm 전에 중단한다.
+        const built = s;
+        const shortIdx = linesRef.current.findIndex((l, i) => {
+          const di = built.lineIds.indexOf(String(l.line_id ?? ""));
+          const needed = di >= 0 ? built.durations[di] ?? null : null;
+          return clipShortfallSec(sources[i] ?? "ai", l.clip_duration, needed) != null;
+        });
+        if (shortIdx >= 0) {
+          focusShortClip(shortIdx);
           setCreating(false);
           return;
         }
@@ -1777,6 +1890,11 @@ export function LineAssetEditor() {
       : 0;
   const showClipStartSlider =
     activeSource === "clip" && activeClipDuration != null && clipStartMax > 0.05;
+  // 이 줄 영상이 나레이션보다 짧으면 부족분(초) — 프리뷰 상단에 해결 안내를 띄운다.
+  const activeClipGap =
+    activeIndex >= 0 && activeLine ? clipShortfallOf(activeLine, activeIndex) : null;
+  // AI 변환 영상(6초 고정)이면 안내를 "대본 줄이기" 쪽으로 분기(업로드 클립은 "더 긴 영상 올리기").
+  const activeClipIsAi = activeLine?.clip_kind === "ai";
 
   // 프리뷰 자막: 재생 중이면 그 조각을 따라가고, 정지 상태면 수동 페이저로 넘겨본다.
   const activeChunks = activeLine ? lineChunks(activeLine) : [];
@@ -1897,6 +2015,18 @@ export function LineAssetEditor() {
         onConfirm={onTrimConfirm}
       />
 
+      {assetMenu && (
+        <ImageContextMenu
+          x={assetMenu.x}
+          y={assetMenu.y}
+          items={assetMenu.items.map((it) => ({
+            label: it.label,
+            onSelect: () => void downloadAsset(it.url, it.filename),
+          }))}
+          onClose={() => setAssetMenu(null)}
+        />
+      )}
+
       <ul className="mt-5 space-y-2.5">
         {lines.map((l, i) => {
           const ready = isReady(l);
@@ -1908,6 +2038,7 @@ export function LineAssetEditor() {
           const genImageBusy = isWorking(l) && l.asset_action === "ai_image";
           const convertBusy = isWorking(l) && l.asset_action === "ai_clip";
           const src: LineSource = sources[i] ?? "ai";
+          const clipGap = clipShortfallOf(l, i); // 영상이 나레이션보다 짧으면 부족분(초)
           const savingThis = savingText.has(lineId);
           const deletingThis = deleting.has(lineId);
           const structuringThis = structuring.has(lineId);
@@ -1930,10 +2061,11 @@ export function LineAssetEditor() {
                     : "border-border",
               )}
             >
-              {/* 썸네일 (클릭 시 이 줄을 우측 미리보기로 선택) */}
+              {/* 썸네일 (클릭 시 이 줄을 우측 미리보기로 선택 · 우클릭 시 원본 다운로드) */}
               <button
                 type="button"
                 onClick={() => hasId && setActiveLineId(lineId)}
+                onContextMenu={(e) => void openAssetMenu(e, i, l)}
                 aria-label={`${i + 1}번째 줄 미리보기로 보기`}
                 className="relative aspect-[9/16] w-14 shrink-0 cursor-pointer overflow-hidden rounded-md border border-border bg-muted"
               >
@@ -1977,9 +2109,21 @@ export function LineAssetEditor() {
                   <Badge variant="outline" className="px-1.5 py-0 text-[0.7rem]">
                     {SOURCE_LABEL[src]}
                   </Badge>
-                  {ready && (
+                  {ready && clipGap == null && (
                     <span className="inline-flex items-center gap-0.5 text-[0.7rem] text-emerald-600 dark:text-emerald-400">
                       <CheckCircle2 className="h-3 w-3" /> 준비됨
+                    </span>
+                  )}
+                  {ready && clipGap != null && (
+                    <span
+                      className="inline-flex items-center gap-0.5 text-[0.7rem] text-amber-600 dark:text-amber-400"
+                      title={
+                        l.clip_kind === "ai"
+                          ? `AI 영상 6초 < 나레이션 ${(durationOf(l) ?? 0).toFixed(1)}초 — 대본을 6초 이내로 줄이거나 영상을 직접 올려주세요`
+                          : `영상 ${(l.clip_duration ?? 0).toFixed(1)}초 < 나레이션 ${(durationOf(l) ?? 0).toFixed(1)}초 — 더 긴 영상으로 다시 올리거나 대본을 줄여주세요`
+                      }
+                    >
+                      <AlertCircle className="h-3 w-3" /> 영상 {clipGap.toFixed(1)}초 부족
                     </span>
                   )}
                   {working && (
@@ -2280,13 +2424,15 @@ export function LineAssetEditor() {
         </Button>
         <Button
           onClick={handleCreate}
-          disabled={!allReady || busyGlobal || creating || building || hasOverflow}
+          disabled={!allReady || busyGlobal || creating || building || hasOverflow || hasShortClip}
           title={
             hasOverflow
               ? `${overflowLineIdx + 1}번째 줄 자막이 화면보다 길어요`
-              : allReady
-                ? ""
-                : "모든 줄의 이미지를 먼저 준비하세요"
+              : hasShortClip
+                ? `${shortClipLineIdx + 1}번째 줄 영상이 나레이션보다 짧아요`
+                : allReady
+                  ? ""
+                  : "모든 줄의 이미지를 먼저 준비하세요"
           }
           className="gap-2"
         >
@@ -2301,9 +2447,11 @@ export function LineAssetEditor() {
               ? "음성 만드는 중..."
               : hasOverflow
                 ? `${overflowLineIdx + 1}번째 줄 자막이 길어요`
-                : allReady
-                  ? "영상 만들기"
-                  : `영상 만들기 (${readyCount}/${lines.length})`}
+                : hasShortClip
+                  ? `${shortClipLineIdx + 1}번째 줄 영상이 짧아요`
+                  : allReady
+                    ? "영상 만들기"
+                    : `영상 만들기 (${readyCount}/${lines.length})`}
         </Button>
       </div>
       </div>
@@ -2331,8 +2479,14 @@ export function LineAssetEditor() {
           <div className="flex flex-1 flex-col min-h-0">
           <div className="mt-3 flex shrink-0 justify-center">
             {/* relative 래퍼: 프레임(overflow-hidden) 밖으로 나가는 외곽선/핸들을 그릴
-                오버레이를 프레임과 같은 좌표계의 형제로 둔다. */}
-            <div className="relative">
+                오버레이를 프레임과 같은 좌표계의 형제로 둔다.
+                우클릭 시 현재 선택 줄의 원본 이미지/영상을 다운로드한다(준비된 줄만). */}
+            <div
+              className="relative"
+              onContextMenu={(e) => {
+                if (activeLine && activeIndex >= 0) void openAssetMenu(e, activeIndex, activeLine);
+              }}
+            >
               {/* 제목 위치·스타일은 '제목 입력' 단계에서만 조정한다. 여기선 onTitlePosChange 를
                   넘기지 않아 제목이 드래그되지 않고, 제목 입력에서 잡은 위치·스타일 그대로
                   정적으로 보인다(titleDx/titleDy 는 공유 상태라 렌더에도 그대로 반영). */}
@@ -2413,6 +2567,30 @@ export function LineAssetEditor() {
               세로 스크롤한다. 프리뷰 외곽선은 위쪽 visible 영역에 있어 잘리지 않는다. */}
           {activeEditable ? (
             <div className="mt-3 min-h-0 flex-1 space-y-3 overflow-y-auto">
+              {activeClipGap != null ? (
+                <div className="space-y-2 rounded-md bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:bg-amber-950/50 dark:text-amber-300">
+                  {activeClipIsAi ? (
+                    <p>
+                      AI 영상은 최대 6초예요. 나레이션({(activeNeeded ?? 0).toFixed(1)}초)을 다 담을 수
+                      없어요. 대본을 6초 이내로 줄이거나, 영상을 직접 올려주세요.
+                    </p>
+                  ) : (
+                    <p>
+                      영상({(activeClipDuration ?? 0).toFixed(1)}초)이 나레이션(
+                      {(activeNeeded ?? 0).toFixed(1)}초)보다 짧아요. 더 긴 구간으로 다시 올리거나 대본을
+                      줄여주세요.
+                    </p>
+                  )}
+                  <Button
+                    variant="outline"
+                    size="xs"
+                    onClick={() => pickUploadClip(activeLineIdStr)}
+                    disabled={activeWorking}
+                  >
+                    <Film className="size-3" /> {activeClipIsAi ? "영상 직접 올리기" : "영상 다시 올리기"}
+                  </Button>
+                </div>
+              ) : null}
               <div className="flex items-center gap-3">
                 <span className="w-9 shrink-0 text-xs font-medium text-muted-foreground">
                   크기
