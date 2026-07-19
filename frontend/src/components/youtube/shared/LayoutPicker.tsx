@@ -1,9 +1,10 @@
 "use client";
 
 // 레이아웃 카드(작업 전역, 접이식) — SubtitleStylePicker 와 같은 카드 디자인으로 그 아래에 배치.
-// 미디어를 화면에 어떻게 앉힐지 고른다: "꽉 채움"(기본) / "상·하 박스" / "흐림 배경".
+// 미디어를 화면에 어떻게 앉힐지 고른다: "기본"(레이아웃 없음) / "상·하 박스" / "흐림 배경".
 // 값은 전역 state 에 즉시 반영되고, LineAssetEditor 가 draft-meta 로 디바운스 저장한다.
-// blur 선택 시엔 onSelect 로 LineAssetEditor 가 모든 줄을 fit 으로 일괄 재계산한다(빈 공간=흐린 배경).
+// 레이아웃 선택 시 onSelect 로 LineAssetEditor 가 '안 건드린' 줄을 그 레이아웃 기본 배치로 정렬한다
+// (기본=cover 꽉채움, 박스·흐림=contain 좌우맞춤). 사용자가 손댄 줄은 보존.
 // 새 레이아웃을 추가하려면 LAYOUT_OPTIONS 에 항목을 넣고 LayoutMode 유니언 + 백엔드
 // apply_layout_mode 허용값만 확장하면 된다.
 
@@ -52,8 +53,8 @@ interface LayoutOptionDef {
 const LAYOUT_OPTIONS: LayoutOptionDef[] = [
   {
     id: "full",
-    label: "꽉 채움",
-    desc: "미디어가 화면을 가득 채워요",
+    label: "기본",
+    desc: "레이아웃 없이 미디어를 화면에 채워요",
     Thumb: () => (
       <Thumb>
         {/* 미디어가 전체를 덮음 */}
@@ -154,6 +155,7 @@ export function LayoutPicker({
                   type="button"
                   disabled={disabled}
                   onClick={() => {
+                    if (sel) return; // 이미 고른 레이아웃 재클릭 → 무시(불필요한 재정렬·초안 폐기 방지)
                     update({ layoutMode: opt.id });
                     onSelect?.(opt.id);
                   }}

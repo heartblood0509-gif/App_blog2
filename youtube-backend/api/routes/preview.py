@@ -22,7 +22,7 @@ from db.models import Job, JobTask, User
 from jobs_queue.task_queue import ACTIVE_STATUSES, enqueue_task, get_active_task, task_payload
 from core.r2_storage import require_r2_for_generation, is_r2_enabled, r2_file_exists
 from core.ffmpeg import FFMPEG_Q, FFPROBE
-from core.image_pipeline import normalize_transform, KEN_BURNS_MOTIONS, fit_transform, probe_media_dims
+from core.image_pipeline import normalize_transform, KEN_BURNS_MOTIONS, fit_transform, probe_media_dims, DEFAULT_TRANSFORM
 from core.text_validation import contains_emoji
 from core.colors import normalize_hex, DEFAULT_TITLE_COLOR1, DEFAULT_TITLE_COLOR2
 from config import settings
@@ -541,6 +541,7 @@ def _set_line_source(job: Job, line_index: int, source: Literal["ai", "image", "
             # 자산을 비우는 리셋(예: clear_line_clip)이므로 이전 조각/위치 메타는 무효 →
             # pop + 버전 bump(캐시버스트). ready 경로의 mark_line_asset_ready 와 동일 정리.
             lines[line_index].pop("transform", None)
+            lines[line_index].pop("transform_manual", None)
             lines[line_index].pop("clip_start", None)
             lines[line_index].pop("clip_duration", None)
             bump_line_asset_version(lines[line_index])
@@ -813,9 +814,32 @@ async def set_line_visual(
     src = sources[idx] if idx < len(sources) else "ai"
 
     saved_transform = None
-    if body.transform is not None:
+    if body.reset_to_layout:
+        # "원래대로": 현재 레이아웃 기준으로 리셋 + 손댐 해제. transform 과 동시 전송 금지.
+        if body.transform is not None:
+            raise HTTPException(status_code=400, detail="transform 과 reset_to_layout 은 함께 보낼 수 없습니다")
+        mode = (job.layout_mode or "").strip().lower()
+        if mode in ("boxed", "blur"):
+            # contain(fit)으로 되돌림 — 원본 크기를 서버가 probe 해서 계산.
+            from jobs_queue.worker import _ensure_r2_asset_local_any  # 지연 import (순환 방지)
+            kind = "clip" if src == "clip" else "image"
+            rel = await _ensure_r2_asset_local_any(job_id, line_asset_rel_candidates(kind, line, idx))
+            if not rel:
+                raise HTTPException(status_code=400, detail="자산 파일을 찾을 수 없어 되돌리지 못했어요")
+            try:
+                sw, sh = await asyncio.to_thread(probe_media_dims, os.path.join(settings.STORAGE_DIR, job_id, rel))
+            except Exception:
+                raise HTTPException(status_code=400, detail="자산을 읽지 못해 되돌리지 못했어요")
+            saved_transform = fit_transform(sw, sh, settings.TARGET_WIDTH, settings.TARGET_HEIGHT)
+            line["transform"] = saved_transform
+        else:
+            # 기본(꽉 채움): transform 제거 = cover 기본.
+            line.pop("transform", None)
+        line.pop("transform_manual", None)  # 다시 자동 fit 대상으로
+    elif body.transform is not None:
         saved_transform = normalize_transform(body.transform.model_dump())
         line["transform"] = saved_transform
+        line["transform_manual"] = True  # 사용자가 직접 손댐 → 레이아웃 전환 시 보호
 
     saved_motion = None
     if body.motion is not None:
@@ -843,20 +867,34 @@ async def set_line_visual(
     return {"ok": True, "transform": saved_transform, "motion": saved_motion, "clip_start": saved_clip_start}
 
 
+def _transform_close(a, b, tol: float = 1e-3) -> bool:
+    """두 transform(dict) 이 사실상 같은지(부동소수 허용오차). 레거시 수동배치 판별용."""
+    if not isinstance(a, dict) or not isinstance(b, dict):
+        return False
+    return all(abs(float(a.get(k, 0)) - float(b.get(k, 0))) <= tol for k in ("scale", "x", "y"))
+
+
+class LayoutFitRequest(BaseModel):
+    """레이아웃 전환 시 '안 건드린' 줄을 그 레이아웃 기본 배치로 일괄 정렬. mode = 방금 고른 값."""
+    mode: Literal["full", "boxed", "blur"]
+
+
 @router.post("/{job_id}/layout-fit-transforms", response_model=SplitLineResponse)
 async def layout_fit_transforms(
+    body: LayoutFitRequest,
     job_id: str = Path(..., pattern=r"^[a-f0-9]{12}$"),
     db: Session = Depends(get_db),
     _user: User = Depends(get_approved_user),
 ):
-    """카드 B 전용: 준비된 모든 줄의 transform 을 fit(원본 전체 보임)으로 일괄 재계산.
+    """카드 B 전용: 방금 고른 레이아웃(mode)의 기본 배치로 '안 건드린' 줄만 일괄 정렬.
 
-    흐림 배경(blur)을 켤 때 호출한다 — 미디어가 화면을 꽉 채우고 있으면 흐린 배경이 안 보이므로,
-    각 줄을 원본 비율 맞춤으로 되돌려 빈 공간(=흐린 배경)이 드러나게 한다. 프론트는 다른 줄의
-    원본 크기를 모르므로 서버가 자산 파일을 probe 해서 계산한다.
+    - mode="full" → cover(꽉 채움): transform 제거(부재=cover). probe 불필요.
+    - mode="boxed"/"blur" → contain(fit): 원본 비율 맞춤으로 줄여 빈 공간(박스·흐림)이 드러나게 한다.
+      프론트는 다른 줄의 원본 크기를 모르므로 서버가 자산을 probe 한다.
 
-    파일은 안 건드리므로 asset_version bump·visual_plan 무효화 안 함(line-visual 과 동일 근거).
-    미준비/파일없음/probe실패 줄은 건너뛴다(부분 성공 허용).
+    transform_manual(사용자가 직접 손댄 줄)은 절대 건드리지 않는다. 플래그가 없던 레거시 작업은,
+    기존 transform 이 cover 도 fit 도 아니면 수동 배치로 간주해 보호한다.
+    파일은 안 건드리므로 asset_version bump·visual_plan 무효화 없음. 미준비/파일없음/probe실패 줄은 스킵.
     """
     from jobs_queue.worker import _ensure_r2_asset_local_any  # 지연 import (순환 방지, jobs.py 선례)
 
@@ -865,6 +903,10 @@ async def layout_fit_transforms(
         raise HTTPException(status_code=400, detail="이 작업은 카드 B 모드가 아닙니다")
     if job.status != "preview_ready":
         raise HTTPException(status_code=409, detail=f"카드 편집 단계가 아닙니다 (상태: {job.status})")
+
+    # 방금 고른 레이아웃을 즉시 DB 에 반영(draft-meta 디바운스보다 앞서 → 업로드 init_t 시차 제거).
+    apply_layout_mode(job, body.mode)
+    mode = body.mode
 
     lines = json.loads(job.script_json or "[]")
     ensure_line_ids(lines)
@@ -875,15 +917,33 @@ async def layout_fit_transforms(
     for i, line in enumerate(lines):
         if line.get("status") != "ready":
             continue
-        kind = "clip" if (i < len(sources) and sources[i] == "clip") else "image"
-        rel = await _ensure_r2_asset_local_any(job_id, line_asset_rel_candidates(kind, line, i))
-        if not rel:
-            continue
-        try:
-            sw, sh = await asyncio.to_thread(probe_media_dims, os.path.join(job_dir, rel))
-        except Exception:
-            continue  # 손상/미지원 파일은 건너뜀
-        line["transform"] = fit_transform(sw, sh, W, H)
+        if line.get("transform_manual"):
+            continue  # 사용자가 손댄 줄은 그대로 둔다
+
+        # 레거시(플래그 없던 옛 작업)면서 transform 이 이미 있으면, 수동인지 옛 auto-fit 인지
+        # 판별하려 원본 크기가 필요. full+비레거시(신규·미터치)는 probe 없이 pop.
+        legacy = "transform_manual" not in line and line.get("transform") is not None
+        fit = None
+        if mode in ("boxed", "blur") or legacy:
+            kind = "clip" if (i < len(sources) and sources[i] == "clip") else "image"
+            rel = await _ensure_r2_asset_local_any(job_id, line_asset_rel_candidates(kind, line, i))
+            if not rel:
+                continue
+            try:
+                sw, sh = await asyncio.to_thread(probe_media_dims, os.path.join(job_dir, rel))
+            except Exception:
+                continue  # 손상/미지원 파일은 건너뜀
+            fit = fit_transform(sw, sh, W, H)
+
+        if legacy:
+            cur = line.get("transform")
+            if not _transform_close(cur, DEFAULT_TRANSFORM) and not _transform_close(cur, fit):
+                continue  # 옛 수동 배치로 간주 → 보호
+
+        if mode == "full":
+            line.pop("transform", None)  # 부재 = cover 기본
+        else:
+            line["transform"] = fit
 
     job.script_json = json.dumps(lines, ensure_ascii=False)
     db.commit()
@@ -1705,8 +1765,8 @@ async def upload_image(
     if job.generation_mode == "user_assets":
         job_dir = os.path.join(settings.STORAGE_DIR, job_id)
         await _delete_line_asset_kind(job_id, job_dir, line, line_index, "clip")
-        # 흐림 배경 모드면 새 이미지를 fit(원본 전체 보임)으로 시작 → 켜자마자 흐린 배경이 보임.
-        init_t = fit_transform(img.width, img.height, 1080, 1920) if job.layout_mode == "blur" else None
+        # 박스·흐림 레이아웃이면 새 이미지를 fit(원본 전체 보임)으로 시작 → 빈 공간(박스·흐림)이 바로 드러남.
+        init_t = fit_transform(img.width, img.height, 1080, 1920) if job.layout_mode in ("boxed", "blur") else None
         asset_version = _set_line_source(job, line_index, "image", status="ready", initial_transform=init_t)
         db.commit()
 
@@ -2007,12 +2067,12 @@ async def upload_clip(
         job_dir = os.path.join(settings.STORAGE_DIR, job_id)
         await _delete_line_asset_kind(job_id, job_dir, line, line_index, "image")
         init_t = None
-        if job.layout_mode == "blur":
+        if job.layout_mode in ("boxed", "blur"):
             try:
                 sw, sh = await asyncio.to_thread(probe_media_dims, output_path)
                 init_t = fit_transform(sw, sh, 1080, 1920)
             except Exception:
-                init_t = None  # probe 실패 시 기본(cover) — 흐림 배경 안 보여도 렌더는 정상
+                init_t = None  # probe 실패 시 기본(cover) — 박스·흐림 안 보여도 렌더는 정상
         asset_version = _set_line_source(job, line_index, "clip", status="ready", clip_meta=clip_meta, initial_transform=init_t)
         db.commit()
 
@@ -2143,7 +2203,7 @@ async def import_clip_segment(
     job_dir = os.path.join(settings.STORAGE_DIR, job_id)
     await _delete_line_asset_kind(job_id, job_dir, line, idx, "image")
     init_t = None
-    if job.layout_mode == "blur":
+    if job.layout_mode in ("boxed", "blur"):
         try:
             sw, sh = await asyncio.to_thread(probe_media_dims, output_path)
             init_t = fit_transform(sw, sh, 1080, 1920)
