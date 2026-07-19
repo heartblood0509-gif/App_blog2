@@ -48,7 +48,6 @@ import { getApiKeys, updateApiKeys } from "@/lib/youtube/endpoints";
 const AISTUDIO_URL = "https://aistudio.google.com/";
 const FAL_KEYS_URL = "https://fal.ai/dashboard";
 const TYPECAST_URL = "https://typecast.ai/developers/api";
-const ELEVENLABS_URL = "https://elevenlabs.io/app/settings/api-keys";
 const GUIDE_URL =
   "https://pickso.notion.site/36f2aa17591b80fca1b2c1969403422c?v=36f2aa17591b80aa8542000cc68cb670";
 const GEMINI_KEY_GUIDE_URL =
@@ -613,7 +612,6 @@ export function AiKeysPanel({ youtubeAllowed, className }: AiKeysPanelProps) {
             extraBottom={
               elGuideOpen ? (
                 <ElevenLabsGuide
-                  onOpenSite={() => openExternal(ELEVENLABS_URL)}
                   onCollapse={() => setElGuideOpen(false)}
                 />
               ) : null
@@ -1464,53 +1462,33 @@ function FalGuide({
 // ElevenLabs 발급/안내 가이드
 // ─────────────────────────────────────────────
 function ElevenLabsGuide({
-  onOpenSite,
   onCollapse,
 }: {
-  onOpenSite: () => void;
   onCollapse: () => void;
 }) {
   return (
     <div className="space-y-8 pt-1 text-sm">
-      {/* 왜 ElevenLabs 키를 쓰나 */}
+      {/* 영상 보고 따라 하기 */}
       <div className="space-y-2 leading-relaxed text-muted-foreground">
-        <p className="text-xl font-medium text-foreground">🎙️ 더 자연스러운 목소리 + 내 보이스 클론</p>
+        <p className="text-xl font-medium text-foreground">📺 처음이라면 영상 보고 따라 하기</p>
         <p>
-          ElevenLabs 키를 넣으면 쇼츠 음성에서 Typecast 대신 ElevenLabs를 고를 수 있어요.
-          자연스러운 표현과 <span className="font-medium text-foreground">직접 만든 보이스 클론 목소리</span>
-          까지 쓸 수 있습니다.
+          ElevenLabs는 영어 사이트라 처음엔 낯설 수 있어요. 아래 두 가지는 유튜브에 검색하면
+          그대로 따라 하기 쉬운 영상이 많습니다:
         </p>
+        <ul className="ml-4 list-disc space-y-1">
+          <li>
+            내 목소리 학습(보이스 클론) 만드는 법 → 유튜브에{" "}
+            <span className="font-medium text-foreground">‘일레븐랩스 보이스 클론’</span> 검색
+          </li>
+          <li>
+            API 키 발급받는 법 → 유튜브에{" "}
+            <span className="font-medium text-foreground">‘일레븐랩스 API 키 발급’</span> 검색
+          </li>
+        </ul>
         <p>
-          웹사이트에서 만든 보이스 클론은 앱 음성 목록에 <span className="font-medium text-foreground">자동으로</span>{" "}
-          나타나요. 키만 넣으면 됩니다. (클론·라이브러리 음성은 유료 플랜이 필요할 수 있어요.)
+          영상 보고 ① 내 목소리를 학습시키고 ② 키를 발급받아 아래 입력란에 넣으면,
+          학습시킨 목소리를 앱에서 바로 쓸 수 있어요.
         </p>
-      </div>
-
-      {/* 발급 방법 */}
-      <div>
-        <div className="mb-2 text-xl font-medium">📋 ElevenLabs API 키 발급 방법</div>
-        <ol className="list-decimal space-y-2.5 pl-5 text-muted-foreground">
-          <li>
-            <button
-              type="button"
-              onClick={onOpenSite}
-              className="cursor-pointer text-primary underline underline-offset-2 hover:opacity-80"
-            >
-              ElevenLabs API 키 설정
-            </button>{" "}
-            페이지 접속 (구글 계정 등으로 로그인)
-          </li>
-          <li>
-            <span className="font-semibold">Create API Key</span> 클릭
-          </li>
-          <li>
-            생성된 키를 복사{" "}
-            <span className="font-semibold">(이후 다시 볼 수 없으니 꼭 저장하세요)</span>
-          </li>
-          <li>
-            블로그 앱 입력란에 붙여넣고 <span className="font-semibold">저장</span>
-          </li>
-        </ol>
       </div>
 
       {/* 주의 */}
