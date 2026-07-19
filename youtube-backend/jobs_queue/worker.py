@@ -446,6 +446,18 @@ async def regenerate_clip_for_job(job_id: str, line_index: int, *, line_id: str 
                         sources.append("ai")
                     sources[line_index] = "clip"
                     mark_line_asset_ready(lines[line_index], bump_version=True)
+                    # AI 변환 클립의 실측 길이를 저장한다(mark_ready 가 clip_* 를 pop 하므로 그 뒤에).
+                    # 이 값이 있어야 편집 화면이 "영상이 나레이션보다 짧다"를 사전에 잡아낸다(veo=6초 고정).
+                    # clip_kind="ai" 로 표식해 안내 문구를 업로드 클립과 다르게 분기한다.
+                    try:
+                        from core.video_assembler import get_duration
+                        ai_dur = await asyncio.to_thread(get_duration, output_path)
+                        lines[line_index]["clip_start"] = 0.0
+                        lines[line_index]["clip_duration"] = round(float(ai_dur), 2)
+                    except Exception:
+                        # 실측 실패는 치명 아님 — confirm·렌더 실측 검증이 최후 방어로 남는다.
+                        pass
+                    lines[line_index]["clip_kind"] = "ai"
                     job.line_sources_json = json.dumps(sources[: len(lines)], ensure_ascii=False)
                     job.script_json = json.dumps(lines, ensure_ascii=False)
                     db.commit()

@@ -114,6 +114,9 @@ export interface ScriptLine {
   // null/부재 = 레거시(전체 저장 클립) → 시작점 조정 미지원.
   clip_start?: number | null;
   clip_duration?: number | null;
+  // 클립 출처. "ai" = AI 변환 영상(veo 6초 고정). null/부재 = 업로드/레거시.
+  // 부족 안내를 "더 긴 영상 올리기"(업로드) vs "대본 줄이기"(AI)로 분기하는 데 쓴다.
+  clip_kind?: string | null;
   // 그 외 백엔드 부가 필드는 그대로 통과.
   [key: string]: unknown;
 }

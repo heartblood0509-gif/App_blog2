@@ -154,6 +154,9 @@ class ScriptLine(BaseModel):
     # transform 과 같은 이유로 반드시 선언(없으면 split/merge 재구성에서 탈락). 새 자산 교체 시 리셋.
     clip_start: Optional[float] = None      # 조각 내 재생 시작 오프셋(초). 초기값 = 실측 앞 패딩
     clip_duration: Optional[float] = None   # 조각 총 길이(초, 컷 후 ffprobe 확정)
+    # 클립 출처 표식. "ai"=AI 변환(veo 6초 고정) → 부족 안내를 "대본 줄이기"로 분기.
+    # None=업로드/레거시. 반드시 선언(미선언 키는 pydantic extra=ignore 로 응답에서 탈락).
+    clip_kind: Optional[str] = None
 
 
 class ImagePromptResponse(BaseModel):
