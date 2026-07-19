@@ -14,6 +14,7 @@ from api.routes.preview import (
     apply_layout_mode,
     apply_blur_sigma,
     layout_fit_transforms,
+    LayoutFitRequest,
     BLUR_SIGMA_MIN,
     BLUR_SIGMA_MAX,
 )
@@ -141,36 +142,85 @@ def env(tmp_path, monkeypatch):
     db.close()
 
 
-@pytest.mark.asyncio
-async def test_layout_fit_transforms_endpoint(env, monkeypatch):
-    db, user, storage_root = env
-    ready_id, pending_id = new_line_id(), new_line_id()
+def _make_ready_job(db, user, storage_root, ready_line, sources=None):
+    """ready 줄 1개 + 대기 줄 1개짜리 카드 B 작업 + ready 줄 이미지(가로 1920×1080) 파일 생성."""
+    pending_id = new_line_id()
     lines = [
-        {"line_id": ready_id, "text": "준비된 줄", "motion": "none", "asset_version": 1, "status": "ready"},
+        ready_line,
         {"line_id": pending_id, "text": "대기 줄", "motion": "none", "asset_version": 0, "status": "pending"},
     ]
     job = Job(
         id="testjob01234", user_id=user.id, status="preview_ready",
         generation_mode="user_assets",
         script_json=json.dumps(lines, ensure_ascii=False),
-        line_sources_json=json.dumps(["image", "image"]),
+        line_sources_json=json.dumps(sources or ["image", "image"]),
     )
     db.add(job)
     db.commit()
-
-    # 준비된 줄의 실제 이미지 파일 생성(가로 1920×1080).
-    rel = line_asset_rel("image", lines[0], 0)
+    rel = line_asset_rel("image", ready_line, 0)
     abs_path = os.path.join(storage_root, job.id, rel)
     os.makedirs(os.path.dirname(abs_path), exist_ok=True)
     Image.new("RGB", (1920, 1080), (10, 20, 30)).save(abs_path, "PNG")
+    return job, ready_line["line_id"], pending_id
 
-    # ffprobe 의존 없이 결정적으로: probe 를 실제 크기로 대체.
+
+@pytest.mark.asyncio
+async def test_layout_fit_blur_fits_untouched(env, monkeypatch):
+    """blur 선택 → 안 건드린 준비 줄은 fit(contain), 미준비 줄은 스킵."""
+    db, user, storage_root = env
+    job, ready_id, pending_id = _make_ready_job(
+        db, user, storage_root,
+        {"line_id": new_line_id(), "text": "준비된 줄", "motion": "none", "asset_version": 1, "status": "ready"},
+    )
     monkeypatch.setattr(preview_module, "probe_media_dims", lambda p: (1920, 1080))
-
-    resp = await layout_fit_transforms(job.id, db, user)
-
+    resp = await layout_fit_transforms(LayoutFitRequest(mode="blur"), job.id, db, user)
     ready = next(l for l in resp.lines if l.line_id == ready_id)
     pending = next(l for l in resp.lines if l.line_id == pending_id)
-    assert ready.transform is not None
     assert ready.transform.scale == pytest.approx(0.31640625)  # fit(1920×1080)
     assert pending.transform is None  # 미준비 줄은 건너뜀
+
+
+@pytest.mark.asyncio
+async def test_layout_fit_full_pops_autofit(env, monkeypatch):
+    """full 선택 → 이전에 auto-fit 됐던(수동 아님) 줄의 transform 제거 = cover 복귀."""
+    db, user, storage_root = env
+    fit = fit_transform(1920, 1080, 1080, 1920)
+    job, ready_id, _ = _make_ready_job(
+        db, user, storage_root,
+        {"line_id": new_line_id(), "text": "준비된 줄", "motion": "none", "asset_version": 1,
+         "status": "ready", "transform": fit},
+    )
+    monkeypatch.setattr(preview_module, "probe_media_dims", lambda p: (1920, 1080))
+    resp = await layout_fit_transforms(LayoutFitRequest(mode="full"), job.id, db, user)
+    ready = next(l for l in resp.lines if l.line_id == ready_id)
+    assert ready.transform is None  # full → cover(부재)
+
+
+@pytest.mark.asyncio
+async def test_layout_fit_skips_manual(env, monkeypatch):
+    """transform_manual=True 인 줄은 blur 선택해도 fit 으로 안 바뀜(손댐 존중)."""
+    db, user, storage_root = env
+    job, ready_id, _ = _make_ready_job(
+        db, user, storage_root,
+        {"line_id": new_line_id(), "text": "준비된 줄", "motion": "none", "asset_version": 1,
+         "status": "ready", "transform": {"scale": 1.0, "x": 0.0, "y": 0.0}, "transform_manual": True},
+    )
+    monkeypatch.setattr(preview_module, "probe_media_dims", lambda p: (1920, 1080))
+    resp = await layout_fit_transforms(LayoutFitRequest(mode="blur"), job.id, db, user)
+    ready = next(l for l in resp.lines if l.line_id == ready_id)
+    assert ready.transform.scale == pytest.approx(1.0)
+
+
+@pytest.mark.asyncio
+async def test_layout_fit_protects_legacy_manual(env, monkeypatch):
+    """플래그 없는 옛 수동 배치(≠default, ≠fit)는 blur 선택해도 보존(레거시 휴리스틱)."""
+    db, user, storage_root = env
+    job, ready_id, _ = _make_ready_job(
+        db, user, storage_root,
+        {"line_id": new_line_id(), "text": "준비된 줄", "motion": "none", "asset_version": 1,
+         "status": "ready", "transform": {"scale": 2.0, "x": 0.3, "y": 0.0}},
+    )
+    monkeypatch.setattr(preview_module, "probe_media_dims", lambda p: (1920, 1080))
+    resp = await layout_fit_transforms(LayoutFitRequest(mode="blur"), job.id, db, user)
+    ready = next(l for l in resp.lines if l.line_id == ready_id)
+    assert ready.transform.scale == pytest.approx(2.0)

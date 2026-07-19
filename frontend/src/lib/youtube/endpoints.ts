@@ -13,6 +13,7 @@ import {
   ytUrl,
 } from "./api";
 import type { LineTransform } from "./transform";
+import type { LayoutMode } from "./layout";
 import type { WordTime } from "./subtitle-split";
 
 // ── 콘텐츠 생성 ──────────────────────────────────────────────
@@ -95,8 +96,10 @@ export interface ScriptLine {
   text: string;
   image_prompt?: string;
   motion?: string;
-  // Card B 자산 위치/배율. null/미설정 = 기본(cover, 화면 꽉 채움). 프리뷰=렌더 공유.
+  // Card B 자산 위치/배율. null/미설정 = 레이아웃 기본 배치. 프리뷰=렌더 공유.
   transform?: { scale: number; x: number; y: number } | null;
+  // 사용자가 크기·위치를 직접 손댔는지. true 면 레이아웃 전환 시 자동 fit 이 이 줄을 안 건드림.
+  transform_manual?: boolean | null;
   // Card B 줄별 자산 상태("pending" | "ready" | "failed").
   status?: string;
   asset_version?: number;
@@ -727,10 +730,13 @@ export function saveDraftMeta(
   return ytPostJson<DraftState>(`/api/jobs/${jobId}/draft-meta`, meta);
 }
 
-/** 흐림 배경을 켤 때: 준비된 모든 줄의 transform 을 fit(원본 전체 보임)으로 서버에서 일괄 재계산.
- *  갱신된 줄 목록을 돌려받아 프론트가 통째로 반영한다(개별 저장 루프 불필요). */
-export function applyLayoutFitTransforms(jobId: string): Promise<LineEditResult> {
-  return ytPostJson<LineEditResult>(`/api/jobs/${jobId}/layout-fit-transforms`, {});
+/** 레이아웃 전환 시: 방금 고른 mode 의 기본 배치(기본=cover, 박스·흐림=fit)로 '안 건드린' 줄만
+ *  서버에서 일괄 정렬. 손댄 줄은 보존. 갱신된 줄 목록을 돌려받아 통째로 반영한다. */
+export function applyLayoutFitTransforms(
+  jobId: string,
+  mode: LayoutMode,
+): Promise<LineEditResult> {
+  return ytPostJson<LineEditResult>(`/api/jobs/${jobId}/layout-fit-transforms`, { mode });
 }
 
 export interface GenerateMissingImagesResult {
@@ -792,7 +798,7 @@ export function saveLineVisual(
   jobId: string,
   lineIndex: number,
   lineId: string | null | undefined,
-  patch: { transform?: LineTransform; motion?: string; clipStart?: number },
+  patch: { transform?: LineTransform; motion?: string; clipStart?: number; resetToLayout?: boolean },
 ): Promise<SaveLineVisualResult> {
   return ytPostJson<SaveLineVisualResult>(`/api/jobs/${jobId}/line-visual`, {
     line_index: lineIndex,
@@ -800,6 +806,7 @@ export function saveLineVisual(
     transform: patch.transform ?? null,
     motion: patch.motion ?? null,
     clip_start: patch.clipStart ?? null,
+    reset_to_layout: patch.resetToLayout ?? false,
   });
 }
 

@@ -72,7 +72,7 @@ import { VoiceSettingsBar } from "../shared/VoiceSettingsBar";
 import { BgmPicker, bgmAudioUrl, formatTime } from "../shared/BgmPicker";
 import { SubtitleStylePicker } from "../shared/SubtitleStylePicker";
 import { LayoutPicker } from "../shared/LayoutPicker";
-import { type LayoutMode } from "@/lib/youtube/layout";
+import { CHECKER_BG_STYLE, type LayoutMode } from "@/lib/youtube/layout";
 import { PlaybackProgressBar } from "../shared/PlaybackProgressBar";
 import { useTtsSessionPlayback } from "../useTtsSessionPlayback";
 import {
@@ -562,24 +562,47 @@ export function LineAssetEditor() {
     [persistTransform, flashSpotlight],
   );
 
-  // "원래대로": 기본(cover, 화면 꽉 채움)으로 복귀.
+  // "원래대로": 현재 레이아웃 기준(기본=cover, 박스·흐림=fit)으로 서버가 되돌린다 + 손댐 해제.
+  // 원본 크기(nat)는 프리뷰 내부에만 있어 프론트가 계산할 수 없으므로 서버 리셋에 위임.
+  // 목표값을 응답 전엔 모르니 낙관적 draft 는 두지 않고, 응답을 persistTransform 처럼 접는다.
   const onResetTransform = useCallback(() => {
     const { lineId, index } = activeRef.current;
-    if (!lineId || index < 0) return;
+    if (!lineId || index < 0 || !jobId) return;
     if (sliderTimer.current) clearTimeout(sliderTimer.current);
     flashSpotlight();
-    setTransformDrafts((d) => ({ ...d, [lineId]: { ...DEFAULT_TRANSFORM } }));
-    persistTransform({ ...DEFAULT_TRANSFORM }, lineId, index);
-  }, [persistTransform, flashSpotlight]);
+    saveLineVisual(jobId, index, lineId, { resetToLayout: true })
+      .then((res) => {
+        if (!mountedRef.current) return;
+        const finalT = (res.transform as LineTransform | null) ?? null;
+        setLines((prev) =>
+          prev.map((l) =>
+            String(l.line_id ?? "") === lineId
+              ? { ...l, transform: finalT, transform_manual: false }
+              : l,
+          ),
+        );
+        setTransformDrafts((d) => {
+          if (!(lineId in d)) return d;
+          const n = { ...d };
+          delete n[lineId];
+          return n;
+        });
+      })
+      .catch((e) => {
+        if (mountedRef.current) {
+          toast.error(e instanceof Error ? e.message : "되돌리기에 실패했어요.");
+        }
+      });
+  }, [jobId, flashSpotlight]);
 
-  // 레이아웃 선택: blur 를 켜면 모든 준비된 줄을 fit(원본 전체 보임)으로 서버에서 일괄 재계산 →
-  // 켜자마자 흐린 배경이 드러난다. layoutMode 자체는 LayoutPicker 가 이미 state 에 반영했다.
+  // 레이아웃 선택: 방금 고른 mode 의 기본 배치(기본=cover, 박스·흐림=fit)로 '안 건드린' 줄만
+  // 서버에서 일괄 정렬한다(손댄 줄은 보존). layoutMode 자체는 LayoutPicker 가 이미 state 에 반영했다.
   const onLayoutSelect = useCallback(
     (mode: LayoutMode) => {
-      if (mode !== "blur" || !jobId) return;
+      if (!jobId) return;
       if (sliderTimer.current) clearTimeout(sliderTimer.current);
-      setTransformDrafts({}); // 진행 중이던 로컬 초안 폐기(fit 결과로 대체됨)
-      applyLayoutFitTransforms(jobId)
+      setTransformDrafts({}); // 진행 중이던 로컬 초안 폐기(일괄 정렬 결과로 대체됨)
+      applyLayoutFitTransforms(jobId, mode)
         .then((res) => {
           if (!mountedRef.current) return;
           setLines(res.lines);
@@ -2362,7 +2385,10 @@ export function LineAssetEditor() {
                 width={previewWidth}
               >
                 {!activeLine ? (
-                  <div className="flex h-full w-full items-center justify-center text-xs text-white/50">
+                  <div
+                    className="flex h-full w-full items-center justify-center text-xs text-zinc-500"
+                    style={CHECKER_BG_STYLE}
+                  >
                     생성·업로드 대기
                   </div>
                 ) : isReady(activeLine) ? (
@@ -2390,15 +2416,24 @@ export function LineAssetEditor() {
                     onCommit={onTransformCommit}
                   />
                 ) : activeWorking ? (
-                  <div className="flex h-full w-full items-center justify-center">
-                    <Loader2 className="h-5 w-5 animate-spin text-white/70" />
+                  <div
+                    className="flex h-full w-full items-center justify-center"
+                    style={CHECKER_BG_STYLE}
+                  >
+                    <Loader2 className="h-5 w-5 animate-spin text-zinc-500" />
                   </div>
                 ) : isFailed(activeLine) ? (
-                  <div className="flex h-full w-full items-center justify-center text-xs text-red-300">
+                  <div
+                    className="flex h-full w-full items-center justify-center text-xs text-red-500"
+                    style={CHECKER_BG_STYLE}
+                  >
                     생성 실패
                   </div>
                 ) : (
-                  <div className="flex h-full w-full items-center justify-center text-xs text-white/50">
+                  <div
+                    className="flex h-full w-full items-center justify-center text-xs text-zinc-500"
+                    style={CHECKER_BG_STYLE}
+                  >
                     생성·업로드 대기
                   </div>
                 )}
@@ -2433,8 +2468,12 @@ export function LineAssetEditor() {
                   size="xs"
                   className="shrink-0 text-muted-foreground"
                   onClick={onResetTransform}
-                  disabled={isDefaultTransform(activeTransform)}
-                  title="위치·크기를 화면 꽉 채움으로 되돌려요"
+                  disabled={(state.layoutMode ?? "full") === "full" && isDefaultTransform(activeTransform)}
+                  title={
+                    (state.layoutMode ?? "full") === "full"
+                      ? "위치·크기를 화면 꽉 채움으로 되돌려요"
+                      : "위치·크기를 이 레이아웃 기본(화면 안에 맞춤)으로 되돌려요"
+                  }
                 >
                   <RotateCcw className="size-3" /> 원래대로
                 </Button>

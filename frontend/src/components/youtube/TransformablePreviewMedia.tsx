@@ -166,7 +166,9 @@ export function TransformablePreviewMedia({
 
   // 이동 드래그: 스냅과 무관한 원시 누적 위치를 따로 들고 간다(스냅에 붙어도 포인터가
   // 반경만 벗어나면 바로 풀리게 — 자석이 드래그를 "붙잡는" 느낌 방지).
-  const dragging = useRef<{ px: number; py: number; rawX: number; rawY: number } | null>(null);
+  // moved: 실제로 포인터가 움직여 emit 이 일어났는지. 순수 클릭(down+up, 이동 0)이면 false 로 남아
+  // endDrag 가 아무것도 커밋하지 않는다 → 스테일 lastSent 가 외부(레이아웃 전환 등) 변경을 덮어쓰는 것 방지.
+  const dragging = useRef<{ px: number; py: number; rawX: number; rawY: number; moved: boolean } | null>(null);
   // 리사이즈 드래그(핸들). 시작 시점의 배치·스케일·앵커를 고정해 두고 포인터로 배율만 재계산.
   const resizing = useRef<{
     id: HandleId;
@@ -178,6 +180,7 @@ export function TransformablePreviewMedia({
     T: number;
     W0: number;
     H0: number;
+    moved: boolean; // 실제 리사이즈가 있었는지(순수 클릭이면 커밋 안 함)
   } | null>(null);
   const commitTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   // 마지막으로 onChange 로 내보낸 값 — 드래그 종료 시 이것을 커밋(부모 왕복 지연과 무관).
@@ -209,7 +212,7 @@ export function TransformablePreviewMedia({
       setFocused(true);
       (e.target as Element).setPointerCapture?.(e.pointerId);
       const t = tRef.current;
-      dragging.current = { px: e.clientX, py: e.clientY, rawX: t.x, rawY: t.y };
+      dragging.current = { px: e.clientX, py: e.clientY, rawX: t.x, rawY: t.y, moved: false };
     },
     [disabled, nat],
   );
@@ -218,6 +221,7 @@ export function TransformablePreviewMedia({
     (e: React.PointerEvent) => {
       const d = dragging.current;
       if (!d) return;
+      d.moved = true;
       // 원시 누적을 배치 한계(±OFFSET_MAX)로 클램프 — 화면 밖으로 계속 끌어도 무한 누적되지 않아
       // 되돌릴 때 "헛드래그"가 생기지 않는다(clampTransform 과 동일 범위).
       d.rawX = Math.max(-OFFSET_MAX, Math.min(OFFSET_MAX, d.rawX + (e.clientX - d.px) / frameWidth));
@@ -241,10 +245,14 @@ export function TransformablePreviewMedia({
 
   const endDrag = useCallback(
     (e: React.PointerEvent) => {
-      if (!dragging.current) return;
+      const d = dragging.current;
+      if (!d) return;
       dragging.current = null;
       setGuides({ v: false, h: false });
       (e.target as Element).releasePointerCapture?.(e.pointerId);
+      // 움직이지 않은 순수 클릭이면 커밋도, 대기 중인 커밋 타이머 취소도 하지 않는다
+      // (스테일 lastSent 로 외부 변경을 덮어쓰는 것 방지 + 휠 디바운스 커밋 생존).
+      if (!d.moved) return;
       if (commitTimer.current) clearTimeout(commitTimer.current);
       onCommit(lastSent.current ?? tRef.current);
     },
@@ -325,6 +333,7 @@ export function TransformablePreviewMedia({
         T: p.top,
         W0: p.width,
         H0: p.height,
+        moved: false,
       };
     },
     [disabled, nat, frameWidth, frameHeight],
@@ -334,6 +343,7 @@ export function TransformablePreviewMedia({
     (e: React.PointerEvent) => {
       const r = resizing.current;
       if (!r) return;
+      r.moved = true;
       const px = e.clientX - r.rect.left;
       const py = e.clientY - r.rect.top;
       const { id, W0, H0, cx0, cy0, scale0 } = r;
@@ -368,9 +378,11 @@ export function TransformablePreviewMedia({
 
   const endHandleDrag = useCallback(
     (e: React.PointerEvent) => {
-      if (!resizing.current) return;
+      const r = resizing.current;
+      if (!r) return;
       resizing.current = null;
       (e.target as Element).releasePointerCapture?.(e.pointerId);
+      if (!r.moved) return; // 핸들만 잡고 안 움직였으면 커밋 안 함(대기 커밋 타이머도 유지)
       if (commitTimer.current) clearTimeout(commitTimer.current);
       onCommit(lastSent.current ?? tRef.current);
     },

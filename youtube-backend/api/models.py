@@ -126,9 +126,12 @@ class ScriptLine(BaseModel):
     # 기본은 "없음"(정지). 카드 A(AI)는 gemini 가 줄마다 motion 을 항상 명시 부여하므로 영향 없고,
     # 이 기본값은 카드 B 의 split/merge 재구성(ScriptLine(**l))·모션 키가 없는 레거시 줄에만 적용된다.
     motion: MotionType = MotionType.NONE
-    # 카드 B 자산 위치/배율. None = 미설정(contain 기본). split/merge/delete 응답이
+    # 카드 B 자산 위치/배율. None = 미설정(레이아웃 기본 배치). split/merge/delete 응답이
     # ScriptLine(**l) 로 재구성되므로 필드가 없으면 조용히 탈락된다 → 반드시 선언.
     transform: Optional[LineTransform] = None
+    # 사용자가 크기·위치를 직접 손댔는지. True 면 레이아웃 전환 시 자동 fit 이 이 줄을 건드리지 않는다.
+    # transform 과 같은 이유로 반드시 선언(없으면 split/merge 재구성에서 탈락). 새 자산 교체 시 리셋.
+    transform_manual: Optional[bool] = None
     asset_version: int = 0
     # 카드 B에서 사용: 줄별 자산 상태 ("pending" | "ready" | "failed")
     status: Literal["pending", "ready", "failed"] = "pending"
@@ -265,6 +268,9 @@ class LineVisualRequest(BaseModel):
     motion: Optional[MotionType] = None
     # 영상 조각의 재생 시작점 미세조정(초). clip_duration 범위 안에서 클램프. None = 미변경.
     clip_start: Optional[float] = None
+    # "원래대로": 현재 레이아웃 기준(기본=cover, 박스·흐림=contain)으로 리셋 + 손댐 해제.
+    # 서버가 원본 크기를 probe 해 transform 을 재계산한다. transform 과 동시 전송은 400.
+    reset_to_layout: bool = False
 
 
 class TtsPreviewBuildRequest(BaseModel):
