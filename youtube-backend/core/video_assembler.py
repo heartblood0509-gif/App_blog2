@@ -49,6 +49,25 @@ def build_layout_filters(layout_mode) -> list[str]:
     ]
 
 
+def escape_drawtext_text(text) -> str:
+    """drawtext text= 값용 2단계 이스케이프. 결과가 인용을 스스로 포함하므로
+    호출부는 따옴표 없이 text={결과} 로 끼운다.
+
+    ffmpeg 는 필터 문자열을 두 번 해석한다(필터그래프 레벨 → 옵션값 레벨,
+    공식 문서 "Notes on filtergraph escaping"). 과거의 한 단계 이스케이프는
+    곧은따옴표(')가 대본에 있으면 두 번째 해석에서 인용이 찢어져 그 자막/제목이
+    통째로 사라지고(좌상단에 기본 크기 잔해가 렌더됨), 백슬래시(\\)는 조용히
+    증발했다 — 에러가 아니어서 영상은 완성되므로 조용한 자막 소실이 된다.
+    ① 옵션값 레벨: 전체를 '...' 로 인용, 내부 ' 는 '\\'' 로
+    ② 필터그래프 레벨: \\ ' , ; [ ] 를 백슬래시 이스케이프
+    번들 ffmpeg 실측으로 ' \\ , ; : % [ ] \" {} # $ & 및 둥근따옴표 전부 정상 확인.
+    %{...} 변수 치환 차단은 drawtext 의 expansion=none 이 병행 담당한다."""
+    quoted = "'" + str(text).replace("'", "'\\''") + "'"
+    for ch in ("\\", "'", ",", ";", "[", "]"):
+        quoted = quoted.replace(ch, "\\" + ch)
+    return quoted
+
+
 def get_duration(filepath):
     """ffprobe로 미디어 길이 조회"""
     probe = subprocess.run(
@@ -394,16 +413,8 @@ async def assemble_shorts(job_id: str, config: dict, progress_callback=None):
     # 가로 위치: 중앙 정렬 + 사용자 오프셋(px). dx>0 오른쪽, dx<0 왼쪽.
     sub_x = f"(w-text_w)/2+({sub_dx})"
 
-    def _escape_filter(text):
-        # ffmpeg drawtext text= 옵션에서 특수 해석되는 문자들 이스케이프.
-        # %는 %{function} 변수 치환의 시작 문자라 자막에 포함되면 그 자막 전체가
-        # 렌더링 실패한다. 백슬래시로 이스케이프 + drawtext에 expansion=none도 병행.
-        return (
-            text.replace("'", "'\\''")
-                .replace(",", "\\,")
-                .replace(":", "\\:")
-                .replace("%", "\\%")
-        )
+    # 자막/제목 텍스트 이스케이프는 모듈 레벨 escape_drawtext_text() 사용(2단계).
+    # 과거 한 단계 이스케이프는 곧은따옴표(')에서 자막이 통째로 사라지는 버그가 있었다.
 
     # drawtext 의 fontfile 은 "파일명만" 으로 넘기고, ffmpeg 를 폰트 폴더(cwd)에서 실행한다.
     # 윈도우 절대경로(C:\...\font.otf)를 필터에 직접 넣으면 드라이브 콜론·역슬래시가 ffmpeg
@@ -424,10 +435,10 @@ async def assemble_shorts(job_id: str, config: dict, progress_callback=None):
         for li, line in enumerate(lines):
             if not line.strip():
                 continue
-            escaped = _escape_filter(line)
+            escaped = escape_drawtext_text(line)
             line_y = sub_y + li * sub_line_gap
             sub_filters.append(
-                f"drawtext=expansion=none:fontfile='{font_sub_name}':text='{escaped}':"
+                f"drawtext=expansion=none:fontfile='{font_sub_name}':text={escaped}:"
                 f"fontsize={sub_fontsize}:fontcolor={sub_color}:borderw={sub_border}:bordercolor=black:"
                 f"x={sub_x}:y={line_y}:"
                 f"enable='between(t,{start},{end})'"
@@ -507,19 +518,19 @@ async def assemble_shorts(job_id: str, config: dict, progress_callback=None):
         title_x = f"(w-text_w)/2+({title_dx})"
         font_path_escaped = font_title_name
         for j, line in enumerate(title_lines):
-            escaped = _escape_filter(line)
+            escaped = escape_drawtext_text(line)
             fs = line_sizes[j]
             ty = first_ty + (j * title_line_gap) + title_dy
             line_color = title_colors[min(j, len(title_colors) - 1)]
             # 그림자 레이어 (검정, 살짝 오프셋)
             title_filters.append(
-                f"drawtext=expansion=none:fontfile='{font_path_escaped}':text='{escaped}':"
+                f"drawtext=expansion=none:fontfile='{font_path_escaped}':text={escaped}:"
                 f"fontsize={fs}:fontcolor=black@0.5:"
                 f"x={title_x}+{_shadow_off(fs)}:y={ty}+{_shadow_off(fs)}"
             )
             # 본문 레이어 (테두리 + 색상)
             title_filters.append(
-                f"drawtext=expansion=none:fontfile='{font_path_escaped}':text='{escaped}':"
+                f"drawtext=expansion=none:fontfile='{font_path_escaped}':text={escaped}:"
                 f"fontsize={fs}:fontcolor={line_color}:"
                 f"borderw={_border_w(fs)}:bordercolor=black@0.8:"
                 f"x={title_x}:y={ty}"
