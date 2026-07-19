@@ -24,7 +24,14 @@ import {
 } from "@/lib/youtube/transform";
 import { CHECKER_BG_STYLE } from "@/lib/youtube/layout";
 
-const WHEEL_STEP = 1.05;
+// 휠 줌 감도 — 스크롤 양(deltaY)에 비례한 연속 배율. 기기별로 감도를 다르게 준다:
+// 마우스 휠은 한 칸(delta≈100)당 굵게 튀므로 노치당 ~3%, 트랙패드는 작은 delta 를 수십 번
+// 흘리므로 100px 스크롤당 ~1% 로 곱게. 기기 구분은 delta 크기 휴리스틱(큰 점프=마우스 휠).
+const WHEEL_K_MOUSE = Math.log(1.09) / 100; // 마우스 휠 한 칸(≈100px) ≈ 9%
+const WHEEL_K_TRACKPAD = Math.log(1.05) / 100; // 트랙패드 100px 스크롤 ≈ 5%
+const WHEEL_MOUSE_DELTA_MIN = 50; // |delta| 이 이상이면 마우스 휠로 간주(트랙패드는 보통 그 미만)
+// 한 이벤트에 반영할 delta 상한 — 급하게 튕겼을 때 배율이 폭주하지 않게.
+const WHEEL_MAX_DELTA = 240;
 const COMMIT_DEBOUNCE_MS = 400;
 // 중앙 마그네틱 반경(프레임 px). 원시 드래그 위치가 이 안이면 중앙에 붙고, 벗어나면 즉시 풀린다.
 // 반경이 곧 자석 세기 — 일부러 작게 잡아 "슬쩍 붙는" 정도로 유지(강하면 미세 조정을 방해).
@@ -267,7 +274,12 @@ export function TransformablePreviewMedia({
       if (!nat) return;
       e.preventDefault();
       const t = tRef.current;
-      const factor = e.deltaY < 0 ? WHEEL_STEP : 1 / WHEEL_STEP;
+      // deltaMode 1(라인 단위, 일부 브라우저 마우스 휠)은 픽셀 근사로 정규화.
+      const raw = e.deltaMode === 1 ? e.deltaY * 16 : e.deltaY;
+      // 큰 점프 한 방 = 마우스 휠(노치당 3%), 작은 delta = 트랙패드(100px당 1%).
+      const k = Math.abs(raw) >= WHEEL_MOUSE_DELTA_MIN ? WHEEL_K_MOUSE : WHEEL_K_TRACKPAD;
+      const dy = Math.max(-WHEEL_MAX_DELTA, Math.min(WHEEL_MAX_DELTA, raw));
+      const factor = Math.exp(-dy * k); // 위로 굴리면(delta<0) 확대
       const next = clampTransform({ scale: t.scale * factor, x: t.x, y: t.y });
       lastSent.current = next;
       onChange(next);
