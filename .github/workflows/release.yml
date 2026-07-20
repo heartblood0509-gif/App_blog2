@@ -103,16 +103,19 @@ jobs:
           # ⚠️ 버전 고정(핀) 필수. 예전엔 'latest'(매일 바뀌는 master)를 받았는데, master 가
           # 옵션을 삭제하면(예: filter_script:v 제거) 빌드 시점에 따라 윈도우 영상생성이 조용히
           # 깨졌다(0.3.6-rc1 사고). macOS 처럼 특정 빌드 + 바이너리 SHA256 으로 고정한다.
-          # (갱신 시: BtbN autobuild 태그/자산명 + 아래 두 해시를 함께 교체.)
-          FF_TAG="autobuild-2026-06-24-13-41"
-          FF_DIR="ffmpeg-N-125258-gdf94900c98-win64-gpl"
-          curl -L -o ffmpeg.zip "https://github.com/BtbN/FFmpeg-Builds/releases/download/${FF_TAG}/${FF_DIR}.zip"
+          # ⚠️ BtbN 은 오래된 autobuild 릴리스를 주기적으로 삭제한다 → 핀 URL 이 404 가 되면
+          # (v0.4.8-rc1 빌드 실패 원인) 여기 태그/자산명 + 아래 두 해시를 최신 autobuild 로 교체한다.
+          # curl --fail 로 404 를 즉시 실패시켜(9바이트 오류 페이지 저장 방지) 원인이 바로 드러나게 한다.
+          # 근본 해결(자체 호스팅으로 GC 영향 제거)은 별도 과제로 검토 중.
+          FF_TAG="autobuild-2026-07-19-13-12"
+          FF_DIR="ffmpeg-N-125674-g9bc73ba344-win64-gpl"
+          curl -L --fail -o ffmpeg.zip "https://github.com/BtbN/FFmpeg-Builds/releases/download/${FF_TAG}/${FF_DIR}.zip"
           unzip -q ffmpeg.zip -d ffmpeg-extract
           cp "ffmpeg-extract/${FF_DIR}/bin/ffmpeg.exe" build/ffmpeg/ffmpeg.exe
           cp "ffmpeg-extract/${FF_DIR}/bin/ffprobe.exe" build/ffmpeg/ffprobe.exe
           # SHA256 고정(압축 푼 실행 파일 기준 — zip 재압축돼도 실행 파일만 같으면 통과).
-          echo "4cf11084698a291ffb920733f499833bf446a775c568afceb8aa4b061cfd596d  build/ffmpeg/ffmpeg.exe" | sha256sum -c -
-          echo "b887155488f3005406e0db49c09b4ae0182ebf8044c2572d2f28b2f589348d62  build/ffmpeg/ffprobe.exe" | sha256sum -c -
+          echo "500a15620a2882ba52102a66f468261996f15b886455a69800cf49b874fd6485  build/ffmpeg/ffmpeg.exe" | sha256sum -c -
+          echo "f55eb4d1306daa9bc3845b701fc56f9e7cd464622a9f3b29ed4baaf73475419e  build/ffmpeg/ffprobe.exe" | sha256sum -c -
 
       - name: Verify bundled ffmpeg (libfreetype + exec)
         run: node scripts/check-ffmpeg.js
