@@ -117,7 +117,7 @@ export async function POST(request: Request) {
           for await (const chunk of generateMultimodalChatStream(
             systemInstruction,
             history,
-            CONFIG.GENERATION_MODEL,
+            CONFIG.CHAT_MODEL,
             body.apiKey
           )) {
             controller.enqueue(encoder.encode(chunk));

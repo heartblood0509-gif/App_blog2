@@ -1,4 +1,5 @@
 import { generateMultimodalStream } from "@/lib/gemini";
+import { CONFIG } from "@/lib/config";
 import { buildThreadsImageAnalysisPrompt } from "@/lib/prompts/threads";
 import {
   rateLimit,
@@ -63,7 +64,7 @@ export async function POST(request: Request) {
         try {
           for await (const chunk of generateMultimodalStream(
             parts,
-            "gemini-2.5-pro",
+            CONFIG.ANALYSIS_MODEL,
             apiKey
           )) {
             controller.enqueue(new TextEncoder().encode(chunk));

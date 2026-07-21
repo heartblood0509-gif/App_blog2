@@ -2,16 +2,20 @@
  * 프로젝트 설정값 (하드코딩 방지)
  */
 export const CONFIG = {
-  /** 글 생성/제목 생성에 사용하는 AI 모델 */
-  GENERATION_MODEL: "gemini-2.5-flash",
-  /** 레퍼런스 분석에 사용하는 AI 모델 (더 정확한 분석 필요) */
-  ANALYSIS_MODEL: "gemini-2.5-pro",
+  // ⚠️ gemini-2.5 계열은 신규 API 키에서 404(신규 사용자 차단)이고 2026-10-16 완전 셧다운.
+  //    안정판(GA)만 쓴다 — 프리뷰는 GA 등장 시 예고 없이 꺼진 전례(이미지 2026-06-25).
+  /** 글 생성/제목 생성에 사용하는 AI 모델 (3.5-flash = 2.5-flash 의 공식 후속 안정판) */
+  GENERATION_MODEL: "gemini-3.5-flash",
+  /** 레퍼런스 분석 모델. pro 는 프리뷰뿐이라(3.1-pro-preview) 한 세대 위 플래그십 flash 로 대체 */
+  ANALYSIS_MODEL: "gemini-3.5-flash",
   /** 이미지 생성/변환 기본 모델 (Flash — 빠르고 저렴). GA명 — -preview 는 2026-06-25 셧다운. */
   IMAGE_MODEL: "gemini-3.1-flash-image",
   /** 이미지 고품질 모드 모델 (Pro — 인물 일관성 우수, 느리고 비쌈). GA명 — -preview 는 2026-06-25 셧다운. */
   IMAGE_MODEL_PRO: "gemini-3-pro-image",
-  /** AI 변환 프리패스(피사체 1줄 식별) 모델. flash로 충분(블로그 본문을 근거로 제공). 부위 오인 지속 시 ANALYSIS_MODEL(pro)로 상향 */
-  TRANSFORM_SUBJECT_MODEL: "gemini-2.5-flash",
+  /** AI 변환 프리패스(피사체 1줄 식별) 모델. 사진 묘사 1줄이라 lite로 충분(블로그 본문을 근거로 제공). 부위 오인 지속 시 GENERATION_MODEL로 상향 */
+  TRANSFORM_SUBJECT_MODEL: "gemini-3.1-flash-lite",
+  /** 도움말 챗봇 모델. 지식베이스가 프롬프트에 통째로 들어가는 오픈북 응대라 lite로 충분(매 턴 입력이 커서 절약 효과 큼) */
+  CHAT_MODEL: "gemini-3.1-flash-lite",
   /** 기본 글자수 범위 */
   DEFAULT_CHAR_RANGE: { min: 1500, max: 2000, label: "1500~2000자" },
   /** 한 글당 목표 이미지 개수 */

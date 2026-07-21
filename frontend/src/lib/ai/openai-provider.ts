@@ -122,7 +122,7 @@ function handleImageError(err: unknown): null {
 
 export async function* generateStream(
   prompt: string,
-  _model: string = "gemini-2.5-flash",
+  _model: string = "gemini-3.5-flash",
   _apiKey?: string
 ): AsyncGenerator<string> {
   const client = await getOpenAI();
@@ -144,7 +144,7 @@ export async function* generateStream(
 export async function* generateChatStream(
   systemInstruction: string,
   history: ChatTurn[],
-  _model: string = "gemini-2.5-flash",
+  _model: string = "gemini-3.5-flash",
   _apiKey?: string
 ): AsyncGenerator<string> {
   const client = await getOpenAI();
@@ -168,7 +168,7 @@ export async function* generateChatStream(
 export async function* generateMultimodalChatStream(
   systemInstruction: string,
   history: MultimodalTurn[],
-  _model: string = "gemini-2.5-flash",
+  _model: string = "gemini-3.5-flash",
   _apiKey?: string
 ): AsyncGenerator<string> {
   const client = await getOpenAI();
@@ -193,7 +193,7 @@ export async function* generateMultimodalChatStream(
 
 export async function generateText(
   prompt: string,
-  _model: string = "gemini-2.5-flash",
+  _model: string = "gemini-3.5-flash",
   _apiKey?: string,
   generationConfig?: GenerateTextConfig
 ): Promise<string> {

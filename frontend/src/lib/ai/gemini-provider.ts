@@ -38,7 +38,7 @@ async function getGenAI(apiKey?: string): Promise<GoogleGenAI> {
  */
 export async function* generateStream(
   prompt: string,
-  model: string = "gemini-2.5-flash",
+  model: string = "gemini-3.5-flash",
   apiKey?: string
 ): AsyncGenerator<string> {
   const ai = await getGenAI(apiKey);
@@ -59,7 +59,7 @@ export async function* generateStream(
 export async function* generateChatStream(
   systemInstruction: string,
   history: ChatTurn[],
-  model: string = "gemini-2.5-flash",
+  model: string = "gemini-3.5-flash",
   apiKey?: string
 ): AsyncGenerator<string> {
   const ai = await getGenAI(apiKey);
@@ -81,7 +81,7 @@ export async function* generateChatStream(
 export async function* generateMultimodalChatStream(
   systemInstruction: string,
   history: MultimodalTurn[],
-  model: string = "gemini-2.5-flash",
+  model: string = "gemini-3.5-flash",
   apiKey?: string
 ): AsyncGenerator<string> {
   const ai = await getGenAI(apiKey);
@@ -105,7 +105,7 @@ export async function* generateMultimodalChatStream(
  */
 export async function generateText(
   prompt: string,
-  model: string = "gemini-2.5-flash",
+  model: string = "gemini-3.5-flash",
   apiKey?: string,
   generationConfig?: GenerateTextConfig
 ): Promise<string> {

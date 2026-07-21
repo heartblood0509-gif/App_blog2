@@ -10,6 +10,7 @@
  * 으로 JSON 출력 강제.
  */
 import { generateText } from "@/lib/gemini";
+import { CONFIG } from "@/lib/config";
 import { buildYoutubeMatchPrompt } from "@/lib/prompts/youtube-script";
 import {
   rateLimit,
@@ -58,7 +59,7 @@ export async function POST(request: Request) {
     }
 
     const prompt = buildYoutubeMatchPrompt(blogContent);
-    const raw = await generateText(prompt, "gemini-2.5-flash", apiKey, {
+    const raw = await generateText(prompt, CONFIG.GENERATION_MODEL, apiKey, {
       temperature: 0,
       topP: 0.1,
       topK: 1,
