@@ -5,8 +5,8 @@ import type { AiRole } from "./types";
 
 // Gemini 모델 문자열 → 역할. 하드코딩된 모델명(analyze-threads-image 등)까지 커버한다.
 const GEMINI_MODEL_TO_ROLE: Record<string, AiRole> = {
-  "gemini-2.5-flash": "generation",
-  "gemini-2.5-pro": "analysis",
+  "gemini-3.5-flash": "generation",
+  "gemini-3.1-flash-lite": "generation",
   "gemini-3.1-flash-image": "image",
   "gemini-3-pro-image": "imagePro",
 };

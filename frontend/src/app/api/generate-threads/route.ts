@@ -1,4 +1,5 @@
 import { generateStream } from "@/lib/gemini";
+import { CONFIG } from "@/lib/config";
 import {
   buildThreadsFromAnalysisPrompt,
   buildThreadsFromBlogPrompt,
@@ -90,7 +91,7 @@ export async function POST(request: Request) {
         try {
           for await (const chunk of generateStream(
             prompt,
-            "gemini-2.5-flash",
+            CONFIG.GENERATION_MODEL,
             apiKey
           )) {
             controller.enqueue(new TextEncoder().encode(chunk));
