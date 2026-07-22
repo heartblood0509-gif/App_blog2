@@ -6,11 +6,16 @@ import os
 import time
 
 
-V21_ONLY_VOICES = {
-    "tc_61659c5818732016a95fe763",
-    "tc_6059dad0b83880769a50502f",
-    "tc_61de29497924994f5abd68db",
-}
+# Typecast 합성 모델 — 전 성우 v30 통일.
+#
+# 예전엔 류은·창수·세진 3명만 구형 ssfm-v21 로 고정했었다(V21_ONLY_VOICES). 문제는
+# 감정 목록(routes/tts_preview.py get_voice_emotions)은 v30 기준으로 뽑아 보여준다는 것.
+# v21 은 감정이 normal/happy/sad/angry 4종뿐이라, 화면엔 '밝게'(toneup) 가 떠 있는데
+# 정작 생성은 v21 로 나가 422 EMOTION_NOT_SUPPORTED 로 죽었다(메뉴판과 주방이 다른 버전).
+# 2026-07 실제 API 로 확인한 결과 그 3명도 v30 + toneup 이 정상 생성돼(200) 고정을 제거했다.
+# 나머지 6명은 원래부터 v30 이라 영향 없음. 다시 특정 성우를 v21 로 되돌린다면 감정 목록
+# 쪽도 같은 기준으로 맞춰야 한다 — 안 그러면 같은 버그가 재발한다.
+_TYPECAST_MODEL = "ssfm-v30"
 
 # 동시 요청 개수. 디버깅 중: 1로 낮춰 순차 처리 (병렬 처리 때 sent_XX.wav
 # 파일이 간헐적으로 손상되는 현상 격리). 원인 확정 후 다시 2~3으로 복원.
@@ -32,6 +37,22 @@ def _coerce_float(v, default):
         return default
 
 
+def _drop_unsupported_emotion(payload, resp, prefix):
+    """성우가 지원하지 않는 감정이면(422) payload 에서 감정만 떼어낸다. 뗐으면 True(=재시도).
+
+    감정 목록은 성우별로 API 에서 받아오지만, 예전에 저장해 둔 프로젝트에는 지금은
+    못 쓰는 감정이 남아 있을 수 있다. 그럴 때 영상 전체를 실패시키는 대신 기본 톤으로라도
+    나오게 하는 안전망. 감정 외의 4xx(키·크레딧 등)는 건드리지 않고 그대로 에러로 보낸다.
+    """
+    if resp.status_code < 400 or "prompt" not in payload:
+        return False
+    if "EMOTION_NOT_SUPPORTED" not in (resp.text or ""):
+        return False
+    dropped = (payload.pop("prompt", None) or {}).get("emotion_preset", "?")
+    print(f"{prefix} 이 성우가 '{dropped}' 감정을 지원하지 않아 기본 톤으로 생성합니다")
+    return True
+
+
 def _request_plain(out_path, prefix, headers, payload):
     """플레인 /v1/text-to-speech — 오디오 바이트만 받아 out_path 에 쓴다(타임스탬프 없음).
 
@@ -39,12 +60,17 @@ def _request_plain(out_path, prefix, headers, payload):
     """
     import requests
 
-    resp = requests.post(
-        "https://api.typecast.ai/v1/text-to-speech",
-        headers=headers,
-        json=payload,
-        timeout=60,
-    )
+    def _post():
+        return requests.post(
+            "https://api.typecast.ai/v1/text-to-speech",
+            headers=headers,
+            json=payload,
+            timeout=60,
+        )
+
+    resp = _post()
+    if _drop_unsupported_emotion(payload, resp, prefix):
+        resp = _post()
     if resp.status_code == 429:
         raise RuntimeError(f"{prefix} Typecast rate limit (429)")
     if resp.status_code >= 400:
@@ -159,13 +185,18 @@ def _generate_one_sentence_typecast(
     if with_timestamps:
         import base64
 
-        resp = requests.post(
-            "https://api.typecast.ai/v1/text-to-speech/with-timestamps",
-            headers=headers,
-            json=payload,
-            params={"granularity": "word"},
-            timeout=60,
-        )
+        def _post_ts():
+            return requests.post(
+                "https://api.typecast.ai/v1/text-to-speech/with-timestamps",
+                headers=headers,
+                json=payload,
+                params={"granularity": "word"},
+                timeout=60,
+            )
+
+        resp = _post_ts()
+        if _drop_unsupported_emotion(payload, resp, prefix):
+            resp = _post_ts()
         if resp.status_code == 429:
             raise RuntimeError(f"{prefix} Typecast rate limit (429)")
         if resp.status_code >= 400:
@@ -219,7 +250,7 @@ async def generate_tts_typecast(tts_dir, sentences, voice_id=None, speed=None, e
         raise RuntimeError("Typecast API 키가 설정되지 않았습니다. 설정 화면에서 사용자 본인의 Typecast API 키를 저장해주세요.")
 
     vid = voice_id or "tc_62e8f21e979b3860fe2f6a24"
-    model = "ssfm-v21" if vid in V21_ONLY_VOICES else "ssfm-v30"
+    model = _TYPECAST_MODEL
     headers = {"X-API-KEY": key, "Content-Type": "application/json"}
 
     sem = asyncio.Semaphore(_TYPECAST_MAX_CONCURRENCY)
@@ -555,7 +586,7 @@ async def generate_tts_for_indices(
         raise RuntimeError("Typecast API 키가 설정되지 않았습니다. 설정 화면에서 사용자 본인의 Typecast API 키를 저장해주세요.")
 
     vid = voice_id or "tc_62e8f21e979b3860fe2f6a24"
-    model = "ssfm-v21" if vid in V21_ONLY_VOICES else "ssfm-v30"
+    model = _TYPECAST_MODEL
     headers = {"X-API-KEY": api_key, "Content-Type": "application/json"}
     sem = asyncio.Semaphore(_TYPECAST_MAX_CONCURRENCY)
 
