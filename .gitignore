@@ -7,10 +7,12 @@ __pycache__/
 venv/
 *.egg-info/
 dist/
-# build/ 디렉터리는 ignore 하지만 electron-builder 정적 리소스(앱 아이콘)는 예외.
+# build/ 디렉터리는 ignore 하지만 electron-builder 정적 리소스(앱 아이콘·NSIS 커스텀
+# 스크립트)는 예외. buildResources 이므로 installer.nsh 가 여기 있어야 자동 include 된다.
 # gitignore 사양상 디렉터리를 통째 ignore 하면 그 안의 재포함이 불가능하므로 build/* 패턴 사용.
 build/*
 !build/icon.png
+!build/installer.nsh
 .DS_Store
 *.tsbuildinfo
 accounts.json
