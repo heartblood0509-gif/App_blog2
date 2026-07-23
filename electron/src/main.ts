@@ -54,6 +54,11 @@ log.transports.file.format = "[{y}-{m}-{d} {h}:{i}:{s}.{ms}] [{level}] {text}";
 log.hooks.push((message) => redactTransform(message));
 Object.assign(console, log.functions);
 
+// 패키지 앱에서 Windows 토스트가 뜨려면 실행 중 AUMID 가 NSIS 인스톨러가 바로가기에 심은
+// appId(WinShell::SetLnkAUMI)와 일치해야 한다. 업데이트 무음 설치 안내 토스트용
+// (electron/src/updater.ts 의 showWindowsUpdateToast).
+if (process.platform === "win32") app.setAppUserModelId("com.heartblood.appblog2");
+
 let mainWindow: BrowserWindow | null = null;
 let blogSplitView: WebContentsView | null = null;
 let python: PythonManager | null = null;
