@@ -728,6 +728,14 @@ export function saveDraftMeta(
     motion_speed?: number;
     layout_mode?: string;
     layout_blur_sigma?: number;
+    // 음성 설정 — 렌더 전에 중단해도 고른 성우가 남도록 함께 즉시 저장한다.
+    // tts_options 는 백엔드가 tts_engine 과 한 쌍으로만 반영하므로 항상 같이 보낼 것.
+    tts_engine?: string;
+    voice_id?: string;
+    emotion?: string;
+    tts_speed?: number;
+    tts_options?: ElevenLabsOptions | null;
+    tts_session_id?: string;
   },
 ): Promise<DraftState> {
   return ytPostJson<DraftState>(`/api/jobs/${jobId}/draft-meta`, meta);

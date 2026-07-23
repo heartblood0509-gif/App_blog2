@@ -118,6 +118,7 @@ import {
 import { TrimUploadModal } from "../TrimUploadModal";
 import { ttsErrorToast } from "../shared/tts-error-toast";
 import { saveLastSubtitle } from "@/lib/youtube/subtitle-defaults";
+import { saveLastVoice } from "@/lib/youtube/voice-defaults";
 
 const ACCEPT = "image/png,image/jpeg,image/webp";
 const ALLOWED_TYPES = ["image/png", "image/jpeg", "image/webp"];
@@ -1829,6 +1830,50 @@ export function LineAssetEditor() {
     }, SLIDER_COMMIT_MS);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [subtitleMetaKey, jobId]);
+
+  // 음성 설정(엔진·성우·감정·속도·EL 옵션)과 완성된 음성 세션도 draft-meta 에 디바운스 저장.
+  // 예전엔 confirm(영상 만들기) 때만 저장돼서, 렌더 전에 중단한 작업을 '이전 작업'으로 다시 열면
+  // voice_id 가 비어 기본 성우로 되돌아갔다(만들어 둔 음성 세션도 잃어 전 줄 재합성 → 크레딧 낭비).
+  // ttsSessionId 를 키에 넣어 빌드 성공 직후에도 한 번 저장된다.
+  const voiceMetaKey = `${state.ttsEngine}|${state.voiceId}|${state.emotion}|${state.ttsSpeed}|${state.elModel}|${state.elStability}|${state.elSimilarity}|${state.elStyle}|${state.ttsSessionId ?? ""}`;
+  const voiceMetaTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const voiceMetaHydrated = useRef(false);
+  useEffect(() => () => {
+    if (voiceMetaTimer.current) clearTimeout(voiceMetaTimer.current);
+  }, []);
+  useEffect(() => {
+    // 하이드레이션 직후 첫 값은 저장 스킵(복원한 값을 그대로 되쓰는 왕복 방지).
+    if (!voiceMetaHydrated.current) {
+      voiceMetaHydrated.current = true;
+      return;
+    }
+    // 이 기기 마지막 음성도 기억 — 다음 새 영상이 이 성우로 시작한다(freshYtState).
+    saveLastVoice({
+      engine: state.ttsEngine,
+      voiceId: state.voiceId,
+      ttsSpeed: state.ttsSpeed,
+      elModel: state.elModel,
+      elStability: state.elStability,
+      elSimilarity: state.elSimilarity,
+      elStyle: state.elStyle,
+    });
+    if (!jobId) return;
+    if (voiceMetaTimer.current) clearTimeout(voiceMetaTimer.current);
+    voiceMetaTimer.current = setTimeout(() => {
+      saveDraftMeta(jobId, {
+        tts_engine: state.ttsEngine,
+        voice_id: state.voiceId,
+        // 감정은 Typecast 전용(ElevenLabs 는 confirm 과 동일하게 보내지 않는다).
+        ...(isEleven ? {} : { emotion: state.emotion }),
+        tts_speed: state.ttsSpeed,
+        tts_options: elevenOptions(), // 엔진과 한 쌍 — Typecast 면 null 로 옛 EL 옵션을 지운다
+        ...(state.ttsSessionId ? { tts_session_id: state.ttsSessionId } : {}),
+      }).catch(() => {
+        /* 편집 즉시 저장 실패는 조용히 무시 — confirm 시 어차피 전송된다 */
+      });
+    }, SLIDER_COMMIT_MS);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [voiceMetaKey, jobId]);
 
   // 프리뷰 프레임 폭을 창 높이에 맞춰 계산(헤더·자막페이저·설명·상단여백·하단 플로팅 플레이어 공간 제외).
   // → 짧은 창에서도 프리뷰 하단이 잘리거나 내부 스크롤되지 않고 항상 온전히 보인다.

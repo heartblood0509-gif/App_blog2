@@ -46,6 +46,7 @@ import { DEFAULT_MOTION_SPEED } from "@/lib/youtube/transform";
 import { type LayoutMode, DEFAULT_LAYOUT_MODE, BLUR_SIGMA_DEFAULT } from "@/lib/youtube/layout";
 import { loadLastUsed } from "@/lib/youtube/title-defaults";
 import { loadLastSubtitle } from "@/lib/youtube/subtitle-defaults";
+import { loadLastVoice } from "@/lib/youtube/voice-defaults";
 import { YT_AI_FULL_ENABLED } from "@/lib/youtube-ai-full-feature";
 
 export type YtMode = "ai_full" | "user_assets";
@@ -256,12 +257,13 @@ export const initialYtState: YtState = {
   maxStepReached: 0,
 };
 
-// 새 영상 시작값 = 초기값 + "이 기기 마지막 스타일"(자동 기억 우선 정책). 폰트/굵기/크기/색만
+// 새 영상 시작값 = 초기값 + "이 기기 마지막 스타일"(자동 기억 우선 정책). 폰트/굵기/크기/색·음성만
 // 마지막값으로 덮어쓰고 나머지는 초기값. 진행 중 작업 복원(restorePatchFromDraft)엔 관여 안 함.
 // 신규 프로젝트 진입점(Provider 초기화 + "새로 만들기" reset)에서 공유한다.
 export function freshYtState(): YtState {
   const last = loadLastUsed();
   const sub = loadLastSubtitle();
+  const voice = loadLastVoice();
   return {
     ...initialYtState,
     ...(last.font !== undefined ? { titleFont: last.font } : {}),
@@ -285,6 +287,15 @@ export function freshYtState(): YtState {
     ...(sub.weight !== undefined ? { subtitleFontWeight: sub.weight } : {}),
     ...(sub.size !== undefined ? { subtitleFontSize: sub.size } : {}),
     ...(sub.color !== undefined ? { subtitleColor: sub.color } : {}),
+    // 음성도 이 기기 마지막값으로 seed — 늘 같은 성우를 쓰는 사용자가 새 영상마다
+    // 목록 첫 성우로 되돌아가지 않게. 감정은 성우에 딸린 값이라 기억하지 않는다(항상 normal 시작).
+    ...(voice.engine !== undefined ? { ttsEngine: voice.engine } : {}),
+    ...(voice.voiceId !== undefined ? { voiceId: voice.voiceId } : {}),
+    ...(voice.ttsSpeed !== undefined ? { ttsSpeed: voice.ttsSpeed } : {}),
+    ...(voice.elModel !== undefined ? { elModel: voice.elModel } : {}),
+    ...(voice.elStability !== undefined ? { elStability: voice.elStability } : {}),
+    ...(voice.elSimilarity !== undefined ? { elSimilarity: voice.elSimilarity } : {}),
+    ...(voice.elStyle !== undefined ? { elStyle: voice.elStyle } : {}),
   };
 }
 
