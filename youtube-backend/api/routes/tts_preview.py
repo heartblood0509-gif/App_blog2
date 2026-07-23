@@ -18,7 +18,12 @@ from sqlalchemy.orm import Session
 from config import settings
 from core.ffmpeg import FFPROBE
 from core.audio_utils import normalize_to_browser_wav, is_playable_wav
-from core.tts_engines import generate_tts, generate_tts_typecast, generate_tts_for_indices
+from core.tts_engines import (
+    generate_tts,
+    generate_tts_typecast,
+    generate_tts_for_indices,
+    TypecastCreditExhausted,
+)
 from core.line_splitter import (
     detect_overlong_lines,
     split_long_line_with_gemini,
@@ -292,6 +297,9 @@ async def tts_preview(
 
         except HTTPException:
             raise
+        except TypecastCreditExhausted as e:
+            # 안내 문구를 그대로 노출 — "미리듣기 생성 실패:" 접두사를 붙이면 핵심이 묻힌다.
+            raise HTTPException(402, str(e))
         except Exception as e:
             raise HTTPException(500, f"미리듣기 생성 실패: {e}")
         finally:
@@ -622,6 +630,12 @@ async def preview_build(
                 regen_indices = list(range(len(expanded_sentences)))
         except HTTPException:
             raise
+        except TypecastCreditExhausted as e:
+            # 사용자 계정의 크레딧 상태 문제라 스택트레이스는 의미가 없다. 문구만 그대로 노출.
+            print(f"[preview-build] Typecast 크레딧 소진 session={session_id}")
+            if not incremental and os.path.exists(session_dir):
+                shutil.rmtree(session_dir, ignore_errors=True)
+            raise HTTPException(402, str(e))
         except Exception as e:
             import traceback
             print(f"[preview-build] TTS 생성 실패 session={session_id} err={e}")
