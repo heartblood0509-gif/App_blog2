@@ -2,6 +2,8 @@
 // Windows: 좌하단 토스트(`UpdaterToast`) → [업데이트] 한 번 클릭 → 메인 창 hide
 //   → 별도 진행률 BrowserWindow(`updater-progress.html`) 표시 → 다운로드 → 무음 설치 →
 //   NSIS 가 새 버전 자동 실행. 다운로드 중에는 [취소] 버튼으로 빠져나갈 수 있다.
+//   앱이 종료된 뒤 무음 설치가 도는 구간은 토스트(showWindowsUpdateToast)와
+//   NSIS 배너(build/installer.nsh)가 함께 덮는다.
 // macOS: GitHub Releases 페이지를 브라우저로 열어 사용자가 dmg 를 받게 한다 (코드사인이 없어
 //   electron-updater 자동 설치를 못 쓰기 때문). 토스트 라벨은 "다운로드 페이지 열기" 로 표기.
 //
@@ -22,11 +24,10 @@
 //   - oneClick:false 는 그대로 두므로 "첫 설치" 는 기존대로 GUI(설치 경로 선택 등) 가 뜬다.
 //   - UAC 권한 요청 창은 Windows 보안 정책이라 막을 수 없음.
 
-import { BrowserWindow, ipcMain, shell, app } from "electron";
+import { BrowserWindow, ipcMain, shell, app, Notification } from "electron";
 import { autoUpdater } from "electron-updater";
 import { CancellationToken } from "builder-util-runtime";
 import log from "electron-log";
-import { spawn } from "node:child_process";
 import { paths } from "./paths";
 
 autoUpdater.logger = log;
@@ -252,41 +253,24 @@ function cleanupAfterFailure(message: string): void {
 }
 
 // 앱이 종료되면 진행창도 사라지고, 그 뒤 NSIS 가 조용히(/S) 설치하는 동안 화면이 빈다 →
-// 사용자가 "멈췄나?" 하고 프로그램을 다시 켜는 혼란이 생긴다. 앱과 "독립된"(별도 OS 프로세스)
-// 안내창을 띄워 설치 내내 떠 있게 한다. PowerShell+WinForms 로 띄우고 detached 로 분리하므로
-// Electron 종료/NSIS 설치를 막지 않는다. 실패해도(차단/오류) 그냥 무시 → 설치엔 영향 없음.
-// (윈도우 전용. 맥은 애초에 자동 설치를 안 하고 다운로드 페이지만 연다.)
-function showWindowsInstallingPopup(): void {
+// 사용자가 "멈췄나?" 하고 설치파일을 직접 실행 → 파일 잠금 충돌로 설치가 깨진다. 그 구간을
+// 두 겹으로 덮는다:
+//   1/2 (여기) Windows 토스트 — 앱이 죽어도 알림 센터에 남는다.
+//   2/2 build/installer.nsh 의 NSIS 배너 — 설치 시작~끝과 수명이 정확히 일치한다.
+// 토스트가 뜨려면 실행 중 AUMID 가 NSIS 가 바로가기에 심은 appId 와 같아야 하므로
+// main.ts 에서 app.setAppUserModelId 를 호출한다.
+// 알림 끄기/집중 지원 상태면 안 뜰 수 있어 주 수단은 배너, 이건 보조. 실패는 무시 —
+// 설치 흐름에는 영향 없음. (윈도우 전용. 맥은 자동 설치를 안 하고 다운로드 페이지만 연다.)
+function showWindowsUpdateToast(): void {
   if (process.platform !== "win32") return;
   try {
-    const ps = [
-      "Add-Type -AssemblyName System.Windows.Forms;",
-      "Add-Type -AssemblyName System.Drawing;",
-      "$f = New-Object System.Windows.Forms.Form;",
-      "$f.Text = 'Blog Pick 업데이트';",
-      "$f.ClientSize = New-Object System.Drawing.Size(470,150);",
-      "$f.StartPosition = 'CenterScreen';",
-      "$f.FormBorderStyle = 'FixedDialog';",
-      "$f.MaximizeBox = $false; $f.MinimizeBox = $false; $f.ControlBox = $false;",
-      "$f.TopMost = $true;",
-      "$f.BackColor = [System.Drawing.Color]::FromArgb(26,26,26);",
-      "$l = New-Object System.Windows.Forms.Label;",
-      "$l.Text = '업데이트를 설치하고 있어요. 잠시만 기다려 주세요.' + [Environment]::NewLine + [Environment]::NewLine + '자동으로 다시 시작됩니다 (최대 1분).' + [Environment]::NewLine + '프로그램을 직접 실행하지 마세요. 이 창은 자동으로 닫힙니다.';",
-      "$l.ForeColor = [System.Drawing.Color]::White;",
-      "$l.Font = New-Object System.Drawing.Font('Malgun Gothic',11);",
-      "$l.TextAlign = 'MiddleCenter'; $l.Dock = 'Fill';",
-      "$f.Controls.Add($l);",
-      "$t = New-Object System.Windows.Forms.Timer; $t.Interval = 120000; $t.Add_Tick({ $f.Close() }); $t.Start();",
-      "[void]$f.ShowDialog();",
-    ].join(" ");
-    const child = spawn(
-      "powershell.exe",
-      ["-NoProfile", "-WindowStyle", "Hidden", "-Command", ps],
-      { detached: true, stdio: "ignore", windowsHide: true },
-    );
-    child.unref();
+    if (!Notification.isSupported()) return;
+    new Notification({
+      title: "업데이트 설치 중",
+      body: "1~2분 후 자동으로 다시 시작됩니다. 설치 파일을 직접 실행하지 마세요.",
+    }).show();
   } catch (e) {
-    log.warn(`[updater] 설치 안내창 표시 실패(무시): ${(e as Error).message}`);
+    log.warn(`[updater] 업데이트 토스트 표시 실패(무시): ${(e as Error).message}`);
   }
 }
 
@@ -297,9 +281,9 @@ function proceedToInstall(): void {
   setTimeout(() => {
     // 2) "재시작 안내" 를 약 1.5초 노출 — "화면이 잠깐 사라졌다 자동 재시작" 을 읽을 시간 확보.
     sendProgress({ phase: "restarting" });
+    // 3) 앱 종료 1.5초 전에 토스트 발사 — WinRT 호출이 프로세스 종료 전에 끝날 여유를 준다.
+    showWindowsUpdateToast();
     setTimeout(() => {
-      // 3) 앱 종료 직전, 설치 동안 떠 있을 독립 안내창을 띄운다(윈도우 전용).
-      showWindowsInstallingPopup();
       try {
         // 핵심: isSilent=true → NsisUpdater 가 `/S --force-run` 으로 인스톨러 호출.
         autoUpdater.quitAndInstall(true, true);
