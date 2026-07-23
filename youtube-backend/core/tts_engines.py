@@ -4,6 +4,7 @@ import asyncio
 import json
 import os
 import time
+from functools import partial
 
 
 # Typecast 합성 모델 — 전 성우 v30 통일.
@@ -19,6 +20,13 @@ _TYPECAST_MODEL = "ssfm-v30"
 
 # 동시 요청 개수. 디버깅 중: 1로 낮춰 순차 처리 (병렬 처리 때 sent_XX.wav
 # 파일이 간헐적으로 손상되는 현상 격리). 원인 확정 후 다시 2~3으로 복원.
+#
+# 2026-07 진척: 손상의 유력한 용의자 하나가 제거됐다. 예전엔 문장 하나가 실패해도
+# asyncio.gather 가 형제 작업을 취소하지 않아, 빌드 실패 후 사용자가 바로 재시도하면
+# 이전 빌드의 '유령 작업'이 같은 세션 폴더에 같은 sent_XX.wav 를 계속 쓰면서 새 작업과
+# 충돌할 수 있었다. 지금은 _run_sentence_jobs 의 중단 깃발이 남은 문장을 즉시 멈춘다.
+# 다만 이게 손상의 원인이었다는 확증은 아직 없어(정황 수준) 1 을 유지한다.
+# 되돌릴 때: 2 로 올려 실사용에서 손상이 재발하지 않는지 먼저 확인할 것(음성 생성 2배 단축).
 _TYPECAST_MAX_CONCURRENCY = 1
 
 # ElevenLabs — Typecast 의 1(손상 회피)과 무관한 별도 엔진이라 소폭 병렬 허용.
@@ -28,6 +36,80 @@ _ELEVEN_DEFAULT_MODEL = "eleven_multilingual_v2"
 # ElevenLabs voice_settings.speed 허용 범위(문서 기준 보수적으로 클램프).
 _ELEVEN_SPEED_MIN = 0.7
 _ELEVEN_SPEED_MAX = 1.2
+
+
+# ── Typecast 크레딧 소진(402) 안내 ──
+#
+# Typecast 는 이번 달 크레딧을 다 쓰면 402 + {"error_code":"CREDIT_INSUFFICIENT"} 를 보낸다.
+# 원문이 영문 JSON 이라 그대로 노출하면 사용자는 원인도 해결책도 알 수 없다(실제로 그 화면을
+# 받고 "TTS 가 갑자기 안 된다" 는 문의가 들어왔다). 재시도·엔드포인트 폴백으로 풀리는 문제가
+# 아니므로 만나는 즉시 이 문구로 바꿔 던진다.
+#
+# ⚠️ TYPECAST_CREDIT_MARKER 는 프론트(TtsConfig / LineAssetEditor)가 이 실패를 알아보고
+# '사용량 확인' 버튼을 붙이는 표식이다. 문구를 바꾸면 프론트 감지도 함께 고칠 것.
+TYPECAST_USAGE_URL = "https://studio.typecast.ai/developers/api"
+TYPECAST_CREDIT_MARKER = "타입캐스트 월 크레딧"
+TYPECAST_CREDIT_MESSAGE = (
+    f"{TYPECAST_CREDIT_MARKER}을 모두 사용하셨습니다. "
+    "크레딧은 매달 결제일에 자동으로 다시 채워져요. "
+    "기다리지 않고 바로 더 만들려면 타입캐스트 요금제를 업그레이드해 주세요. "
+    f"사용량 확인: {TYPECAST_USAGE_URL}"
+)
+
+
+class TypecastCreditExhausted(RuntimeError):
+    """Typecast 월 크레딧 소진(402). 재시도해도 풀리지 않으니 즉시 중단 대상."""
+
+    def __init__(self):
+        super().__init__(TYPECAST_CREDIT_MESSAGE)
+
+
+def _raise_if_credit_exhausted(resp):
+    """402(또는 CREDIT_INSUFFICIENT 응답)면 한국어 안내로 즉시 중단시킨다.
+
+    계정 비활성도 같은 402 로 오지만, 어느 쪽이든 사용자가 대시보드에서 확인해야 하는 건
+    같아서 문구를 나누지 않는다.
+    """
+    if resp.status_code < 400:
+        return
+    if resp.status_code == 402 or "CREDIT_INSUFFICIENT" in (resp.text or ""):
+        raise TypecastCreditExhausted()
+
+
+async def _run_sentence_jobs(concurrency, jobs):
+    """문장별 합성 작업을 동시 실행하되, 하나가 실패하면 남은 문장은 API 를 부르지 않고 포기한다.
+
+    jobs 는 인자 없는 동기 함수 목록(각각 asyncio.to_thread 로 실행). 반환은 jobs 순서
+    그대로의 결과 목록이고, 하나라도 실패하면 그 예외를 타입 그대로 올린다.
+
+    ⚠️ 이 '중단 깃발'이 없으면(예전 코드: 그냥 asyncio.gather) 20줄 대본의 11번째에서
+    크레딧 소진(402) 이 나도 12~20번 줄은 세마포어 큐에 그대로 남아 각자 API 를 한 번씩
+    더 두들기고 실패한다. asyncio.gather 는 자식 하나가 예외를 던지면 그 예외만 호출자에게
+    전파할 뿐 형제 작업을 취소하지 않기 때문이다.
+
+    asyncio.TaskGroup 은 형제를 자동 취소해주지만 예외를 ExceptionGroup 으로 감싸 던져서
+    routes/tts_preview.py 의 `except TypecastCreditExhausted` 핸들러가 못 알아본다.
+    게다가 asyncio.to_thread 로 넘어간 작업은 이미 스레드에서 돌고 있어 취소 자체가 안 먹는다.
+    그래서 스레드로 넘기기 '직전'에 깃발을 확인하는 이 방식이 현재 구조에 맞는다.
+    (실행 중이던 문장 하나는 끝까지 가지만, 아직 대기 중인 나머지는 전부 즉시 멈춘다.)
+    """
+    sem = asyncio.Semaphore(concurrency)
+    failure = None
+
+    async def _run(job):
+        nonlocal failure
+        async with sem:
+            if failure is not None:
+                # 이미 실패가 확정됐다 — 헛호출 없이 같은 실패로 끝낸다.
+                raise failure
+            try:
+                return await asyncio.to_thread(job)
+            except Exception as e:  # CancelledError(BaseException)는 깃발 대상이 아니다
+                if failure is None:
+                    failure = e
+                raise
+
+    return await asyncio.gather(*[_run(j) for j in jobs])
 
 
 def _coerce_float(v, default):
@@ -71,6 +153,7 @@ def _request_plain(out_path, prefix, headers, payload):
     resp = _post()
     if _drop_unsupported_emotion(payload, resp, prefix):
         resp = _post()
+    _raise_if_credit_exhausted(resp)
     if resp.status_code == 429:
         raise RuntimeError(f"{prefix} Typecast rate limit (429)")
     if resp.status_code >= 400:
@@ -197,6 +280,8 @@ def _generate_one_sentence_typecast(
         resp = _post_ts()
         if _drop_unsupported_emotion(payload, resp, prefix):
             resp = _post_ts()
+        # 크레딧 소진은 플레인 엔드포인트도 똑같이 거절한다 → 폴백 없이 즉시 중단(헛호출 방지).
+        _raise_if_credit_exhausted(resp)
         if resp.status_code == 429:
             raise RuntimeError(f"{prefix} Typecast rate limit (429)")
         if resp.status_code >= 400:
@@ -253,17 +338,16 @@ async def generate_tts_typecast(tts_dir, sentences, voice_id=None, speed=None, e
     model = _TYPECAST_MODEL
     headers = {"X-API-KEY": key, "Content-Type": "application/json"}
 
-    sem = asyncio.Semaphore(_TYPECAST_MAX_CONCURRENCY)
-
-    async def _one(i, sent):
-        async with sem:
-            return await asyncio.to_thread(
+    raw_timings = await _run_sentence_jobs(
+        _TYPECAST_MAX_CONCURRENCY,
+        [
+            partial(
                 _generate_one_sentence_typecast,
                 tts_dir, i, sent, headers, vid, model, speed, emotion, measure_duration, with_timestamps,
             )
-
-    tasks = [_one(i, s) for i, s in enumerate(sentences)]
-    raw_timings = await asyncio.gather(*tasks)
+            for i, sent in enumerate(sentences)
+        ],
+    )
 
     with open(os.path.join(tts_dir, "timings_raw.json"), "w", encoding="utf-8") as f:
         json.dump(raw_timings, f, ensure_ascii=False, indent=2)
@@ -504,19 +588,18 @@ async def generate_tts_elevenlabs(
         raise RuntimeError("ElevenLabs 음성이 선택되지 않았습니다. 음성 목록에서 성우를 선택해주세요.")
 
     model_id, stability, similarity_boost, style = _eleven_opts(tts_options)
-    sem = asyncio.Semaphore(_ELEVEN_MAX_CONCURRENCY)
-
-    async def _one(i, sent):
-        async with sem:
-            return await asyncio.to_thread(
+    raw_timings = await _run_sentence_jobs(
+        _ELEVEN_MAX_CONCURRENCY,
+        [
+            partial(
                 _generate_one_sentence_elevenlabs,
                 tts_dir, i, sent, api_key, voice_id, model_id,
                 stability, similarity_boost, style, speed,
                 measure_duration, with_timestamps,
             )
-
-    tasks = [_one(i, s) for i, s in enumerate(sentences)]
-    raw_timings = await asyncio.gather(*tasks)
+            for i, sent in enumerate(sentences)
+        ],
+    )
 
     with open(os.path.join(tts_dir, "timings_raw.json"), "w", encoding="utf-8") as f:
         json.dump(raw_timings, f, ensure_ascii=False, indent=2)
@@ -569,17 +652,17 @@ async def generate_tts_for_indices(
         if not voice_id:
             raise RuntimeError("ElevenLabs 음성이 선택되지 않았습니다. 음성 목록에서 성우를 선택해주세요.")
         model_id, stability, similarity_boost, style = _eleven_opts(tts_options)
-        sem = asyncio.Semaphore(_ELEVEN_MAX_CONCURRENCY)
-
-        async def _one_el(i: int):
-            async with sem:
-                return await asyncio.to_thread(
+        results = await _run_sentence_jobs(
+            _ELEVEN_MAX_CONCURRENCY,
+            [
+                partial(
                     _generate_one_sentence_elevenlabs,
                     tts_dir, i, sentences[i], api_key, voice_id, model_id,
                     stability, similarity_boost, style, speed,
                 )
-
-        results = await asyncio.gather(*[_one_el(i) for i in indices])
+                for i in indices
+            ],
+        )
         return {idx: r for idx, r in zip(indices, results)}
 
     if not api_key:
@@ -588,14 +671,14 @@ async def generate_tts_for_indices(
     vid = voice_id or "tc_62e8f21e979b3860fe2f6a24"
     model = _TYPECAST_MODEL
     headers = {"X-API-KEY": api_key, "Content-Type": "application/json"}
-    sem = asyncio.Semaphore(_TYPECAST_MAX_CONCURRENCY)
-
-    async def _one(i: int):
-        async with sem:
-            return await asyncio.to_thread(
+    results = await _run_sentence_jobs(
+        _TYPECAST_MAX_CONCURRENCY,
+        [
+            partial(
                 _generate_one_sentence_typecast,
                 tts_dir, i, sentences[i], headers, vid, model, speed, emotion,
             )
-
-    results = await asyncio.gather(*[_one(i) for i in indices])
+            for i in indices
+        ],
+    )
     return {idx: r for idx, r in zip(indices, results)}

@@ -30,13 +30,10 @@ import {
   ELEVEN_SPEED_MAX,
   type ElevenPatch,
 } from "../shared/eleven-voice";
+import { ttsErrorToast } from "../shared/tts-error-toast";
 
 const SELECT_CLS =
   "h-8 w-full rounded-lg border border-input bg-transparent px-2.5 text-sm outline-none transition-colors focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50";
-
-function errMessage(e: unknown, fallback: string): string {
-  return e instanceof Error ? e.message : fallback;
-}
 
 export function TtsConfig() {
   const { state, update } = useYt();
@@ -168,7 +165,7 @@ export function TtsConfig() {
       releaseUrl();
       if (mountedRef.current) {
         const keyHint = isEleven ? "ElevenLabs" : "Typecast";
-        toast.error(errMessage(e, `미리듣기에 실패했습니다. (${keyHint} 키 확인)`));
+        ttsErrorToast(e, `미리듣기에 실패했습니다. (${keyHint} 키 확인)`);
         setPreview("idle");
       }
     }
@@ -219,7 +216,7 @@ export function TtsConfig() {
         // 음성 재빌드 완료 → dirty 해제(이제 자막과 음성이 일치).
         update({ ttsSessionId: data.session_id, ttsDirty: false, screen: "bgm" });
       } catch (e) {
-        toast.error(errMessage(e, "음성 생성에 실패했습니다."));
+        ttsErrorToast(e, "음성 생성에 실패했습니다.");
       } finally {
         if (mountedRef.current) setBuilding(false);
       }
@@ -262,7 +259,7 @@ export function TtsConfig() {
         screen: "bgm",
       });
     } catch (e) {
-      toast.error(errMessage(e, "음성 생성에 실패했습니다."));
+      ttsErrorToast(e, "음성 생성에 실패했습니다.");
     } finally {
       setBuilding(false);
     }

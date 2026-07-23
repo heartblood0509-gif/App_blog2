@@ -116,6 +116,7 @@ import {
   type UploadClipResult,
 } from "@/lib/youtube/endpoints";
 import { TrimUploadModal } from "../TrimUploadModal";
+import { ttsErrorToast } from "../shared/tts-error-toast";
 import { saveLastSubtitle } from "@/lib/youtube/subtitle-defaults";
 import { saveLastVoice } from "@/lib/youtube/voice-defaults";
 
@@ -1421,11 +1422,9 @@ export function LineAssetEditor() {
       void reconcileClipsWithDurations(newSnap);
       return newSnap;
     } catch (e) {
-      toast.error(
-        errMessage(
-          e,
-          `음성 생성에 실패했어요. (${isEleven ? "ElevenLabs" : "Typecast"} 키 확인)`,
-        ),
+      ttsErrorToast(
+        e,
+        `음성 생성에 실패했어요. (${isEleven ? "ElevenLabs" : "Typecast"} 키 확인)`,
       );
       return null;
     } finally {
