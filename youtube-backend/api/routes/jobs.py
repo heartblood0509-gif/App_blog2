@@ -698,6 +698,15 @@ class UpdateDraftMetaRequest(BaseModel):
     motion_speed: float | None = None
     layout_mode: str | None = None
     layout_blur_sigma: float | None = None
+    # 음성 설정 — 예전에는 confirm(영상 만들기) 때만 저장돼서, 렌더 전에 중단한 작업을
+    # 작업이력에서 다시 열면 voice_id 가 NULL 이라 프론트가 기본 성우로 폴백했다(성우 초기화 버그).
+    # 제목·자막과 같은 '편집 즉시 저장' 정책으로 맞춘다. tts_options 는 tts_engine 과 함께만 반영.
+    tts_engine: str | None = None
+    voice_id: str | None = None
+    emotion: str | None = None
+    tts_speed: float | None = None
+    tts_options: dict | None = None
+    tts_session_id: str | None = None
 
 
 @router.post("/{job_id}/draft-meta", response_model=DraftStateResponse)
@@ -762,6 +771,27 @@ async def update_draft_meta(
     apply_motion_speed(job, body.motion_speed)
     apply_layout_mode(job, body.layout_mode)
     apply_blur_sigma(job, body.layout_blur_sigma)
+    # 음성 설정(성우·감정·속도·엔진·세션) — confirm 과 동일한 방어 규칙으로 즉시 저장.
+    if body.tts_engine is not None:
+        # 화이트리스트 밖 엔진은 기본값으로 폴백(confirm 과 동일).
+        job.tts_engine = body.tts_engine if body.tts_engine in ("typecast", "elevenlabs") else "typecast"
+        # 옵션은 엔진과 한 쌍으로만 갱신한다. 따로 두면 "값 없음"과 "비우기"를 구분할 수 없어
+        # ElevenLabs → Typecast 로 되돌릴 때 옛 옵션이 남는다.
+        job.tts_options_json = (
+            json.dumps(body.tts_options, ensure_ascii=False) if body.tts_options else None
+        )
+    if body.voice_id is not None:
+        # ElevenLabs 에서 음성 미선택은 ""(빈 문자열)로 오므로 NULL 로 정규화.
+        job.voice_id = body.voice_id or None
+    if body.emotion is not None:
+        job.emotion = body.emotion
+    if body.tts_speed is not None:
+        job.tts_speed = float(body.tts_speed)
+    if body.tts_session_id is not None:
+        # 세션 폴더명으로 그대로 쓰이는 값이라 형식을 검증한다(경로 조작 방어).
+        sid = body.tts_session_id
+        if len(sid) == 12 and all(c in "0123456789abcdef" for c in sid):
+            job.tts_session_id = sid
     db.commit()
     db.refresh(job)
     return _build_draft_state(job)
