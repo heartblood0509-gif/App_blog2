@@ -30,6 +30,44 @@ _ELEVEN_SPEED_MIN = 0.7
 _ELEVEN_SPEED_MAX = 1.2
 
 
+# ── Typecast 크레딧 소진(402) 안내 ──
+#
+# Typecast 는 이번 달 크레딧을 다 쓰면 402 + {"error_code":"CREDIT_INSUFFICIENT"} 를 보낸다.
+# 원문이 영문 JSON 이라 그대로 노출하면 사용자는 원인도 해결책도 알 수 없다(실제로 그 화면을
+# 받고 "TTS 가 갑자기 안 된다" 는 문의가 들어왔다). 재시도·엔드포인트 폴백으로 풀리는 문제가
+# 아니므로 만나는 즉시 이 문구로 바꿔 던진다.
+#
+# ⚠️ TYPECAST_CREDIT_MARKER 는 프론트(TtsConfig / LineAssetEditor)가 이 실패를 알아보고
+# '사용량 확인' 버튼을 붙이는 표식이다. 문구를 바꾸면 프론트 감지도 함께 고칠 것.
+TYPECAST_USAGE_URL = "https://studio.typecast.ai/developers/api"
+TYPECAST_CREDIT_MARKER = "타입캐스트 월 크레딧"
+TYPECAST_CREDIT_MESSAGE = (
+    f"{TYPECAST_CREDIT_MARKER}을 모두 사용하셨습니다. "
+    "크레딧은 매달 결제일에 자동으로 다시 채워져요. "
+    "기다리지 않고 바로 더 만들려면 타입캐스트 요금제를 업그레이드해 주세요. "
+    f"사용량 확인: {TYPECAST_USAGE_URL}"
+)
+
+
+class TypecastCreditExhausted(RuntimeError):
+    """Typecast 월 크레딧 소진(402). 재시도해도 풀리지 않으니 즉시 중단 대상."""
+
+    def __init__(self):
+        super().__init__(TYPECAST_CREDIT_MESSAGE)
+
+
+def _raise_if_credit_exhausted(resp):
+    """402(또는 CREDIT_INSUFFICIENT 응답)면 한국어 안내로 즉시 중단시킨다.
+
+    계정 비활성도 같은 402 로 오지만, 어느 쪽이든 사용자가 대시보드에서 확인해야 하는 건
+    같아서 문구를 나누지 않는다.
+    """
+    if resp.status_code < 400:
+        return
+    if resp.status_code == 402 or "CREDIT_INSUFFICIENT" in (resp.text or ""):
+        raise TypecastCreditExhausted()
+
+
 def _coerce_float(v, default):
     try:
         return float(v)
@@ -71,6 +109,7 @@ def _request_plain(out_path, prefix, headers, payload):
     resp = _post()
     if _drop_unsupported_emotion(payload, resp, prefix):
         resp = _post()
+    _raise_if_credit_exhausted(resp)
     if resp.status_code == 429:
         raise RuntimeError(f"{prefix} Typecast rate limit (429)")
     if resp.status_code >= 400:
@@ -197,6 +236,8 @@ def _generate_one_sentence_typecast(
         resp = _post_ts()
         if _drop_unsupported_emotion(payload, resp, prefix):
             resp = _post_ts()
+        # 크레딧 소진은 플레인 엔드포인트도 똑같이 거절한다 → 폴백 없이 즉시 중단(헛호출 방지).
+        _raise_if_credit_exhausted(resp)
         if resp.status_code == 429:
             raise RuntimeError(f"{prefix} Typecast rate limit (429)")
         if resp.status_code >= 400:
