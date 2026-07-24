@@ -869,6 +869,21 @@ export function deleteLine(
   });
 }
 
+/**
+ * 줄 순서 변경(드래그). lineIds = 현재 전체 줄 id 의 새 순서 — 완전 순열이어야 하고
+ * 누락/중복이면 400(부분 반영 없음). 자산·자막은 줄을 따라오므로 여기서 바뀌는 건 순서뿐이다.
+ * 음성은 건드리지 않는다 — 순서가 어긋난 채 렌더되지 않도록 프론트 dirty 감지가 재빌드를 강제하고,
+ * 그 재빌드는 incremental(파일 rename)이라 크레딧을 쓰지 않는다.
+ */
+export function reorderLines(
+  jobId: string,
+  lineIds: string[],
+): Promise<LineEditResult> {
+  return ytPostJson<LineEditResult>(`/api/jobs/${jobId}/reorder-lines`, {
+    line_ids: lineIds,
+  });
+}
+
 // ── 작업이력 (목록 / 다시 열기 / 삭제) ──────────
 
 /** 작업이력 카드 1건. 백엔드 JobResponse 의 목록용 부분집합. */

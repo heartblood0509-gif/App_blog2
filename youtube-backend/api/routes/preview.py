@@ -1,6 +1,6 @@
 """미리보기 API — 이미지 미리보기 + AI 클립 미리보기"""
 
-from fastapi import APIRouter, HTTPException, Depends, BackgroundTasks, Path, Request, UploadFile, File, Form
+from fastapi import APIRouter, HTTPException, Depends, BackgroundTasks, Path, Query, Request, UploadFile, File, Form
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 from typing import Optional, Literal
@@ -14,6 +14,7 @@ from api.models import (
     EditLineRequest,
     MergeLineRequest,
     DeleteLineRequest,
+    ReorderLinesRequest,
     LineVisualRequest,
 )
 from api.deps import get_approved_user, get_user_job
@@ -1128,6 +1129,79 @@ async def delete_line(
     )
 
 
+@router.post("/{job_id}/reorder-lines", response_model=SplitLineResponse)
+async def reorder_lines(
+    body: ReorderLinesRequest,
+    job_id: str = Path(..., pattern=r"^[a-f0-9]{12}$"),
+    db: Session = Depends(get_db),
+    _user: User = Depends(get_approved_user),
+):
+    """카드 B 전용: 줄 순서를 드래그로 바꾼 결과를 저장.
+
+    자산(이미지/영상)은 line_id 파일명이라 순서를 바꿔도 줄을 따라오고, 자막 조각·transform·
+    모션은 줄 dict 안에 있어 함께 이동한다. 실제로 재배열하는 건 script_json 과
+    line_sources_json(인덱스 병렬 배열) 둘뿐이다.
+
+    음성은 여기서 건드리지 않는다. sent_XX.wav 는 빌드 순서에 묶여 있어 순서만 바꾸면
+    화면과 목소리가 어긋나는데, 그 정합은 다음 재생/렌더 때 preview-build 가 맞춘다
+    (incremental 경로가 텍스트 그대로면 wav 를 rename 만 하므로 재합성·크레딧 소모 없음).
+    프론트 dirty 감지와 confirm 의 _voice_script_mismatch 가 그 재빌드를 강제한다.
+    """
+    job = get_user_job(db, job_id, _user)
+    if job.generation_mode != "user_assets":
+        raise HTTPException(status_code=400, detail="이 작업은 카드 B 모드가 아닙니다")
+    if job.status != "preview_ready":
+        raise HTTPException(status_code=409, detail=f"카드 편집 단계가 아닙니다 (상태: {job.status})")
+
+    lines = json.loads(job.script_json or "[]")
+    sources = json.loads(job.line_sources_json or "[]")
+    if len(sources) != len(lines):
+        raise HTTPException(status_code=400, detail="줄별 자산 정보가 올바르지 않습니다")
+
+    # 자산 생성이 도는 중엔 순서를 못 바꾼다. 백그라운드 작업이 인덱스를 캡처해 두고 있어
+    # 중간에 재배열하면 엉뚱한 줄에 결과가 꽂힌다(줄 단위가 아니라 전체를 막는 이유).
+    if _active_task_line_ids(db, job_id):
+        raise HTTPException(status_code=409, detail="AI 자산 생성이 진행 중입니다. 잠시 후 다시 시도하세요.")
+
+    preexisting_line_ids = _all_lines_have_stable_ids(lines)
+    ensure_line_ids(lines)
+    # 구버전 작업은 자산이 img_00.png 같은 '순서' 파일명이라, 재배열하면 다른 줄 이미지를
+    # 집어가게 된다. line_id 파일명으로 먼저 승격시킨 뒤에 순서를 바꾼다(삭제·병합과 동일).
+    job_dir = os.path.join(settings.STORAGE_DIR, job_id)
+    await _maybe_promote_index_assets_to_line_ids(
+        job_id, job_dir, lines, preexisting_line_ids=preexisting_line_ids
+    )
+
+    current_order = [str(l.get("line_id") or "") for l in lines]
+    new_order = [str(x or "").strip() for x in body.line_ids]
+    # 완전 순열만 허용 — 누락/중복/미지 id 는 클라이언트 버그이므로 부분 반영하지 않고 거부한다.
+    if len(new_order) != len(current_order) or sorted(new_order) != sorted(current_order):
+        raise HTTPException(status_code=400, detail="줄 순서 정보가 올바르지 않습니다")
+    if new_order == current_order:
+        # 제자리에 놓았을 때 — 저장할 것이 없다(ensure_line_ids 로 바뀐 게 있으면 아래에서 저장됨).
+        if not preexisting_line_ids:
+            job.script_json = json.dumps(lines, ensure_ascii=False)
+            db.commit()
+        return SplitLineResponse(
+            lines=[ScriptLine(**l) for l in lines],
+            sources=sources,
+        )
+
+    by_id = {str(l.get("line_id") or ""): (l, sources[i]) for i, l in enumerate(lines)}
+    new_lines = [by_id[lid][0] for lid in new_order]
+    new_sources = [by_id[lid][1] for lid in new_order]
+
+    job.script_json = json.dumps(new_lines, ensure_ascii=False)
+    job.line_sources_json = json.dumps(new_sources, ensure_ascii=False)
+    invalidate_visual_plan(job)  # 비주얼 플랜 해시는 줄 순서에 의존
+    db.commit()
+
+    return SplitLineResponse(
+        lines=[ScriptLine(**l) for l in new_lines],
+        sources=new_sources,
+    )
+
+
 @router.get("/{job_id}/preview", response_model=PreviewResponse)
 async def get_preview(
     job_id: str = Path(..., pattern=r"^[a-f0-9]{12}$"),
@@ -1259,6 +1333,12 @@ def _voice_script_mismatch(sig_dir: str, lines: list[dict]) -> str | None:
     # 줄 수가 다르면 = 줄 추가/삭제 후 재빌드 안 함 → 구조 불일치.
     if len(sig_order) != len(lines):
         return "음성과 대본의 줄 수가 달라요. 화면·소리 단계에서 '나레이션 음성 만들기'를 다시 실행해주세요."
+    # 순서가 다르면 = 드래그로 줄을 옮긴 뒤 재빌드 안 함. 아래 해시 검사는 line_id 기준이라
+    # 순서만 바뀐 경우를 통과시키는데, 렌더는 sent_XX.wav 를 인덱스로 짝지어 화면과 목소리가
+    # 어긋난 영상이 조용히 완성된다. 그래서 해시 검사보다 먼저 순서를 본다.
+    cur_order = [str(line.get("line_id") or "") for line in lines]
+    if cur_order != sig_order:
+        return "줄 순서가 바뀌었어요. 화면·소리 단계에서 '나레이션 음성 만들기'를 다시 실행해주세요."
     for i, line in enumerate(lines):
         lid = str(line.get("line_id") or "")
         if not lid or sig_hashes.get(lid) != line_text_hash((line.get("text") or "").strip()):
@@ -1834,19 +1914,23 @@ async def get_clip_preview(
 async def get_clip_file(
     job_id: str = Path(..., pattern=r"^[a-f0-9]{12}$"),
     index: int = 0,
+    line_id: str | None = Query(None, max_length=64),
     db: Session = Depends(get_db),
     _user: User = Depends(get_approved_user),
 ):
-    """개별 클립 파일 서빙"""
+    """개별 클립 파일 서빙. line_id 를 주면 줄 번호가 아니라 그 줄로 찾는다(순서 변경 안전)."""
     from fastapi.responses import StreamingResponse
     from core.r2_storage import is_r2_enabled, r2_file_exists, stream_from_r2
+    from api.routes.assets import resolve_asset_line
 
     job = get_user_job(db, job_id, _user)
     job_dir = os.path.join(settings.STORAGE_DIR, job_id)
     lines = json.loads(job.script_json or "[]")
     ensure_line_ids(lines)
-    if not (0 <= index < len(lines)):
+    resolved = resolve_asset_line(lines, index, line_id)
+    if resolved is None:
         raise HTTPException(status_code=404, detail="클립 파일 없음")
+    index = resolved
 
     for rel in line_asset_rel_candidates("clip", lines[index], index):
         r2_key = r2_job_asset_key(job_id, rel)
