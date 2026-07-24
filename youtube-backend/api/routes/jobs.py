@@ -18,7 +18,7 @@ from core.r2_storage import (
     delete_job_intermediate_files,
     delete_job_all_files,
 )
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 from jobs_queue.task_queue import enqueue_task
 import asyncio
 import glob
@@ -707,6 +707,13 @@ class UpdateDraftMetaRequest(BaseModel):
     tts_speed: float | None = None
     tts_options: dict | None = None
     tts_session_id: str | None = None
+
+    @field_validator("title", "title_line1", "title_line2")
+    @classmethod
+    def _nfc_title(cls, v):
+        # 맥 붙여넣기 대본의 자모 분해형(NFD)을 완성형(NFC)으로 — 화면-폭 오탐/렌더 깨짐 방지.
+        import unicodedata
+        return unicodedata.normalize("NFC", v) if isinstance(v, str) else v
 
 
 @router.post("/{job_id}/draft-meta", response_model=DraftStateResponse)

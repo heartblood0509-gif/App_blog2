@@ -42,6 +42,23 @@ describe("displayLen — 구두점 제외, 공백 포함", () => {
     expect(displayLen("안녕하세요.")).toBe(5);
     expect(displayLen("이유를 모르겠어요,")).toBe(9); // 3 + 1(공백) + 5
   });
+
+  it("NFD(자모 분해) 도 NFC 로 세어 완성형과 같은 길이 — 맥 붙여넣기 오탐 방지", () => {
+    const nfc = "두 마리를 소개합니다";
+    const nfd = nfc.normalize("NFD");
+    expect(nfd.length).toBeGreaterThan(nfc.length); // 분해형은 문자열 길이가 더 김
+    expect(displayLen(nfd)).toBe(displayLen(nfc)); // 하지만 표시 길이는 동일
+    expect(displayLen(nfd)).toBe(11);
+  });
+});
+
+describe("naturalSplit — NFD 입력도 완성형과 동일하게 분할", () => {
+  it("자모 분해형 대본이 조각을 과다-쪼개지 않는다(분할 지점 동일)", () => {
+    const nfc = "저희 집에 살고 있는 심장 폭행하는 고양이";
+    // NFD 조각을 NFC 로 되돌리면 NFC 입력의 조각과 정확히 일치 → 분할 구조가 같다.
+    const fromNfd = naturalSplit(nfc.normalize("NFD")).map((c) => c.normalize("NFC"));
+    expect(fromNfd).toEqual(naturalSplit(nfc));
+  });
 });
 
 describe("chunksForLine — override 우선", () => {

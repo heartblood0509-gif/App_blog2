@@ -10,7 +10,7 @@ from core.audio_utils import (
     speed_up_sentences,
     build_aligned_narration,
 )
-from core.subtitle_utils import split_subtitle_natural, split_title
+from core.subtitle_utils import normalize_nfc, split_subtitle_natural, split_title
 from core.tts_engines import generate_tts
 from core.image_pipeline import (
     apply_ken_burns,
@@ -61,8 +61,10 @@ def escape_drawtext_text(text) -> str:
     ① 옵션값 레벨: 전체를 '...' 로 인용, 내부 ' 는 '\\'' 로
     ② 필터그래프 레벨: \\ ' , ; [ ] 를 백슬래시 이스케이프
     번들 ffmpeg 실측으로 ' \\ , ; : % [ ] \" {} # $ & 및 둥근따옴표 전부 정상 확인.
-    %{...} 변수 치환 차단은 drawtext 의 expansion=none 이 병행 담당한다."""
-    quoted = "'" + str(text).replace("'", "'\\''") + "'"
+    %{...} 변수 치환 차단은 drawtext 의 expansion=none 이 병행 담당한다.
+    NFC 정규화 선행 — 자모 분해형(NFD) 대본은 drawtext 가 합성을 안 해 깨져 그려지므로
+    렌더 직전 완성형으로 통일(자막·제목 텍스트가 모두 이 함수를 거친다)."""
+    quoted = "'" + normalize_nfc(text).replace("'", "'\\''") + "'"
     for ch in ("\\", "'", ",", ";", "[", "]"):
         quoted = quoted.replace(ch, "\\" + ch)
     return quoted

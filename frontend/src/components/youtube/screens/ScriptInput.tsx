@@ -25,6 +25,8 @@ import {
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
+import { GuideToggle } from "../GuideToggle";
+import { loadShowGuides, saveShowGuides } from "@/lib/youtube/guide-prefs";
 import { useYt } from "../state";
 import { autoSplitTitle, combineTitle } from "@/lib/youtube/title";
 import { ShortsPreviewFrame } from "../ShortsPreviewFrame";
@@ -64,8 +66,19 @@ export function ScriptInput() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // 제목 줄이 프레임 폭을 넘는지 — ShortsPreviewFrame 이 측정해 콜백으로 알려준다(경고 표시용).
+  // 제목 줄이 안전선을 넘는지 — ShortsPreviewFrame 이 측정해 콜백으로 알려준다(경고 표시용, 비차단).
   const [overflow, setOverflow] = useState(false);
+  // 프리뷰 안전 영역 표시 토글. 첫 렌더 true(첫 방문 켜짐) → 마운트 후 저장 설정으로 맞춘다.
+  const [showGuides, setShowGuides] = useState(true);
+  useEffect(() => {
+    setShowGuides(loadShowGuides());
+  }, []);
+  const toggleGuides = () =>
+    setShowGuides((prev) => {
+      const next = !prev;
+      saveShowGuides(next);
+      return next;
+    });
 
   // 스타일 변경을 "이 기기 마지막 스타일"로 자동 기억(디바운스). 새 영상은 이 값으로 시작.
   useEffect(() => {
@@ -242,13 +255,17 @@ export function ScriptInput() {
               onOverflowChange={setOverflow}
               showChecker
               showThumbCrop
+              showGuides={showGuides}
               className={cn(overflow && "border-destructive")}
             />
             {overflow && (
               <p className="mt-1.5 text-center text-sm font-semibold text-destructive">
-                제목이 프레임을 벗어나요
+                제목이 안전선 밖으로 나가요 — 휴대폰 화면에서 잘릴 수 있어요
               </p>
             )}
+            <div className="mt-1.5 flex justify-center">
+              <GuideToggle active={showGuides} onToggle={toggleGuides} />
+            </div>
             <p className="mt-1 text-center text-xs tabular-nums text-muted-foreground">
               위치 가로 {state.titleDx} · 세로 {state.titleDy}
             </p>

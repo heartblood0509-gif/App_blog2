@@ -986,7 +986,9 @@ async def set_subtitle_chunks(
     if body.chunks is None:
         lines[idx].pop("subtitle_chunks", None)
     else:
-        cleaned = [c for c in body.chunks if c and c.strip()]
+        # NFC 정규화 — 맥 붙여넣기 대본의 자모 분해형이 조각에 남으면 화면-폭 오탐/렌더 깨짐.
+        from core.subtitle_utils import normalize_nfc
+        cleaned = [normalize_nfc(c) for c in body.chunks if c and c.strip()]
         if not cleaned:
             raise HTTPException(status_code=400, detail="자막 조각이 비어 있습니다")
         lines[idx]["subtitle_chunks"] = cleaned
@@ -1468,34 +1470,31 @@ async def confirm_and_render(
 
         # 자막 조각 확정(WYSIWYG): 프론트가 화면에 보여준 줄별 조각을 line_id 맵으로 보낸다.
         # 여기서 script_json 에 확정 저장 → 렌더가 자동 분할 없이 이 경계 그대로 자막을 박는다.
-        # 12자 초과 조각이 하나라도 있으면 영상이 화면 밖으로 넘치므로 400 으로 막는다(사용자에게 어느 줄인지 안내).
         chunks_map = body.get("subtitle_chunks_by_line")
         if isinstance(chunks_map, dict):
-            from core.subtitle_utils import display_len, MAX_DISPLAY
-            for i, line in enumerate(lines):
+            from core.subtitle_utils import normalize_nfc
+            for line in lines:
                 lid = str(line.get("line_id") or "")
                 if lid and lid in chunks_map:
                     raw = chunks_map[lid]
                     if not isinstance(raw, list):
                         continue
-                    cleaned = [c for c in raw if isinstance(c, str) and c.strip()]
+                    # NFC 정규화 — 맥 붙여넣기 대본의 자모 분해형 방지(화면-폭 오탐/렌더 깨짐).
+                    cleaned = [normalize_nfc(c) for c in raw if isinstance(c, str) and c.strip()]
                     if not cleaned:
                         continue
-                    # 조각 안의 개행("\n")은 화면 줄바꿈 — 줄별로 나눠 12자 판정(프론트와 동일).
-                    over = next(
-                        (
-                            c
-                            for c in cleaned
-                            if any(display_len(ln) > MAX_DISPLAY for ln in c.split("\n"))
-                        ),
-                        None,
-                    )
-                    if over is not None:
-                        raise HTTPException(
-                            status_code=400,
-                            detail=f"{i + 1}번째 줄 자막이 화면보다 길어요. 화면·소리 단계에서 더 잘게 끊어주세요.",
-                        )
                     line["subtitle_chunks"] = cleaned
+
+        # 화면 안전선(렌더 x100~980)을 벗어나는 자막이 있으면 400 으로 막는다(렌더 직전 백스톱).
+        # 실제 렌더 폰트·크기·위치(dx)로 실측하므로, 조각을 안 보낸 줄(자동 분할)도 함께 검사한다 —
+        # 글자 크기를 키우면 12자 이하 조각도 안전선을 넘을 수 있다. 정상 경로에선 프론트가 먼저 막는다.
+        from core.subtitle_guide import find_overflow_line_for_job
+        over_idx = find_overflow_line_for_job(job, lines)
+        if over_idx is not None:
+            raise HTTPException(
+                status_code=400,
+                detail=f"{over_idx + 1}번째 줄 자막이 화면 안전선을 벗어나요. 화면·소리 단계에서 끊거나 글자 크기를 줄여주세요.",
+            )
         job.script_json = json.dumps(lines, ensure_ascii=False)
 
         # TTS 세션 디렉터리가 별도에 있으면 job_dir/tts/로 이동

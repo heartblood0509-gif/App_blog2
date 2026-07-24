@@ -8,9 +8,12 @@ export const MAX_DISPLAY = 12; // 한 조각 최대 표시 폭(구두점 제외)
 
 const PUNCT_RE = /[?,!.~…·'"“”]/g;
 
-/** 구두점을 제외한 '눈에 보이는' 길이. */
+/** 구두점을 제외한 '눈에 보이는' 길이.
+ *  ⚠️ NFC 정규화 필수 — 맥에서 붙여넣은 대본은 한글이 자모 분해형(NFD)으로 올 수 있어
+ *  "두"(1글자)가 "ㄷ+ㅜ"(2글자)로 세어진다. 정규화 안 하면 화면엔 다 들어가는데
+ *  글자 수만 2배로 뻥튀기돼 "화면보다 길어요" 오탐이 난다(백엔드 display_len 과 동일 규칙). */
 export function displayLen(text: string): number {
-  return text.replace(PUNCT_RE, "").length;
+  return text.normalize("NFC").replace(PUNCT_RE, "").length;
 }
 
 // 자막에는 마침표를 넣지 않는다(동영상 자막 관례). 상단 대본 원문은 그대로 두고,
@@ -176,7 +179,9 @@ export interface WordTime {
 }
 
 function normJoined(s: string): string {
-  return s.replace(/\s+/g, "").replace(/\.+$/, "");
+  // NFC 정규화 — 조각(자막)과 word_times(발화 어절)의 인코딩형이 다르면(예: 조각만 나중에
+  // NFC 로 수정 저장) 같은 글자인데도 문자열이 어긋나 타이밍 정합이 조용히 깨진다.
+  return s.normalize("NFC").replace(/\s+/g, "").replace(/\.+$/, "");
 }
 
 /** chunks(어절 묶음)와 wordTimes가 정합하는지: 문자열(공백·끝마침표 제거) 일치 + start 단조증가.
