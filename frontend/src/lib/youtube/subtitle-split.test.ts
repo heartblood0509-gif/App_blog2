@@ -160,6 +160,16 @@ describe("chunkBoundariesFromWordTimes", () => {
       ]),
     ).toBe(true);
   });
+  // 회귀(맥 붙여넣기): 자막 조각은 완성형(NFC)인데 word_times 는 분해형(NFD)으로 섞이면,
+  // 예전엔 글자 수를 인코딩별로 달리 세어 경계가 절반으로 밀렸다(자막이 음성보다 빨리 넘어감).
+  // stripSpace 가 세기 전에 NFC 통일하므로 두 인코딩이 같은 경계를 낸다.
+  it("조각 NFC · word_times NFD 혼합도 완성형 통일 결과와 동일 경계", () => {
+    const chunksNfc = ["안녕하세요 저는", "곽명근입니다"];
+    const wtNfd: WordTime[] = wt.map((w) => ({ ...w, text: w.text.normalize("NFD") }));
+    // 정합 판정도 통과하고(문자열 비교는 이미 NFC), 경계도 완성형 기준과 일치.
+    expect(wordTimesMatch(chunksNfc, wtNfd)).toBe(true);
+    expect(chunkBoundariesFromWordTimes(chunksNfc, wtNfd, 3.0)).toEqual([1.6, 3.0]);
+  });
 });
 
 // 자막 전용 띄어쓰기 — 발화 한 어절("피부장벽이")이 자막에선 여러 어절("피부 장벽이").

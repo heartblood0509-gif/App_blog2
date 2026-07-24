@@ -319,6 +319,11 @@ class TtsPreviewBuildRequest(BaseModel):
     topic: Optional[str] = None
     style: Optional[str] = None
 
+    # 음성 생성 입력 경계 정규화 — 맥 붙여넣기 분해형(NFD)이 그대로 TTS 로 가면 돌아오는
+    # 어절 타임스탬프도 분해형이라, 완성형으로 저장된 자막 조각과 글자 수가 어긋나 자막-음성
+    # 타이밍이 절반으로 밀린다. 입력에서 완성형으로 통일해 원천 차단한다.
+    _nfc_sentences = field_validator("sentences")(_nfc)
+
 
 # ── 제품 이미지 ──
 
