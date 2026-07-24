@@ -1,9 +1,21 @@
 """Pydantic 요청/응답 스키마"""
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 from typing import Optional, Literal
 from enum import Enum
 import datetime
+import unicodedata
+
+
+def _nfc(v):
+    """한글 자모 분해형(NFD)을 완성형(NFC)으로 — 맥 붙여넣기 대본의 화면-폭 오탐/렌더 깨짐 방지.
+    입력 경계에서 한 번 정규화해 두면 DB·판정·렌더가 모두 완성형으로 통일된다.
+    (core.subtitle_utils.normalize_nfc 와 동일 규칙 — 모델 계층이라 core 의존 없이 인라인.)"""
+    if isinstance(v, str):
+        return unicodedata.normalize("NFC", v)
+    if isinstance(v, list):
+        return [unicodedata.normalize("NFC", x) if isinstance(x, str) else x for x in v]
+    return v
 
 
 class StylePreset(str, Enum):
@@ -228,6 +240,8 @@ class DraftJobRequest(BaseModel):
     title_color1: Optional[str] = None
     title_color2: Optional[str] = None
 
+    _nfc_lines = field_validator("lines", "title_line1", "title_line2")(_nfc)
+
 
 class DraftJobResponse(BaseModel):
     job_id: str
@@ -240,6 +254,8 @@ class SplitLineRequest(BaseModel):
     before: str = Field(..., min_length=0, max_length=5000)
     after: str = Field(..., min_length=0, max_length=5000)
 
+    _nfc = field_validator("before", "after")(_nfc)
+
 
 class SplitLineResponse(BaseModel):
     lines: list[ScriptLine]
@@ -250,6 +266,8 @@ class EditLineRequest(BaseModel):
     """카드 B 줄 텍스트 편집 sync."""
     line_index: int = Field(..., ge=0)
     text: str = Field(..., min_length=0, max_length=5000)
+
+    _nfc = field_validator("text")(_nfc)
 
 
 class MergeLineRequest(BaseModel):

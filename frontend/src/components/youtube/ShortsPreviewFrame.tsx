@@ -40,6 +40,11 @@ import {
   LAYOUT_BAND_BOTTOM_TOP_FRAC,
   CHECKER_BG_STYLE,
 } from "@/lib/youtube/layout";
+import {
+  GUIDE_SAFE,
+  GUIDE_UI_BLOCKS,
+  centeredWidthOverflowsSafe,
+} from "@/lib/youtube/guide";
 
 // 제목 오버레이 외곽선/그림자 — 자막 가독성용. TitleSelect 와 공유.
 export const TITLE_STROKE = "0.7px rgba(0,0,0,0.8)";
@@ -86,6 +91,7 @@ export function ShortsPreviewFrame({
   onOverflowChange,
   showChecker = false,
   showThumbCrop = false,
+  showGuides = false,
   layoutBoxes = false,
   subtitle,
   subtitleFont = DEFAULT_SUBTITLE_FONT,
@@ -117,6 +123,7 @@ export function ShortsPreviewFrame({
   onOverflowChange?: (overflow: boolean) => void; // 제목 줄이 프레임 폭을 넘으면 알림(경고 표시용).
   showChecker?: boolean; // 가운데 미디어 밴드를 체커보드로 표시(제목-입력 단계, 미디어 없음).
   showThumbCrop?: boolean; // 썸네일 상단 잘림선(점선) 표시(제목-입력 단계).
+  showGuides?: boolean; // 안전선(가이드1) + 유튜브 UI 영역(가이드2) 오버레이 표시.
   layoutBoxes?: boolean; // boxed 레이아웃: 상·하단 검정 박스를 미디어 위·제목 아래에 덮는다(최종 렌더와 정합).
   subtitle?: string; // 하단 자막 오버레이(현재 조각). 최종 영상 자막 위치·스타일 흉내.
   subtitleFont?: string; // core.fonts id 또는 ""(기본 자막폰트).
@@ -153,19 +160,23 @@ export function ShortsPreviewFrame({
     ...titleFontStyle(titleFont, titleFontWeight),
   } as const;
 
-  // 줄이 프레임 폭을 넘으면(scrollWidth > 프레임 폭) 부모에 알린다(경고 표시용).
-  const line1Ref = useRef<HTMLDivElement>(null);
-  const line2Ref = useRef<HTMLDivElement>(null);
+  // 제목 줄이 안전선(가이드1: x100~980)을 벗어나면 부모에 알린다(경고 표시용).
+  // 자막과 같은 기준 — 프레임 폭이 아니라 안전 영역이 기준이고, titleDx 로 옮긴 위치를 반영한다.
+  // 각 줄 텍스트를 inline-block span 으로 감싸 offsetWidth(프레임 px)로 실측 → 렌더 px 로 환산.
+  const line1Ref = useRef<HTMLSpanElement>(null);
+  const line2Ref = useRef<HTMLSpanElement>(null);
   useEffect(() => {
     if (!onOverflowChange) return;
     const raf = requestAnimationFrame(() => {
-      const over =
-        (line1Ref.current?.scrollWidth ?? 0) > width + 1 ||
-        (line2Ref.current?.scrollWidth ?? 0) > width + 1;
-      onOverflowChange(over);
+      const overs = (el: HTMLSpanElement | null): boolean => {
+        if (!el) return false;
+        const renderW = el.offsetWidth / k; // 프레임 px → 렌더 px(1080 좌표)
+        return centeredWidthOverflowsSafe(renderW, titleDx);
+      };
+      onOverflowChange(overs(line1Ref.current) || overs(line2Ref.current));
     });
     return () => cancelAnimationFrame(raf);
-  }, [titleLine1, titleLine2, size1, size2, titleFont, titleFontWeight, width, onOverflowChange]);
+  }, [titleLine1, titleLine2, size1, size2, titleFont, titleFontWeight, titleDx, k, onOverflowChange]);
 
   // ── 제목 드래그 ─────────────────────────────────────────────
   // 자막 드래그와 동일 패턴. 두 줄이 하나의 드래그 상태를 공유해 어느 줄을 잡아도 함께 움직인다.
@@ -331,6 +342,36 @@ export function ShortsPreviewFrame({
         </>
       ) : null}
 
+      {/* 가이드 오버레이(옵션) — 미디어/박스 위, 제목·자막 아래(DOM 순서)라 자막이 위에 겹쳐 보인다.
+          렌더 좌표(1080×1920)를 k 로 축소해 최종 영상과 정합. 최종 영상엔 안 박히는 편집 보조선. */}
+      {showGuides ? (
+        <>
+          {/* 가이드2: 유튜브 UI 가 덮는 영역(상단 배너·우측 버튼·하단 제목/설명) — 초록 반투명. */}
+          {GUIDE_UI_BLOCKS.map((b, i) => (
+            <div
+              key={i}
+              className="pointer-events-none absolute rounded-sm bg-green-400/25 ring-1 ring-inset ring-green-500/40"
+              style={{
+                left: b.left * k,
+                top: b.top * k,
+                width: (b.right - b.left) * k,
+                height: (b.bottom - b.top) * k,
+              }}
+            />
+          ))}
+          {/* 가이드1: 안전선(사방 100px) — 이 안에 있어야 기종 상관없이 안 잘린다. 점선. */}
+          <div
+            className="pointer-events-none absolute rounded-[2px] border border-dashed border-sky-400/90"
+            style={{
+              left: GUIDE_SAFE.left * k,
+              top: GUIDE_SAFE.top * k,
+              width: (GUIDE_SAFE.right - GUIDE_SAFE.left) * k,
+              height: (GUIDE_SAFE.bottom - GUIDE_SAFE.top) * k,
+            }}
+          />
+        </>
+      ) : null}
+
       {/* 제목 오버레이 — dx/dy 는 렌더 좌표 델타를 축소 적용(WYSIWYG). 두 줄을 하나의 상자로 묶어
           함께 드래그. 세로 위치는 백엔드 first_ty 공식(줄별 크기·간격)을 그대로 축소해 렌더 정합.
           각 줄은 상자 안에서 top=j*gap*k 로 절대 배치(줄별 크기가 달라도 top-to-top 간격 유지). */}
@@ -361,16 +402,16 @@ export function ShortsPreviewFrame({
         >
           {titleLine1 ? (
             <div
-              ref={line1Ref}
               className="absolute inset-x-0 whitespace-nowrap text-center font-extrabold"
               style={{ ...titleBaseCommon, top: 0, lineHeight: 1, fontSize: `${size1 * k}px`, color: titleColor1 }}
             >
-              {titleLine1}
+              <span ref={line1Ref} className="inline-block">
+                {titleLine1}
+              </span>
             </div>
           ) : null}
           {titleLine2 ? (
             <div
-              ref={line2Ref}
               className="absolute inset-x-0 whitespace-nowrap text-center font-extrabold"
               style={{
                 ...titleBaseCommon,
@@ -380,7 +421,9 @@ export function ShortsPreviewFrame({
                 color: titleColor2,
               }}
             >
-              {titleLine2}
+              <span ref={line2Ref} className="inline-block">
+                {titleLine2}
+              </span>
             </div>
           ) : null}
         </div>

@@ -11,7 +11,7 @@
 // draft-state(lines[].status / asset_step / asset_version)를 2초마다 폴링해 갱신한다.
 // 캐시버스팅은 줄이 들고 있는 asset_version 을 ?v 로 붙여 처리(재생성/업로드 시 백엔드가 +1).
 
-import { Fragment, useCallback, useEffect, useRef, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertCircle,
   AlertTriangle,
@@ -84,12 +84,19 @@ import {
   chunksForLine,
   chunksFromWordsGaps,
   displayLen,
-  hasOverflowChunk,
-  MAX_DISPLAY,
   parseSubtitleChunks,
   stripSubtitlePeriods,
   type WordTime,
 } from "@/lib/youtube/subtitle-split";
+import { titleFontStyle } from "@/lib/youtube/fonts";
+import {
+  anyChunkOverflowsGuide,
+  displayLineOverflowsGuide,
+  overflowingDisplayLines,
+  type SubtitleStyle,
+} from "@/lib/youtube/guide";
+import { loadShowGuides, saveShowGuides } from "@/lib/youtube/guide-prefs";
+import { GuideToggle } from "../GuideToggle";
 import {
   cleanupClipProxy,
   confirmDraft,
@@ -338,14 +345,20 @@ function SubtitleChunkRow({
   onEdit,
   disabled,
   activeChunkIdx,
+  lineOverflow: lineOverflowProp,
 }: {
   chunks: string[];
   onToggle: (wordIndex: number) => void;
   onEdit: () => void;
   disabled?: boolean;
   activeChunkIdx?: number | null;
+  // 화면 줄별 넘침(실측). 부모가 폰트·크기·위치 기준으로 재서 넘긴다.
+  // 없으면(구 호출부) parseSubtitleChunks 의 글자수 기반 폴백. 순서 = 화면 줄 인덱스.
+  lineOverflow?: boolean[];
 }) {
-  const { words, gaps, segOfWord, lineOfWord, lineOverflow } = parseSubtitleChunks(chunks);
+  const parsed = parseSubtitleChunks(chunks);
+  const { words, gaps, segOfWord, lineOfWord } = parsed;
+  const lineOverflow = lineOverflowProp ?? parsed.lineOverflow;
   if (words.length === 0) return null;
   const anyOverflow = lineOverflow.some(Boolean);
 
@@ -436,11 +449,15 @@ function SubtitleEditRow({
   disabled,
   onSave,
   onCancel,
+  lineTooWide,
 }: {
   initialChunks: string[];
   disabled?: boolean;
   onSave: (chunks: string[]) => void;
   onCancel: () => void;
+  // 한 화면 줄이 안전선을 벗어나는지 실측 판정(부모가 자막 스타일 기준으로 주입).
+  // 없으면 경고를 표시하지 않는다(측정 불가 환경).
+  lineTooWide?: (text: string) => boolean;
 }) {
   const [values, setValues] = useState<string[]>(() =>
     initialChunks.length > 0 ? initialChunks : [""],
@@ -472,7 +489,7 @@ function SubtitleEditRow({
       </div>
       <div className="space-y-1.5">
         {values.map((v, i) => {
-          const overLine = v.split("\n").some((ln) => displayLen(ln.trim()) > MAX_DISPLAY);
+          const overLine = !!lineTooWide && v.split("\n").some((ln) => lineTooWide(ln.trim()));
           return (
             <div key={i}>
               {multi && (
@@ -573,6 +590,20 @@ export function LineAssetEditor() {
   const [subtitleDragging, setSubtitleDragging] = useState(false);
   // 프리뷰 프레임 폭 — 창 높이에 맞춰 자동(짧으면 축소, 크면 상한). 고정 크기면 짧은 창에서 잘림.
   const [previewWidth, setPreviewWidth] = useState(300);
+  // 프리뷰 안전 영역(안전선 + 유튜브 UI 영역) 표시 토글. 자막 길이 판정과 무관 — 눈으로 확인용.
+  // 첫 렌더는 true(첫 방문 켜짐 = SSR·클라 동일) → 마운트 후 저장된 기기 설정으로 맞춘다.
+  const [showGuides, setShowGuides] = useState(true);
+  const toggleGuides = useCallback(() => {
+    setShowGuides((prev) => {
+      const next = !prev;
+      saveShowGuides(next);
+      return next;
+    });
+  }, []);
+  // 번들 폰트 로드 완료 신호 — 자막 폭 실측(canvas)이 폰트 로드 전이면 폴백값이라, 로드 후
+  // 한 번 리렌더해 정확히 다시 잰다(setter 로 리렌더만 유발, 값은 안 읽음).
+  // (프리텐다드는 앱 전반에 쓰여 대개 이미 로드돼 있음.)
+  const [, setFontsReady] = useState(false);
   // 프레임 밖 외곽선/리사이즈 핸들을 그릴 오버레이(프레임의 형제 — overflow-hidden 미적용).
   // TransformablePreviewMedia 가 여기에 포털로 렌더한다.
   const [previewOverlayEl, setPreviewOverlayEl] = useState<HTMLDivElement | null>(null);
@@ -603,6 +634,26 @@ export function LineAssetEditor() {
   useEffect(() => {
     linesRef.current = lines;
   }, [lines]);
+
+  // 저장된 "안전 영역" 표시 설정으로 맞춘다(첫 방문이면 유지=켜짐). 마운트 후 1회.
+  useEffect(() => {
+    setShowGuides(loadShowGuides());
+  }, []);
+
+  // 번들 폰트가 로드되면 한 번 리렌더 → 자막 폭 실측이 정확해진다(로드 전엔 폴백 폰트로 측정).
+  useEffect(() => {
+    if (typeof document === "undefined" || !document.fonts) {
+      setFontsReady(true);
+      return;
+    }
+    let alive = true;
+    document.fonts.ready.then(() => {
+      if (alive) setFontsReady(true);
+    });
+    return () => {
+      alive = false;
+    };
+  }, []);
 
   // 줄 순서 드래그: 시작 시점의 순서(제자리 놓기 판별용) + 저장 중복 방지.
   const dragStartOrderRef = useRef<string | null>(null);
@@ -1520,8 +1571,23 @@ export function LineAssetEditor() {
   }
   const totalDuration =
     snap && !anyDirty ? snap.durations.reduce((a, b) => a + b, 0) : null;
-  // 화면 폭을 넘치는 자막이 있는 줄들(영상 만들기 차단 대상).
-  const overflowLineIdx = lines.findIndex((l) => hasOverflowChunk(lineChunks(l)));
+  // 자막 스타일(작업 전역)로 실제 폭을 잰다 — 글자 크기를 줄이거나 위치를 옮기면 판정도 따라온다.
+  const subtitleStyle: SubtitleStyle = useMemo(
+    () => {
+      const f = titleFontStyle(state.subtitleFont, state.subtitleFontWeight);
+      return {
+        sizePx: state.subtitleFontSize,
+        dx: state.subtitleDx,
+        fontFamily: f.fontFamily,
+        fontWeight: f.fontWeight,
+      };
+    },
+    [state.subtitleFont, state.subtitleFontWeight, state.subtitleFontSize, state.subtitleDx],
+  );
+  // 화면 안전선을 넘치는 자막이 있는 줄(영상 만들기 차단 대상). 실제 픽셀 폭 기준.
+  const overflowLineIdx = lines.findIndex((l) =>
+    anyChunkOverflowsGuide(lineChunks(l), subtitleStyle),
+  );
   const hasOverflow = overflowLineIdx >= 0;
   // 올린 영상이 나레이션보다 짧은 줄(영상 만들기 차단 대상). needed 는 durationOf 로 스냅샷 조회.
   function clipShortfallOf(l: ScriptLine, i: number): number | null {
@@ -2577,6 +2643,7 @@ export function LineAssetEditor() {
                     <SubtitleEditRow
                       initialChunks={lineChunks(l)}
                       disabled={editLocked}
+                      lineTooWide={(text) => displayLineOverflowsGuide(text, subtitleStyle)}
                       onCancel={() => setEditingSubLineId(null)}
                       onSave={(chunks) => {
                         setEditingSubLineId(null);
@@ -2586,6 +2653,7 @@ export function LineAssetEditor() {
                   ) : (
                     <SubtitleChunkRow
                       chunks={lineChunks(l)}
+                      lineOverflow={overflowingDisplayLines(lineChunks(l), subtitleStyle)}
                       disabled={editLocked}
                       onToggle={(wi) => toggleBreak(l, wi)}
                       onEdit={() => {
@@ -2724,11 +2792,16 @@ export function LineAssetEditor() {
             <p className="text-xs font-medium text-muted-foreground">
               선택 줄 프리뷰
             </p>
-            {activeLine && (
-              <Badge variant="outline" className="px-1.5 py-0 text-[0.7rem]">
-                {SOURCE_LABEL[activeSource]}
-              </Badge>
-            )}
+            <div className="flex items-center gap-2">
+              {/* 안전 영역: 휴대폰 잘림 방지 최소 영역(점선) + 유튜브 버튼·제목이 덮는 영역(초록).
+                  자막 길이 판정과 무관 — 눈으로 자막이 가려지는지 확인하는 용도. */}
+              <GuideToggle active={showGuides} onToggle={toggleGuides} />
+              {activeLine && (
+                <Badge variant="outline" className="px-1.5 py-0 text-[0.7rem]">
+                  {SOURCE_LABEL[activeSource]}
+                </Badge>
+              )}
+            </div>
           </div>
           <p className="mt-0.5 text-sm font-semibold">
             {activeIndex >= 0 ? `${activeIndex + 1}번 줄` : "—"}
@@ -2773,6 +2846,7 @@ export function LineAssetEditor() {
                 onSubtitlePosChange={(dx, y) => update({ subtitleDx: dx, subtitleY: y })}
                 onSubtitleDragChange={setSubtitleDragging}
                 layoutBoxes={(state.layoutMode ?? "full") === "boxed"}
+                showGuides={showGuides}
                 width={previewWidth}
               >
                 {!activeLine ? (
