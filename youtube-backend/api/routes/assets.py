@@ -6,7 +6,7 @@ import shutil
 import subprocess
 import tempfile
 
-from fastapi import APIRouter, HTTPException, Path, Depends, UploadFile, File
+from fastapi import APIRouter, HTTPException, Path, Query, Depends, UploadFile, File
 from fastapi.responses import FileResponse, StreamingResponse, RedirectResponse
 from sqlalchemy.orm import Session
 from config import settings
@@ -24,6 +24,26 @@ from db.models import Job, User, UserBgm
 
 router = APIRouter(prefix="/api/jobs", tags=["assets"])
 bgm_router = APIRouter(prefix="/api/assets", tags=["bgm"])
+
+
+def resolve_asset_line(lines: list, idx: int, line_id: str | None) -> int | None:
+    """자산을 서빙할 줄의 현재 인덱스. line_id 가 오면 그쪽이 우선.
+
+    이 API 들은 원래 줄 번호(idx)로만 자산을 찾았다. 줄 순서가 절대 안 바뀌던 시절엔 맞았지만,
+    순서 변경(드래그)이 생기면서 두 가지가 깨졌다.
+      · 순서를 바꿔도 URL 이 그대로라 브라우저가 옛 이미지를 캐시에서 꺼내 쓴다.
+      · 화면(새 순서)과 서버(아직 옛 순서) 사이 시차에 엉뚱한 줄 자산이 나간다.
+    그래서 호출부가 line_id 를 함께 보내면 그 줄로 직접 해석한다. 못 찾으면 예전처럼 idx 로
+    폴백해 기존 URL(카드 A 미리보기 등)도 그대로 동작한다.
+
+    반환은 '현재 인덱스' — 옛 인덱스 파일명(img_00.png) 폴백에 그 값이 필요하기 때문이다.
+    """
+    if line_id:
+        for i, line in enumerate(lines):
+            if str(line.get("line_id") or "") == line_id:
+                return i
+        return None  # 방금 지워진 줄 등 — idx 로 폴백하면 남의 자산이 나간다
+    return idx if 0 <= idx < len(lines) else None
 
 
 def _mark_expired_if_old(db: Session, job_id: str):
@@ -46,15 +66,17 @@ def _mark_expired_if_old(db: Session, job_id: str):
 async def get_image(
     job_id: str = Path(..., pattern=r"^[a-f0-9]{12}$"),
     idx: int = Path(..., ge=0, le=100),
+    line_id: str | None = Query(None, max_length=64),
     db: Session = Depends(get_db),
     _user: User = Depends(get_approved_user),
 ):
-    """생성된 이미지 파일 서빙"""
+    """생성된 이미지 파일 서빙. line_id 를 주면 줄 번호가 아니라 그 줄로 찾는다(순서 변경 안전)."""
     job = get_user_job(db, job_id, _user)
     job_dir = os.path.join(settings.STORAGE_DIR, job_id)
     lines = json.loads(job.script_json or "[]")
     ensure_line_ids(lines)
-    if not (0 <= idx < len(lines)):
+    idx = resolve_asset_line(lines, idx, line_id)
+    if idx is None:
         _mark_expired_if_old(db, job_id)
         raise HTTPException(status_code=404, detail="이미지를 찾을 수 없습니다")
 

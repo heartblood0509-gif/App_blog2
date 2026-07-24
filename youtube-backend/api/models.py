@@ -263,6 +263,11 @@ class DeleteLineRequest(BaseModel):
     line_id: Optional[str] = None
 
 
+class ReorderLinesRequest(BaseModel):
+    """카드 B 줄 순서 변경 (드래그). line_ids = 현재 전체 줄 id 의 새 순서(완전 순열)."""
+    line_ids: list[str] = Field(..., min_length=1, max_length=200)
+
+
 class LineVisualRequest(BaseModel):
     """카드 B 줄별 자산 위치/배율(transform) + 움직임(motion) 저장. None = 미변경."""
     line_index: int = Field(..., ge=0)

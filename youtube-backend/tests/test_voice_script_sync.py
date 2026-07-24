@@ -115,6 +115,21 @@ def test_mismatch_on_line_count_change(tmp_path):
     assert "줄 수" in msg
 
 
+def test_mismatch_on_line_reorder(tmp_path):
+    """줄을 드래그로 옮겼는데 재빌드 안 함 → 순서 불일치 메시지.
+
+    줄별 해시 검사는 line_id 기준이라 이 경우를 통과시키는데, 렌더는 sent_XX.wav 를 인덱스로
+    짝짓기 때문에 그대로 두면 화면과 목소리가 어긋난 영상이 조용히 완성된다.
+    """
+    sd = tmp_path / "sess"
+    _seed_session(sd, [("l1", "안녕하세요"), ("l2", "반갑습니다"), ("l3", "또 만나요")])
+    # 같은 줄·같은 텍스트, 순서만 뒤바뀜
+    swapped = _lines(("l3", "또 만나요"), ("l1", "안녕하세요"), ("l2", "반갑습니다"))
+    msg = _voice_script_mismatch(str(sd), swapped)
+    assert msg is not None
+    assert "순서" in msg
+
+
 def test_mismatch_none_when_no_signature(tmp_path):
     """구세션(signature 없음)은 검증 불가 → 통과(None). 프론트 dirty 감지에 의존."""
     sd = tmp_path / "sess"

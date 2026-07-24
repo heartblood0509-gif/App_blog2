@@ -20,6 +20,7 @@ import {
   CheckCircle2,
   CornerDownLeft,
   Film,
+  GripVertical,
   ImageIcon,
   ImageUp,
   Loader2,
@@ -36,6 +37,7 @@ import {
   Video,
   X,
 } from "lucide-react";
+import { Reorder, useDragControls } from "framer-motion";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -101,6 +103,7 @@ import {
   mergeLine,
   regenerateClip,
   regenerateImage,
+  reorderLines,
   saveDraftMeta,
   saveLineVisual,
   applyLayoutFitTransforms,
@@ -204,6 +207,103 @@ const SPOTLIGHT_HOLD_MS = 1100;
 
 function errMessage(e: unknown, fallback: string): string {
   return e instanceof Error ? e.message : fallback;
+}
+
+// 드래그로 줄을 옮길 때 화면 가장자리에서 창을 자동 스크롤한다. framer 의 Reorder 는
+// 창 스크롤을 대신해 주지 않아, 이게 없으면 화면 밖의 줄로는 옮길 수가 없다.
+const EDGE_ZONE_PX = 90; // 이 안에 포인터가 들어오면 스크롤 시작
+const EDGE_SPEED_PX = 14; // 이벤트당 스크롤 양(가장자리에 가까울수록 최대치)
+const DRAG_SLOP_PX = 4; // 이만큼 실제로 끌어야 자동 스크롤 시작(손잡이를 잡기만 한 상태 방지)
+
+/** 포인터의 **화면(뷰포트) 기준** y.
+ *
+ * framer 의 info.point 는 문서 기준 좌표라 window.innerHeight 와 직접 비교하면 안 된다.
+ * 페이지가 조금이라도 스크롤돼 있으면 point.y 가 화면 높이를 넘어서 "항상 아래 가장자리"로
+ * 오판하고, 스크롤될수록 값이 더 커져 저절로 끝까지 굴러간다. 그래서 이벤트의 clientY
+ * (뷰포트 기준)를 우선 쓰고, 못 얻을 때만 스크롤량을 빼서 환산한다. */
+function pointerViewportY(
+  e: MouseEvent | TouchEvent | PointerEvent,
+  fallbackDocY: number,
+): number {
+  if ("touches" in e) {
+    const t: Touch | undefined = e.changedTouches[0] ?? e.touches[0];
+    return t ? t.clientY : fallbackDocY - window.scrollY;
+  }
+  return e.clientY;
+}
+
+function edgeAutoScroll(viewportY: number): void {
+  const top = viewportY - EDGE_ZONE_PX;
+  const bottom = viewportY - (window.innerHeight - EDGE_ZONE_PX);
+  if (top < 0) {
+    window.scrollBy(0, Math.max(-EDGE_SPEED_PX, (top / EDGE_ZONE_PX) * EDGE_SPEED_PX));
+  } else if (bottom > 0) {
+    window.scrollBy(0, Math.min(EDGE_SPEED_PX, (bottom / EDGE_ZONE_PX) * EDGE_SPEED_PX));
+  }
+}
+
+/** 드래그로 순서를 바꿀 수 있는 줄 카드. 카드 안에 textarea·버튼이 가득해서 카드 전체를
+ *  드래그 대상으로 두면 글자 선택·스크롤과 충돌한다 → 왼쪽 핸들(⠿)만 드래그 시작점으로 쓴다
+ *  (dragListener={false} + useDragControls). 훅이라 map 안에서 못 부르므로 별도 컴포넌트. */
+function ReorderableLine({
+  line,
+  className,
+  dragDisabled,
+  onDragBegin,
+  onDragDone,
+  children,
+}: {
+  line: ScriptLine;
+  className: string;
+  dragDisabled: boolean;
+  onDragBegin: () => void;
+  onDragDone: () => void;
+  children: React.ReactNode;
+}) {
+  const controls = useDragControls();
+  return (
+    <Reorder.Item
+      as="li"
+      value={line}
+      dragListener={false}
+      dragControls={controls}
+      layout="position"
+      transition={{ duration: 0.18 }}
+      // position/zIndex 는 Reorder.Item 이 드래그 중 알아서 잡는다 — 건드리면 충돌한다.
+      whileDrag={{ scale: 1.01 }}
+      onDragStart={onDragBegin}
+      onDrag={(e, info) => {
+        // 잡기만 하고 안 움직였으면 스크롤하지 않는다(클릭이 곧 스크롤이 되는 것 방지).
+        if (Math.abs(info.offset.y) < DRAG_SLOP_PX) return;
+        edgeAutoScroll(pointerViewportY(e, info.point.y));
+      }}
+      onDragEnd={onDragDone}
+      data-line-card-id={String(line.line_id ?? "")}
+      className={className}
+    >
+      <button
+        type="button"
+        aria-label="끌어서 줄 순서 바꾸기"
+        title={dragDisabled ? undefined : "끌어서 순서 바꾸기"}
+        disabled={dragDisabled}
+        // touch-none: 터치에서 드래그가 페이지 스크롤로 새는 것을 막는다(framer 권장).
+        onPointerDown={(e) => {
+          if (dragDisabled) return;
+          e.preventDefault(); // 텍스트 선택 방지
+          controls.start(e);
+        }}
+        className={cn(
+          "-ml-0.5 flex w-4 shrink-0 touch-none items-center justify-center self-stretch rounded text-muted-foreground/50 transition-colors",
+          dragDisabled
+            ? "cursor-default opacity-30"
+            : "cursor-grab hover:bg-muted hover:text-foreground active:cursor-grabbing",
+        )}
+      >
+        <GripVertical className="h-4 w-4" />
+      </button>
+      {children}
+    </Reorder.Item>
+  );
 }
 
 // 정지 상태 자막 자동 순환용 — 각 조각을 몇 초 보여줄지. 음성이 있으면 실제 나레이션
@@ -503,6 +603,10 @@ export function LineAssetEditor() {
   useEffect(() => {
     linesRef.current = lines;
   }, [lines]);
+
+  // 줄 순서 드래그: 시작 시점의 순서(제자리 놓기 판별용) + 저장 중복 방지.
+  const dragStartOrderRef = useRef<string | null>(null);
+  const reorderingRef = useRef(false);
 
   // 현재 프리뷰에 띄운 줄의 (line_id, index). transform 핸들러가 이벤트 시점에 참조한다.
   const activeRef = useRef<{ lineId: string; index: number }>({ lineId: "", index: -1 });
@@ -948,6 +1052,50 @@ export function LineAssetEditor() {
     }
   }
 
+  // 드래그 중 순서(낙관적 반영). 서버 저장은 손을 뗄 때 한 번만 한다(끄는 도중 매번 저장하면
+  // 왕복이 폭증하고, 중간 순서가 서버에 남는다).
+  function handleReorder(next: ScriptLine[]) {
+    // sources 는 인덱스 병렬 배열이라 lines 만 옮기면 썸네일·소스 배지가 어긋난다. id 로 같이 옮긴다.
+    // 짝을 맞출 때 linesRef(이펙트로 한 박자 늦게 갱신)가 아니라 렌더 시점의 lines 를 쓴다 —
+    // sources 도 같은 렌더의 값이라 둘이 항상 같은 세대여야 인덱스 짝이 어긋나지 않는다.
+    const srcById = new Map(
+      lines.map((l, i) => [String(l.line_id ?? ""), sources[i] ?? "ai"] as const),
+    );
+    setLines(next);
+    setSources(next.map((l) => srcById.get(String(l.line_id ?? "")) ?? "ai"));
+  }
+
+  // 드래그를 놓을 때 순서를 서버에 저장. 실패하면 서버 순서로 되돌린다(화면만 바뀐 채 방치 금지).
+  // 기준은 "드래그 시작 시점의 순서" — 서버 순서를 따로 추적하지 않아도 제자리 놓기를 걸러낸다.
+  async function commitReorder() {
+    const before = dragStartOrderRef.current;
+    dragStartOrderRef.current = null;
+    if (!jobId || !before || reorderingRef.current) return;
+    const ids = linesRef.current.map((l) => String(l.line_id ?? ""));
+    if (ids.some((id) => !id)) return; // line_id 없는 줄이 있으면 순열 자체가 성립 안 함
+    if (ids.join(" ") === before) return; // 제자리 — 저장할 것 없음
+    // 드래그 도중 줄 자체가 늘거나 줄었으면(삭제·나누기가 겹침) 사용자가 의도한 순서가 아니다.
+    if (ids.length !== before.split(" ").length) return;
+    reorderingRef.current = true;
+    playback.stop();
+    try {
+      const res = await reorderLines(jobId, ids);
+      if (!mountedRef.current) return;
+      setLines(res.lines);
+      setSources(res.sources);
+      // 음성 재빌드가 필요하다는 표시. 실제 재합성은 없고(줄 텍스트가 그대로면 incremental 이
+      // wav 를 rename 만 한다) 다음 재생·영상 만들기 때 순서만 맞춘다.
+      update({ ttsDirty: true });
+    } catch (e) {
+      if (mountedRef.current) {
+        toast.error(errMessage(e, "줄 순서 저장에 실패했어요."));
+        await refresh(); // 서버가 진실 — 화면을 되돌린다
+      }
+    } finally {
+      reorderingRef.current = false;
+    }
+  }
+
   // Enter 로 줄 나누기. 커서 앞(before)/뒤(after) 텍스트는 화면 그대로 보냄(미저장 편집 포함).
   async function doSplit(lineId: string, before: string, after: string) {
     if (!jobId) return;
@@ -1240,11 +1388,20 @@ export function LineAssetEditor() {
     }
   }
 
+  // 자산 주소는 반드시 **줄 id**를 달고 나간다. 줄 번호만으로는 순서를 바꿨을 때
+  //  · 주소가 그대로라 브라우저가 옛 이미지를 캐시에서 꺼내 쓰고,
+  //  · 화면(새 순서)과 서버(저장 전 옛 순서) 시차에 남의 줄 자산이 나온다.
+  // 번호는 옛 파일명(img_00.png) 폴백용으로만 남는다.
+  function assetSrc(kind: "images" | "clips", i: number, l: ScriptLine): string {
+    const lid = String(l.line_id ?? "");
+    const q = `?v=${l.asset_version ?? 0}${lid ? `&line_id=${encodeURIComponent(lid)}` : ""}`;
+    return `${ytUrl(`/api/jobs/${jobId}/${kind}/${i}`)}${q}`;
+  }
   function imgSrc(i: number, l: ScriptLine): string {
-    return `${ytUrl(`/api/jobs/${jobId}/images/${i}`)}?v=${l.asset_version ?? 0}`;
+    return assetSrc("images", i, l);
   }
   function clipSrc(i: number, l: ScriptLine): string {
-    return `${ytUrl(`/api/jobs/${jobId}/clips/${i}`)}?v=${l.asset_version ?? 0}`;
+    return assetSrc("clips", i, l);
   }
 
   // 자산 우클릭 → 다운로드 메뉴 열기(준비된 줄만).
@@ -1336,9 +1493,18 @@ export function LineAssetEditor() {
     if (drafts[id] !== undefined && drafts[id] !== l.text) return true;
     return snap.texts[id] !== l.text;
   }
+  // 줄 순서가 마지막 빌드와 다른가. 렌더는 sent_XX.wav 를 **인덱스**로 짝지으므로, 순서만
+  // 바뀌어도 재빌드하지 않으면 화면과 목소리가 어긋난 영상이 조용히 나온다. 줄별 dirty(텍스트
+  // 비교)로는 절대 못 잡는 종류라 여기서 따로 본다. 재빌드는 incremental 이라 wav rename 만
+  // 하고 재합성·크레딧 소모는 없다.
+  const orderChanged =
+    !!snap &&
+    snap.lineIds.length === lines.length &&
+    snap.lineIds.join(" ") !== lines.map((l) => String(l.line_id ?? "")).join(" ");
   const anyDirty =
     !snap ||
     voiceChanged ||
+    orderChanged ||
     snap.lineIds.length !== lines.length ||
     lines.some(isLineDirty);
   const built = !!snap && !!state.ttsSessionId;
@@ -1593,6 +1759,9 @@ export function LineAssetEditor() {
   // 전역 잠금: AI 생성 폴링 중이거나 업로드가 하나라도 진행 중이면 전역 액션을 막는다.
   // (업로드 도중 "모두 생성"/"다음"을 누르면 AI 워커가 업로드를 덮어쓸 수 있음 — Codex HIGH.)
   const busyGlobal = polling || uploading.size > 0;
+  // 순서 드래그 잠금 — 폴링 중이면 refresh 의 setLines 가 드래그 중 순서를 되돌리고,
+  // 백엔드도 자산 생성 중엔 409 로 거절한다. 음성 빌드/렌더 시작 중에도 막는다.
+  const dragDisabled = busyGlobal || building || creating || lines.length < 2;
 
   // 영상이 짧은 줄로 사용자를 데려간다 — 안내 + 그 줄 선택 + 스크롤. AI 영상(6초 고정)은 문구 분기.
   function focusShortClip(idx: number) {
@@ -1991,6 +2160,10 @@ export function LineAssetEditor() {
             <li>줄마다 AI 이미지를 만들거나 내 이미지·영상을 올리세요.</li>
             <li>글을 고친 뒤 다른 곳을 누르면 저장됩니다.</li>
             <li>
+              줄 왼쪽 <GripVertical className="inline size-3.5 align-text-bottom" /> 를 끌면 순서를
+              바꿀 수 있어요.
+            </li>
+            <li>
               문장 안에서 <b>Enter</b>를 누르면 두 줄로 나뉩니다.
             </li>
             <li>
@@ -2028,6 +2201,11 @@ export function LineAssetEditor() {
         {built && voiceChanged && (
           <p className="mt-1 text-xs text-amber-700 dark:text-amber-400">
             음성 설정을 바꿨어요. 다음 재생 때 모든 줄 음성을 새로 만들어요.
+          </p>
+        )}
+        {built && !voiceChanged && orderChanged && (
+          <p className="mt-1 text-xs text-amber-700 dark:text-amber-400">
+            줄 순서를 바꿨어요. 다음 재생 때 음성 순서를 맞춰요 (다시 만들지 않아 시간·크레딧이 들지 않아요).
           </p>
         )}
       </div>
@@ -2094,7 +2272,15 @@ export function LineAssetEditor() {
         />
       )}
 
-      <ul className="mt-5 space-y-2.5">
+      {/* 줄 목록 — 왼쪽 핸들(⠿)을 끌어 순서를 바꾼다. values 는 lines 그대로 넘겨야
+          Reorder 가 항목 동일성을 판단한다(onReorder 가 재배열된 같은 객체 배열을 돌려줌). */}
+      <Reorder.Group
+        as="ul"
+        axis="y"
+        values={lines}
+        onReorder={handleReorder}
+        className="mt-5 space-y-2.5"
+      >
         {lines.map((l, i) => {
           const ready = isReady(l);
           const failed = isFailed(l);
@@ -2116,9 +2302,16 @@ export function LineAssetEditor() {
           const structLocked = editLocked || busyGlobal;
           const textValue = drafts[lineId] ?? l.text;
           return (
-            <li
+            <ReorderableLine
               key={l.line_id ?? i}
-              data-line-card-id={lineId}
+              line={l}
+              dragDisabled={dragDisabled || !hasId}
+              onDragBegin={() => {
+                dragStartOrderRef.current = linesRef.current
+                  .map((x) => String(x.line_id ?? ""))
+                  .join(" ");
+              }}
+              onDragDone={() => void commitReorder()}
               className={cn(
                 "flex gap-3 rounded-lg border bg-background p-2.5 transition-colors",
                 playback.nowPlayingLineId === lineId
@@ -2475,10 +2668,10 @@ export function LineAssetEditor() {
                   )}
                 </div>
               </div>
-            </li>
+            </ReorderableLine>
           );
         })}
-      </ul>
+      </Reorder.Group>
 
       <div className="mt-6 flex items-center justify-between gap-3">
         <Button
