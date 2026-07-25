@@ -130,7 +130,12 @@ def word_times_match(chunks, word_times):
 
 
 def _strip_space(s):
-    return re.sub(r"\s+", "", s)
+    """공백 제거 + NFC 정규화. 조각 경계는 '글자 누적 위치'로 계산하는데, 조각(자막)과
+    word_times(발화 어절)의 인코딩형이 다르면(맥 붙여넣기 대본=분해형 NFD, 나중에 수정
+    저장한 조각=완성형 NFC) 같은 글자를 서로 다른 개수로 세어 위치가 어긋난다 → 자막이
+    음성보다 빨리 넘어감. 세기 전에 완성형으로 통일해 정렬을 맞춘다.
+    프론트 subtitle-split.ts 의 stripSpace 와 동일 규칙."""
+    return re.sub(r"\s+", "", normalize_nfc(s))
 
 
 def _word_chunk_segments(chunks, word_times, start, end):

@@ -200,7 +200,11 @@ export function wordTimesMatch(
   return true;
 }
 
-const stripSpace = (s: string) => s.replace(/\s+/g, "");
+// 공백 제거 + NFC 정규화. 조각 경계는 '글자 누적 위치'로 계산하는데, 조각(자막)과
+// word_times(발화 어절)의 인코딩형이 다르면(예: 맥 붙여넣기 대본은 분해형 NFD, 나중에
+// 수정 저장한 조각은 완성형 NFC) 같은 글자를 서로 다른 개수로 세어 위치가 절반으로
+// 어긋난다 → 자막이 음성보다 빨리 넘어감. 세기 전에 완성형으로 통일해 정렬을 맞춘다.
+const stripSpace = (s: string) => s.normalize("NFC").replace(/\s+/g, "");
 
 /** 조각별 '끝 시각'(줄 시작 기준 초) 배열. 재생 훅의 chunkBoundaries 와 같은 형태
  * (길이 = chunks.length, 마지막 = durationSec). 정합 안 되면 null → 호출부가 비례 폴백.

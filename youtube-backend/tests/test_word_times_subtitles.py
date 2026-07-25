@@ -99,6 +99,25 @@ def test_word_times_match_basic():
     assert not word_times_match(["가"], [])
 
 
+def test_mixed_nfc_nfd_boundaries_match_composed():
+    # 회귀(맥 붙여넣기): 자막 조각은 완성형(NFC)인데 word_times 는 분해형(NFD)으로 섞이면,
+    # 예전엔 글자 수를 인코딩별로 달리 세어 경계가 절반으로 밀렸다(자막이 음성보다 빨리 넘어감).
+    # _strip_space 가 세기 전에 NFC 통일하므로 두 인코딩이 같은 경계를 낸다.
+    import unicodedata
+
+    timings = [_line("안녕하세요 저는 곽명근입니다", 10.0, 13.0)]
+    chunks = [["안녕하세요 저는", "곽명근입니다"]]  # 완성형(저장된 자막 조각)
+    wt_nfd = [[
+        {"text": unicodedata.normalize("NFD", "안녕하세요"), "start": 0.0, "end": 0.6},
+        {"text": unicodedata.normalize("NFD", "저는"), "start": 0.7, "end": 1.0},
+        {"text": unicodedata.normalize("NFD", "곽명근입니다"), "start": 1.6, "end": 2.9},
+    ]]  # 분해형(맥 붙여넣기 대본 → TTS → 분해형 타임스탬프)
+    assert word_times_match(chunks[0], wt_nfd[0])
+    subs = split_subtitle_natural(timings, chunks, wt_nfd)
+    # 완성형끼리 계산한 것과 동일한 경계(10+1.6, 끝 13.0). 출력 자막도 완성형.
+    assert subs == [(10.0, 11.6, "안녕하세요 저는"), (11.6, 13.0, "곽명근입니다")]
+
+
 # ── 자막 전용 띄어쓰기: 발화 한 어절("피부장벽이")이 자막에선 여러 어절("피부 장벽이") ──
 # 프론트 subtitle-split.test.ts 의 같은 픽스처와 정합.
 
