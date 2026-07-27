@@ -576,6 +576,10 @@ export function LineAssetEditor() {
   const playback = useTtsSessionPlayback();
   // 음성 세션 빌드/영상 확정 진행 표시.
   const [building, setBuilding] = useState(false);
+  // 이번 빌드에서 실제로 다시 만들어지는 줄. null 이면 전 줄(음성 설정 변경 등 전체 재빌드).
+  // 예전엔 building 하나로 모든 줄에 '만드는 중…' 을 띄워서, 한 줄만 다시 뽑아도 대본 전체가
+  // 새로 만들어지는 것처럼 보였다(실제로는 그 줄 하나만 합성된다). 범위를 눈에 보이게 한다.
+  const [buildingLineIds, setBuildingLineIds] = useState<Set<string> | null>(null);
   const [creating, setCreating] = useState(false);
   // 선택된 BGM(전체 미리듣기 믹서에 넘길 url·길이). BgmPicker 가 알려준다.
   const [selectedBgm, setSelectedBgm] = useState<BgmItem | null>(null);
@@ -1610,6 +1614,14 @@ export function LineAssetEditor() {
   async function buildVoices(forceLineIds?: string[]): Promise<TtsBuildSnapshot | null> {
     if (!jobId) return null;
     playback.stop();
+    // 이번에 실제로 합성될 줄 = 강제 지정한 줄 + 글자가 바뀐 줄. 백엔드가 고르는 기준과 같다
+    // (routes/tts_preview.py: 음성 설정이 같으면 incremental → 지문이 다른 줄만 재합성).
+    // 음성 설정이 바뀌었으면 백엔드가 전체 재빌드를 하므로 null(=전 줄)로 둔다.
+    setBuildingLineIds(
+      voiceChanged || !snap
+        ? null
+        : new Set([...(forceLineIds ?? []), ...lines.filter(isLineDirty).map((l) => String(l.line_id ?? ""))]),
+    );
     setBuilding(true);
     try {
       for (const id of Object.keys(drafts)) {
@@ -1671,7 +1683,10 @@ export function LineAssetEditor() {
       );
       return null;
     } finally {
-      if (mountedRef.current) setBuilding(false);
+      if (mountedRef.current) {
+        setBuilding(false);
+        setBuildingLineIds(null);
+      }
     }
   }
 
@@ -2497,11 +2512,15 @@ export function LineAssetEditor() {
                     const playingThis = playback.nowPlayingLineId === lineId;
                     const dur = durationOf(l);
                     const dirtyThis = isLineDirty(l);
+                    // 이 줄이 지금 실제로 만들어지고 있나. 한 줄만 다시 뽑을 때 다른 줄까지
+                    // '만드는 중…' 으로 바뀌면 대본 전체가 새로 만들어지는 것처럼 보인다.
+                    const buildingThis =
+                      building && (buildingLineIds === null || buildingLineIds.has(lineId));
                     const label = playingThis
                       ? dur != null
                         ? `재생 중 · ${formatTime(dur)}`
                         : "재생 중"
-                      : building
+                      : buildingThis
                         ? "만드는 중…"
                         : dirtyThis
                           ? "새로 만들어 재생"
@@ -2524,7 +2543,7 @@ export function LineAssetEditor() {
                                 : "border-border text-muted-foreground hover:bg-muted hover:text-foreground",
                           )}
                         >
-                          {building && !playingThis ? (
+                          {buildingThis && !playingThis ? (
                             <Loader2 className="size-3 animate-spin" />
                           ) : playingThis ? (
                             <Pause className="size-3" />
@@ -2546,7 +2565,7 @@ export function LineAssetEditor() {
                           title="이 줄 음성만 다시 만들기 — 같은 문장도 억양·톤이 매번 달라져요"
                           className="inline-flex shrink-0 items-center gap-1 rounded-full border border-border px-2 py-0.5 text-[0.7rem] text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:opacity-50"
                         >
-                          <RefreshCw className="size-3" />
+                          <RefreshCw className={cn("size-3", buildingThis && "animate-spin")} />
                           다시 생성
                         </button>
                       </>
