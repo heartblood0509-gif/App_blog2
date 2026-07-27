@@ -170,9 +170,17 @@ export function useTtsSessionPlayback() {
       audio
         .play()
         .then(() => {
+          // 이 사이 다른 줄로 넘어갔거나 정지했으면 voiceRef 가 이미 교체/해제된 상태다.
+          // 그대로 추적을 걸면 rAF 루프가 하나 더 돌아 남는다.
+          if (voiceRef.current !== audio) return;
           startTracking();
         })
         .catch((e) => {
+          // play() 는 프로미스라, 소리가 나기 전에 다음 줄로 넘어가거나 정지하면
+          // 끼어든 pause() 때문에 AbortError 로 reject 된다 — 실패가 아니라 사용자가 의도한 취소다.
+          // 여기서 토스트를 띄우거나 stop() 을 부르면 이미 시작된 다음 줄까지 멈춘다.
+          if (voiceRef.current !== audio) return;
+          if (e instanceof DOMException && e.name === "AbortError") return;
           console.error("[tts playback] play() 실패:", e);
           toast.error("음성을 재생할 수 없어요. 잠시 후 다시 시도해주세요.");
           stop();

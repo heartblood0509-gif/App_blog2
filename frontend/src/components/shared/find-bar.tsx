@@ -17,6 +17,33 @@ import { Button } from "@/components/ui/button";
 const HL_MATCH = "find-match";
 const HL_CURRENT = "find-current";
 
+/**
+ * 하이라이트 색 규칙은 globals.css 가 아니라 런타임에 주입한다.
+ *
+ * Turbopack 이 쓰는 Lightning CSS 는 `::highlight()` 의사요소를 모른다(Turbopack 은
+ * Lightning CSS 를 끌 수 없고 lightningCssFeatures 로도 못 살린다). 스타일시트에 두면
+ * 규칙이 통째로 버려져 색이 안 먹고, 파일을 저장할 때마다 파싱 경고가 콘솔을 도배한다.
+ * Chromium 은 정상 지원하므로 번들러를 우회해 <style> 로 넣는다.
+ */
+const HL_STYLE_ID = "find-bar-highlight-style";
+
+function ensureHighlightStyle() {
+  if (typeof document === "undefined") return;
+  if (document.getElementById(HL_STYLE_ID)) return;
+  const style = document.createElement("style");
+  style.id = HL_STYLE_ID;
+  style.textContent = `
+::highlight(${HL_MATCH}) {
+  background-color: oklch(0.9 0.16 95 / 70%); /* 옅은 노랑 */
+  color: inherit;
+}
+::highlight(${HL_CURRENT}) {
+  background-color: oklch(0.78 0.19 60 / 90%); /* 진한 주황 — 현재 결과 */
+  color: oklch(0.18 0 0);
+}`;
+  document.head.appendChild(style);
+}
+
 function supportsHighlightApi(): boolean {
   return (
     typeof CSS !== "undefined" &&
@@ -181,6 +208,11 @@ export function FindBar({
     // current는 의도적으로 deps에서 제외 (검색어 변경 시 초기 위치 유지)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, query, containerRef, getTextarea, focusMatch]);
+
+  // 하이라이트 색 규칙 주입(문서당 1회)
+  useEffect(() => {
+    ensureHighlightStyle();
+  }, []);
 
   // 검색어/열림/내용 변경 시 재계산
   useEffect(() => {
