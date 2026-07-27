@@ -2351,6 +2351,8 @@ export function LineAssetEditor() {
           volume={state.bgmVolume}
           onChange={update}
           onSelectedItem={setSelectedBgm}
+          onPreviewStart={playback.stop}
+          externalPlaying={playback.mode !== "idle"}
         />
       </div>
 
