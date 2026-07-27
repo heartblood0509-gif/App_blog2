@@ -96,6 +96,7 @@ import {
   type SubtitleStyle,
 } from "@/lib/youtube/guide";
 import { loadShowGuides, saveShowGuides } from "@/lib/youtube/guide-prefs";
+import { sameText, toStoredForm } from "@/lib/youtube/text-form";
 import { GuideToggle } from "../GuideToggle";
 import {
   cleanupClipProxy,
@@ -1035,16 +1036,20 @@ export function LineAssetEditor() {
       clearDraft(lineId);
       return; // 바뀐 게 없음
     }
+    // 서버가 저장할 형태로 맞춰서 보내고, 로컬에도 같은 값을 넣는다.
+    // 원본 draft 를 로컬에 넣으면 서버는 완성형·화면은 분해형이 되어 그 줄이 영원히
+    // '수정됨'으로 남는다(text-form.ts 주석 참고). 눈에 보이는 글자는 달라지지 않는다.
+    const saved = toStoredForm(draft);
     setSavingText((s) => new Set(s).add(lineId));
     try {
-      await editLine(jobId, idx, draft);
+      await editLine(jobId, idx, saved);
       if (!mountedRef.current) return;
       // 로컬 텍스트 확정 + draft 제거(저장 성공이므로 textarea 는 확정 텍스트로 자연 전환).
       // 텍스트가 바뀌면 백엔드가 subtitle_chunks 를 리셋하므로 로컬도 null 로 맞춘다(자동 분할 복귀).
       setLines((prev) =>
         prev.map((l) =>
           String(l.line_id ?? "") === lineId
-            ? { ...l, text: draft, subtitle_chunks: null }
+            ? { ...l, text: saved, subtitle_chunks: null }
             : l,
         ),
       );
@@ -1541,8 +1546,12 @@ export function LineAssetEditor() {
   function isLineDirty(l: ScriptLine): boolean {
     if (!snap || voiceChanged) return true;
     const id = String(l.line_id ?? "");
-    if (drafts[id] !== undefined && drafts[id] !== l.text) return true;
-    return snap.texts[id] !== l.text;
+    // 표기형(완성형/분해형)만 다른 건 같은 글자로 본다 — text-form.ts 주석 참고.
+    // 빌드 당시 원문이 없는 구세션은 snap.texts[id] 가 undefined 라 여기서 dirty 가 되는데,
+    // 그건 의도된 동작이다(전 줄 재빌드로 안전하게 복구).
+    if (drafts[id] !== undefined && !sameText(drafts[id], l.text)) return true;
+    if (snap.texts[id] === undefined) return true;
+    return !sameText(snap.texts[id], l.text);
   }
   // 줄 순서가 마지막 빌드와 다른가. 렌더는 sent_XX.wav 를 **인덱스**로 짝지으므로, 순서만
   // 바뀌어도 재빌드하지 않으면 화면과 목소리가 어긋난 영상이 조용히 나온다. 줄별 dirty(텍스트
