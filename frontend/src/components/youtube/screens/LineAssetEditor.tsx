@@ -96,6 +96,7 @@ import {
   type SubtitleStyle,
 } from "@/lib/youtube/guide";
 import { loadShowGuides, saveShowGuides } from "@/lib/youtube/guide-prefs";
+import { bumpRegenUses, loadRegenUses, REGEN_LABEL_USES } from "@/lib/youtube/regen-hint";
 import { sameText, toStoredForm } from "@/lib/youtube/text-form";
 import { GuideToggle } from "../GuideToggle";
 import {
@@ -598,6 +599,8 @@ export function LineAssetEditor() {
   // 프리뷰 안전 영역(안전선 + 유튜브 UI 영역) 표시 토글. 자막 길이 판정과 무관 — 눈으로 확인용.
   // 첫 렌더는 true(첫 방문 켜짐 = SSR·클라 동일) → 마운트 후 저장된 기기 설정으로 맞춘다.
   const [showGuides, setShowGuides] = useState(true);
+  // '다시 읽기' 를 몇 번 써 봤나. 적으면 아이콘 옆에 글자를 같이 띄운다(SSR 은 0 → 글자 보임).
+  const [regenUses, setRegenUses] = useState(0);
   const toggleGuides = useCallback(() => {
     setShowGuides((prev) => {
       const next = !prev;
@@ -641,8 +644,10 @@ export function LineAssetEditor() {
   }, [lines]);
 
   // 저장된 "안전 영역" 표시 설정으로 맞춘다(첫 방문이면 유지=켜짐). 마운트 후 1회.
+  // '다시 읽기' 사용 횟수도 같이 읽는다(적으면 버튼에 글자를 같이 띄워 발견성 확보).
   useEffect(() => {
     setShowGuides(loadShowGuides());
+    setRegenUses(loadRegenUses());
   }, []);
 
   // 번들 폰트가 로드되면 한 번 리렌더 → 자막 폭 실측이 정확해진다(로드 전엔 폴백 폰트로 측정).
@@ -1582,6 +1587,15 @@ export function LineAssetEditor() {
     const idx = snap.lineIds.indexOf(String(l.line_id ?? ""));
     return idx >= 0 ? snap.durations[idx] ?? null : null;
   }
+  // 화면 표시 전용 길이 — 대본을 고친 줄도 '마지막에 만든 음성' 기준 길이를 돌려준다.
+  // 재생 버튼이 매번 다른 라벨로 바뀌지 않게 하려고 쓴다(고친 줄은 흐리게 그려 옛 값임을 표시).
+  // ⚠️ 판단 로직엔 쓰지 말 것 — 영상 길이 부족 검사 등은 durationOf(고치면 null)를 써야
+  // 낡은 길이로 잘못 통과하지 않는다.
+  function displayDurationOf(l: ScriptLine): number | null {
+    if (!snap) return null;
+    const idx = snap.lineIds.indexOf(String(l.line_id ?? ""));
+    return idx >= 0 ? snap.durations[idx] ?? null : null;
+  }
   const totalDuration =
     snap && !anyDirty ? snap.durations.reduce((a, b) => a + b, 0) : null;
   // 자막 스타일(작업 전역)로 실제 폭을 잰다 — 글자 크기를 줄이거나 위치를 옮기면 판정도 따라온다.
@@ -1782,6 +1796,7 @@ export function LineAssetEditor() {
   // 다시 눌러볼 수 있다. (예전엔 텍스트를 건드려야만 재생성돼 방법이 없었다)
   async function regenerateLine(lineId: string) {
     playback.stop();
+    setRegenUses(bumpRegenUses()); // 몇 번 써 보면 라벨을 접고 아이콘만 남긴다
     const s = await buildVoices([lineId]);
     if (s) playLineFromSnapshot(s, lineId);
   }
@@ -2508,34 +2523,50 @@ export function LineAssetEditor() {
                       <Loader2 className="h-3 w-3 animate-spin" /> 저장 중
                     </span>
                   )}
+                  {/* '대본이 바뀌었다' 는 상태이지 행동이 아니다 → 버튼 라벨이 아니라 배지로 말한다.
+                      예전엔 재생 버튼이 '새로 만들어 재생' 으로 변신하며 상태를 겸했는데,
+                      그러면 버튼이 매번 정체가 바뀌어 옆의 '다시 읽기' 와 구분이 안 됐다. */}
+                  {built && hasId && isLineDirty(l) && !building && (
+                    <span
+                      className="inline-flex items-center gap-0.5 text-[0.7rem] text-amber-600 dark:text-amber-400"
+                      title="대본이 바뀌었어요 — 재생을 누르면 새 대본으로 음성을 만들어 들려드려요"
+                    >
+                      <Pencil className="h-3 w-3" /> 수정됨
+                    </span>
+                  )}
                   {hasId && (() => {
                     const playingThis = playback.nowPlayingLineId === lineId;
-                    const dur = durationOf(l);
                     const dirtyThis = isLineDirty(l);
+                    // 재생 버튼은 언제나 '듣기' 하나만 뜻한다 → 라벨은 상태가 아니라 길이(정보)로 고정.
+                    // 고친 줄은 마지막에 만든 음성 기준 길이를 흐리게 보여주고(옛 값이라는 신호),
+                    // 만들어야 하는지 여부는 앱이 알아서 판단한다(누르면 새로 만들어 들려준다).
+                    const dur = displayDurationOf(l);
                     // 이 줄이 지금 실제로 만들어지고 있나. 한 줄만 다시 뽑을 때 다른 줄까지
                     // '만드는 중…' 으로 바뀌면 대본 전체가 새로 만들어지는 것처럼 보인다.
                     const buildingThis =
                       building && (buildingLineIds === null || buildingLineIds.has(lineId));
-                    const label = playingThis
-                      ? dur != null
-                        ? `재생 중 · ${formatTime(dur)}`
-                        : "재생 중"
-                      : buildingThis
-                        ? "만드는 중…"
-                        : dirtyThis
-                          ? "새로 만들어 재생"
-                          : dur != null
-                            ? formatTime(dur)
-                            : "재생";
+                    const label = buildingThis
+                      ? "만드는 중…"
+                      : dur != null
+                        ? formatTime(dur)
+                        : "재생";
                     return (
-                      <>
+                      // 재생(주) + 다시 읽기(보조)를 한 덩어리로 붙인다. 예전엔 같은 크기·같은
+                      // 알약 두 개가 나란히 있어 대등한 선택지로 읽혔고, 대본을 고친 순간엔
+                      // 실제로 둘이 같은 일을 해서 구분이 불가능했다. 위계를 시각으로 준다.
+                      <div className="ml-auto inline-flex shrink-0 items-center">
                         <button
                           type="button"
                           onClick={() => playLineFor(lineId)}
                           disabled={building}
                           aria-label={`${i + 1}번째 줄 음성 ${playingThis ? "정지" : "재생"}`}
+                          title={
+                            dirtyThis
+                              ? "대본이 바뀌었어요 — 누르면 새로 만들어 들려드려요"
+                              : "이 줄 음성 듣기"
+                          }
                           className={cn(
-                            "ml-auto inline-flex shrink-0 items-center gap-1 rounded-full border px-2 py-0.5 text-[0.7rem] transition-colors disabled:opacity-50",
+                            "inline-flex shrink-0 items-center gap-1 rounded-l-full border py-0.5 pl-2 pr-1.5 text-[0.7rem] transition-colors disabled:opacity-50",
                             playingThis
                               ? "border-primary bg-primary text-primary-foreground"
                               : dirtyThis
@@ -2550,25 +2581,34 @@ export function LineAssetEditor() {
                           ) : (
                             <Play className="size-3" />
                           )}
-                          {label}
+                          {/* 고친 줄의 길이는 옛 음성 기준이라 흐리게 — 숫자를 지우면 버튼 폭이
+                              들썩이고, 그대로 두면 최신 값으로 오해한다. */}
+                          <span className={cn(dirtyThis && !buildingThis && "opacity-50")}>
+                            {label}
+                          </span>
                         </button>
-                        {/* 다시 생성 — 억양·톤이 마음에 안 들 때 같은 문장을 새 연기로 다시 뽑는다.
-                            ⚠️ 조건을 달지 말 것. 예전엔 '낡지 않고 길이가 있는 줄'에만 띄웠는데,
+                        {/* 다시 읽기 — 억양·톤이 마음에 안 들 때 같은 문장을 새 연기로 다시 뽑는다.
+                            ⚠️ 표시 조건을 달지 말 것. 예전엔 '낡지 않고 길이가 있는 줄'에만 띄웠는데,
                             음성 설정을 조금만 만져도(v2↔v3 전환 등) 전 줄이 낡음 처리돼 버튼이
                             통째로 사라져 "버튼이 어디 있냐"가 됐다. 낡은 줄에서 눌러도 결과는
-                            같으므로(그 줄을 새로 합성) 항상 띄운다. */}
+                            같으므로(그 줄을 새로 합성) 항상 띄운다.
+                            아이콘만 두면 위계는 맞지만 처음 쓰는 사람이 못 찾으므로, 몇 번
+                            써 보기 전까지는 글자를 같이 보여준다(regen-hint.ts). */}
                         <button
                           type="button"
                           onClick={() => regenerateLine(lineId)}
                           disabled={building}
-                          aria-label={`${i + 1}번째 줄 음성 다시 만들기`}
-                          title="이 줄 음성만 다시 만들기 — 같은 문장도 억양·톤이 매번 달라져요"
-                          className="inline-flex shrink-0 items-center gap-1 rounded-full border border-border px-2 py-0.5 text-[0.7rem] text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:opacity-50"
+                          aria-label={`${i + 1}번째 줄 음성 다시 읽기`}
+                          title="다시 읽기 — 같은 문장을 새 느낌으로 다시 만들어요. 마음에 들 때까지 눌러보세요"
+                          className={cn(
+                            "-ml-px inline-flex shrink-0 items-center gap-1 rounded-r-full border border-border py-0.5 text-[0.7rem] text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:opacity-50",
+                            regenUses < REGEN_LABEL_USES ? "px-2" : "px-1.5",
+                          )}
                         >
                           <RefreshCw className={cn("size-3", buildingThis && "animate-spin")} />
-                          다시 생성
+                          {regenUses < REGEN_LABEL_USES && "다시 읽기"}
                         </button>
-                      </>
+                      </div>
                     );
                   })()}
                   <Button
