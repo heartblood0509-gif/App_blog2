@@ -1562,6 +1562,17 @@ export function LineAssetEditor() {
     if (snap.texts[id] === undefined) return true;
     return !sameText(snap.texts[id], l.text);
   }
+  // '수정됨' 배지 전용 — 대본 글자가 실제로 바뀐 줄만. isLineDirty 를 그대로 쓰면 음성 설정만
+  // 바꿔도(voiceChanged) 전 줄에 '수정됨' 이 붙어, 손대지도 않은 대본을 고쳤다고 거짓말하게 된다.
+  // 음성 설정 변경은 설정 바 아래 안내문이 따로 알린다.
+  function isLineTextDirty(l: ScriptLine): boolean {
+    if (!snap) return false;
+    const id = String(l.line_id ?? "");
+    if (drafts[id] !== undefined && !sameText(drafts[id], l.text)) return true;
+    // 빌드 당시 원문을 모르는 구세션은 '수정됨' 이라 단정할 수 없다(재빌드는 isLineDirty 가 챙긴다).
+    if (snap.texts[id] === undefined) return false;
+    return !sameText(snap.texts[id], l.text);
+  }
   // 줄 순서가 마지막 빌드와 다른가. 렌더는 sent_XX.wav 를 **인덱스**로 짝지으므로, 순서만
   // 바뀌어도 재빌드하지 않으면 화면과 목소리가 어긋난 영상이 조용히 나온다. 줄별 dirty(텍스트
   // 비교)로는 절대 못 잡는 종류라 여기서 따로 본다. 재빌드는 incremental 이라 wav rename 만
@@ -2526,7 +2537,7 @@ export function LineAssetEditor() {
                   {/* '대본이 바뀌었다' 는 상태이지 행동이 아니다 → 버튼 라벨이 아니라 배지로 말한다.
                       예전엔 재생 버튼이 '새로 만들어 재생' 으로 변신하며 상태를 겸했는데,
                       그러면 버튼이 매번 정체가 바뀌어 옆의 '다시 읽기' 와 구분이 안 됐다. */}
-                  {built && hasId && isLineDirty(l) && !building && (
+                  {built && hasId && isLineTextDirty(l) && !building && (
                     <span
                       className="inline-flex items-center gap-0.5 text-[0.7rem] text-amber-600 dark:text-amber-400"
                       title="대본이 바뀌었어요 — 재생을 누르면 새 대본으로 음성을 만들어 들려드려요"
@@ -2593,15 +2604,32 @@ export function LineAssetEditor() {
                             통째로 사라져 "버튼이 어디 있냐"가 됐다. 낡은 줄에서 눌러도 결과는
                             같으므로(그 줄을 새로 합성) 항상 띄운다.
                             아이콘만 두면 위계는 맞지만 처음 쓰는 사람이 못 찾으므로, 몇 번
-                            써 보기 전까지는 글자를 같이 보여준다(regen-hint.ts). */}
+                            써 보기 전까지는 글자를 같이 보여준다(regen-hint.ts).
+
+                            낡은 줄(대본 수정·음성 설정 변경)에서는 눌리지 않게 죽인다. 그 줄은
+                            ▶ 를 누르면 어차피 새로 만들어지므로 이 버튼은 할 일이 없는데, 나란히
+                            살아 있으면 "수정했으니 다시 읽기를 눌러야 하나?" 로 읽혀 재생 대신
+                            이쪽을 누르게 된다(실제 피드백). 눌러도 결과는 같지만, 그러면 v3 에서
+                            한 줄만 따로 뽑혀 전체와 같은 호흡에서 떨어져 나온다.
+                            ⚠️ 죽이되 숨기지는 말 것 — 사라지면 "버튼이 어디 있냐" 가 재발한다. */}
                         <button
                           type="button"
                           onClick={() => regenerateLine(lineId)}
-                          disabled={building}
+                          disabled={building || dirtyThis}
                           aria-label={`${i + 1}번째 줄 음성 다시 읽기`}
-                          title="다시 읽기 — 같은 문장을 새 느낌으로 다시 만들어요. 마음에 들 때까지 눌러보세요"
+                          title={
+                            !dirtyThis
+                              ? "다시 읽기 — 같은 문장을 새 느낌으로 다시 만들어요. 마음에 들 때까지 눌러보세요"
+                              : isLineTextDirty(l)
+                                ? "대본이 바뀌었어요 — ▶ 를 누르면 새 대본으로 만들어 들려드려요"
+                                : "음성 설정이 바뀌었어요 — ▶ 를 누르면 새 설정으로 만들어 들려드려요"
+                          }
                           className={cn(
-                            "-ml-px inline-flex shrink-0 items-center gap-1 rounded-r-full border border-border py-0.5 text-[0.7rem] text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:opacity-50",
+                            "-ml-px inline-flex shrink-0 items-center gap-1 rounded-r-full border border-border py-0.5 text-[0.7rem] text-muted-foreground transition-colors hover:bg-muted hover:text-foreground",
+                            // 죽었을 때 hover 반응까지 죽인다(눌릴 것처럼 보이면 안 됨).
+                            // pointer-events-none 은 쓰지 말 것 — 왜 안 눌리는지 알려주는
+                            // title 툴팁이 같이 죽어서, 막기만 하고 설명은 못 하게 된다.
+                            "disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-muted-foreground",
                             regenUses < REGEN_LABEL_USES ? "px-2" : "px-1.5",
                           )}
                         >
