@@ -59,8 +59,8 @@ import {
 import { downloadImageFromBase64 } from "@/lib/export-zip";
 
 // 내부 스크롤 영역(생성된 글 미리보기 등) — 기본보다 진한 스크롤바.
-// globals.css 손글씨 CSS는 기존 ::highlight 규칙 때문에 Turbopack(Lightning CSS) 파싱이
-// 실패해 누락되므로, 정상 동작하는 Tailwind 유틸(임의 변형) 경로로 스크롤바를 스타일링한다.
+// (globals.css 의 ::highlight 규칙이 Lightning CSS 파싱을 깨뜨려 뒤따르는 CSS 가 누락되던 시절의
+//  우회로. 그 규칙은 find-bar.tsx 런타임 주입으로 옮겨 원인은 해소됐고, 이 방식도 잘 동작해 유지.)
 const SCROLLBAR_PROMINENT =
   "[scrollbar-width:thin] [scrollbar-color:var(--color-muted-foreground)_transparent] " +
   "[&::-webkit-scrollbar]:w-[10px] [&::-webkit-scrollbar-track]:bg-transparent " +
