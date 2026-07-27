@@ -2291,7 +2291,6 @@ export function LineAssetEditor() {
           <h2 className="text-lg font-semibold">줄별 이미지·대본</h2>
           <ul className="mt-1.5 list-disc space-y-0.5 pl-4 text-sm text-muted-foreground marker:text-muted-foreground/60">
             <li>줄마다 AI 이미지를 만들거나 내 이미지·영상을 올리세요.</li>
-            <li>글을 고친 뒤 다른 곳을 누르면 저장됩니다.</li>
             <li>
               줄 왼쪽 <GripVertical className="inline size-3.5 align-text-bottom" /> 를 끌면 순서를
               바꿀 수 있어요.
@@ -2301,6 +2300,9 @@ export function LineAssetEditor() {
             </li>
             <li>
               문장 맨 앞에서 <b>Backspace</b>를 누르면 윗줄과 합쳐집니다.
+            </li>
+            <li>
+              만든 이미지·영상은 미리보기에서 <b>우클릭</b>하면 내려받을 수 있어요.
             </li>
           </ul>
         </div>
