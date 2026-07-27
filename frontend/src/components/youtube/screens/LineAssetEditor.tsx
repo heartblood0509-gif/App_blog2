@@ -2611,24 +2611,17 @@ export function LineAssetEditor() {
                             살아 있으면 "수정했으니 다시 읽기를 눌러야 하나?" 로 읽혀 재생 대신
                             이쪽을 누르게 된다(실제 피드백). 눌러도 결과는 같지만, 그러면 v3 에서
                             한 줄만 따로 뽑혀 전체와 같은 호흡에서 떨어져 나온다.
-                            ⚠️ 죽이되 숨기지는 말 것 — 사라지면 "버튼이 어디 있냐" 가 재발한다. */}
+                            ⚠️ 죽이되 숨기지는 말 것 — 사라지면 "버튼이 어디 있냐" 가 재발한다.
+                            왜 잠겼는지는 옆의 '수정됨' 배지와 설정 바 안내문이 이미 말해주므로
+                            여기에 title 툴팁을 다시 붙이지 말 것(현장 확인 후 불필요 판단). */}
                         <button
                           type="button"
                           onClick={() => regenerateLine(lineId)}
                           disabled={building || dirtyThis}
                           aria-label={`${i + 1}번째 줄 음성 다시 읽기`}
-                          title={
-                            !dirtyThis
-                              ? "다시 읽기 — 같은 문장을 새 느낌으로 다시 만들어요. 마음에 들 때까지 눌러보세요"
-                              : isLineTextDirty(l)
-                                ? "대본이 바뀌었어요 — ▶ 를 누르면 새 대본으로 만들어 들려드려요"
-                                : "음성 설정이 바뀌었어요 — ▶ 를 누르면 새 설정으로 만들어 들려드려요"
-                          }
                           className={cn(
                             "-ml-px inline-flex shrink-0 items-center gap-1 rounded-r-full border border-border py-0.5 text-[0.7rem] text-muted-foreground transition-colors hover:bg-muted hover:text-foreground",
                             // 죽었을 때 hover 반응까지 죽인다(눌릴 것처럼 보이면 안 됨).
-                            // pointer-events-none 은 쓰지 말 것 — 왜 안 눌리는지 알려주는
-                            // title 툴팁이 같이 죽어서, 막기만 하고 설명은 못 하게 된다.
                             "disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-muted-foreground",
                             regenUses < REGEN_LABEL_USES ? "px-2" : "px-1.5",
                           )}
