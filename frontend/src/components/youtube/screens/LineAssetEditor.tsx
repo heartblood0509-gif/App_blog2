@@ -2536,12 +2536,10 @@ export function LineAssetEditor() {
                   )}
                   {/* '대본이 바뀌었다' 는 상태이지 행동이 아니다 → 버튼 라벨이 아니라 배지로 말한다.
                       예전엔 재생 버튼이 '새로 만들어 재생' 으로 변신하며 상태를 겸했는데,
-                      그러면 버튼이 매번 정체가 바뀌어 옆의 '다시 읽기' 와 구분이 안 됐다. */}
+                      그러면 버튼이 매번 정체가 바뀌어 옆의 '다시 읽기' 와 구분이 안 됐다.
+                      title 툴팁은 달지 말 것 — 배지 글자와 같은 말이라 겹치기만 한다(현장 확인). */}
                   {built && hasId && isLineTextDirty(l) && !building && (
-                    <span
-                      className="inline-flex items-center gap-0.5 text-[0.7rem] text-amber-600 dark:text-amber-400"
-                      title="대본이 바뀌었어요 — 재생을 누르면 새 대본으로 음성을 만들어 들려드려요"
-                    >
+                    <span className="inline-flex items-center gap-0.5 text-[0.7rem] text-amber-600 dark:text-amber-400">
                       <Pencil className="h-3 w-3" /> 수정됨
                     </span>
                   )}
@@ -2551,6 +2549,8 @@ export function LineAssetEditor() {
                     // 재생 버튼은 언제나 '듣기' 하나만 뜻한다 → 라벨은 상태가 아니라 길이(정보)로 고정.
                     // 고친 줄은 마지막에 만든 음성 기준 길이를 흐리게 보여주고(옛 값이라는 신호),
                     // 만들어야 하는지 여부는 앱이 알아서 판단한다(누르면 새로 만들어 들려준다).
+                    // title 툴팁은 달지 말 것 — 옆 '수정됨' 배지·흐린 길이·호박색 테두리가 이미
+                    // 같은 말을 눈에 보이게 하고 있다(현장 확인 후 제거).
                     const dur = displayDurationOf(l);
                     // 이 줄이 지금 실제로 만들어지고 있나. 한 줄만 다시 뽑을 때 다른 줄까지
                     // '만드는 중…' 으로 바뀌면 대본 전체가 새로 만들어지는 것처럼 보인다.
@@ -2571,11 +2571,6 @@ export function LineAssetEditor() {
                           onClick={() => playLineFor(lineId)}
                           disabled={building}
                           aria-label={`${i + 1}번째 줄 음성 ${playingThis ? "정지" : "재생"}`}
-                          title={
-                            dirtyThis
-                              ? "대본이 바뀌었어요 — 누르면 새로 만들어 들려드려요"
-                              : "이 줄 음성 듣기"
-                          }
                           className={cn(
                             "inline-flex shrink-0 items-center gap-1 rounded-l-full border py-0.5 pl-2 pr-1.5 text-[0.7rem] transition-colors disabled:opacity-50",
                             playingThis
