@@ -314,6 +314,10 @@ class TtsPreviewBuildRequest(BaseModel):
     line_ids: Optional[list[str]] = None
     # 같은 세션으로 재빌드할 때 전달. 음성 시그니처가 같으면 incremental, 다르면 전체 재생성.
     existing_session_id: Optional[str] = None
+    # 글자가 그대로여도 무조건 다시 합성할 줄(화면·소리의 '다시 생성' 버튼).
+    # TTS 는 같은 문장이라도 호출마다 억양·톤이 달라지므로, 마음에 안 드는 줄을 다시 뽑을
+    # 수단이 필요하다. 이게 없으면 텍스트를 건드려야만 재생성돼(해시 비교) 손댈 방법이 없다.
+    force_regen_line_ids: Optional[list[str]] = None
     # 6초 초과 분리는 첫 빌드에만 적용. incremental 모드(existing_session_id 제공 시)에서는 건너뜀.
     content_type: Optional[str] = None
     topic: Optional[str] = None

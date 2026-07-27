@@ -265,7 +265,6 @@ export function VoiceSettingsBar({
             model={elModel}
             stability={elStability}
             similarity={elSimilarity}
-            style={elStyle}
             voicesState={elVoices}
             disabled={disabled}
             onPatch={(p: ElevenPatch) => onPatch(p)}

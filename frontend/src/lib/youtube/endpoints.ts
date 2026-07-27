@@ -220,6 +220,8 @@ export interface TtsPreviewBuildInput {
   // 카드 B incremental 전용(카드 A 미사용).
   line_ids?: (string | null)[];
   existing_session_id?: string | null;
+  // 글자가 그대로여도 다시 합성할 줄('다시 생성' 버튼). 같은 문장도 호출마다 톤이 달라진다.
+  force_regen_line_ids?: string[];
 }
 export interface TtsPreviewBuildResult {
   session_id: string;

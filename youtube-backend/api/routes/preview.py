@@ -37,7 +37,7 @@ from core.user_assets_visual import (
     legacy_line_asset_rel,
     line_asset_rel,
     line_asset_rel_candidates,
-    line_text_hash,
+    line_text_hash_matches,
     mark_line_asset_ready,
     new_line_id,
     parse_visual_plan,
@@ -1343,7 +1343,7 @@ def _voice_script_mismatch(sig_dir: str, lines: list[dict]) -> str | None:
         return "줄 순서가 바뀌었어요. 화면·소리 단계에서 '나레이션 음성 만들기'를 다시 실행해주세요."
     for i, line in enumerate(lines):
         lid = str(line.get("line_id") or "")
-        if not lid or sig_hashes.get(lid) != line_text_hash((line.get("text") or "").strip()):
+        if not lid or not line_text_hash_matches(sig_hashes.get(lid), (line.get("text") or "").strip()):
             return f"{i + 1}번째 줄 음성이 현재 대본과 일치하지 않아요. 화면·소리 단계에서 '나레이션 음성 만들기'를 다시 실행해주세요."
     return None
 

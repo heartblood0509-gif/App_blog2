@@ -111,3 +111,41 @@ def test_coerce_float():
     assert _coerce_float("1.5", 0.0) == 1.5
     assert _coerce_float(None, 0.5) == 0.5
     assert _coerce_float("bad", 0.3) == 0.3
+
+
+# ── 앞뒤 문맥(previous_text/next_text) ────────────────────────
+# 짧은 줄이 홀로 날아가면 모델이 한국어 대본인데 중국어·영어 발음을 튀게 하는 문제 완화용.
+# ⚠️ v3 는 이 파라미터를 HTTP 400(unsupported_model)으로 거부하므로 반드시 빠져야 한다.
+from core.tts_engines import _eleven_context, _ELEVEN_CONTEXT_CHARS  # noqa: E402
+
+_SENTS = ["첫째 문장.", "둘째 문장.", "셋째 문장.", "넷째 문장."]
+
+
+def test_context_includes_both_sides_in_original_order():
+    prev, nxt = _eleven_context(_SENTS, 2, "eleven_multilingual_v2")
+    assert prev == "첫째 문장. 둘째 문장."   # 원문 순서 유지(역순 아님)
+    assert nxt == "넷째 문장."
+
+
+def test_context_none_at_edges():
+    assert _eleven_context(_SENTS, 0, "eleven_multilingual_v2")[0] is None   # 첫 줄엔 앞 문맥 없음
+    assert _eleven_context(_SENTS, 3, "eleven_multilingual_v2")[1] is None   # 끝 줄엔 뒤 문맥 없음
+    assert _eleven_context(["혼자"], 0, "eleven_multilingual_v2") == (None, None)
+
+
+def test_context_disabled_for_v3():
+    # v3 에 붙이면 생성 자체가 400 으로 죽는다 — 모델 게이트 회귀 방지.
+    assert _eleven_context(_SENTS, 2, "eleven_v3") == (None, None)
+
+
+def test_context_respects_char_budget():
+    long = ["가" * 250, "나" * 250, "짧은 줄", "다" * 250, "라" * 250]
+    prev, nxt = _eleven_context(long, 2, "eleven_multilingual_v2")
+    # 250+250 은 예산(300)을 넘으므로 가장 가까운 한 줄만 담긴다.
+    assert len(prev) <= _ELEVEN_CONTEXT_CHARS and len(nxt) <= _ELEVEN_CONTEXT_CHARS
+    assert prev == "나" * 250 and nxt == "다" * 250
+
+
+def test_context_skips_blank_and_bad_index():
+    assert _eleven_context(_SENTS, 99, "eleven_multilingual_v2") == (None, None)
+    assert _eleven_context(["", "  ", "본문"], 2, "eleven_multilingual_v2")[0] is None

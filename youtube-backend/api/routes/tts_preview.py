@@ -34,7 +34,7 @@ from core.audio_splitter import (
     cut_wav_at,
     get_wav_duration,
 )
-from core.user_assets_visual import line_text_hash
+from core.user_assets_visual import line_text_hash, line_text_hash_matches
 from core.app_control import is_app_control_block, SAC_MESSAGE_VOICE
 from api.deps import get_approved_user, resolve_user_api_keys
 from api.models import TtsPreviewBuildRequest
@@ -519,14 +519,19 @@ async def _rebuild_incremental(
             except Exception:
                 pass
 
-    # 새 line_order에 맞춰 _swap에서 복원 또는 재생성 대상에 추가
+    # 새 line_order에 맞춰 _swap에서 복원 또는 재생성 대상에 추가.
+    # force_set 은 글자가 그대로여도 다시 합성한다('다시 생성' 버튼) — 재사용 분기를 건너뛴다.
+    force_set = {str(x) for x in (req.force_regen_line_ids or []) if x}
     indices_to_regen: list[int] = []
     for new_idx, lid in enumerate(line_ids):
         dest = os.path.join(session_dir, f"sent_{new_idx:02d}.wav")
         swap_path = os.path.join(swap_dir, f"{lid}.wav") if lid else ""
         if (
             lid
-            and prev_hashes.get(lid) == new_hashes[lid]
+            and lid not in force_set
+            # 표기형(NFC/NFD)만 다른 경우는 같은 글자로 본다 — 아니면 눈에 똑같은 대본인데
+            # 전 줄이 재합성돼 크레딧이 그냥 나간다(line_text_hash_matches 주석 참고).
+            and line_text_hash_matches(prev_hashes.get(lid), req.sentences[new_idx])
             and swap_path
             and os.path.exists(swap_path)
         ):

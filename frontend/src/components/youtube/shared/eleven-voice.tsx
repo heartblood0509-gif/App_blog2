@@ -100,7 +100,6 @@ export interface ElevenPatch {
   elModel?: string;
   elStability?: number;
   elSimilarity?: number;
-  elStyle?: number;
 }
 
 // 라벨 옆 느낌표(ⓘ) 아이콘에 마우스를 올리면 뜨는 흰색 말풍선 껍데기.
@@ -193,9 +192,11 @@ function ModelHint() {
         더 가깝게 재현</b>합니다. 자막과 음성 타이밍도 정확해 자막이 중요한 숏폼에 적합해요.
       </p>
       <p>
-        <b>최신 (v3)</b> — 표현력·감정 연기가 가장 뛰어납니다. 대신 <b>복제 음성은 원본과 덜 닮게</b>
+        <b>최신 (v3)</b> — 표현력·감정 연기가 가장 뛰어납니다. 대본 전체를 한 번에 읽어 만들기
+        때문에 <b>줄이 바뀌어도 목소리 톤이 일정</b>해요. 대신 <b>복제 음성은 원본과 덜 닮게</b>
         나올 수 있고(ElevenLabs 공식: 전문 클론은 아직 v3에 최적화 전이라 이전 모델보다 클론 품질이
-        낮을 수 있음), 만들 때마다 조금씩 달라지며 자막 타이밍 정밀도도 v2보다 떨어질 수 있어요.
+        낮을 수 있음), 만들 때마다 조금씩 달라집니다. 유사도·스타일 조절은 v3에서 지원되지 않아
+        숨겨져요.
       </p>
       <p className="border-t border-border pt-2 text-muted-foreground">
         한 줄 요약: 내 목소리와 닮게·자막 정확이 중요하면 표준(v2), 감정 표현이 중요하면 최신(v3).
@@ -223,24 +224,20 @@ function SimilarityHint() {
   );
 }
 
-// 스타일 설명 — ElevenLabs 공식: "원본 화자의 스타일을 과장. 모델이 약간 덜 안정적이 되고
-// 지연이 늘 수 있으며, 일반적으로 항상 0 유지를 권장."
-function StyleHint() {
-  return (
-    <InfoHint label="스타일 설명 보기">
-      <p>원본 화자의 말투·억양 등 특유의 &lsquo;스타일&rsquo;을 얼마나 과장할지 정해요.</p>
-      <p>
-        <b>0</b> — 과장 없음(기본).
-      </p>
-      <p>
-        <b>올릴수록</b> — 그 사람 특유의 스타일이 강조되지만, 목소리가 불안정해지고 생성이 느려질 수 있어요.
-      </p>
-      <p className="border-t border-border pt-2 text-muted-foreground">
-        ElevenLabs는 특별한 이유가 없으면 <b>0으로 두기를 권장</b>해요.
-      </p>
-    </InfoHint>
-  );
-}
+// ⚠️ '스타일' 슬라이더는 없앴다 — 되살리지 말 것.
+//
+// ElevenLabs 는 style 을 받아서 범위 검사까지 하지만(0~1 밖이면 400) 실제로는 쓰지 않는다.
+// 2026-07 실측: seed 를 고정해 v2 로 style 0 / 0.5 / 1 을 각각 생성한 결과가 바이트까지 동일.
+// 같은 방법에서 similarity_boost·stability 는 정상적으로 결과가 바뀌므로 판별법 문제가 아니다.
+// use_speaker_boost 를 꺼도, turbo v2.5·flash v2.5 에서도, 기본 음성이든 전문 클론이든 동일하게
+// 무시된다. v3 는 아예 dialogue 로 합성하는데 그쪽 스펙엔 style 필드 자체가 없다.
+//
+// 공식 문서는 "지원 안 함"이라고 적어두지 않았다(속도·유사도·화자강조는 v3 제외를 명시하면서
+// style 만 그 목록에 없다). 대신 "항상 0 으로 두기를 권장 — 지연이 늘고 모델이 덜 안정적이 됨"
+// 이라고 안내한다. 톤 일관성을 잡는 우리 방향과 정반대라 되살릴 이유도 없다.
+//
+// 저장·전송 경로(state.elStyle → tts_options.style)는 0 으로 그대로 두었다. 나중에 실제로
+// 지원되기 시작하면 슬라이더만 다시 붙이면 된다.
 
 function LabeledSlider({
   label,
@@ -292,7 +289,6 @@ export function ElevenVoiceControls({
   model,
   stability,
   similarity,
-  style,
   voicesState,
   onPatch,
   disabled,
@@ -302,7 +298,6 @@ export function ElevenVoiceControls({
   model: string;
   stability: number;
   similarity: number;
-  style: number;
   voicesState: ElevenVoicesState;
   onPatch: (p: ElevenPatch) => void;
   disabled?: boolean;
@@ -439,20 +434,19 @@ export function ElevenVoiceControls({
             />
           )}
 
-          <LabeledSlider
-            label="유사도"
-            hint={<SimilarityHint />}
-            value={similarity}
-            disabled={disabled}
-            onChange={(v) => onPatch({ elSimilarity: v })}
-          />
-          <LabeledSlider
-            label="스타일"
-            hint={<StyleHint />}
-            value={style}
-            disabled={disabled}
-            onChange={(v) => onPatch({ elStyle: v })}
-          />
+          {/* 유사도는 v3 에서 숨긴다 — v3 는 대본을 한 번에 합성하는 text-to-dialogue 로
+              만드는데, 이 방식이 받는 설정은 안정성 하나뿐이다. 보내도 조용히 무시되므로
+              (2026-07 실측) 띄워두면 "만졌는데 아무것도 안 변한다"가 된다.
+              (스타일은 모든 모델에서 무효라 아예 제거했다 — 위 ⚠️ 주석 참고) */}
+          {!isV3 && (
+            <LabeledSlider
+              label="유사도"
+              hint={<SimilarityHint />}
+              value={similarity}
+              disabled={disabled}
+              onChange={(v) => onPatch({ elSimilarity: v })}
+            />
+          )}
         </div>
       )}
     </div>

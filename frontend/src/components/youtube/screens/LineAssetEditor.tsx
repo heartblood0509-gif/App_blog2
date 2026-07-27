@@ -1597,7 +1597,8 @@ export function LineAssetEditor() {
   const hasShortClip = shortClipLineIdx >= 0;
 
   // 음성 세션 (재)빌드 — 미저장 편집 반영 → preview-build(incremental) → 스냅샷 저장. 성공 시 새 스냅샷 반환.
-  async function buildVoices(): Promise<TtsBuildSnapshot | null> {
+  // forceLineIds: 글자가 그대로여도 다시 합성할 줄('다시 생성' 버튼). 안 주면 기존대로 바뀐 줄만.
+  async function buildVoices(forceLineIds?: string[]): Promise<TtsBuildSnapshot | null> {
     if (!jobId) return null;
     playback.stop();
     setBuilding(true);
@@ -1628,6 +1629,7 @@ export function LineAssetEditor() {
         style: "realistic",
         line_ids: ls.map((l) => l.line_id ?? null),
         existing_session_id: state.ttsSessionId,
+        force_regen_line_ids: forceLineIds,
       });
       const lineIds = ls.map((l) => String(l.line_id ?? ""));
       const texts: Record<string, string> = {};
@@ -1720,14 +1722,9 @@ export function LineAssetEditor() {
     return await buildVoices();
   }
 
-  // 줄 ▶: 재생 중이면 정지, 아니면 (필요 시 그 줄만 재생성 후) 그 줄만 재생.
-  async function playLineFor(lineId: string) {
-    if (playback.nowPlayingLineId === lineId && playback.mode === "line") {
-      playback.stop();
-      return;
-    }
-    const s = await ensureBuilt();
-    if (!s) return;
+  // 주어진 스냅샷 기준으로 그 줄만 재생. 방금 빌드한 결과(s)를 그대로 쓰므로,
+  // 상태 반영을 기다리지 않고 바로 새 음성을 들려줄 수 있다.
+  function playLineFromSnapshot(s: TtsBuildSnapshot, lineId: string) {
     const idx = s.lineIds.indexOf(lineId);
     if (idx < 0) return;
     const line = linesRef.current.find((l) => String(l.line_id ?? "") === lineId);
@@ -1743,6 +1740,26 @@ export function LineAssetEditor() {
         wordTimes: s.wordTimes?.[idx] ?? null,
       },
     });
+  }
+
+  // 줄 ▶: 재생 중이면 정지, 아니면 (필요 시 그 줄만 재생성 후) 그 줄만 재생.
+  async function playLineFor(lineId: string) {
+    if (playback.nowPlayingLineId === lineId && playback.mode === "line") {
+      playback.stop();
+      return;
+    }
+    const s = await ensureBuilt();
+    if (!s) return;
+    playLineFromSnapshot(s, lineId);
+  }
+
+  // 줄 '다시 생성': 글자를 그대로 둔 채 그 줄 음성만 새로 뽑고 바로 들려준다.
+  // 같은 문장이라도 호출마다 억양·톤이 달라지므로, 마음에 드는 연기가 나올 때까지
+  // 다시 눌러볼 수 있다. (예전엔 텍스트를 건드려야만 재생성돼 방법이 없었다)
+  async function regenerateLine(lineId: string) {
+    playback.stop();
+    const s = await buildVoices([lineId]);
+    if (s) playLineFromSnapshot(s, lineId);
   }
 
   function scrollLineIntoView(lineId: string) {
@@ -2483,29 +2500,47 @@ export function LineAssetEditor() {
                             ? formatTime(dur)
                             : "재생";
                     return (
-                      <button
-                        type="button"
-                        onClick={() => playLineFor(lineId)}
-                        disabled={building}
-                        aria-label={`${i + 1}번째 줄 음성 ${playingThis ? "정지" : "재생"}`}
-                        className={cn(
-                          "ml-auto inline-flex shrink-0 items-center gap-1 rounded-full border px-2 py-0.5 text-[0.7rem] transition-colors disabled:opacity-50",
-                          playingThis
-                            ? "border-primary bg-primary text-primary-foreground"
-                            : dirtyThis
-                              ? "border-amber-500/60 text-amber-700 hover:bg-amber-50 dark:text-amber-400 dark:hover:bg-amber-950/40"
-                              : "border-border text-muted-foreground hover:bg-muted hover:text-foreground",
-                        )}
-                      >
-                        {building && !playingThis ? (
-                          <Loader2 className="size-3 animate-spin" />
-                        ) : playingThis ? (
-                          <Pause className="size-3" />
-                        ) : (
-                          <Play className="size-3" />
-                        )}
-                        {label}
-                      </button>
+                      <>
+                        <button
+                          type="button"
+                          onClick={() => playLineFor(lineId)}
+                          disabled={building}
+                          aria-label={`${i + 1}번째 줄 음성 ${playingThis ? "정지" : "재생"}`}
+                          className={cn(
+                            "ml-auto inline-flex shrink-0 items-center gap-1 rounded-full border px-2 py-0.5 text-[0.7rem] transition-colors disabled:opacity-50",
+                            playingThis
+                              ? "border-primary bg-primary text-primary-foreground"
+                              : dirtyThis
+                                ? "border-amber-500/60 text-amber-700 hover:bg-amber-50 dark:text-amber-400 dark:hover:bg-amber-950/40"
+                                : "border-border text-muted-foreground hover:bg-muted hover:text-foreground",
+                          )}
+                        >
+                          {building && !playingThis ? (
+                            <Loader2 className="size-3 animate-spin" />
+                          ) : playingThis ? (
+                            <Pause className="size-3" />
+                          ) : (
+                            <Play className="size-3" />
+                          )}
+                          {label}
+                        </button>
+                        {/* 다시 생성 — 억양·톤이 마음에 안 들 때 같은 문장을 새 연기로 다시 뽑는다.
+                            ⚠️ 조건을 달지 말 것. 예전엔 '낡지 않고 길이가 있는 줄'에만 띄웠는데,
+                            음성 설정을 조금만 만져도(v2↔v3 전환 등) 전 줄이 낡음 처리돼 버튼이
+                            통째로 사라져 "버튼이 어디 있냐"가 됐다. 낡은 줄에서 눌러도 결과는
+                            같으므로(그 줄을 새로 합성) 항상 띄운다. */}
+                        <button
+                          type="button"
+                          onClick={() => regenerateLine(lineId)}
+                          disabled={building}
+                          aria-label={`${i + 1}번째 줄 음성 다시 만들기`}
+                          title="이 줄 음성만 다시 만들기 — 같은 문장도 억양·톤이 매번 달라져요"
+                          className="inline-flex shrink-0 items-center gap-1 rounded-full border border-border px-2 py-0.5 text-[0.7rem] text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:opacity-50"
+                        >
+                          <RefreshCw className="size-3" />
+                          다시 생성
+                        </button>
+                      </>
                     );
                   })()}
                   <Button

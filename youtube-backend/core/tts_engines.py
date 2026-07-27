@@ -37,6 +37,172 @@ _ELEVEN_DEFAULT_MODEL = "eleven_multilingual_v2"
 _ELEVEN_SPEED_MIN = 0.7
 _ELEVEN_SPEED_MAX = 1.2
 
+# 앞뒤 문맥(previous_text/next_text) 으로 붙일 최대 글자 수(각 방향).
+#
+# 대본은 줄마다 따로 API 를 호출하는데, "먼저 첫째, 토리예요." 같은 짧은 줄이 홀로 날아가면
+# 모델이 언어를 추측할 단서가 부족해 한국어 대본인데 중국어·영어 발음이 튀어나온다
+# (ElevenLabs 공식 문서도 인정하는 알려진 현상이고, multilingual v2 는 language_code 로
+# 언어를 잠글 수도 없다). 앞뒤 문장을 문맥으로 같이 보내면 "이건 한국어 문단"이라는 단서가
+# 생겨 오추측이 줄고 줄 사이 억양 연결도 자연스러워진다.
+#
+# 문맥은 읽히지 않고 참고만 되므로 과금되지 않는다 — 2026-07 실측: 610자 문맥 + 12자 문장
+# 호출에서 사용량은 7 만 증가(문맥이 과금됐다면 ~620 증가했어야 함).
+_ELEVEN_CONTEXT_CHARS = 300
+
+# 앞뒤 문맥을 받지 않는 모델. v3 에 previous_text/next_text 를 보내면 HTTP 400
+# (validation_error / unsupported_model) 로 생성 자체가 실패한다 — 반드시 걸러야 한다.
+_ELEVEN_NO_CONTEXT_MODELS = {"eleven_v3"}
+
+
+def _eleven_context(sentences, index, model_id):
+    """index 줄 기준 (previous_text, next_text). 지원 안 하는 모델이면 (None, None).
+
+    앞/뒤로 _ELEVEN_CONTEXT_CHARS 글자를 넘지 않는 선까지 이웃 문장을 이어 붙인다.
+    """
+    if (model_id or _ELEVEN_DEFAULT_MODEL) in _ELEVEN_NO_CONTEXT_MODELS:
+        return None, None
+    if not sentences or not (0 <= index < len(sentences)):
+        return None, None
+
+    def _gather(rng):
+        parts = []
+        total = 0
+        for i in rng:
+            s = str(sentences[i] or "").strip()
+            if not s:
+                continue
+            if total + len(s) > _ELEVEN_CONTEXT_CHARS and parts:
+                break
+            parts.append(s)
+            total += len(s)
+        return parts
+
+    prev_parts = _gather(range(index - 1, -1, -1))  # 가까운 줄부터 모아서
+    prev = " ".join(reversed(prev_parts)) or None   # 원래 순서로 되돌림
+    nxt = " ".join(_gather(range(index + 1, len(sentences)))) or None
+    return prev, nxt
+
+
+# ⚠️ v3 는 요청 사이 톤을 이어주는 장치가 하나도 없다(2026-07 실 API 검증).
+#   · seed: 200 으로 받아주지만 무시된다 — 같은 seed·같은 문장 2회가 서로 다른 오디오.
+#     (v2 는 같은 seed 면 바이트까지 동일 → v2 만 실제 적용됨)
+#   · previous_text/next_text: HTTP 400 unsupported_model 로 아예 거부.
+#   · request stitching(previous_request_ids): 공식 문서상 v3 미지원. dialogue 에도 없음.
+# 그래서 줄마다 따로 호출하면 v3 톤 흔들림을 줄일 방법이 없었다(안정성을 '안정적'으로 올려도
+# 줄별 음높이 편차 148Hz 로, v2 중간 설정 70Hz 의 2 배). 위 3 개를 다시 시도하지 말 것 —
+# 해결은 아래 text-to-dialogue 경로다.
+
+
+# ── ElevenLabs text-to-dialogue (v3 전용) ──────────────────────────────
+#
+# 대본을 한 요청에 통째로 넣으면 한 번의 연기로 전부 만들어져 줄별 편차가 76Hz 로 절반이
+# 된다(2026-07 실측, v2 의 70Hz 와 같은 수준). 이게 v3 톤 흔들림의 유일한 해법이다.
+#
+# /with-timestamps 로 부르면 voice_segments 에 줄별 시작·끝 시간과 글자 인덱스가 함께 와서,
+# 한 덩어리 오디오를 줄별 sent_XX.wav 로 정확히 자를 수 있다. 자막용 글자 정렬도 그대로
+# 나오므로 기존 파이프라인(_alignment_to_word_times)을 그대로 재사용한다.
+#
+# 한 줄만 다시 뽑아도 된다 — 재생성으로 생기는 톤 차이는 평균 28Hz 로, 한 대본 안에서
+# 이웃 줄끼리 원래 나는 차이(평균 30Hz)보다 작다. 앞뒤 줄을 창처럼 같이 보내도 26Hz 로
+# 차이가 없다(이웃도 새로 만들어지므로 '간직한 옛 오디오'와 맞을 이유가 없다). 그러니
+# 증분 재생성에 창을 끼워 넣어 크레딧을 더 쓰지 말 것.
+_ELEVEN_DIALOGUE_MODELS = {"eleven_v3"}
+
+# 한 요청에 넣을 최대 글자 수. 공식 문서가 2000자 이하를 권하며, 넘기면 스트리밍이 도중에
+# 끊기거나 validation_error 가 날 수 있다고 명시한다. 실사용 쇼츠 대본은 최대 668자라 보통
+# 한 번에 들어가지만, 대본 상한(5000자)까지 쓰면 배치가 나뉜다. 배치 경계에선 톤이 살짝
+# 튈 수 있는데(재롤 편차 ~21Hz) 줄 사이 자연 편차(~30Hz)보다 작아 체감되지 않는다.
+_ELEVEN_DIALOGUE_MAX_CHARS = 2000
+
+
+def _uses_dialogue(model_id) -> bool:
+    return (model_id or _ELEVEN_DEFAULT_MODEL) in _ELEVEN_DIALOGUE_MODELS
+
+
+def _dialogue_batches(indices, sentences, max_chars=_ELEVEN_DIALOGUE_MAX_CHARS):
+    """indices 를 글자 수 상한에 맞춰 배치로 나눈다.
+
+    한 줄이 혼자 상한을 넘어도 쪼개지 않고 단독 배치로 둔다 — 문장을 임의로 자르면
+    자막 줄과 음성 줄이 어긋나기 때문. (그 경우 API 가 거부하면 그대로 에러가 뜬다.)
+    """
+    batches: list[list[int]] = []
+    cur: list[int] = []
+    total = 0
+    for i in indices:
+        n = len(str(sentences[i] or ""))
+        if cur and total + n > max_chars:
+            batches.append(cur)
+            cur, total = [], 0
+        cur.append(i)
+        total += n
+    if cur:
+        batches.append(cur)
+    return batches
+
+
+def _slice_alignment(alignment, char_start, char_end, offset_seconds, tempo):
+    """전체 글자 정렬에서 [char_start, char_end) 구간만 잘라 그 줄 기준으로 옮긴다.
+
+    tempo 는 응답을 받은 뒤 우리가 ffmpeg 로 걸 배속이다. 배속을 걸면 오디오가
+    1/tempo 로 짧아지므로 타임스탬프도 같은 비율로 줄여야 자막이 어긋나지 않는다.
+    offset_seconds 는 이미 배속이 반영된 그 줄의 시작 시각.
+    """
+    if not isinstance(alignment, dict):
+        return None
+    chars = alignment.get("characters")
+    starts = alignment.get("character_start_times_seconds")
+    ends = alignment.get("character_end_times_seconds")
+    if not (isinstance(chars, list) and isinstance(starts, list) and isinstance(ends, list)):
+        return None
+    n = min(len(chars), len(starts), len(ends))
+    cs = max(0, min(int(char_start), n))
+    ce = max(cs, min(int(char_end), n))
+    if ce <= cs:
+        return None
+    try:
+        return {
+            "characters": [str(c) for c in chars[cs:ce]],
+            "character_start_times_seconds": [
+                max(0.0, float(s) / tempo - offset_seconds) for s in starts[cs:ce]
+            ],
+            "character_end_times_seconds": [
+                max(0.0, float(e) / tempo - offset_seconds) for e in ends[cs:ce]
+            ],
+        }
+    except (TypeError, ValueError):
+        return None
+
+
+def _dialogue_spans(segments, count, prefix):
+    """voice_segments → {입력번호: [시작초, 끝초, 글자시작, 글자끝]}.
+
+    한 입력이 여러 조각으로 쪼개져 올 가능성에 대비해 같은 번호끼리 합친다.
+    """
+    spans: dict[int, list] = {}
+    for seg in segments or []:
+        try:
+            k = int(seg["dialogue_input_index"])
+            t0 = float(seg["start_time_seconds"])
+            t1 = float(seg["end_time_seconds"])
+            cs = int(seg["character_start_index"])
+            ce = int(seg["character_end_index"])
+        except (KeyError, TypeError, ValueError):
+            continue
+        if not (0 <= k < count):
+            continue
+        cur = spans.get(k)
+        if cur is None:
+            spans[k] = [t0, t1, cs, ce]
+        else:
+            cur[0], cur[1] = min(cur[0], t0), max(cur[1], t1)
+            cur[2], cur[3] = min(cur[2], cs), max(cur[3], ce)
+    missing = [k for k in range(count) if k not in spans]
+    if missing:
+        raise RuntimeError(
+            f"{prefix} 응답에서 {len(missing)}개 줄의 구간 정보를 찾지 못했습니다. 다시 시도해주세요."
+        )
+    return spans
+
 
 # ── Typecast 크레딧 소진(402) 안내 ──
 #
@@ -436,7 +602,7 @@ def _pack_char_alignment(alignment):
         return None
 
 
-def _eleven_decode_to_wav(mp3_bytes, mp3_path, out_path, prefix):
+def _eleven_decode_to_wav(mp3_bytes, mp3_path, out_path, prefix, atempo=None):
     """ElevenLabs mp3 바이트 → 번들 ffmpeg 로 sent_XX.wav(pcm 44100 mono) 디코드.
 
     SAC(Smart App Control)가 ffmpeg 실행을 통째로 막는 경우(WinError 4551)는
@@ -447,10 +613,15 @@ def _eleven_decode_to_wav(mp3_bytes, mp3_path, out_path, prefix):
 
     with open(mp3_path, "wb") as f:
         f.write(mp3_bytes)
+    # atempo 는 음높이를 건드리지 않고 속도만 바꾼다. 한 번에 0.5~2.0 배까지 가능하며
+    # 우리 허용 범위(0.7~1.2)는 그 안에 들어간다. dialogue 응답에 배속을 걸 때만 쓴다.
+    tempo_args = []
+    if atempo and abs(float(atempo) - 1.0) > 1e-6:
+        tempo_args = ["-filter:a", f"atempo={float(atempo):.4f}"]
     try:
         subprocess.run(
             [FFMPEG, "-y", "-nostdin", "-v", "error", "-i", mp3_path,
-             "-ar", "44100", "-ac", "1", "-c:a", "pcm_s16le", out_path],
+             *tempo_args, "-ar", "44100", "-ac", "1", "-c:a", "pcm_s16le", out_path],
             check=True, capture_output=True,
         )
     except (OSError, subprocess.CalledProcessError) as e:
@@ -467,10 +638,122 @@ def _eleven_decode_to_wav(mp3_bytes, mp3_path, out_path, prefix):
             pass
 
 
+def _generate_dialogue_batch(
+    tts_dir, indices, sentences, api_key, voice_id, model_id, stability, speed,
+):
+    """indices 줄들을 한 번의 text-to-dialogue 호출로 합성하고 줄별 sent_XX.wav 로 나눈다.
+
+    반환: {index: {"text", "duration", "word_times", "char_alignment"}}
+
+    줄별 호출(_generate_one_sentence_elevenlabs)과 반환 shape 이 같아서 호출부는 구분 없이
+    쓸 수 있다. 실패 시 줄별 호출로 몰래 되돌리지 않는다 — 톤 특성이 달라지는데 사용자는
+    이유를 알 수 없고, 부분 실패면 크레딧만 두 번 나가기 때문.
+    """
+    import base64
+    import requests
+    import soundfile as sf
+
+    prefix = f"[ElevenLabs dialogue {indices[0]:02d}~{indices[-1]:02d}]"
+    tempo = min(max(_coerce_float(speed, 1.0), _ELEVEN_SPEED_MIN), _ELEVEN_SPEED_MAX)
+
+    body = {
+        "inputs": [{"text": sentences[i], "voice_id": voice_id} for i in indices],
+        "model_id": model_id or "eleven_v3",
+        # dialogue 가 받는 설정은 stability 하나뿐이다. similarity_boost·style·speed 는
+        # 스펙에 없고 보내도 조용히 무시된다(2026-07 실측 — speed 0.7 과 1.2 의 길이가 동일).
+        # 속도는 아래에서 ffmpeg atempo 로 직접 건다.
+        "settings": {"stability": stability},
+    }
+    resp = requests.post(
+        f"{_ELEVEN_BASE}/v1/text-to-dialogue/with-timestamps",
+        headers={"xi-api-key": api_key, "Content-Type": "application/json"},
+        json=body, params={"output_format": "mp3_44100_128"}, timeout=180,
+    )
+    if resp.status_code == 401:
+        raise RuntimeError(f"{prefix} ElevenLabs API 키가 유효하지 않습니다 (401)")
+    if resp.status_code == 429:
+        raise RuntimeError(f"{prefix} ElevenLabs rate limit (429)")
+    if resp.status_code >= 400:
+        raise RuntimeError(f"{prefix} HTTP {resp.status_code}: {resp.text[:200]}")
+
+    try:
+        data = resp.json()
+    except ValueError as e:
+        raise RuntimeError(f"{prefix} 응답을 해석하지 못했습니다: {e}")
+    audio_b64 = data.get("audio_base64")
+    if not audio_b64:
+        raise RuntimeError(f"{prefix} 오디오 응답이 비어있습니다")
+
+    spans = _dialogue_spans(data.get("voice_segments"), len(indices), prefix)
+    alignment = data.get("alignment") or data.get("normalized_alignment")
+
+    batch_mp3 = os.path.join(tts_dir, f"_dlg_{indices[0]:02d}.mp3")
+    batch_wav = os.path.join(tts_dir, f"_dlg_{indices[0]:02d}.wav")
+    try:
+        # 배속(atempo)은 여기서 한 번에 건다 — 줄별로 걸면 ffmpeg 를 줄 수만큼 부르게 된다.
+        _eleven_decode_to_wav(
+            base64.b64decode(audio_b64), batch_mp3, batch_wav, prefix, atempo=tempo,
+        )
+        wav, sr = sf.read(batch_wav)
+        if getattr(wav, "ndim", 1) > 1:
+            wav = wav.mean(axis=1)
+        out = {}
+        for k, idx in enumerate(indices):
+            t0, t1, cs, ce = spans[k]
+            s0, s1 = t0 / tempo, t1 / tempo
+            a0 = max(0, min(int(round(s0 * sr)), len(wav)))
+            a1 = max(a0, min(int(round(s1 * sr)), len(wav)))
+            piece = wav[a0:a1]
+            sf.write(os.path.join(tts_dir, f"sent_{idx:02d}.wav"), piece, sr, subtype="PCM_16")
+
+            sliced = _slice_alignment(alignment, cs, ce, s0, tempo)
+            duration = round(len(piece) / sr, 2)
+            word_times = _alignment_to_word_times(sliced)
+            if word_times:
+                word_times = _validate_word_times(word_times, duration)
+            out[idx] = {
+                "text": sentences[idx],
+                "duration": duration,
+                "word_times": word_times,
+                "char_alignment": _pack_char_alignment(sliced),
+            }
+        return out
+    finally:
+        # 배치 임시 wav 는 줄별로 나눈 뒤엔 쓸모없다. 실패해도(디코드 도중 죽어도) 지운다 —
+        # 안 지우면 세션 폴더에 반쪽짜리 파일이 쌓인다. mp3 는 _eleven_decode_to_wav 가 치운다.
+        for p in (batch_wav,):
+            try:
+                os.remove(p)
+            except OSError:
+                pass
+
+
+async def _generate_dialogue_elevenlabs(
+    tts_dir, sentences, indices, api_key, voice_id, model_id, stability, speed,
+):
+    """indices 를 글자 수 배치로 나눠 dialogue 로 합성. 배치들은 병렬로 돈다."""
+    batches = _dialogue_batches(indices, sentences)
+    results = await _run_sentence_jobs(
+        _ELEVEN_MAX_CONCURRENCY,
+        [
+            partial(
+                _generate_dialogue_batch,
+                tts_dir, batch, sentences, api_key, voice_id, model_id, stability, speed,
+            )
+            for batch in batches
+        ],
+    )
+    merged: dict[int, dict] = {}
+    for part in results:
+        merged.update(part or {})
+    return merged
+
+
 def _generate_one_sentence_elevenlabs(
     tts_dir, index, sent, api_key, voice_id, model_id,
     stability, similarity_boost, style, speed,
     measure_duration=True, with_timestamps=True,
+    prev_text=None, next_text=None,
 ):
     """한 문장만 ElevenLabs 로 합성하고 sent_XX.wav 저장.
     {text, duration, word_times, char_alignment} 반환.
@@ -479,6 +762,9 @@ def _generate_one_sentence_elevenlabs(
     char_alignment 로 돌려준다. 4xx/5xx·응답 이상 시 플레인 엔드포인트로 폴백
     (word_times=None) — v3 가 with-timestamps 를 거부해도 이 경로로 자동 강등된다.
     401/429 는 폴백 없이 그대로 에러.
+
+    prev_text/next_text 는 발음 참고용 앞뒤 문맥(생성되지 않고 과금도 안 됨).
+    지원 모델에서만 채워 넘길 것 — _eleven_context 참고.
     """
     import base64
     import requests
@@ -498,6 +784,10 @@ def _generate_one_sentence_elevenlabs(
             "use_speaker_boost": True,
         },
     }
+    if prev_text:
+        body["previous_text"] = prev_text
+    if next_text:
+        body["next_text"] = next_text
     headers = {"xi-api-key": api_key, "Content-Type": "application/json"}
     params = {"output_format": "mp3_44100_128"}
 
@@ -581,6 +871,8 @@ async def generate_tts_elevenlabs(
 ):
     """ElevenLabs API TTS. 문장별 병렬 처리.
     반환: raw_timings (문장별 {text, duration, word_times, char_alignment}, 순서 보존)
+
+    v3 는 줄별 호출 대신 대본을 한 번에 넣는 dialogue 경로로 간다(줄별 톤 흔들림 해소).
     """
     if not api_key:
         raise RuntimeError("ElevenLabs API 키가 설정되지 않았습니다. 설정 화면에서 사용자 본인의 ElevenLabs API 키를 저장해주세요.")
@@ -588,6 +880,17 @@ async def generate_tts_elevenlabs(
         raise RuntimeError("ElevenLabs 음성이 선택되지 않았습니다. 음성 목록에서 성우를 선택해주세요.")
 
     model_id, stability, similarity_boost, style = _eleven_opts(tts_options)
+
+    if _uses_dialogue(model_id):
+        merged = await _generate_dialogue_elevenlabs(
+            tts_dir, sentences, list(range(len(sentences))),
+            api_key, voice_id, model_id, stability, speed,
+        )
+        raw_timings = [merged[i] for i in range(len(sentences))]
+        with open(os.path.join(tts_dir, "timings_raw.json"), "w", encoding="utf-8") as f:
+            json.dump(raw_timings, f, ensure_ascii=False, indent=2)
+        return raw_timings
+
     raw_timings = await _run_sentence_jobs(
         _ELEVEN_MAX_CONCURRENCY,
         [
@@ -596,6 +899,7 @@ async def generate_tts_elevenlabs(
                 tts_dir, i, sent, api_key, voice_id, model_id,
                 stability, similarity_boost, style, speed,
                 measure_duration, with_timestamps,
+                *_eleven_context(sentences, i, model_id),
             )
             for i, sent in enumerate(sentences)
         ],
@@ -652,6 +956,14 @@ async def generate_tts_for_indices(
         if not voice_id:
             raise RuntimeError("ElevenLabs 음성이 선택되지 않았습니다. 음성 목록에서 성우를 선택해주세요.")
         model_id, stability, similarity_boost, style = _eleven_opts(tts_options)
+        if _uses_dialogue(model_id):
+            # 고친 줄들만 한 번의 dialogue 호출로 묶는다. 손대지 않은 줄을 문맥 삼아 같이
+            # 보내지 않는 이유는 위 dialogue 주석 참고 — 톤이 더 맞지도 않으면서 그 줄들
+            # 값까지 과금된다(실측: 창 26Hz vs 단독 28Hz, 줄 사이 자연 편차 30Hz).
+            return await _generate_dialogue_elevenlabs(
+                tts_dir, sentences, list(indices),
+                api_key, voice_id, model_id, stability, speed,
+            )
         results = await _run_sentence_jobs(
             _ELEVEN_MAX_CONCURRENCY,
             [
@@ -659,6 +971,8 @@ async def generate_tts_for_indices(
                     _generate_one_sentence_elevenlabs,
                     tts_dir, i, sentences[i], api_key, voice_id, model_id,
                     stability, similarity_boost, style, speed,
+                    True, True,  # measure_duration, with_timestamps (기본값 유지)
+                    *_eleven_context(sentences, i, model_id),
                 )
                 for i in indices
             ],

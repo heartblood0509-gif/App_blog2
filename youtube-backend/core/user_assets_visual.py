@@ -11,6 +11,7 @@ import hashlib
 import json
 import os
 import time
+import unicodedata
 import uuid
 from typing import Any
 
@@ -75,6 +76,26 @@ def ensure_line_ids(lines: list[dict[str, Any]]) -> bool:
 
 def line_text_hash(text: str) -> str:
     return hashlib.sha256((text or "").encode("utf-8")).hexdigest()[:16]
+
+
+def line_text_hash_matches(stored_hash: str | None, text: str) -> bool:
+    """저장된 지문이 이 텍스트의 것인가. 완성형(NFC)·분해형(NFD)은 같은 글자로 본다.
+
+    맥에서 붙여넣은 대본은 DB 에 분해형(NFD)으로 저장되는데, 음성 생성 요청은 입력 경계에서
+    완성형(NFC)으로 정규화된다(api/models.py TtsPreviewBuildRequest). 그래서 signature.json
+    에는 완성형 기준 지문이 남고, 나중에 DB 원문(분해형)으로 다시 지문을 뜨면 눈에 똑같은
+    글자인데도 값이 달라 "대본과 일치하지 않아요" 로 영상 만들기가 막힌다. 게다가 안내대로
+    음성을 다시 만들어도 signature 는 또 완성형으로 쓰이므로 영원히 안 풀린다.
+
+    ⚠️ 그렇다고 line_text_hash 자체를 NFC 로 정규화하면 안 된다 — 그 정규화가 들어가기 전에
+    만들어진 세션은 지문이 분해형 기준이라, 이번엔 그쪽이 통째로 불일치가 된다. 그래서 지문
+    계산은 그대로 두고 '비교'만 두 표기형을 모두 인정한다(양방향 호환).
+    """
+    if not stored_hash:
+        return False
+    if stored_hash == line_text_hash(text):
+        return True
+    return stored_hash == line_text_hash(unicodedata.normalize("NFC", text or ""))
 
 
 def visual_plan_script_hash(lines: list[dict[str, Any]]) -> str:

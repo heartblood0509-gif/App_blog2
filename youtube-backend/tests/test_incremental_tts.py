@@ -332,3 +332,48 @@ def test_word_times_missing_prev_is_none(temp_session, stub_generate_for_indices
     _, _, regen, word_times = _run_incremental(session_dir, req, prev_sig)
     assert regen == []
     assert word_times == [None, None]
+
+
+# ────────────────────────────────────────────────────────────────────
+# 강제 재생성('다시 생성' 버튼) — 글자가 그대로여도 지정한 줄만 다시 합성
+# ────────────────────────────────────────────────────────────────────
+def test_force_regen_line_ids_regens_untouched_line(temp_session, stub_generate_for_indices):
+    session_id, session_dir = temp_session
+    lines = [("l1", "안녕"), ("l2", "반가워"), ("l3", "잘 가")]
+    voice = ["voice-A", 1.0, None, "typecast"]
+    _seed_session(session_dir, voice, lines)
+
+    req = _make_req(
+        sentences=[t for _, t in lines],
+        line_ids=[lid for lid, _ in lines],
+        existing_session_id=session_id,
+    )
+    req.force_regen_line_ids = ["l2"]  # 텍스트는 그대로, 가운데 줄만 강제 재생성
+    prev_sig = json.loads((session_dir / "signature.json").read_text(encoding="utf-8"))
+    sentences, durations, regen, wt = _run_incremental(session_dir, req, prev_sig)
+
+    assert regen == [1]                      # 지정한 줄만
+    assert stub_generate_for_indices["indices"] == [1]
+    assert durations[1] == 0.42              # 새로 합성된 길이
+    assert wt[1] is not None                 # 새 어절 타임스탬프
+    assert len(sentences) == 3
+    for i in range(3):
+        assert (session_dir / f"sent_{i:02d}.wav").exists()   # 나머지 줄 wav 는 보존
+
+
+def test_force_regen_none_keeps_existing_behavior(temp_session, stub_generate_for_indices):
+    # 버튼을 안 눌렀을 때(None) 는 기존대로 아무것도 재생성하지 않아야 한다.
+    session_id, session_dir = temp_session
+    lines = [("l1", "안녕"), ("l2", "반가워")]
+    voice = ["voice-A", 1.0, None, "typecast"]
+    _seed_session(session_dir, voice, lines)
+
+    req = _make_req(
+        sentences=[t for _, t in lines],
+        line_ids=[lid for lid, _ in lines],
+        existing_session_id=session_id,
+    )
+    prev_sig = json.loads((session_dir / "signature.json").read_text(encoding="utf-8"))
+    _s, _d, regen, _wt = _run_incremental(session_dir, req, prev_sig)
+    assert regen == []
+    assert stub_generate_for_indices["indices"] is None
