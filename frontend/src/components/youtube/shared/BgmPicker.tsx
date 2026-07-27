@@ -2,9 +2,10 @@
 
 // 배경음악 선택 카드 — 목록/업로드/삭제 + 선택 곡의 시작 지점·볼륨. (선택은 필수 아님)
 // 선택된 곡(url·길이)은 onSelectedItem 으로 부모(전체 미리듣기 믹서)에게 넘긴다.
+// 각 곡의 ▶ 버튼은 그 곡만 따로 들어보는 미리듣기 — 실제 믹스와 같은 볼륨·시작 지점으로 재생한다.
 
-import { useEffect, useRef, useState } from "react";
-import { ChevronDown, Loader2, Music, Trash2, Upload } from "lucide-react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { ChevronDown, Loader2, Music, Pause, Play, Trash2, Upload } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
@@ -24,6 +25,10 @@ export function formatTime(sec: number): string {
 function errMessage(e: unknown, fallback: string): string {
   return e instanceof Error ? e.message : fallback;
 }
+/** UI 볼륨(0~50) → <audio> 볼륨(0~1). 전체 미리듣기 믹서와 같은 환산이라 크기가 일치한다. */
+function previewVolume(uiVolume: number): number {
+  return Math.max(0, Math.min(1, uiVolume / 100));
+}
 
 export interface BgmChange {
   bgmFilename?: string | null;
@@ -37,6 +42,8 @@ export function BgmPicker({
   volume,
   onChange,
   onSelectedItem,
+  onPreviewStart,
+  externalPlaying,
   disabled,
 }: {
   filename: string | null;
@@ -44,6 +51,10 @@ export function BgmPicker({
   volume: number; // 0~50 (UI 스케일)
   onChange: (p: BgmChange) => void;
   onSelectedItem?: (item: BgmItem | null) => void;
+  /** 곡 미리듣기를 시작할 때 — 부모가 돌리던 전체 미리듣기를 멈추라는 신호. */
+  onPreviewStart?: () => void;
+  /** 부모(전체 미리듣기)가 재생 중 — true 가 되면 곡 미리듣기는 비킨다. */
+  externalPlaying?: boolean;
   disabled?: boolean;
 }) {
   const [bgms, setBgms] = useState<BgmItem[]>([]);
@@ -52,10 +63,88 @@ export function BgmPicker({
   // 선택(옵션) 카드라 기본은 접힘. 곡이 선택돼 있으면(복원 등) 자동으로 펼친다.
   const [open, setOpen] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
+  // 지금 따로 들어보는 중인 곡(filename). null 이면 정지.
+  const [previewing, setPreviewing] = useState<string | null>(null);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const mountedRef = useRef(true);
 
   useEffect(() => {
     if (filename) setOpen(true);
   }, [filename]);
+
+  const stopPreview = useCallback(() => {
+    const a = audioRef.current;
+    if (a) {
+      a.onended = null;
+      a.pause();
+      a.src = "";
+      audioRef.current = null;
+    }
+    if (mountedRef.current) setPreviewing(null);
+  }, []);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      audioRef.current?.pause();
+      audioRef.current = null;
+    };
+  }, []);
+
+  // 전체 미리듣기가 시작되면 곡 미리듣기는 멈춘다(두 소리가 겹치지 않게).
+  useEffect(() => {
+    if (externalPlaying) stopPreview();
+  }, [externalPlaying, stopPreview]);
+
+  // 카드를 접으면 정지 — 안 보이는 곳에서 계속 울리지 않게.
+  useEffect(() => {
+    if (!open) stopPreview();
+  }, [open, stopPreview]);
+
+  // 듣는 도중 볼륨 슬라이더를 움직이면 바로 반영(실제 믹스와 같은 크기로 확인).
+  useEffect(() => {
+    if (audioRef.current) audioRef.current.volume = previewVolume(volume);
+  }, [volume]);
+
+  function togglePreview(item: BgmItem) {
+    if (previewing === item.filename) {
+      stopPreview();
+      return;
+    }
+    if (volume <= 0) {
+      toast.info("볼륨이 0% 예요. 볼륨을 올리면 소리를 들을 수 있어요.");
+      return;
+    }
+    stopPreview();
+    onPreviewStart?.();
+    const audio = new Audio(bgmAudioUrl(item));
+    audio.volume = previewVolume(volume);
+    // 선택된 곡이면 설정한 시작 지점부터 — 시작 지점 슬라이더를 귀로 확인할 수 있게.
+    if (item.filename === filename && startSec > 0) {
+      try {
+        audio.currentTime = startSec;
+      } catch {
+        /* 시작 지점 설정 실패는 무시(브라우저가 clamp) */
+      }
+    }
+    audioRef.current = audio;
+    audio.onended = () => {
+      if (audioRef.current !== audio) return;
+      audioRef.current = null;
+      if (mountedRef.current) setPreviewing(null);
+    };
+    setPreviewing(item.filename);
+    audio.play().catch((e) => {
+      // 소리가 나기 전에 정지하거나 다른 곡으로 넘어가면 끼어든 pause() 때문에
+      // AbortError 로 reject 된다 — 실패가 아니라 사용자가 의도한 취소다.
+      if (audioRef.current !== audio) return;
+      if (e instanceof DOMException && e.name === "AbortError") return;
+      console.error("[bgm preview] play() 실패:", e);
+      toast.error("BGM 을 재생할 수 없어요. 잠시 후 다시 시도해주세요.");
+      stopPreview();
+    });
+  }
 
   async function reload() {
     setListLoading(true);
@@ -114,6 +203,7 @@ export function BgmPicker({
   }
 
   async function handleDelete(item: BgmItem) {
+    if (previewing === item.filename) stopPreview();
     try {
       await deleteBgm(item.id ?? item.filename);
       if (filename === item.filename) onChange({ bgmFilename: null, bgmStartSec: 0 });
@@ -179,6 +269,7 @@ export function BgmPicker({
         ) : (
           bgms.map((item) => {
             const sel = item.filename === filename;
+            const playingThis = previewing === item.filename;
             return (
               <div
                 key={item.filename}
@@ -187,22 +278,32 @@ export function BgmPicker({
                   sel ? "border-primary bg-primary/5" : "border-border bg-background",
                 )}
               >
+                {/* 원형 버튼 = 그 곡만 따로 듣기(선택과 별개). 곡 선택은 옆의 이름 영역. */}
+                <button
+                  type="button"
+                  onClick={() => togglePreview(item)}
+                  disabled={disabled}
+                  aria-label={playingThis ? "미리듣기 정지" : "미리듣기"}
+                  className={cn(
+                    "flex size-6 flex-shrink-0 items-center justify-center rounded-full transition-opacity",
+                    sel
+                      ? "bg-primary text-primary-foreground"
+                      : "bg-muted text-muted-foreground",
+                    !disabled && "hover:opacity-80",
+                  )}
+                >
+                  {playingThis ? (
+                    <Pause className="h-3 w-3 fill-current" />
+                  ) : (
+                    <Play className="h-3 w-3 fill-current" />
+                  )}
+                </button>
                 <button
                   type="button"
                   onClick={() => selectBgm(item)}
                   disabled={disabled}
                   className="flex min-w-0 flex-1 items-center gap-2 text-left"
                 >
-                  <span
-                    className={cn(
-                      "flex size-6 flex-shrink-0 items-center justify-center rounded-full",
-                      sel
-                        ? "bg-primary text-primary-foreground"
-                        : "bg-muted text-muted-foreground",
-                    )}
-                  >
-                    <Music className="h-3 w-3" />
-                  </span>
                   <span className="min-w-0 flex-1 truncate text-xs font-medium">
                     {item.filename}
                   </span>
