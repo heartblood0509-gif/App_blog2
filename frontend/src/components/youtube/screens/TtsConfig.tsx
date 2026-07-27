@@ -316,7 +316,6 @@ export function TtsConfig() {
             model={state.elModel}
             stability={state.elStability}
             similarity={state.elSimilarity}
-            style={state.elStyle}
             voicesState={elVoices}
             onPatch={(p: ElevenPatch) => patchInvalidate(p)}
           />

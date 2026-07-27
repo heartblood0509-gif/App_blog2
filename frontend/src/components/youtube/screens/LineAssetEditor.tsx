@@ -96,6 +96,8 @@ import {
   type SubtitleStyle,
 } from "@/lib/youtube/guide";
 import { loadShowGuides, saveShowGuides } from "@/lib/youtube/guide-prefs";
+import { bumpRegenUses, loadRegenUses, REGEN_LABEL_USES } from "@/lib/youtube/regen-hint";
+import { sameText, toStoredForm } from "@/lib/youtube/text-form";
 import { GuideToggle } from "../GuideToggle";
 import {
   cleanupClipProxy,
@@ -575,6 +577,10 @@ export function LineAssetEditor() {
   const playback = useTtsSessionPlayback();
   // 음성 세션 빌드/영상 확정 진행 표시.
   const [building, setBuilding] = useState(false);
+  // 이번 빌드에서 실제로 다시 만들어지는 줄. null 이면 전 줄(음성 설정 변경 등 전체 재빌드).
+  // 예전엔 building 하나로 모든 줄에 '만드는 중…' 을 띄워서, 한 줄만 다시 뽑아도 대본 전체가
+  // 새로 만들어지는 것처럼 보였다(실제로는 그 줄 하나만 합성된다). 범위를 눈에 보이게 한다.
+  const [buildingLineIds, setBuildingLineIds] = useState<Set<string> | null>(null);
   const [creating, setCreating] = useState(false);
   // 선택된 BGM(전체 미리듣기 믹서에 넘길 url·길이). BgmPicker 가 알려준다.
   const [selectedBgm, setSelectedBgm] = useState<BgmItem | null>(null);
@@ -593,6 +599,8 @@ export function LineAssetEditor() {
   // 프리뷰 안전 영역(안전선 + 유튜브 UI 영역) 표시 토글. 자막 길이 판정과 무관 — 눈으로 확인용.
   // 첫 렌더는 true(첫 방문 켜짐 = SSR·클라 동일) → 마운트 후 저장된 기기 설정으로 맞춘다.
   const [showGuides, setShowGuides] = useState(true);
+  // '다시 읽기' 를 몇 번 써 봤나. 적으면 아이콘 옆에 글자를 같이 띄운다(SSR 은 0 → 글자 보임).
+  const [regenUses, setRegenUses] = useState(0);
   const toggleGuides = useCallback(() => {
     setShowGuides((prev) => {
       const next = !prev;
@@ -636,8 +644,10 @@ export function LineAssetEditor() {
   }, [lines]);
 
   // 저장된 "안전 영역" 표시 설정으로 맞춘다(첫 방문이면 유지=켜짐). 마운트 후 1회.
+  // '다시 읽기' 사용 횟수도 같이 읽는다(적으면 버튼에 글자를 같이 띄워 발견성 확보).
   useEffect(() => {
     setShowGuides(loadShowGuides());
+    setRegenUses(loadRegenUses());
   }, []);
 
   // 번들 폰트가 로드되면 한 번 리렌더 → 자막 폭 실측이 정확해진다(로드 전엔 폴백 폰트로 측정).
@@ -1035,16 +1045,20 @@ export function LineAssetEditor() {
       clearDraft(lineId);
       return; // 바뀐 게 없음
     }
+    // 서버가 저장할 형태로 맞춰서 보내고, 로컬에도 같은 값을 넣는다.
+    // 원본 draft 를 로컬에 넣으면 서버는 완성형·화면은 분해형이 되어 그 줄이 영원히
+    // '수정됨'으로 남는다(text-form.ts 주석 참고). 눈에 보이는 글자는 달라지지 않는다.
+    const saved = toStoredForm(draft);
     setSavingText((s) => new Set(s).add(lineId));
     try {
-      await editLine(jobId, idx, draft);
+      await editLine(jobId, idx, saved);
       if (!mountedRef.current) return;
       // 로컬 텍스트 확정 + draft 제거(저장 성공이므로 textarea 는 확정 텍스트로 자연 전환).
       // 텍스트가 바뀌면 백엔드가 subtitle_chunks 를 리셋하므로 로컬도 null 로 맞춘다(자동 분할 복귀).
       setLines((prev) =>
         prev.map((l) =>
           String(l.line_id ?? "") === lineId
-            ? { ...l, text: draft, subtitle_chunks: null }
+            ? { ...l, text: saved, subtitle_chunks: null }
             : l,
         ),
       );
@@ -1541,8 +1555,23 @@ export function LineAssetEditor() {
   function isLineDirty(l: ScriptLine): boolean {
     if (!snap || voiceChanged) return true;
     const id = String(l.line_id ?? "");
-    if (drafts[id] !== undefined && drafts[id] !== l.text) return true;
-    return snap.texts[id] !== l.text;
+    // 표기형(완성형/분해형)만 다른 건 같은 글자로 본다 — text-form.ts 주석 참고.
+    // 빌드 당시 원문이 없는 구세션은 snap.texts[id] 가 undefined 라 여기서 dirty 가 되는데,
+    // 그건 의도된 동작이다(전 줄 재빌드로 안전하게 복구).
+    if (drafts[id] !== undefined && !sameText(drafts[id], l.text)) return true;
+    if (snap.texts[id] === undefined) return true;
+    return !sameText(snap.texts[id], l.text);
+  }
+  // '수정됨' 배지 전용 — 대본 글자가 실제로 바뀐 줄만. isLineDirty 를 그대로 쓰면 음성 설정만
+  // 바꿔도(voiceChanged) 전 줄에 '수정됨' 이 붙어, 손대지도 않은 대본을 고쳤다고 거짓말하게 된다.
+  // 음성 설정 변경은 설정 바 아래 안내문이 따로 알린다.
+  function isLineTextDirty(l: ScriptLine): boolean {
+    if (!snap) return false;
+    const id = String(l.line_id ?? "");
+    if (drafts[id] !== undefined && !sameText(drafts[id], l.text)) return true;
+    // 빌드 당시 원문을 모르는 구세션은 '수정됨' 이라 단정할 수 없다(재빌드는 isLineDirty 가 챙긴다).
+    if (snap.texts[id] === undefined) return false;
+    return !sameText(snap.texts[id], l.text);
   }
   // 줄 순서가 마지막 빌드와 다른가. 렌더는 sent_XX.wav 를 **인덱스**로 짝지으므로, 순서만
   // 바뀌어도 재빌드하지 않으면 화면과 목소리가 어긋난 영상이 조용히 나온다. 줄별 dirty(텍스트
@@ -1566,6 +1595,15 @@ export function LineAssetEditor() {
   }
   function durationOf(l: ScriptLine): number | null {
     if (!snap || isLineDirty(l)) return null;
+    const idx = snap.lineIds.indexOf(String(l.line_id ?? ""));
+    return idx >= 0 ? snap.durations[idx] ?? null : null;
+  }
+  // 화면 표시 전용 길이 — 대본을 고친 줄도 '마지막에 만든 음성' 기준 길이를 돌려준다.
+  // 재생 버튼이 매번 다른 라벨로 바뀌지 않게 하려고 쓴다(고친 줄은 흐리게 그려 옛 값임을 표시).
+  // ⚠️ 판단 로직엔 쓰지 말 것 — 영상 길이 부족 검사 등은 durationOf(고치면 null)를 써야
+  // 낡은 길이로 잘못 통과하지 않는다.
+  function displayDurationOf(l: ScriptLine): number | null {
+    if (!snap) return null;
     const idx = snap.lineIds.indexOf(String(l.line_id ?? ""));
     return idx >= 0 ? snap.durations[idx] ?? null : null;
   }
@@ -1597,9 +1635,18 @@ export function LineAssetEditor() {
   const hasShortClip = shortClipLineIdx >= 0;
 
   // 음성 세션 (재)빌드 — 미저장 편집 반영 → preview-build(incremental) → 스냅샷 저장. 성공 시 새 스냅샷 반환.
-  async function buildVoices(): Promise<TtsBuildSnapshot | null> {
+  // forceLineIds: 글자가 그대로여도 다시 합성할 줄('다시 생성' 버튼). 안 주면 기존대로 바뀐 줄만.
+  async function buildVoices(forceLineIds?: string[]): Promise<TtsBuildSnapshot | null> {
     if (!jobId) return null;
     playback.stop();
+    // 이번에 실제로 합성될 줄 = 강제 지정한 줄 + 글자가 바뀐 줄. 백엔드가 고르는 기준과 같다
+    // (routes/tts_preview.py: 음성 설정이 같으면 incremental → 지문이 다른 줄만 재합성).
+    // 음성 설정이 바뀌었으면 백엔드가 전체 재빌드를 하므로 null(=전 줄)로 둔다.
+    setBuildingLineIds(
+      voiceChanged || !snap
+        ? null
+        : new Set([...(forceLineIds ?? []), ...lines.filter(isLineDirty).map((l) => String(l.line_id ?? ""))]),
+    );
     setBuilding(true);
     try {
       for (const id of Object.keys(drafts)) {
@@ -1628,6 +1675,7 @@ export function LineAssetEditor() {
         style: "realistic",
         line_ids: ls.map((l) => l.line_id ?? null),
         existing_session_id: state.ttsSessionId,
+        force_regen_line_ids: forceLineIds,
       });
       const lineIds = ls.map((l) => String(l.line_id ?? ""));
       const texts: Record<string, string> = {};
@@ -1660,7 +1708,10 @@ export function LineAssetEditor() {
       );
       return null;
     } finally {
-      if (mountedRef.current) setBuilding(false);
+      if (mountedRef.current) {
+        setBuilding(false);
+        setBuildingLineIds(null);
+      }
     }
   }
 
@@ -1720,14 +1771,9 @@ export function LineAssetEditor() {
     return await buildVoices();
   }
 
-  // 줄 ▶: 재생 중이면 정지, 아니면 (필요 시 그 줄만 재생성 후) 그 줄만 재생.
-  async function playLineFor(lineId: string) {
-    if (playback.nowPlayingLineId === lineId && playback.mode === "line") {
-      playback.stop();
-      return;
-    }
-    const s = await ensureBuilt();
-    if (!s) return;
+  // 주어진 스냅샷 기준으로 그 줄만 재생. 방금 빌드한 결과(s)를 그대로 쓰므로,
+  // 상태 반영을 기다리지 않고 바로 새 음성을 들려줄 수 있다.
+  function playLineFromSnapshot(s: TtsBuildSnapshot, lineId: string) {
     const idx = s.lineIds.indexOf(lineId);
     if (idx < 0) return;
     const line = linesRef.current.find((l) => String(l.line_id ?? "") === lineId);
@@ -1743,6 +1789,27 @@ export function LineAssetEditor() {
         wordTimes: s.wordTimes?.[idx] ?? null,
       },
     });
+  }
+
+  // 줄 ▶: 재생 중이면 정지, 아니면 (필요 시 그 줄만 재생성 후) 그 줄만 재생.
+  async function playLineFor(lineId: string) {
+    if (playback.nowPlayingLineId === lineId && playback.mode === "line") {
+      playback.stop();
+      return;
+    }
+    const s = await ensureBuilt();
+    if (!s) return;
+    playLineFromSnapshot(s, lineId);
+  }
+
+  // 줄 '다시 생성': 글자를 그대로 둔 채 그 줄 음성만 새로 뽑고 바로 들려준다.
+  // 같은 문장이라도 호출마다 억양·톤이 달라지므로, 마음에 드는 연기가 나올 때까지
+  // 다시 눌러볼 수 있다. (예전엔 텍스트를 건드려야만 재생성돼 방법이 없었다)
+  async function regenerateLine(lineId: string) {
+    playback.stop();
+    setRegenUses(bumpRegenUses()); // 몇 번 써 보면 라벨을 접고 아이콘만 남긴다
+    const s = await buildVoices([lineId]);
+    if (s) playLineFromSnapshot(s, lineId);
   }
 
   function scrollLineIntoView(lineId: string) {
@@ -2467,45 +2534,97 @@ export function LineAssetEditor() {
                       <Loader2 className="h-3 w-3 animate-spin" /> 저장 중
                     </span>
                   )}
+                  {/* '대본이 바뀌었다' 는 상태이지 행동이 아니다 → 버튼 라벨이 아니라 배지로 말한다.
+                      예전엔 재생 버튼이 '새로 만들어 재생' 으로 변신하며 상태를 겸했는데,
+                      그러면 버튼이 매번 정체가 바뀌어 옆의 '다시 읽기' 와 구분이 안 됐다.
+                      title 툴팁은 달지 말 것 — 배지 글자와 같은 말이라 겹치기만 한다(현장 확인). */}
+                  {built && hasId && isLineTextDirty(l) && !building && (
+                    <span className="inline-flex items-center gap-0.5 text-[0.7rem] text-amber-600 dark:text-amber-400">
+                      <Pencil className="h-3 w-3" /> 수정됨
+                    </span>
+                  )}
                   {hasId && (() => {
                     const playingThis = playback.nowPlayingLineId === lineId;
-                    const dur = durationOf(l);
                     const dirtyThis = isLineDirty(l);
-                    const label = playingThis
-                      ? dur != null
-                        ? `재생 중 · ${formatTime(dur)}`
-                        : "재생 중"
-                      : building
-                        ? "만드는 중…"
-                        : dirtyThis
-                          ? "새로 만들어 재생"
-                          : dur != null
-                            ? formatTime(dur)
-                            : "재생";
+                    // 재생 버튼은 언제나 '듣기' 하나만 뜻한다 → 라벨은 상태가 아니라 길이(정보)로 고정.
+                    // 고친 줄은 마지막에 만든 음성 기준 길이를 흐리게 보여주고(옛 값이라는 신호),
+                    // 만들어야 하는지 여부는 앱이 알아서 판단한다(누르면 새로 만들어 들려준다).
+                    // title 툴팁은 달지 말 것 — 옆 '수정됨' 배지·흐린 길이·호박색 테두리가 이미
+                    // 같은 말을 눈에 보이게 하고 있다(현장 확인 후 제거).
+                    const dur = displayDurationOf(l);
+                    // 이 줄이 지금 실제로 만들어지고 있나. 한 줄만 다시 뽑을 때 다른 줄까지
+                    // '만드는 중…' 으로 바뀌면 대본 전체가 새로 만들어지는 것처럼 보인다.
+                    const buildingThis =
+                      building && (buildingLineIds === null || buildingLineIds.has(lineId));
+                    const label = buildingThis
+                      ? "만드는 중…"
+                      : dur != null
+                        ? formatTime(dur)
+                        : "재생";
                     return (
-                      <button
-                        type="button"
-                        onClick={() => playLineFor(lineId)}
-                        disabled={building}
-                        aria-label={`${i + 1}번째 줄 음성 ${playingThis ? "정지" : "재생"}`}
-                        className={cn(
-                          "ml-auto inline-flex shrink-0 items-center gap-1 rounded-full border px-2 py-0.5 text-[0.7rem] transition-colors disabled:opacity-50",
-                          playingThis
-                            ? "border-primary bg-primary text-primary-foreground"
-                            : dirtyThis
-                              ? "border-amber-500/60 text-amber-700 hover:bg-amber-50 dark:text-amber-400 dark:hover:bg-amber-950/40"
-                              : "border-border text-muted-foreground hover:bg-muted hover:text-foreground",
-                        )}
-                      >
-                        {building && !playingThis ? (
-                          <Loader2 className="size-3 animate-spin" />
-                        ) : playingThis ? (
-                          <Pause className="size-3" />
-                        ) : (
-                          <Play className="size-3" />
-                        )}
-                        {label}
-                      </button>
+                      // 재생(주) + 다시 읽기(보조)를 한 덩어리로 붙인다. 예전엔 같은 크기·같은
+                      // 알약 두 개가 나란히 있어 대등한 선택지로 읽혔고, 대본을 고친 순간엔
+                      // 실제로 둘이 같은 일을 해서 구분이 불가능했다. 위계를 시각으로 준다.
+                      <div className="ml-auto inline-flex shrink-0 items-center">
+                        <button
+                          type="button"
+                          onClick={() => playLineFor(lineId)}
+                          disabled={building}
+                          aria-label={`${i + 1}번째 줄 음성 ${playingThis ? "정지" : "재생"}`}
+                          className={cn(
+                            "inline-flex shrink-0 items-center gap-1 rounded-l-full border py-0.5 pl-2 pr-1.5 text-[0.7rem] transition-colors disabled:opacity-50",
+                            playingThis
+                              ? "border-primary bg-primary text-primary-foreground"
+                              : dirtyThis
+                                ? "border-amber-500/60 text-amber-700 hover:bg-amber-50 dark:text-amber-400 dark:hover:bg-amber-950/40"
+                                : "border-border text-muted-foreground hover:bg-muted hover:text-foreground",
+                          )}
+                        >
+                          {buildingThis && !playingThis ? (
+                            <Loader2 className="size-3 animate-spin" />
+                          ) : playingThis ? (
+                            <Pause className="size-3" />
+                          ) : (
+                            <Play className="size-3" />
+                          )}
+                          {/* 고친 줄의 길이는 옛 음성 기준이라 흐리게 — 숫자를 지우면 버튼 폭이
+                              들썩이고, 그대로 두면 최신 값으로 오해한다. */}
+                          <span className={cn(dirtyThis && !buildingThis && "opacity-50")}>
+                            {label}
+                          </span>
+                        </button>
+                        {/* 다시 읽기 — 억양·톤이 마음에 안 들 때 같은 문장을 새 연기로 다시 뽑는다.
+                            ⚠️ 표시 조건을 달지 말 것. 예전엔 '낡지 않고 길이가 있는 줄'에만 띄웠는데,
+                            음성 설정을 조금만 만져도(v2↔v3 전환 등) 전 줄이 낡음 처리돼 버튼이
+                            통째로 사라져 "버튼이 어디 있냐"가 됐다. 낡은 줄에서 눌러도 결과는
+                            같으므로(그 줄을 새로 합성) 항상 띄운다.
+                            아이콘만 두면 위계는 맞지만 처음 쓰는 사람이 못 찾으므로, 몇 번
+                            써 보기 전까지는 글자를 같이 보여준다(regen-hint.ts).
+
+                            낡은 줄(대본 수정·음성 설정 변경)에서는 눌리지 않게 죽인다. 그 줄은
+                            ▶ 를 누르면 어차피 새로 만들어지므로 이 버튼은 할 일이 없는데, 나란히
+                            살아 있으면 "수정했으니 다시 읽기를 눌러야 하나?" 로 읽혀 재생 대신
+                            이쪽을 누르게 된다(실제 피드백). 눌러도 결과는 같지만, 그러면 v3 에서
+                            한 줄만 따로 뽑혀 전체와 같은 호흡에서 떨어져 나온다.
+                            ⚠️ 죽이되 숨기지는 말 것 — 사라지면 "버튼이 어디 있냐" 가 재발한다.
+                            왜 잠겼는지는 옆의 '수정됨' 배지와 설정 바 안내문이 이미 말해주므로
+                            여기에 title 툴팁을 다시 붙이지 말 것(현장 확인 후 불필요 판단). */}
+                        <button
+                          type="button"
+                          onClick={() => regenerateLine(lineId)}
+                          disabled={building || dirtyThis}
+                          aria-label={`${i + 1}번째 줄 음성 다시 읽기`}
+                          className={cn(
+                            "-ml-px inline-flex shrink-0 items-center gap-1 rounded-r-full border border-border py-0.5 text-[0.7rem] text-muted-foreground transition-colors hover:bg-muted hover:text-foreground",
+                            // 죽었을 때 hover 반응까지 죽인다(눌릴 것처럼 보이면 안 됨).
+                            "disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-muted-foreground",
+                            regenUses < REGEN_LABEL_USES ? "px-2" : "px-1.5",
+                          )}
+                        >
+                          <RefreshCw className={cn("size-3", buildingThis && "animate-spin")} />
+                          {regenUses < REGEN_LABEL_USES && "다시 읽기"}
+                        </button>
+                      </div>
                     );
                   })()}
                   <Button

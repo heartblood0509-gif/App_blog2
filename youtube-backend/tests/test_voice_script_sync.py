@@ -199,3 +199,41 @@ def test_manifest_line_texts_none_without_signature(tmp_path, monkeypatch, user_
     res = asyncio.run(tp.get_preview_session(session_id, db=None, _user=user_stub))
     assert res["line_ids"] is None
     assert res["line_texts"] is None
+
+
+# ─────────────────────────────────────────────────────────────
+# 표기형(NFC/NFD) 차이로 인한 오탐 방어
+#
+# 맥에서 붙여넣은 대본은 DB 에 분해형(NFD)으로 저장되는데, 음성 생성 요청은 입력 경계에서
+# 완성형(NFC)으로 정규화된다 → signature 는 완성형 지문. 그 뒤 confirm 이 DB 원문(분해형)으로
+# 지문을 뜨면 눈에 똑같은 대본인데 "일치하지 않아요"로 영상 만들기가 막혔다(재생성해도 안 풀림).
+# ─────────────────────────────────────────────────────────────
+
+import unicodedata  # noqa: E402
+
+
+def test_mismatch_none_when_only_unicode_form_differs(tmp_path):
+    """signature=완성형, 대본=분해형 → 같은 글자이므로 통과해야 한다."""
+    sd = tmp_path / "sess"
+    composed = [("l1", "먼저 첫째, 토리예요."), ("l2", "다들 심장 조심하세요!")]
+    _seed_session(sd, composed)  # 완성형 기준 지문
+    decomposed = _lines(*[(lid, unicodedata.normalize("NFD", t)) for lid, t in composed])
+    assert _voice_script_mismatch(str(sd), decomposed) is None
+
+
+def test_mismatch_none_for_legacy_decomposed_signature(tmp_path):
+    """반대 방향(옛 세션): signature=분해형, 대본=분해형 → 그대로 통과."""
+    sd = tmp_path / "sess"
+    decomposed = [(lid, unicodedata.normalize("NFD", t))
+                  for lid, t in [("l1", "먼저 첫째, 토리예요."), ("l2", "다들 심장 조심하세요!")]]
+    _seed_session(sd, decomposed)  # 분해형 기준 지문
+    assert _voice_script_mismatch(str(sd), _lines(*decomposed)) is None
+
+
+def test_mismatch_still_detected_with_real_edit(tmp_path):
+    """표기형 관용이 '진짜 대본 수정'까지 놓치면 안 된다."""
+    sd = tmp_path / "sess"
+    _seed_session(sd, [("l1", "먼저 첫째, 토리예요."), ("l2", "다들 심장 조심하세요!")])
+    edited = _lines(("l1", "먼저 첫째, 토리예요."), ("l2", "다들 안녕히 계세요!"))
+    msg = _voice_script_mismatch(str(sd), edited)
+    assert msg is not None and "2번째 줄" in msg
