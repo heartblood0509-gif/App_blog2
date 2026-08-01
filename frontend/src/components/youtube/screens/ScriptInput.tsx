@@ -10,7 +10,7 @@
 // 제목은 선택: 비워도 진행 가능(제목 없으면 최종 영상에서 오버레이 생략).
 
 import { useEffect, useState } from "react";
-import { ArrowRight, Loader2, Scissors } from "lucide-react";
+import { AlertTriangle, ArrowRight, Loader2, Scissors } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -238,31 +238,39 @@ export function ScriptInput() {
               제목은 드래그로 한 덩어리 이동 + 가로중앙/기본높이 마그네틱(onTitlePosChange).
               줄별 크기·간격은 최종 렌더와 동일 공식으로 그려 WYSIWYG. */}
           <div className="flex-shrink-0">
-            <ShortsPreviewFrame
-              width={250}
-              titleLine1={state.titleLine1}
-              titleLine2={state.titleLine2}
-              titleFont={state.titleFont}
-              titleFontWeight={state.titleFontWeight}
-              titleColor1={state.titleColor1}
-              titleColor2={state.titleColor2}
-              titleLine1Size={state.titleLine1Size}
-              titleLine2Size={state.titleLine2Size}
-              titleLineGap={state.titleLineGap}
-              titleDx={state.titleDx}
-              titleDy={state.titleDy}
-              onTitlePosChange={(dx, dy) => update({ titleDx: dx, titleDy: dy })}
-              onOverflowChange={setOverflow}
-              showChecker
-              showThumbCrop
-              showGuides={showGuides}
-              className={cn(overflow && "border-destructive")}
-            />
-            {overflow && (
-              <p className="mt-1.5 text-center text-sm font-semibold text-destructive">
-                제목이 안전선 밖으로 나가요 — 휴대폰 화면에서 잘릴 수 있어요
-              </p>
-            )}
+            {/* relative 래퍼: 경고 배지를 프레임 위에 겹쳐 띄운다. 문서 흐름 밖이라
+                경고가 떠도 레이아웃이 밀리지 않는다(예전엔 프레임 아래 한 줄짜리 긴
+                문구여서, 컬럼이 문구 폭만큼 벌어지며 오른쪽 입력칸을 밀어냈다). */}
+            <div className="relative w-fit">
+              <ShortsPreviewFrame
+                width={250}
+                titleLine1={state.titleLine1}
+                titleLine2={state.titleLine2}
+                titleFont={state.titleFont}
+                titleFontWeight={state.titleFontWeight}
+                titleColor1={state.titleColor1}
+                titleColor2={state.titleColor2}
+                titleLine1Size={state.titleLine1Size}
+                titleLine2Size={state.titleLine2Size}
+                titleLineGap={state.titleLineGap}
+                titleDx={state.titleDx}
+                titleDy={state.titleDy}
+                onTitlePosChange={(dx, dy) => update({ titleDx: dx, titleDy: dy })}
+                onOverflowChange={setOverflow}
+                showChecker
+                showThumbCrop
+                showGuides={showGuides}
+                className={cn(overflow && "border-destructive")}
+              />
+              {overflow && (
+                // pointer-events-none 필수 — 제목은 프레임 위에서 드래그로 옮기는데,
+                // 배지가 포인터를 먹으면 배지에 겹친 구간에서 드래그가 끊긴다.
+                <div className="pointer-events-none absolute inset-x-2 bottom-2 flex items-center justify-center gap-1 rounded-md bg-destructive/90 px-2 py-1 text-xs font-medium text-white">
+                  <AlertTriangle className="size-3.5 flex-shrink-0" />
+                  제목이 잘릴 수 있어요
+                </div>
+              )}
+            </div>
             <div className="mt-1.5 flex justify-center">
               <GuideToggle active={showGuides} onToggle={toggleGuides} />
             </div>
